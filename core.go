@@ -17,3 +17,22 @@ type Version struct {
 func ReferenceVersion() Version {
 	return Version{Major: 3, Minor: 1, Revision: 1}
 }
+
+// nullIndex marks an absent reference in the storage graph.
+// upstream B2_NULL_INDEX
+const nullIndex = -1
+
+// maxWorlds bounds the world registry. upstream B2_MAX_WORLDS
+const maxWorlds = 128
+
+// secretCookie marks a definition that a Default function initialized.
+// upstream B2_SECRET_COOKIE
+const secretCookie = 1152023
+
+// checkDef panics on a definition that skipped its Default function.
+// upstream B2_CHECK_DEF
+func checkDef(internalValue int) {
+	if internalValue != secretCookie {
+		panic("dbox2d: initialize a definition with its Default function")
+	}
+}

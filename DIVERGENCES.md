@@ -61,7 +61,8 @@ Numbering is sequential from `D-001` and never reused.
 
 ### D-004 An angle is a turn
 
-- File: math.go (upstream include/box2d/math_functions.h)
+- Files: math.go, body.go (upstream include/box2d/math_functions.h;
+  src/body.c `b2UpdateBodyMassData`)
 - Tier: T2
 - Reason: a turn reduces to its range by an exact subtraction. A radian needs
   a rounded pi, and the rounding enters every reduction.
@@ -70,10 +71,13 @@ Numbering is sequential from `D-001` and never reused.
   turn before the first order step, and `ComputeAngularVelocity` divides by
   one turn after it. `RotGetAngle`, `RelativeAngle` and `UnwindAngle` work in
   turns, and `UnwindAngle` subtracts the nearest whole turn instead of taking
-  a remainder of two pi.
+  a remainder of two pi. `updateBodyMassData` stores the angular velocity in
+  turns per second, so it scales the velocity by one turn before the cross
+  product that corrects the linear velocity of a moved center of mass.
 - Test: TestIntegrateRotationCompletesATurn,
   TestComputeAngularVelocityInvertsIntegration and
-  TestUnwindAngleReducesToHalfTurn in math_test.go
+  TestUnwindAngleReducesToHalfTurn in math_test.go, and
+  TestBodyMassComesFromItsShapes in world_test.go
 
 ### D-005 Validity is a range check
 
@@ -152,3 +156,19 @@ Numbering is sequential from `D-001` and never reused.
   coordinate that equals either seed.
 - Test: TestAABBRayCastHitsTheNearFace in aabb_test.go and
   TestComputeHullDropsAnInteriorPoint in hull_test.go
+
+### D-010 A generated array becomes a slice
+
+- Files: array.go and every file that stores a sim array (upstream
+  src/array.h, src/array.c)
+- Tier: T2
+- Reason: the reference generates one array type per element type with
+  macros. Go has no macros, and the slice already carries the length and the
+  capacity that the generated struct tracks by hand.
+- Behaviour: every upstream array is a Go slice. `removeSwap` keeps the
+  swap-remove contract and returns the old index of the moved element, so
+  the caller repairs the stored index as the reference does. The growth
+  policy is the one of the Go runtime; the capacity never enters a
+  simulation result.
+- Test: TestCreateAndDestroyOrdersProduceTheSameWorld and
+  TestSleepingBodyGetsItsOwnSolverSet in world_test.go

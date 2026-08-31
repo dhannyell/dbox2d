@@ -127,9 +127,9 @@ to D-007. The notes below record what moved and what did not cross.
   round differently and the port does not delegate.
 - `b2Perimeter` and `b2EnlargeAABB` live in `src/aabb.h`, so they stay
   unexported. Their consumer is the dynamic tree, order 27.
-- `B2_NULL_INDEX`, `B2_MAX_WORKERS`, `B2_GRAPH_COLOR_COUNT` and
-  `B2_MAX_WORLDS` wait for the files that read them: the body storage, the
-  worker pool, the constraint graph and the world registry.
+- `B2_MAX_WORKERS` and `B2_GRAPH_COLOR_COUNT` wait for the files that read
+  them: the worker pool and the constraint graph. `B2_NULL_INDEX` and
+  `B2_MAX_WORLDS` landed with order 10.
 - The module depends on the standard library and on the fixed-point module,
   and on nothing else. `math/bits` and `sync/atomic` arrive with the
   broadphase.
@@ -156,6 +156,41 @@ D-009, and D-003 and D-006 grew new entries.
 - The point arrays that the reference passes as a pointer and a count become
   slices. The fixed arrays inside `Hull`, `Polygon` and `ShapeProxy` stay.
 
+**Orders 10 to 15 have landed**: `types.go`, `body.go`, `shape.go`,
+`solver_set.go`, `world.go` and `array.go`, plus `nullIndex`, `maxWorlds`,
+`secretCookie` and `checkDef` in `core.go`. One language divergence came with
+them, D-010, and D-004 grew a `body.go` entry. The state bookkeeping itself
+adds no arithmetic divergence.
+
+- A function on a handle becomes a method: `b2Body_GetPosition` becomes
+  `Position` on `BodyId`. The receiver replaces the first parameter and the
+  `Get` prefix goes away, as Go style asks.
+- A definition struct keeps `internalValue` unexported, so only its
+  `Default` function can satisfy `checkDef`.
+- `b2WorldDef` drops the task-system fields and the mixing callbacks. The
+  task system does not cross; the callbacks arrive with the contact solver.
+  The debug draw and `b2RayResult` wait with their consumers.
+- The union inside `b2Shape` becomes five plain fields, one per geometry,
+  because Go has no union. The `type` field of `b2Body` becomes `bodyType`,
+  because `type` is a Go keyword.
+- The body name stays a 32-byte buffer with the 31-byte copy of the
+  reference.
+- An angular velocity is in turns per second, per D-004: `AngularVelocity`
+  in `BodyDef` and the body state. `updateBodyMassData` scales by one turn
+  before its cross product, because the cross needs radians per second.
+- Where the reference creates a broad-phase proxy, the port calls
+  `updateShapeAABBs` and leaves `proxyKey` null, so the stored bounds stay
+  faithful. The proxy arrives with order 28.
+- A sensor shape panics until the sensor module lands. The chains, joints,
+  contacts, islands and events defer the same way: `b2CreateBody`,
+  `b2DestroyBody` and `b2DestroyShapeInternal` cross with their deferred
+  blocks marked in comments.
+- `b2ValidateSolverSets` crosses trimmed to the bodies and the sets, and
+  only the tests call it. The reference compiles it out of release builds.
+- `b2WakeBody`, `b2ShouldBodiesCollide`, `b2MakeSweep`, the wake, sleep and
+  merge of solver sets and the step, query and cast surface of `world.c`
+  wait for their stages.
+
 ## The map
 
 `Order` is the port sequence. A dash means the file waits for a later stage.
@@ -173,11 +208,11 @@ D-009, and D-003 and D-006 grew new entries.
 | `src/hull.c` | `hull.go` | T0/T2 | foundation | 8 | Recursive quickhull. Its tolerances are multiples of the linear slop, so only the `FLT_MAX` seed diverged. See D-009. |
 | `src/geometry.c` | `geometry.go` | T0/T1/T2 | foundation | 9 | Shape constructors, mass data, AABB per shape, point tests, ray casts. The shape casts and the mover collisions wait for order 17. |
 | `include/box2d/types.h`, `src/types.c` | `types.go` | T1 | foundation | 10 | Definition structs and their defaults. |
-| `src/body.h`, `src/body.c` | `body.go` | T0 | foundation | 11 | `Body`, `BodySim`, `BodyState`. Layout preserved. |
-| `src/shape.h`, `src/shape.c` | `shape.go` | T0 | foundation | 12 | Shape storage, proxy creation, shape queries. |
-| `src/solver_set.h`, `src/solver_set.c` | `solver_set.go` | T0 | foundation | 13 | Static, awake, disabled and sleeping sets; body transfer between them. |
-| `src/world.h`, `src/world.c` | `world.go` | T0 | foundation | 14 | Split across stages. The foundation takes creation, storage and the step skeleton. |
-| `src/array.h`, `src/array.c` | slices | T2 | foundation | 15 | The macro-generated array template becomes a Go slice. The upstream growth policy stays. |
+| `src/body.h`, `src/body.c` | `body.go` | T0/T2 | foundation | 11 | `body`, `bodySim`, `bodyState`, unexported: `src/body.h` declares them. Layout preserved. The mass update scales the angular velocity by one turn; see D-004. The islands and the body events wait for the solver. |
+| `src/shape.h`, `src/shape.c` | `shape.go` | T0 | foundation | 12 | Shape storage and the mass, AABB, centroid and extent dispatchers. The proxies, sensors, chains and cast queries wait for their stages. |
+| `src/solver_set.h`, `src/solver_set.c` | `solver_set.go` | T0 | foundation | 13 | Static, awake, disabled and sleeping sets; body transfer between them. The joint, contact and island arrays wait for the solver. |
+| `src/world.h`, `src/world.c` | `world.go` | T0 | foundation | 14 | Split across stages. The foundation takes the registry, creation, destruction, the validity checks and the trimmed set validation. The step waits for the solver. |
+| `src/array.h`, `src/array.c` | `array.go` | T2 | foundation | 15 | The macro-generated array template becomes a Go slice; `removeSwap` keeps the swap-remove contract. Capacity follows the Go runtime and never enters a result. See D-010. |
 | `src/arena_allocator.h`, `src/arena_allocator.c` | `arena.go` | T1 | foundation | 16 | Per-step scratch. It is how the step allocates nothing. |
 | `src/distance.c` (segment distance, proxies) | `distance.go` | T0 | manifolds | 17 | Closed-form part only. |
 | `src/manifold.c` | `manifold.go` | T0/T1 | manifolds | 18 | Eight `FLT_EPSILON` guards become exact zero tests, one T2 entry each. |
