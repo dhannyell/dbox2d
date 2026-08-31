@@ -3,7 +3,7 @@ package dbox2d
 import "github.com/dhannyell/fixed"
 
 // integrateVelocitiesTask applies forces, gravity and damping to the awake
-// bodies. upstream b2IntegrateVelocitiesTask in src/solver.c
+// bodies. It corresponds to b2IntegrateVelocitiesTask in src/solver.c.
 func integrateVelocitiesTask(startIndex, endIndex int, context *stepContext) {
 	states := context.states
 	sims := context.sims
@@ -24,7 +24,6 @@ func integrateVelocitiesTask(startIndex, endIndex int, context *stepContext) {
 		v := state.linearVelocity
 		omega := state.angularVelocity
 
-		// Apply forces, torque, gravity, and damping
 		// Apply damping.
 		// Differential equation: dv/dt + c * v = 0
 		// Solution: v(t) = v0 * exp(-c * t)
@@ -73,7 +72,8 @@ func integrateVelocitiesTask(startIndex, endIndex int, context *stepContext) {
 }
 
 // integratePositionsTask advances the position deltas of the awake bodies by
-// the sub-step time. upstream b2IntegratePositionsTask in src/solver.c
+// the sub-step time. It corresponds to b2IntegratePositionsTask in
+// src/solver.c.
 func integratePositionsTask(startIndex, endIndex int, context *stepContext) {
 	states := context.states
 	h := context.h
@@ -90,8 +90,8 @@ func integratePositionsTask(startIndex, endIndex int, context *stepContext) {
 }
 
 // finalizeBodiesTask writes the advanced deltas into the transforms, tracks
-// sleep time and refreshes the shape bounds.
-// upstream b2FinalizeBodiesTask in src/solver.c
+// sleep time and refreshes the shape bounds. It corresponds to
+// b2FinalizeBodiesTask in src/solver.c.
 func finalizeBodiesTask(startIndex, endIndex int, context *stepContext) {
 	w := context.world
 	enableSleep := w.enableSleep
@@ -102,8 +102,6 @@ func finalizeBodiesTask(startIndex, endIndex int, context *stepContext) {
 
 	// Deferred: the move events, the enlarged and awake island bit sets and
 	// the task contexts of the reference.
-
-	enableContinuous := w.enableContinuous
 
 	if endIndex < startIndex {
 		panic("dbox2d: the task range is inverted")
@@ -164,16 +162,11 @@ func finalizeBodiesTask(startIndex, endIndex int, context *stepContext) {
 			// Body is not sleepy
 			b.sleepTime = zero
 
-			if b.bodyType == DynamicBody && enableContinuous && half.Mul(sim.minExtent).Less(maxVelocity.Mul(timeStep)) {
-				// This flag is only retained for debug draw
-				sim.isFast = true
-				// Deferred: the continuous collision stage of the reference
-				// handles a fast body here.
-			} else {
-				// Body is safe to advance
-				sim.center0 = sim.center
-				sim.rotation0 = sim.transform.Q
-			}
+			// Continuous collision and its fast-body test are deferred. Until
+			// they land, finalize every body discretely so its previous
+			// transform and bounds do not remain stale.
+			sim.center0 = sim.center
+			sim.rotation0 = sim.transform.Q
 		} else {
 			// Body is safe to advance and is falling asleep
 			sim.center0 = sim.center
@@ -185,31 +178,25 @@ func finalizeBodiesTask(startIndex, endIndex int, context *stepContext) {
 
 		// Update shapes AABBs
 		transform := sim.transform
-		isFast := sim.isFast
 		shapeId := b.headShapeId
 		for shapeId != nullIndex {
 			s := &w.shapes[shapeId]
 
-			if isFast {
-				// Deferred: the continuous stage refreshes the bounds of a
-				// fast body.
-			} else {
-				aabb := computeShapeAABB(s, transform)
-				aabb.LowerBound.X = aabb.LowerBound.X.Sub(speculativeDistance)
-				aabb.LowerBound.Y = aabb.LowerBound.Y.Sub(speculativeDistance)
-				aabb.UpperBound.X = aabb.UpperBound.X.Add(speculativeDistance)
-				aabb.UpperBound.Y = aabb.UpperBound.Y.Add(speculativeDistance)
-				s.aabb = aabb
+			aabb := computeShapeAABB(s, transform)
+			aabb.LowerBound.X = aabb.LowerBound.X.Sub(speculativeDistance)
+			aabb.LowerBound.Y = aabb.LowerBound.Y.Sub(speculativeDistance)
+			aabb.UpperBound.X = aabb.UpperBound.X.Add(speculativeDistance)
+			aabb.UpperBound.Y = aabb.UpperBound.Y.Add(speculativeDistance)
+			s.aabb = aabb
 
-				if !AABBContains(s.fatAABB, aabb) {
-					fatAABB := AABB{
-						LowerBound: Vec2{X: aabb.LowerBound.X.Sub(aabbMargin), Y: aabb.LowerBound.Y.Sub(aabbMargin)},
-						UpperBound: Vec2{X: aabb.UpperBound.X.Add(aabbMargin), Y: aabb.UpperBound.Y.Add(aabbMargin)},
-					}
-					s.fatAABB = fatAABB
-					// Deferred: the enlargedAABB flag and the enlarged bit
-					// set feed the broad-phase.
+			if !AABBContains(s.fatAABB, aabb) {
+				fatAABB := AABB{
+					LowerBound: Vec2{X: aabb.LowerBound.X.Sub(aabbMargin), Y: aabb.LowerBound.Y.Sub(aabbMargin)},
+					UpperBound: Vec2{X: aabb.UpperBound.X.Add(aabbMargin), Y: aabb.UpperBound.Y.Add(aabbMargin)},
 				}
+				s.fatAABB = fatAABB
+				// Deferred: the enlargedAABB flag and the enlarged bit set feed
+				// the broad-phase.
 			}
 
 			shapeId = s.nextShapeId
@@ -219,7 +206,8 @@ func finalizeBodiesTask(startIndex, endIndex int, context *stepContext) {
 
 // solve runs the sub-step loop over the awake set, then finalizes the
 // bodies. The reference splits the same order into parallel stages; the port
-// runs them on one worker. upstream b2Solve and b2SolverTask in src/solver.c
+// runs them on one worker. It corresponds to b2Solve and b2SolverTask in
+// src/solver.c.
 func solve(w *world, context *stepContext) {
 	w.stepIndex += 1
 

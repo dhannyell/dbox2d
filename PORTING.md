@@ -192,8 +192,8 @@ adds no arithmetic divergence.
   wait for their stages.
 
 **Orders 16 and 17 have landed**: `step.go`, the integration skeleton in
-`solver.go` and `checksum.go`. D-011 came with them, and D-004 and D-006 grew
-`solver.go` entries.
+`solver.go` and `checksum.go`. D-011 came with them, D-003 now covers the
+assertions retained by the step, and D-004 and D-006 grew `solver.go` entries.
 
 - `Step` mirrors `b2World_Step`. The event, broad-phase, collision, softness
   and sensor blocks are deferred with comments at their points. A zero time
@@ -203,8 +203,13 @@ adds no arithmetic divergence.
   runs once, after the loop.
 - The damping factor becomes a division per D-006. The torque delta and the
   arc speed of the sleep test scale by one turn per D-004.
-- The finalize refreshes the fat bounds directly. The `enlargedAABB` flag
-  and the bit sets stay with the broad-phase.
+- The finalize refreshes the fat bounds directly. While continuous collision
+  is deferred, fast bodies also take this discrete path so their previous
+  transforms and bounds remain coherent. The `enlargedAABB` flag and the bit
+  sets stay with the broad-phase.
+- `Checksum` covers the deterministic world configuration and all canonical
+  body and shape state. Per-body and per-shape sums make equivalent worlds
+  independent of internal ids and creation order.
 - One worker replaces the task system. The stage order is the contract that
   a second executor must keep.
 
@@ -230,8 +235,8 @@ adds no arithmetic divergence.
 | `src/solver_set.h`, `src/solver_set.c` | `solver_set.go` | T0 | foundation | 13 | Static, awake, disabled and sleeping sets; body transfer between them. The joint, contact and island arrays wait for the solver. |
 | `src/world.h`, `src/world.c` | `world.go` | T0 | foundation | 14 | Split across stages. The foundation takes the registry, creation, destruction, the validity checks and the trimmed set validation. `b2World_Step` landed with order 16 in `step.go`; the query and cast surface waits. |
 | `src/array.h`, `src/array.c` | `array.go` | T2 | foundation | 15 | The macro-generated array template becomes a Go slice; `removeSwap` keeps the swap-remove contract. Capacity follows the Go runtime and never enters a result. See D-010. |
-| `src/world.c` (`b2World_Step`), `src/solver.h` (`b2StepContext`) | `step.go` | T1 | foundation | 16 | The step surface: validation, the context, the sub-step split, the locked flag. The softness setup, the events and the collision blocks wait for their stages. |
-| — | `checksum.go` | T2 | foundation | 17 | Port-only determinism witness: FNV-1a over raw Q bits, commutative over the bodies. See D-011. |
+| `src/world.c` (`b2World_Step`), `src/solver.h` (`b2StepContext`) | `step.go` | T1/T2 | foundation | 16 | The step surface: validation, the context, the sub-step split, the locked flag. Assertions become panics per D-003. The softness setup, the events and the collision blocks wait for their stages. |
+| — | `checksum.go` | T2 | foundation | 17 | Port-only determinism witness over the complete canonical world state, commutative over bodies and shapes. See D-011. |
 | `src/arena_allocator.h`, `src/arena_allocator.c` | `arena.go` | T1 | foundation | 18 | Per-step scratch. It is how the step allocates nothing. |
 | `src/distance.c` (segment distance, proxies) | `distance.go` | T0 | manifolds | 19 | Closed-form part only. |
 | `src/manifold.c` | `manifold.go` | T0/T1 | manifolds | 20 | Eight `FLT_EPSILON` guards become exact zero tests, one T2 entry each. |

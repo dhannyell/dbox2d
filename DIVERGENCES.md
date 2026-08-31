@@ -46,8 +46,8 @@ Numbering is sequential from `D-001` and never reused.
 
 ### D-003 An assertion becomes a panic
 
-- Files: id_pool.go, aabb.go, math.go, hull.go, geometry.go (upstream
-  `B2_ASSERT`)
+- Files: id_pool.go, aabb.go, math.go, hull.go, geometry.go, step.go,
+  solver.go (upstream `B2_ASSERT`)
 - Tier: T2
 - Reason: `B2_ASSERT` compiles out in a release build. Go has no such switch,
   and a silent corruption costs more than a stop.
@@ -57,7 +57,8 @@ Numbering is sequential from `D-001` and never reused.
   TestMakeAABBRejectsEmptyPoints in aabb_test.go,
   TestComputeRotationBetweenUnitVectors in math_test.go,
   TestPolygonConstructorsRejectInvalidHull and
-  TestComputePolygonMassRejectsZeroArea in geometry_test.go
+  TestComputePolygonMassRejectsZeroArea in geometry_test.go, and
+  TestStepRejectsInvalidInput in step_test.go
 
 ### D-004 An angle is a turn
 
@@ -81,7 +82,7 @@ Numbering is sequential from `D-001` and never reused.
   TestComputeAngularVelocityInvertsIntegration and
   TestUnwindAngleReducesToHalfTurn in math_test.go,
   TestBodyMassComesFromItsShapes in world_test.go, and
-  TestStepAppliesGravityExactly in step_test.go
+  TestStepConvertsTorqueAndArcSpeedToTurns in step_test.go
 
 ### D-005 Validity is a range check
 
@@ -120,7 +121,7 @@ Numbering is sequential from `D-001` and never reused.
   TestAABBRayCastHitsTheNearFace in aabb_test.go,
   TestPolygonCentroidOfATriangle, TestTriangleMassMatchesTheReference and
   TestRayCastCapsuleHitsTheSide in geometry_test.go, and
-  TestStepAppliesGravityExactly in step_test.go
+  TestStepAppliesDampingByDivision in step_test.go
 
 ### D-007 The normalization tolerance is in raw units
 
@@ -188,9 +189,11 @@ Numbering is sequential from `D-001` and never reused.
 - Reason: the reference runs on floats and promises no cross-platform state
   equality. A fixed-point world does, and the promise needs a witness that
   the tests and a network peer can compare.
-- Behaviour: `Checksum` folds the motion state of every live body with
-  FNV-1a and combines the bodies with a wrapping sum, so the result does not
-  depend on the creation order. Only raw Q bits enter the fold; no float
-  ever does.
-- Test: TestChecksumIsOrderIndependent and TestChecksumSeesAStateChange in
-  checksum_test.go, TestStepIsReproducibleBitForBit in step_test.go
+- Behaviour: `Checksum` folds the deterministic world configuration and the
+  complete simulation state of every live body and shape. Body and shape
+  hashes use wrapping sums, so internal ids and creation order do not affect
+  the result. Application data stays out because it cannot change the
+  simulation. Q values enter as raw bits; no float ever does.
+- Test: TestChecksumIsOrderIndependent, TestChecksumSeesAStateChange,
+  TestChecksumSeesFutureBehaviour and TestChecksumMatchesDeterministicWitness
+  in checksum_test.go, TestStepIsReproducibleBitForBit in step_test.go

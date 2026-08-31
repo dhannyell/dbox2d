@@ -2,8 +2,8 @@ package dbox2d
 
 import "github.com/dhannyell/fixed"
 
-// stepContext carries the per-step data that the solver stages share.
-// upstream b2StepContext in src/solver.h
+// stepContext carries the per-step data that the solver stages share. It
+// corresponds to b2StepContext in src/solver.h.
 type stepContext struct {
 	world *world
 
@@ -35,7 +35,7 @@ type stepContext struct {
 
 // Step advances the simulation by timeStep, split into subStepCount
 // sub-steps. The reference recommends a fixed time step and 4 sub-steps.
-// upstream b2World_Step in src/world.c
+// It corresponds to b2World_Step in src/world.c.
 func Step(worldId WorldId, timeStep Q, subStepCount int) {
 	if !IsValidQ(timeStep) {
 		panic("dbox2d: the time step is not valid")

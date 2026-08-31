@@ -54,14 +54,67 @@ func TestChecksumSeesAStateChange(t *testing.T) {
 	if Checksum(worldId) == before {
 		t.Errorf("a velocity change did not change the checksum")
 	}
+	afterVelocity := Checksum(worldId)
 
-	// A body outside the awake set folds only its transform.
+	// A body outside the awake set still contributes its complete body state.
 	sleeperDef := DefaultBodyDef()
 	sleeperDef.Type = DynamicBody
 	sleeperDef.IsAwake = false
 	sleeperDef.Position = v2(20, 0)
 	CreateBody(worldId, &sleeperDef)
-	if Checksum(worldId) == before {
+	if Checksum(worldId) == afterVelocity {
 		t.Errorf("a new sleeping body did not change the checksum")
+	}
+}
+
+// TestChecksumSeesFutureBehaviour distinguishes worlds that look the same
+// now but will integrate differently on the next step.
+func TestChecksumSeesFutureBehaviour(t *testing.T) {
+	build := func(gravity Vec2, damping Q) WorldId {
+		def := DefaultWorldDef()
+		def.Gravity = gravity
+		worldId := CreateWorld(&def)
+		t.Cleanup(func() { DestroyWorld(worldId) })
+
+		bodyDef := DefaultBodyDef()
+		bodyDef.Type = DynamicBody
+		bodyDef.LinearDamping = damping
+		bodyId := CreateBody(worldId, &bodyDef)
+		shapeDef := DefaultShapeDef()
+		box := MakeSquare(fixed.One())
+		CreatePolygonShape(bodyId, &shapeDef, &box)
+		return worldId
+	}
+
+	base := build(v2(0, -10), fixed.Zero())
+	differentGravity := build(v2(0, -9), fixed.Zero())
+	differentDamping := build(v2(0, -10), fixed.One())
+	if Checksum(base) == Checksum(differentGravity) {
+		t.Errorf("world gravity did not change the checksum")
+	}
+	if Checksum(base) == Checksum(differentDamping) {
+		t.Errorf("body damping did not change the checksum")
+	}
+}
+
+// TestChecksumMatchesDeterministicWitness pins one value across processes and
+// architectures. Every CI target must produce the same integer.
+func TestChecksumMatchesDeterministicWitness(t *testing.T) {
+	worldId := createTestWorld(t)
+	for i := range 5 {
+		id := addDynamicBox(t, worldId, v2(i*3, i))
+		w := getWorldFromId(worldId)
+		b := getBodyFullId(w, id)
+		getBodyState(w, b).angularVelocity = fixed.MustParse("0.1")
+	}
+
+	dt := stepDt()
+	for range 120 {
+		Step(worldId, dt, 4)
+	}
+
+	const want uint64 = 8463437550946494699
+	if got := Checksum(worldId); got != want {
+		t.Errorf("checksum = %d, want %d", got, want)
 	}
 }

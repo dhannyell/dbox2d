@@ -27,6 +27,16 @@ func addDynamicBox(t *testing.T, worldId WorldId, position Vec2) BodyId {
 	return bodyId
 }
 
+func requirePanic(t *testing.T, f func()) {
+	t.Helper()
+	defer func() {
+		if recover() == nil {
+			t.Errorf("call did not panic")
+		}
+	}()
+	f()
+}
+
 // TestStepAppliesGravityExactly pins the integration order: with no damping
 // and no rotation, the velocity is the exact sum of the sub-step impulses
 // and the position is the exact sum of the sub-step displacements.
@@ -70,6 +80,141 @@ func TestStepAppliesGravityExactly(t *testing.T) {
 	if !bodyId.Position().X.Eq(fixed.Zero()) {
 		t.Errorf("position x moved to %v", bodyId.Position().X)
 	}
+}
+
+// TestStepAppliesDampingByDivision covers the fixed-point form of the Pade
+// damping factor. Multiplying by a rounded reciprocal would lose more bits.
+func TestStepAppliesDampingByDivision(t *testing.T) {
+	def := DefaultWorldDef()
+	def.Gravity = Vec2Zero()
+	worldId := CreateWorld(&def)
+	t.Cleanup(func() { DestroyWorld(worldId) })
+
+	bodyDef := DefaultBodyDef()
+	bodyDef.Type = DynamicBody
+	bodyDef.LinearVelocity = Vec2{X: fixed.FromInt(12), Y: fixed.FromInt(-7)}
+	bodyDef.AngularVelocity = fixed.MustParse("0.25")
+	bodyDef.LinearDamping = fixed.MustParse("0.4")
+	bodyDef.AngularDamping = fixed.MustParse("0.7")
+	bodyId := CreateBody(worldId, &bodyDef)
+	shapeDef := DefaultShapeDef()
+	box := MakeSquare(fixed.One())
+	CreatePolygonShape(bodyId, &shapeDef, &box)
+
+	w := getWorldFromId(worldId)
+	b := getBodyFullId(w, bodyId)
+	initialState := *getBodyState(w, b)
+	dt := stepDt()
+	Step(worldId, dt, 1)
+
+	state := getBodyState(w, b)
+	linearDenominator := fixed.One().Add(dt.Mul(bodyDef.LinearDamping))
+	angularDenominator := fixed.One().Add(dt.Mul(bodyDef.AngularDamping))
+	wantLinear := Vec2{
+		X: initialState.linearVelocity.X.Div(linearDenominator),
+		Y: initialState.linearVelocity.Y.Div(linearDenominator),
+	}
+	wantAngular := initialState.angularVelocity.Div(angularDenominator)
+	if state.linearVelocity != wantLinear {
+		t.Errorf("linear velocity = %v, want %v", state.linearVelocity, wantLinear)
+	}
+	if !state.angularVelocity.Eq(wantAngular) {
+		t.Errorf("angular velocity = %v, want %v", state.angularVelocity, wantAngular)
+	}
+}
+
+// TestStepConvertsTorqueAndArcSpeedToTurns covers both solver sites where an
+// angular velocity changes units between radians and turns.
+func TestStepConvertsTorqueAndArcSpeedToTurns(t *testing.T) {
+	def := DefaultWorldDef()
+	def.Gravity = Vec2Zero()
+	worldId := CreateWorld(&def)
+	t.Cleanup(func() { DestroyWorld(worldId) })
+
+	bodyDef := DefaultBodyDef()
+	bodyDef.Type = DynamicBody
+	bodyDef.AngularVelocity = fixed.MustParse("0.02")
+	bodyDef.SleepThreshold = fixed.MustParse("0.1")
+	bodyId := CreateBody(worldId, &bodyDef)
+	shapeDef := DefaultShapeDef()
+	box := MakeSquare(fixed.One())
+	CreatePolygonShape(bodyId, &shapeDef, &box)
+
+	w := getWorldFromId(worldId)
+	b := getBodyFullId(w, bodyId)
+	sim := getBodySim(w, b)
+	sim.torque = tau
+	b.sleepTime = fixed.One()
+
+	dt := stepDt()
+	wantAngular := bodyDef.AngularVelocity.Add(dt.Mul(sim.invInertia).Mul(sim.torque).Div(tau))
+	Step(worldId, dt, 1)
+
+	state := getBodyState(w, b)
+	if !state.angularVelocity.Eq(wantAngular) {
+		t.Errorf("angular velocity = %v, want %v", state.angularVelocity, wantAngular)
+	}
+	if !b.sleepTime.Eq(fixed.Zero()) {
+		t.Errorf("sleep time = %v, want zero for the rotating body", b.sleepTime)
+	}
+}
+
+// TestStepRefreshesFastBodyBoundsWithoutCCD keeps the discrete world
+// coherent while the continuous collision stage is deferred.
+func TestStepRefreshesFastBodyBoundsWithoutCCD(t *testing.T) {
+	def := DefaultWorldDef()
+	def.Gravity = Vec2Zero()
+	worldId := CreateWorld(&def)
+	t.Cleanup(func() { DestroyWorld(worldId) })
+
+	bodyDef := DefaultBodyDef()
+	bodyDef.Type = DynamicBody
+	bodyDef.LinearVelocity = Vec2{X: fixed.FromInt(100)}
+	bodyId := CreateBody(worldId, &bodyDef)
+	shapeDef := DefaultShapeDef()
+	box := MakeSquare(fixed.One())
+	shapeId := CreatePolygonShape(bodyId, &shapeDef, &box)
+
+	w := getWorldFromId(worldId)
+	s := getShape(w, shapeId)
+	before := s.aabb
+	Step(worldId, stepDt(), 4)
+
+	b := getBodyFullId(w, bodyId)
+	sim := getBodySim(w, b)
+	want := computeShapeAABB(s, sim.transform)
+	want.LowerBound.X = want.LowerBound.X.Sub(speculativeDistance)
+	want.LowerBound.Y = want.LowerBound.Y.Sub(speculativeDistance)
+	want.UpperBound.X = want.UpperBound.X.Add(speculativeDistance)
+	want.UpperBound.Y = want.UpperBound.Y.Add(speculativeDistance)
+	if s.aabb != want {
+		t.Errorf("shape AABB = %+v, want %+v", s.aabb, want)
+	}
+	if s.aabb == before {
+		t.Errorf("shape AABB did not move with the fast body")
+	}
+	if sim.center0 != sim.center || sim.rotation0 != sim.transform.Q {
+		t.Errorf("previous transform was not finalized without CCD")
+	}
+}
+
+// TestStepRejectsInvalidInput covers the public assertions retained as
+// panics in every build.
+func TestStepRejectsInvalidInput(t *testing.T) {
+	worldId := createTestWorld(t)
+
+	t.Run("saturated time step", func(t *testing.T) {
+		requirePanic(t, func() { Step(worldId, fixed.MaxValue(), 4) })
+	})
+	t.Run("non-positive sub-step count", func(t *testing.T) {
+		requirePanic(t, func() { Step(worldId, stepDt(), 0) })
+	})
+	t.Run("locked world", func(t *testing.T) {
+		w := getWorldFromId(worldId)
+		w.locked = true
+		defer func() { w.locked = false }()
+		requirePanic(t, func() { Step(worldId, stepDt(), 4) })
+	})
 }
 
 // TestStepTracksSleepTime pins the finalize branch: a body at rest
