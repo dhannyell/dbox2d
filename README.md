@@ -32,14 +32,20 @@ go get github.com/dhannyell/dbox2d
 
 ## Reference source
 
-The upstream C source sits in this repository on the orphan branch
-`reference/box2d-v3.1.1`. That branch never merges into `main`, it never builds,
-and no Go file imports it. It exists so that the porting work has one pinned,
-versioned reference:
+The upstream C source sits in this repository on the branch
+`reference/box2d-v3.1.1`, with the upstream history up to that tag. The branch
+never merges into `main`, it never builds, and no Go file imports it. It exists
+so that the porting work has one pinned, versioned reference that still answers
+why a line looks the way it does:
 
 ```sh
 git show reference/box2d-v3.1.1:src/manifold.c
+git blame reference/box2d-v3.1.1 -- src/manifold.c
 ```
+
+The upstream tags are deliberately absent. Go derives module versions from tags,
+so an upstream tag here would publish a version of this module that points at C
+source.
 
 The Go module zip contains only the tagged tree, so `go get` never downloads the
 reference source.
