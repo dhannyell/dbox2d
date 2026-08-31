@@ -29,8 +29,8 @@ const maxWorlds = 128
 // upstream B2_SECRET_COOKIE
 const secretCookie = 1152023
 
-// checkDef panics on a definition that skipped its Default function.
-// upstream B2_CHECK_DEF
+// checkDef panics on a definition that skipped its Default function. It
+// corresponds to B2_CHECK_DEF in src/core.h.
 func checkDef(internalValue int) {
 	if internalValue != secretCookie {
 		panic("dbox2d: initialize a definition with its Default function")

@@ -46,8 +46,8 @@ Numbering is sequential from `D-001` and never reused.
 
 ### D-003 An assertion becomes a panic
 
-- Files: id_pool.go, aabb.go, math.go, hull.go, geometry.go (upstream
-  `B2_ASSERT`)
+- Files: id_pool.go, aabb.go, math.go, hull.go, geometry.go, step.go,
+  solver.go (upstream `B2_ASSERT`)
 - Tier: T2
 - Reason: `B2_ASSERT` compiles out in a release build. Go has no such switch,
   and a silent corruption costs more than a stop.
@@ -57,12 +57,14 @@ Numbering is sequential from `D-001` and never reused.
   TestMakeAABBRejectsEmptyPoints in aabb_test.go,
   TestComputeRotationBetweenUnitVectors in math_test.go,
   TestPolygonConstructorsRejectInvalidHull and
-  TestComputePolygonMassRejectsZeroArea in geometry_test.go
+  TestComputePolygonMassRejectsZeroArea in geometry_test.go, and
+  TestStepRejectsInvalidInput in step_test.go
 
 ### D-004 An angle is a turn
 
-- Files: math.go, body.go (upstream include/box2d/math_functions.h;
-  src/body.c `b2UpdateBodyMassData`)
+- Files: math.go, body.go, solver.go (upstream
+  include/box2d/math_functions.h; src/body.c `b2UpdateBodyMassData`;
+  src/solver.c `b2IntegrateVelocitiesTask`, `b2FinalizeBodiesTask`)
 - Tier: T2
 - Reason: a turn reduces to its range by an exact subtraction. A radian needs
   a rounded pi, and the rounding enters every reduction.
@@ -74,10 +76,13 @@ Numbering is sequential from `D-001` and never reused.
   a remainder of two pi. `updateBodyMassData` stores the angular velocity in
   turns per second, so it scales the velocity by one turn before the cross
   product that corrects the linear velocity of a moved center of mass.
+  `integrateVelocitiesTask` divides the torque delta by one turn, and
+  `finalizeBodiesTask` scales the arc speed of the sleep test by one turn.
 - Test: TestIntegrateRotationCompletesATurn,
   TestComputeAngularVelocityInvertsIntegration and
-  TestUnwindAngleReducesToHalfTurn in math_test.go, and
-  TestBodyMassComesFromItsShapes in world_test.go
+  TestUnwindAngleReducesToHalfTurn in math_test.go,
+  TestBodyMassComesFromItsShapes in world_test.go, and
+  TestStepConvertsTorqueAndArcSpeedToTurns in step_test.go
 
 ### D-005 Validity is a range check
 
@@ -91,11 +96,12 @@ Numbering is sequential from `D-001` and never reused.
 
 ### D-006 A reciprocal becomes a division
 
-- Files: math.go, aabb.go, geometry.go (upstream
+- Files: math.go, aabb.go, geometry.go, solver.go (upstream
   include/box2d/math_functions.h `b2GetInverse22`, `b2Solve22`,
   `b2Normalize`, `b2NormalizeRot`; src/aabb.c `b2AABB_RayCast` `inv_d`;
   src/geometry.c `b2ComputePolygonCentroid` and `b2ComputePolygonMass`
-  `inv3` and `invArea`, `b2RayCastCapsule` `invDen`)
+  `inv3` and `invArea`, `b2RayCastCapsule` `invDen`;
+  src/solver.c `b2IntegrateVelocitiesTask` damping factors)
 - Tier: T2
 - Reason: a Q32.32 reciprocal keeps only the leading bits of a large value.
   Multiplying by it discards the precision that a division keeps.
@@ -107,12 +113,15 @@ Numbering is sequential from `D-001` and never reused.
   reference does, so an invalid rotation stays visible to `IsValidRotation`.
   The slab test divides each distance by the direction component. The
   centroid, the polygon mass and the capsule side hit divide by the area or
-  by the determinant at each use.
+  by the determinant at each use. The velocity integration divides each
+  damped velocity by the damping denominator `1 + h*c` instead of
+  multiplying by the reciprocal factor.
 - Test: TestSolve22SolvesTheSystem, TestNormalizeKeepsAShortVector and
   TestNormalizeRotKeepsAZeroRotation in math_test.go,
   TestAABBRayCastHitsTheNearFace in aabb_test.go,
   TestPolygonCentroidOfATriangle, TestTriangleMassMatchesTheReference and
-  TestRayCastCapsuleHitsTheSide in geometry_test.go
+  TestRayCastCapsuleHitsTheSide in geometry_test.go, and
+  TestStepAppliesDampingByDivision in step_test.go
 
 ### D-007 The normalization tolerance is in raw units
 
@@ -172,3 +181,19 @@ Numbering is sequential from `D-001` and never reused.
   simulation result.
 - Test: TestCreateAndDestroyOrdersProduceTheSameWorld and
   TestSleepingBodyGetsItsOwnSolverSet in world_test.go
+
+### D-011 The determinism witness is port-only
+
+- Files: checksum.go (no upstream counterpart)
+- Tier: T2
+- Reason: the reference runs on floats and promises no cross-platform state
+  equality. A fixed-point world does, and the promise needs a witness that
+  the tests and a network peer can compare.
+- Behaviour: `Checksum` folds the deterministic world configuration and the
+  complete simulation state of every live body and shape. Body and shape
+  hashes use wrapping sums, so internal ids and creation order do not affect
+  the result. Application data stays out because it cannot change the
+  simulation. Q values enter as raw bits; no float ever does.
+- Test: TestChecksumIsOrderIndependent, TestChecksumSeesAStateChange,
+  TestChecksumSeesFutureBehaviour and TestChecksumMatchesDeterministicWitness
+  in checksum_test.go, TestStepIsReproducibleBitForBit in step_test.go
