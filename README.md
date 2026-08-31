@@ -16,12 +16,12 @@ the upstream order of operations. Years of edge-case work are the reason the
 port exists, and a faithful port lets each function be compared against its
 upstream counterpart.
 
-The closeness is one of formulation, never one of bits. Box2D computes in
-floating point; `dbox2d` computes in fixed point. The two produce different
-trajectories. Every place where fixed-point arithmetic forbids the original line
-is a divergence, and every divergence carries a recorded reason and a test in
-[DIVERGENCES.md](DIVERGENCES.md). [PORTING.md](PORTING.md) maps each upstream
-file to its Go counterpart and to how faithful that port is.
+The port preserves the upstream formulation, not its output bits. Box2D
+computes in floating point; `dbox2d` computes in fixed point, so the two produce
+different trajectories. Every place where fixed-point arithmetic forbids the
+original line is a divergence, and every divergence carries a reason and a
+test in [DIVERGENCES.md](DIVERGENCES.md). [PORTING.md](PORTING.md) maps each
+upstream file to its Go counterpart and to how faithful that port is.
 
 `dbox2d` is not affiliated with the Box2D project, and it is neither endorsed
 nor supported by its author. Report defects here, never upstream.

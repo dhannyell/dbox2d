@@ -16,7 +16,6 @@ func IsValidAABB(a AABB) bool {
 	return valid
 }
 
-// perimeter returns the surface area of a, which in 2D is its perimeter.
 func perimeter(a AABB) Q {
 	wx := a.UpperBound.X.Sub(a.LowerBound.X)
 	wy := a.UpperBound.Y.Sub(a.LowerBound.Y)

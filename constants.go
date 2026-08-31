@@ -2,9 +2,6 @@ package dbox2d
 
 import "github.com/dhannyell/fixed"
 
-// The sizing counts of the reference, B2_MAX_WORKERS, B2_GRAPH_COLOR_COUNT
-// and B2_MAX_WORLDS, land with the files that read them. See PORTING.md.
-
 // A length is a meter. The reference lets an application rescale its
 // tolerances; this package does not, because a world that rescales them
 // stops matching a world that does not. See DIVERGENCES.md.

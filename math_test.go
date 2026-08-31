@@ -164,7 +164,7 @@ func TestLerpHitsBothEnds(t *testing.T) {
 	}
 }
 
-// TestSolve22SolvesTheSystem checks the two by two solver, and that a
+// TestSolve22SolvesTheSystem checks the 2-by-2 solver, and that a
 // singular matrix returns zero instead of dividing by zero.
 func TestSolve22SolvesTheSystem(t *testing.T) {
 	m := dbox2d.Mat22{
@@ -269,6 +269,18 @@ func TestNegationComesBeforeTheProduct(t *testing.T) {
 	}
 	if got := dbox2d.CrossSV(s, v).X.Raw(); got != -2 {
 		t.Errorf("CrossSV x = %d raw, want -2: the product was negated", got)
+	}
+
+	// A normalized rotation with sin equal to one half exercises the same
+	// order in the inverse rotation and transform helpers.
+	q := dbox2d.Rot{Sin: fixed.Half(), Cos: fixed.MustParse("0.8660254038")}
+	p := dbox2d.Vec2{X: fixed.FromRaw(3)}
+	if got := dbox2d.InvRotateVector(q, p).Y.Raw(); got != -2 {
+		t.Errorf("InvRotateVector y = %d raw, want -2: the product was negated", got)
+	}
+	transform := dbox2d.Transform{Q: q}
+	if got := dbox2d.InvTransformPoint(transform, p).Y.Raw(); got != -2 {
+		t.Errorf("InvTransformPoint y = %d raw, want -2: the product was negated", got)
 	}
 }
 

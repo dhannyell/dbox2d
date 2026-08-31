@@ -115,7 +115,7 @@ to D-007. The notes below record what moved and what did not cross.
   output type.
 - `b2MinInt`, `b2MaxInt`, `b2AbsInt`, `b2MinFloat`, `b2MaxFloat`, `b2AbsFloat`
   and `b2ClampFloat` do not cross. Go and the fixed-point module already give
-  them. `ClampInt` crosses, because Go has no three argument clamp.
+  them. `ClampInt` crosses, because Go has no three-argument clamp.
 - `b2CosSin` and `b2ComputeCosSin` do not cross. The fixed-point module owns
   the sine and the cosine.
 - `b2GetIdBytes` does not cross. The size of an int changes with the platform,
@@ -145,10 +145,11 @@ to D-007. The notes below record what moved and what did not cross.
 | `src/constants.h` | `constants.go` | T1 | foundation | 1 | Each constant keeps the upstream value in a comment. `B2_LINEAR_SLOP` is 0.005 m; the speculative distance is four slops. |
 | `include/box2d/base.h`, `src/core.h`, `src/core.c` | `core.go` | T1/T2 | foundation | 2 | Platform, SIMD and profiler macros do not cross. Allocation hooks become Go allocation. |
 | `include/box2d/math_functions.h`, `src/math_functions.c` | `math.go` | T1/T2 | foundation | 3 | Vector and rotation come from the fixed-point module. Only the shapes that module lacks stay here: `Transform`, sweeps, validation. |
-| `src/aabb.h`, `src/aabb.c` | `aabb.go` | T0 | foundation | 4 | Union, overlap, contains, ray cast. |
+| `src/aabb.h` | `aabb.go` | T0 | foundation | 4 | Union, overlap and contains. |
 | `include/box2d/id.h` | `id.go` | T0 | foundation | 5 | Index plus generation handles. |
 | `src/id_pool.h`, `src/id_pool.c` | `id_pool.go` | T0 | foundation | 6 | Free list over a monotonic index. |
 | `include/box2d/collision.h` | `collision.go` | T0 | foundation | 7 | Shape structs, manifold structs, cast input and output. |
+| `src/aabb.c` | `collision.go` | T0 | foundation | 7 | AABB ray cast; waits for the cast output type. |
 | `src/hull.c` | `hull.go` | T0 | foundation | 8 | Recursive quickhull. Its tolerances are T2 candidates. |
 | `src/geometry.c` | `geometry.go` | T0/T1 | foundation | 9 | Shape constructors, mass data, AABB per shape, point tests, ray casts. |
 | `include/box2d/types.h`, `src/types.c` | `types.go` | T1 | foundation | 10 | Definition structs and their defaults. |

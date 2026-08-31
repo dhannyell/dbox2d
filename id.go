@@ -1,40 +1,33 @@
 package dbox2d
 
-// An id is a handle to an internal object. Treat it as opaque data and pass
-// it by value. Its zero value is null, and the == operator compares two ids
-// of the same type.
-//
-// The fields stay unexported on purpose. An id that an application builds by
-// hand points at whatever now occupies that slot.
-
-// WorldId references a world.
+// WorldId identifies a world. Its zero value is null.
 type WorldId struct {
 	index1     uint16
 	generation uint16
 }
 
-// BodyId references a body.
+// BodyId identifies a body. Its zero value is null.
 type BodyId struct {
 	index1     int32
 	world0     uint16
 	generation uint16
 }
 
-// ShapeId references a shape.
+// ShapeId identifies a shape. Its zero value is null.
 type ShapeId struct {
 	index1     int32
 	world0     uint16
 	generation uint16
 }
 
-// ChainId references a chain.
+// ChainId identifies a chain. Its zero value is null.
 type ChainId struct {
 	index1     int32
 	world0     uint16
 	generation uint16
 }
 
-// JointId references a joint.
+// JointId identifies a joint. Its zero value is null.
 type JointId struct {
 	index1     int32
 	world0     uint16

@@ -46,13 +46,14 @@ Numbering is sequential from `D-001` and never reused.
 
 ### D-003 An assertion becomes a panic
 
-- Files: id_pool.go, aabb.go (upstream `B2_ASSERT`)
+- Files: id_pool.go, aabb.go, math.go (upstream `B2_ASSERT`)
 - Tier: T2
 - Reason: `B2_ASSERT` compiles out in a release build. Go has no such switch,
   and a silent corruption costs more than a stop.
-- Behaviour: a defect in the caller panics in every build. The two validation
-  helpers of the reference return a bool instead of asserting.
-- Test: TestIdPoolRejectsAnUnknownIndex in id_pool_test.go and
+- Behaviour: a failed precondition panics in every build. Functions whose
+  upstream contract is a validation query still return a bool.
+- Test: TestIdPoolRejectsAnUnknownIndex in id_pool_test.go,
+  TestMakeAABBRejectsEmptyPoints in aabb_test.go and
   TestComputeRotationBetweenUnitVectors in math_test.go
 
 ### D-004 An angle is a turn

@@ -2,7 +2,7 @@ package dbox2d
 
 import "testing"
 
-// TestIdPoolReusesTheLastFreedIndex fixes the allocation order. The order is
+// TestIdPoolReusesTheLastFreedIndex pins the allocation order. The order is
 // part of the result: two runs that free the same indices must hand out the
 // same ones again.
 func TestIdPoolReusesTheLastFreedIndex(t *testing.T) {

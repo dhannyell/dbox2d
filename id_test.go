@@ -31,7 +31,7 @@ func TestIdRoundTrip(t *testing.T) {
 	}
 }
 
-// TestZeroIdIsNull fixes the rule that the zero value references nothing.
+// TestZeroIdIsNull checks that the zero value references nothing.
 func TestZeroIdIsNull(t *testing.T) {
 	if !(dbox2d.WorldId{}).IsNull() || !(dbox2d.BodyId{}).IsNull() {
 		t.Errorf("a zero id is not null")

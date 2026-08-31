@@ -14,7 +14,7 @@ func box(lx, ly, ux, uy int) AABB {
 	}
 }
 
-// TestAABBOverlapsAtTheTouchingEdge fixes the boundary case. Two boxes that
+// TestAABBOverlapsAtTheTouchingEdge pins the boundary case. Two boxes that
 // share an edge overlap, because the broadphase must report the pair before
 // the shapes interpenetrate.
 func TestAABBOverlapsAtTheTouchingEdge(t *testing.T) {
@@ -95,6 +95,17 @@ func TestMakeAABBAddsTheRadius(t *testing.T) {
 	if !IsValidAABB(got) {
 		t.Errorf("MakeAABB returned an invalid box")
 	}
+}
+
+// TestMakeAABBRejectsEmptyPoints covers the precondition that prevents the
+// constructor from reading a missing first point.
+func TestMakeAABBRejectsEmptyPoints(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Errorf("an empty point set did not panic")
+		}
+	}()
+	MakeAABB(nil, fixed.Zero())
 }
 
 // TestIsValidAABBRejectsAnInvertedBox guards the check that catches a bad

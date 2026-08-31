@@ -9,8 +9,8 @@
 //
 // The package is a port of Box2D v3.1.1. It keeps the upstream file
 // decomposition, the upstream names without the b2 prefix, and the upstream
-// order of operations. The closeness is one of formulation, never one of bits:
-// the upstream computes in floating point, and the two libraries produce
+// order of operations. The port preserves the upstream formulation, not its
+// output bits. Box2D computes in floating point, so the two libraries produce
 // different trajectories.
 //
 // Fixed-point arithmetic forbids some upstream lines, such as an epsilon
@@ -22,6 +22,13 @@
 // An angle is a turn, not a radian, because a turn reduces without pi. The
 // solver stores an orientation as a [github.com/dhannyell/fixed.Rot] sine and
 // cosine pair, never as an angle.
+//
+// # IDs
+//
+// WorldId, BodyId, ShapeId, ChainId and JointId are opaque handles. Their zero
+// values are null, and IDs of the same type can be compared with ==. Pass them
+// by value and obtain them from package functions; constructing a packed value
+// by hand may make it refer to whatever occupies that slot.
 //
 // # Accumulation
 //

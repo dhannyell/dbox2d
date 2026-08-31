@@ -111,13 +111,13 @@ func CrossSV(s Q, v Vec2) Vec2 {
 	return Vec2{X: s.Neg().Mul(v.Y), Y: s.Mul(v.X)}
 }
 
-// LeftPerp returns the left pointing perpendicular of v. It equals
+// LeftPerp returns the left-pointing perpendicular of v. It equals
 // CrossSV(one, v).
 func LeftPerp(v Vec2) Vec2 {
 	return Vec2{X: v.Y.Neg(), Y: v.X}
 }
 
-// RightPerp returns the right pointing perpendicular of v. It equals
+// RightPerp returns the right-pointing perpendicular of v. It equals
 // CrossVS(v, one).
 func RightPerp(v Vec2) Vec2 {
 	return Vec2{X: v.Y, Y: v.X.Neg()}
@@ -201,7 +201,7 @@ func NormalizeRot(q Rot) Rot {
 }
 
 // IntegrateRotation advances q1 by the angular displacement deltaAngle, in
-// turns, and renormalizes. The first order step below needs radians, so the
+// turns, and renormalizes. The first-order step below needs radians, so the
 // displacement scales by one turn.
 func IntegrateRotation(q1 Rot, deltaAngle Q) Rot {
 	// dc/dt = -omega * sin(t)
@@ -423,7 +423,7 @@ func PlaneSeparation(plane Plane, point Vec2) Q {
 	return plane.Normal.Dot(point).Sub(plane.Offset)
 }
 
-// SpringDamper simulates a one dimensional mass-spring-damper and returns
+// SpringDamper simulates a one-dimensional mass-spring-damper and returns
 // the new velocity. The caller then computes the new position:
 //
 //	position += timeStep * newVelocity
