@@ -111,8 +111,6 @@ to D-007. The notes below record what moved and what did not cross.
 - The `b2AABB` type and its inline helpers sit in
   `include/box2d/math_functions.h` upstream. The port keeps them with the rest
   of the box code, in `aabb.go`.
-- `b2AABB_RayCast` waits for `collision.go`, order 7, which owns the cast
-  output type.
 - `b2MinInt`, `b2MaxInt`, `b2AbsInt`, `b2MinFloat`, `b2MaxFloat`, `b2AbsFloat`
   and `b2ClampFloat` do not cross. Go and the fixed-point module already give
   them. `ClampInt` crosses, because Go has no three-argument clamp.
@@ -129,12 +127,34 @@ to D-007. The notes below record what moved and what did not cross.
   round differently and the port does not delegate.
 - `b2Perimeter` and `b2EnlargeAABB` live in `src/aabb.h`, so they stay
   unexported. Their consumer is the dynamic tree, order 27.
-- `B2_NULL_INDEX`, `B2_HUGE`, `B2_MAX_WORKERS`, `B2_GRAPH_COLOR_COUNT` and
+- `B2_NULL_INDEX`, `B2_MAX_WORKERS`, `B2_GRAPH_COLOR_COUNT` and
   `B2_MAX_WORLDS` wait for the files that read them: the body storage, the
-  worker pool, the constraint graph, the world registry and the input
-  validation of the world.
-- The import allowlist accepts the standard library and the fixed-point
-  module. `math/bits` and `sync/atomic` arrive with the broadphase.
+  worker pool, the constraint graph and the world registry.
+- The module depends on the standard library and on the fixed-point module,
+  and on nothing else. `math/bits` and `sync/atomic` arrive with the
+  broadphase.
+
+**Orders 7 to 9 have landed**: `collision.go`, `hull.go`, `geometry.go` and
+the AABB ray cast in `aabb.go`. Two divergences came with them, D-008 and
+D-009, and D-003 and D-006 grew new entries.
+
+- The distance, the time of impact and the character mover own their types.
+  `SegmentDistanceResult`, `SimplexCache`, `DistanceInput`, `DistanceOutput`,
+  `Simplex`, `ShapeCastPairInput`, `Sweep`, `TOIInput`, `TOIOutput`,
+  `PlaneResult`, `CollisionPlane` and `PlaneSolverResult` wait for them.
+- `b2ShapeCastCircle`, `b2ShapeCastCapsule`, `b2ShapeCastSegment`,
+  `b2ShapeCastPolygon`, `b2PointInPolygon` and the four `b2CollideMoverAnd`
+  functions do not cross yet. Each one calls `b2ShapeDistance` or
+  `b2ShapeCast`, which are the iterative geometry of `distance.c`.
+- `RayCastPolygon` ports the closed-form branch, which needs a zero radius.
+  A rounded polygon panics until the shape cast lands.
+- `B2_MAX_POLYGON_VERTICES` becomes `MaxPolygonVertices`. A shape keeps the
+  upstream layout: a fixed array of that size beside a count.
+- `B2_HUGE` lands in `constants.go` with order 9, because `IsValidRay` in
+  `geometry.go` is its first reader. It bounds the ray fraction, so it
+  stays unexported like the rest of `src/constants.h`.
+- The point arrays that the reference passes as a pointer and a count become
+  slices. The fixed arrays inside `Hull`, `Polygon` and `ShapeProxy` stay.
 
 ## The map
 
@@ -149,9 +169,9 @@ to D-007. The notes below record what moved and what did not cross.
 | `include/box2d/id.h` | `id.go` | T0 | foundation | 5 | Index plus generation handles. |
 | `src/id_pool.h`, `src/id_pool.c` | `id_pool.go` | T0 | foundation | 6 | Free list over a monotonic index. |
 | `include/box2d/collision.h` | `collision.go` | T0 | foundation | 7 | Shape structs, manifold structs, cast input and output. |
-| `src/aabb.c` | `collision.go` | T0 | foundation | 7 | AABB ray cast; waits for the cast output type. |
-| `src/hull.c` | `hull.go` | T0 | foundation | 8 | Recursive quickhull. Its tolerances are T2 candidates. |
-| `src/geometry.c` | `geometry.go` | T0/T1 | foundation | 9 | Shape constructors, mass data, AABB per shape, point tests, ray casts. |
+| `src/aabb.c` | `aabb.go` | T0/T2 | foundation | 7 | AABB ray cast, unexported: `src/aabb.h` declares it, `include/box2d/` does not. `IsValidAABB` landed with order 4. See D-006, D-008 and D-009. |
+| `src/hull.c` | `hull.go` | T0/T2 | foundation | 8 | Recursive quickhull. Its tolerances are multiples of the linear slop, so only the `FLT_MAX` seed diverged. See D-009. |
+| `src/geometry.c` | `geometry.go` | T0/T1/T2 | foundation | 9 | Shape constructors, mass data, AABB per shape, point tests, ray casts. The shape casts and the mover collisions wait for order 17. |
 | `include/box2d/types.h`, `src/types.c` | `types.go` | T1 | foundation | 10 | Definition structs and their defaults. |
 | `src/body.h`, `src/body.c` | `body.go` | T0 | foundation | 11 | `Body`, `BodySim`, `BodyState`. Layout preserved. |
 | `src/shape.h`, `src/shape.c` | `shape.go` | T0 | foundation | 12 | Shape storage, proxy creation, shape queries. |

@@ -118,3 +118,34 @@ func TestIsValidAABBRejectsAnInvertedBox(t *testing.T) {
 		t.Errorf("a degenerate but ordered box failed validation")
 	}
 }
+
+// TestAABBRayCastHitsTheNearFace pins the slab division. Dividing 1.5 by 3
+// is exact here, but multiplying by a truncated reciprocal loses one raw bit.
+func TestAABBRayCastHitsTheNearFace(t *testing.T) {
+	a := box(0, 0, 2, 2)
+
+	p1 := Vec2{X: fixed.FromRatio(-3, 2), Y: fixed.One()}
+	p2 := Vec2{X: fixed.FromRatio(3, 2), Y: fixed.One()}
+
+	output := aabbRayCast(a, p1, p2)
+
+	if !output.Hit {
+		t.Fatalf("the ray misses the box")
+	}
+	if want := fixed.Half(); !output.Fraction.Eq(want) {
+		t.Errorf("fraction = %v, want %v", output.Fraction, want)
+	}
+	if !output.Point.X.Eq(fixed.Zero()) || !output.Point.Y.Eq(fixed.One()) {
+		t.Errorf("point = %v, want (0, 1)", output.Point)
+	}
+	if !output.Normal.X.Eq(fixed.FromInt(-1)) || !output.Normal.Y.Eq(fixed.Zero()) {
+		t.Errorf("normal = %v, want (-1, 0)", output.Normal)
+	}
+
+	// A ray parallel to a slab and outside it misses.
+	above1 := Vec2{X: fixed.FromInt(-1), Y: fixed.FromInt(3)}
+	above2 := Vec2{X: fixed.FromInt(3), Y: fixed.FromInt(3)}
+	if aabbRayCast(a, above1, above2).Hit {
+		t.Errorf("a ray that passes above the box reports a hit")
+	}
+}

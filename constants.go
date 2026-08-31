@@ -9,6 +9,10 @@ var (
 	// upstream 0.005f * b2_lengthUnitsPerMeter
 	linearSlop = fixed.MustParse("0.005")
 
+	// upstream 100000.0f * b2_lengthUnitsPerMeter. It bounds a length that
+	// an application supplies, so a wild input fails early.
+	huge = fixed.FromInt(100000)
+
 	// upstream 0.25f * B2_PI radians, which is 0.125 turns
 	maxRotation = fixed.MustParse("0.125")
 

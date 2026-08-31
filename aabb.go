@@ -111,3 +111,99 @@ func MakeAABB(points []Vec2, radius Q) AABB {
 
 	return a
 }
+
+// aabbRayCast casts the segment p1-p2 against the box a. It ignores any
+// radius. From Real-time Collision Detection, page 179.
+func aabbRayCast(a AABB, p1, p2 Vec2) CastOutput {
+	output := CastOutput{}
+
+	zero := fixed.Zero()
+	one := fixed.One()
+
+	tmin := fixed.MinValue()
+	tmax := fixed.MaxValue()
+
+	p := p1
+	d := p2.Sub(p1)
+	absD := Abs(d)
+
+	normal := Vec2Zero()
+
+	// x-coordinate
+	if absD.X.Eq(zero) {
+		// parallel
+		if p.X.Less(a.LowerBound.X) || a.UpperBound.X.Less(p.X) {
+			return output
+		}
+	} else {
+		t1 := a.LowerBound.X.Sub(p.X).Div(d.X)
+		t2 := a.UpperBound.X.Sub(p.X).Div(d.X)
+
+		// Sign of the normal vector.
+		s := one.Neg()
+
+		if t2.Less(t1) {
+			t1, t2 = t2, t1
+			s = one
+		}
+
+		// Push the min up
+		if tmin.Less(t1) {
+			normal.Y = zero
+			normal.X = s
+			tmin = t1
+		}
+
+		// Pull the max down
+		tmax = tmax.Min(t2)
+
+		if tmax.Less(tmin) {
+			return output
+		}
+	}
+
+	// y-coordinate
+	if absD.Y.Eq(zero) {
+		// parallel
+		if p.Y.Less(a.LowerBound.Y) || a.UpperBound.Y.Less(p.Y) {
+			return output
+		}
+	} else {
+		t1 := a.LowerBound.Y.Sub(p.Y).Div(d.Y)
+		t2 := a.UpperBound.Y.Sub(p.Y).Div(d.Y)
+
+		// Sign of the normal vector.
+		s := one.Neg()
+
+		if t2.Less(t1) {
+			t1, t2 = t2, t1
+			s = one
+		}
+
+		// Push the min up
+		if tmin.Less(t1) {
+			normal.X = zero
+			normal.Y = s
+			tmin = t1
+		}
+
+		// Pull the max down
+		tmax = tmax.Min(t2)
+
+		if tmax.Less(tmin) {
+			return output
+		}
+	}
+
+	// Does the ray start inside the box?
+	// Does the ray intersect beyond the max fraction?
+	if tmin.Less(zero) || one.Less(tmin) {
+		return output
+	}
+
+	output.Fraction = tmin
+	output.Normal = normal
+	output.Point = Lerp(p1, p2, tmin)
+	output.Hit = true
+	return output
+}

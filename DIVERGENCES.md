@@ -46,15 +46,18 @@ Numbering is sequential from `D-001` and never reused.
 
 ### D-003 An assertion becomes a panic
 
-- Files: id_pool.go, aabb.go, math.go (upstream `B2_ASSERT`)
+- Files: id_pool.go, aabb.go, math.go, hull.go, geometry.go (upstream
+  `B2_ASSERT`)
 - Tier: T2
 - Reason: `B2_ASSERT` compiles out in a release build. Go has no such switch,
   and a silent corruption costs more than a stop.
 - Behaviour: a failed precondition panics in every build. Functions whose
   upstream contract is a validation query still return a bool.
 - Test: TestIdPoolRejectsAnUnknownIndex in id_pool_test.go,
-  TestMakeAABBRejectsEmptyPoints in aabb_test.go and
-  TestComputeRotationBetweenUnitVectors in math_test.go
+  TestMakeAABBRejectsEmptyPoints in aabb_test.go,
+  TestComputeRotationBetweenUnitVectors in math_test.go,
+  TestPolygonConstructorsRejectInvalidHull and
+  TestComputePolygonMassRejectsZeroArea in geometry_test.go
 
 ### D-004 An angle is a turn
 
@@ -84,19 +87,28 @@ Numbering is sequential from `D-001` and never reused.
 
 ### D-006 A reciprocal becomes a division
 
-- File: math.go (upstream include/box2d/math_functions.h `b2GetInverse22`,
-  `b2Solve22`, `b2Normalize`, `b2NormalizeRot`)
+- Files: math.go, aabb.go, geometry.go (upstream
+  include/box2d/math_functions.h `b2GetInverse22`, `b2Solve22`,
+  `b2Normalize`, `b2NormalizeRot`; src/aabb.c `b2AABB_RayCast` `inv_d`;
+  src/geometry.c `b2ComputePolygonCentroid` and `b2ComputePolygonMass`
+  `inv3` and `invArea`, `b2RayCastCapsule` `invDen`)
 - Tier: T2
 - Reason: a Q32.32 reciprocal keeps only the leading bits of a large value.
   Multiplying by it discards the precision that a division keeps.
-- Behaviour: each entry divides by the determinant. Normalization delegates
+- Behaviour: each site divides by its denominator. Normalization delegates
   to the fixed-point module, which scales the pair before it squares, so a
   short vector cannot underflow to zero. The guard against a zero length
   becomes an exact test against zero instead of a test against an epsilon.
   `NormalizeRot` still returns a zero rotation for a zero input, as the
   reference does, so an invalid rotation stays visible to `IsValidRotation`.
+  The slab test divides each distance by the direction component. The
+  centroid, the polygon mass and the capsule side hit divide by the area or
+  by the determinant at each use.
 - Test: TestSolve22SolvesTheSystem, TestNormalizeKeepsAShortVector and
-  TestNormalizeRotKeepsAZeroRotation in math_test.go
+  TestNormalizeRotKeepsAZeroRotation in math_test.go,
+  TestAABBRayCastHitsTheNearFace in aabb_test.go,
+  TestPolygonCentroidOfATriangle, TestTriangleMassMatchesTheReference and
+  TestRayCastCapsuleHitsTheSide in geometry_test.go
 
 ### D-007 The normalization tolerance is in raw units
 
@@ -108,3 +120,35 @@ Numbering is sequential from `D-001` and never reused.
   which is the magnitude of the upstream 1.2e-5. `IsNormalizedRot` keeps the
   literal 0.0006 of the reference, because that one is a plain number.
 - Test: TestNormalizedChecksAcceptAUnitPair in math_test.go
+
+### D-008 An epsilon guard becomes a test against zero
+
+- Files: aabb.go, geometry.go (upstream src/aabb.c `b2AABB_RayCast`,
+  src/geometry.c `b2RayCastCapsule`, `b2ComputePolygonCentroid`,
+  `b2ComputePolygonMass`, `b2MakePolygon`, `b2MakeOffsetRoundedPolygon`)
+- Tier: T2
+- Reason: `FLT_EPSILON` describes the spacing of the float grid near one.
+  Q32.32 has one spacing everywhere, so a value below the float epsilon is
+  either exactly zero or exactly representable. The guard has no meaning.
+- Behaviour: each guard compares against zero. A parallel slab, a capsule or
+  polygon edge of zero length, a determinant of zero and an area of zero are
+  exact cases now, not near cases. A degenerate area still panics, which
+  follows D-003, because a polygon with no area has no centroid or mass.
+  `ValidateHull` rejects a zero-length edge before either polygon constructor
+  reaches its redundant edge guard.
+- Test: TestAABBRayCastHitsTheNearFace in aabb_test.go and
+  TestRayCastCapsuleDegenerateCases, TestPolygonConstructorsRejectInvalidHull
+  and TestComputePolygonMassRejectsZeroArea in geometry_test.go
+
+### D-009 An infinite sentinel becomes the largest representable value
+
+- Files: aabb.go, hull.go (upstream src/aabb.c `b2AABB_RayCast`,
+  src/hull.c `b2ComputeHull`)
+- Tier: T2
+- Reason: the reference seeds a search with `FLT_MAX`, which no coordinate
+  reaches. Q32.32 has no infinity and it saturates instead.
+- Behaviour: the seeds are the largest and the smallest representable values.
+  Those values sit outside the valid input range: `IsValidQ` rejects a
+  coordinate that equals either seed.
+- Test: TestAABBRayCastHitsTheNearFace in aabb_test.go and
+  TestComputeHullDropsAnInteriorPoint in hull_test.go
