@@ -47,7 +47,7 @@ Numbering is sequential from `D-001` and never reused.
 ### D-003 An assertion becomes a panic
 
 - Files: id_pool.go, aabb.go, math.go, hull.go, geometry.go, step.go,
-  solver.go (upstream `B2_ASSERT`)
+  solver.go, manifold.go, table.go, contact.go (upstream `B2_ASSERT`)
 - Tier: T2
 - Reason: `B2_ASSERT` compiles out in a release build. Go has no such switch,
   and a silent corruption costs more than a stop.
@@ -57,8 +57,10 @@ Numbering is sequential from `D-001` and never reused.
   TestMakeAABBRejectsEmptyPoints in aabb_test.go,
   TestComputeRotationBetweenUnitVectors in math_test.go,
   TestPolygonConstructorsRejectInvalidHull and
-  TestComputePolygonMassRejectsZeroArea in geometry_test.go, and
-  TestStepRejectsInvalidInput in step_test.go
+  TestComputePolygonMassRejectsZeroArea in geometry_test.go,
+  TestStepRejectsInvalidInput in step_test.go, and
+  TestCollideCapsulesRejectsADegenerateCapsule and
+  TestCollideSegmentAndPolygonRejectsADegenerateSegment in manifold_test.go
 
 ### D-004 An angle is a turn
 
@@ -96,12 +98,14 @@ Numbering is sequential from `D-001` and never reused.
 
 ### D-006 A reciprocal becomes a division
 
-- Files: math.go, aabb.go, geometry.go, solver.go (upstream
+- Files: math.go, aabb.go, geometry.go, solver.go, manifold.go (upstream
   include/box2d/math_functions.h `b2GetInverse22`, `b2Solve22`,
   `b2Normalize`, `b2NormalizeRot`; src/aabb.c `b2AABB_RayCast` `inv_d`;
   src/geometry.c `b2ComputePolygonCentroid` and `b2ComputePolygonMass`
   `inv3` and `invArea`, `b2RayCastCapsule` `invDen`;
-  src/solver.c `b2IntegrateVelocitiesTask` damping factors)
+  src/solver.c `b2IntegrateVelocitiesTask` damping factors;
+  src/manifold.c `b2CollideChainSegmentAndCircle` `1/ee` and
+  `b2CollidePolygons` vertex-vertex `1.0f / distance`)
 - Tier: T2
 - Reason: a Q32.32 reciprocal keeps only the leading bits of a large value.
   Multiplying by it discards the precision that a division keeps.
@@ -155,8 +159,10 @@ Numbering is sequential from `D-001` and never reused.
 
 ### D-009 An infinite sentinel becomes the largest representable value
 
-- Files: aabb.go, hull.go (upstream src/aabb.c `b2AABB_RayCast`,
-  src/hull.c `b2ComputeHull`)
+- Files: aabb.go, hull.go, manifold.go (upstream src/aabb.c
+  `b2AABB_RayCast`, src/hull.c `b2ComputeHull`, src/manifold.c
+  `b2CollidePolygonAndCircle`, `b2FindMaxSeparation` and `b2CollidePolygons`
+  search seeds)
 - Tier: T2
 - Reason: the reference seeds a search with `FLT_MAX`, which no coordinate
   reaches. Q32.32 has no infinity and it saturates instead.
@@ -190,10 +196,46 @@ Numbering is sequential from `D-001` and never reused.
   equality. A fixed-point world does, and the promise needs a witness that
   the tests and a network peer can compare.
 - Behaviour: `Checksum` folds the deterministic world configuration and the
-  complete simulation state of every live body and shape. Body and shape
-  hashes use wrapping sums, so internal ids and creation order do not affect
-  the result. Application data stays out because it cannot change the
-  simulation. Q values enter as raw bits; no float ever does.
-- Test: TestChecksumIsOrderIndependent, TestChecksumSeesAStateChange,
-  TestChecksumSeesFutureBehaviour and TestChecksumMatchesDeterministicWitness
-  in checksum_test.go, TestStepIsReproducibleBitForBit in step_test.go
+  complete simulation state of every live body, shape and contact. Body,
+  shape and contact hashes use wrapping sums, so the iteration order of the
+  storage does not affect the result. Application data stays out because it
+  cannot change the simulation. Q values enter as raw bits; no float ever
+  does. A contact identifies each endpoint by the canonical body and shape
+  state instead of storage ids or linked-list keys. Its two orientations fold
+  to one value; contact points use a wrapping sum as well. Equivalent worlds
+  therefore keep one checksum even when bodies, shapes, contacts or manifold
+  points were created in another order. The witness contains a real contact
+  and re-baselines in the same commit that grows the fold.
+- Test: TestChecksumIsOrderIndependent,
+  TestChecksumContactsIgnoreCreationOrder, TestChecksumSeesContactState,
+  TestChecksumSeesAStateChange, TestChecksumSeesFutureBehaviour and
+  TestChecksumMatchesDeterministicWitness in checksum_test.go,
+  TestStepIsReproducibleBitForBit in step_test.go
+
+### D-012 An epsilon guard becomes an exact zero test
+
+- Files: distance.go (upstream src/distance.c:44), manifold.go (upstream
+  src/manifold.c:24 capsule polygon length assert; 186, 209 vertex-region
+  guards; 284 capsule length assert; 495 single-point normal fallback;
+  602, 612 and 1206, 1216 clip lerp spans)
+- Tier: T2
+- Reason: `FLT_EPSILON` guards absorb float rounding noise. Q32.32 has no
+  such noise, and its smallest magnitude is one raw unit, which already
+  exceeds the squared-epsilon threshold of the reference. The exact zero is
+  the only dividing line Q can express below its own resolution.
+- Behaviour: the degenerate branch of `SegmentDistance` runs only when a
+  squared segment length is exactly zero. Every nonzero Q length takes the
+  regular path, as it would in float. In `CollidePolygonAndCircle` the
+  vertex region needs an exactly positive separation. In `CollideCapsules`
+  and the capsule polygon builder a zero axis length panics per D-003, and
+  an exactly zero closest-point difference selects the perpendicular
+  fallback normal. In `clipPolygons` and `clipSegments` the lerp runs on an
+  exactly positive span; the preceding disjoint test bounds the span, so in
+  Q the guarded false branch is unreachable and the guard stays only for
+  structure.
+- Test: TestSegmentDistanceHandlesDegenerateSegments in distance_test.go,
+  TestCollidePolygonAndCircleRegions,
+  TestCollideCapsulesFallsBackOnCoincidentClosestPoints,
+  TestCollidePolygonsClipsThePartialOverlap and
+  TestCollideSegmentAndPolygonRejectsADegenerateSegment in manifold_test.go,
+  and the clipSegments tests in manifold_internal_test.go

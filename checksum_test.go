@@ -41,6 +41,73 @@ func TestChecksumIsOrderIndependent(t *testing.T) {
 	}
 }
 
+// TestChecksumContactsIgnoreCreationOrder checks the contact graph as well as
+// the body and shape folds. The second world reverses both object creation and
+// contact orientation, but represents the same physical state.
+func TestChecksumContactsIgnoreCreationOrder(t *testing.T) {
+	positions := [3]Vec2{v2(0, 0), {X: fixed.MustParse("0.75")}, v2(4, 0)}
+	build := func(order [3]int, reverseContact bool) WorldId {
+		worldId := createTestWorld(t)
+		var bodies [3]BodyId
+		for _, index := range order {
+			bodies[index] = addDynamicCircle(t, worldId, positions[index])
+		}
+
+		w := getWorldFromId(worldId)
+		shapeA := firstShape(w, bodies[0])
+		shapeB := firstShape(w, bodies[1])
+		if reverseContact {
+			shapeA, shapeB = shapeB, shapeA
+		}
+		createContact(w, shapeA, shapeB)
+		c := &w.contacts[0]
+		cs := getContactSim(w, c)
+		xfA := getBodyTransformQuick(w, &w.bodies[shapeA.bodyId])
+		xfB := getBodyTransformQuick(w, &w.bodies[shapeB.bodyId])
+		updateContact(w, cs, shapeA, xfA, Vec2Zero(), shapeB, xfB, Vec2Zero())
+		return worldId
+	}
+
+	world1 := build([3]int{0, 1, 2}, false)
+	world2 := build([3]int{2, 1, 0}, true)
+	if got, want := Checksum(world2), Checksum(world1); got != want {
+		t.Fatalf("contact checksum after reversed creation = %d, want %d", got, want)
+	}
+}
+
+// TestChecksumSeesContactState checks that adding and updating a contact, and
+// then changing a stored impulse, each changes the witness.
+func TestChecksumSeesContactState(t *testing.T) {
+	worldId := createTestWorld(t)
+	idA := addDynamicCircle(t, worldId, v2(0, 0))
+	idB := addDynamicCircle(t, worldId, Vec2{X: fixed.MustParse("0.75")})
+	w := getWorldFromId(worldId)
+	shapeA := firstShape(w, idA)
+	shapeB := firstShape(w, idB)
+
+	withoutContact := Checksum(worldId)
+	createContact(w, shapeA, shapeB)
+	withContact := Checksum(worldId)
+	if withContact == withoutContact {
+		t.Fatal("adding a contact did not change the checksum")
+	}
+
+	c := &w.contacts[0]
+	cs := getContactSim(w, c)
+	xfA := getBodyTransformQuick(w, getBodyFullId(w, idA))
+	xfB := getBodyTransformQuick(w, getBodyFullId(w, idB))
+	updateContact(w, cs, shapeA, xfA, Vec2Zero(), shapeB, xfB, Vec2Zero())
+	withManifold := Checksum(worldId)
+	if withManifold == withContact {
+		t.Fatal("updating the contact manifold did not change the checksum")
+	}
+
+	cs.manifold.Points[0].NormalImpulse = fixed.One()
+	if Checksum(worldId) == withManifold {
+		t.Fatal("a stored contact impulse did not change the checksum")
+	}
+}
+
 // TestChecksumSeesAStateChange pins sensitivity: a moved body changes the
 // checksum, and a sleeping body still contributes its transform.
 func TestChecksumSeesAStateChange(t *testing.T) {
@@ -101,19 +168,35 @@ func TestChecksumSeesFutureBehaviour(t *testing.T) {
 // architectures. Every CI target must produce the same integer.
 func TestChecksumMatchesDeterministicWitness(t *testing.T) {
 	worldId := createTestWorld(t)
+	var bodies [5]BodyId
 	for i := range 5 {
-		id := addDynamicBox(t, worldId, v2(i*3, i))
+		position := v2(i*3, i)
+		if i == 1 {
+			position = v2(1, 0)
+		}
+		id := addDynamicBox(t, worldId, position)
+		bodies[i] = id
 		w := getWorldFromId(worldId)
 		b := getBodyFullId(w, id)
 		getBodyState(w, b).angularVelocity = fixed.MustParse("0.1")
 	}
+
+	w := getWorldFromId(worldId)
+	shapeA := firstShape(w, bodies[0])
+	shapeB := firstShape(w, bodies[1])
+	createContact(w, shapeA, shapeB)
+	c := &w.contacts[0]
+	cs := getContactSim(w, c)
+	xfA := getBodyTransformQuick(w, getBodyFullId(w, bodies[0]))
+	xfB := getBodyTransformQuick(w, getBodyFullId(w, bodies[1]))
+	updateContact(w, cs, shapeA, xfA, Vec2Zero(), shapeB, xfB, Vec2Zero())
 
 	dt := stepDt()
 	for range 120 {
 		Step(worldId, dt, 4)
 	}
 
-	const want uint64 = 8463437550946494699
+	const want uint64 = 15399750377841976944
 	if got := Checksum(worldId); got != want {
 		t.Errorf("checksum = %d, want %d", got, want)
 	}

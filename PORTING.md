@@ -72,10 +72,11 @@ one place: chain segment against polygon. Everything else in the narrowphase
 ports at T0 or T1.
 
 **2. The float tolerances in the narrowphase are few and local.**
-`manifold.c` compares against `FLT_EPSILON` in eight places, all of them
-guards against a degenerate segment or a zero-length span. In Q32.32 those
-comparisons become exact tests against zero, which is a T2 entry each and
-nothing more. The port loses no algorithm to arithmetic.
+`manifold.c` compares against `FLT_EPSILON` in nine places — eight literal
+uses and one through the `epsSqr` variable — all of them guards against a
+degenerate segment or a zero-length span. In Q32.32 those comparisons become
+exact tests against zero, which is a T2 entry each and nothing more. The
+port loses no algorithm to arithmetic.
 
 **3. The hot path has no trigonometry.** Neither `solver.c` nor
 `contact_solver.c` nor `manifold.c` calls a trigonometric function. The only
@@ -213,6 +214,78 @@ assertions retained by the step, and D-004 and D-006 grew `solver.go` entries.
 - One worker replaces the task system. The stage order is the contract that
   a second executor must keep.
 
+**Order 18 has landed**: `arena.go`.
+
+- The arena keeps the 32-byte size rounding of the reference, so the
+  accounting numbers match even though Go has no SIMD alignment need.
+- The heap fallback becomes a Go allocation. Arena slices carry a capped
+  capacity, so an append by the caller cannot grow over the next entry.
+- Destroy clears the backing slices and accounting explicitly; the three
+  getters expose the same capacity, current allocation and peak values as the
+  reference. The world adopts the arena when a stage allocates through it.
+
+**Order 19 has landed**: the closed-form part of `distance.go`, and
+`SegmentDistanceResult` in `collision.go`. D-012 came with it.
+
+- `SegmentDistance` keeps the branch structure of the reference: the
+  degeneracy dispatch, the parallel case and the two do-over clamps.
+  The epsilon guard becomes an exact zero test per D-012.
+- `MakeProxy` takes a slice in place of the pointer and count pair.
+- `b2MakeOffsetProxy`, `b2GetSweepTransform` and the whole simplex
+  apparatus stay with their consumers: the shape casts, the sweeps and
+  the iterative distance solver.
+
+**Order 20 has landed**: `manifold.go` — the circle and capsule colliders,
+then the polygon colliders: `makeCapsule`, `clipPolygons`,
+`findMaxSeparation`, `CollidePolygons`, `CollidePolygonAndCapsule`,
+`CollideSegmentAndPolygon` and `clipSegments`.
+
+- The branch structure of the reference stays intact. The epsilon guards
+  become exact zero tests per D-012; the length asserts become panics per
+  D-003. In the two clippers the guarded lerp span is provably positive in
+  Q, so the guard is structural only.
+- `makeId` mirrors `B2_MAKE_ID`, so the point ids keep the warm-starting
+  contract across frames.
+- `CollidePolygons` ports the compiled `#if 1` branch of the reference; the
+  dead `#else` block does not enter.
+- `clipSegments` has no caller yet: the chain-segment colliders that use it
+  also need GJK and wait with the distance solver.
+
+**Order 22 has landed**: `table.go`, ahead of order 21 because the contact
+bookkeeping needs the pair set.
+
+- The set keeps the open-addressing scheme, the Murmur finalizer and the
+  probe chain repair of the reference. The capacity stays a power of two;
+  the allocation always matches the rounded capacity.
+- The set only answers membership, so its internal slot order never enters
+  a simulation result.
+- Destroy releases the item slice, clear preserves it for reuse, and the byte
+  getter reports its actual Go storage size.
+
+**Order 21 has landed**: `contact.go` — the cold `contact`, the warm
+`contactSim`, the collide dispatch table, `createContact`, `destroyContact`,
+`getContactSim`, `updateContact` and `computeManifold`. The world gains the
+contact storage and the mixing callbacks; the solver sets gain the contact
+sim arrays; `DestroyBody` and `DestroyShape` destroy attached contacts before
+releasing their owners.
+
+- The lazy register flag becomes a package `init`, which runs once and in a
+  deterministic order.
+- The chain segment pairs against capsule and polygon stay out of the
+  register until the iterative distance solver lands; their nil entries make
+  `createContact` skip the pair.
+- The pair set lives on the world for now. The reference hosts it on the
+  broadphase; it moves there when the broadphase lands.
+- The end touch event, the pre-solve callback, the wake on destroy, the
+  island and constraint graph branches and the inverse mass copies of the sim
+  wait for their stages. `islandId` and `colorIndex` stay `nullIndex` until
+  then.
+- The speculative two-point reduction of the reference tests point zero in
+  both branches, so only the first branch can fire; the port keeps the live
+  branch only.
+- `b2SimplexCache` enters as a data-only struct. The distance solver that
+  fills it comes later; until then every dispatch runs with an empty cache.
+
 ## The map
 
 `Order` is the port sequence. A dash means the file waits for a later stage.
@@ -239,7 +312,7 @@ assertions retained by the step, and D-004 and D-006 grew `solver.go` entries.
 | — | `checksum.go` | T2 | foundation | 17 | Port-only determinism witness over the complete canonical world state, commutative over bodies and shapes. See D-011. |
 | `src/arena_allocator.h`, `src/arena_allocator.c` | `arena.go` | T1 | foundation | 18 | Per-step scratch. It is how the step allocates nothing. |
 | `src/distance.c` (segment distance, proxies) | `distance.go` | T0 | manifolds | 19 | Closed-form part only. |
-| `src/manifold.c` | `manifold.go` | T0/T1 | manifolds | 20 | Eight `FLT_EPSILON` guards become exact zero tests, one T2 entry each. |
+| `src/manifold.c` | `manifold.go` | T0/T1 | manifolds | 20 | Nine `FLT_EPSILON` sites become exact zero tests, one T2 entry each. |
 | `src/contact.h`, `src/contact.c` | `contact.go` | T0 | manifolds | 21 | Contact bookkeeping and the collide dispatch table. |
 | `src/table.h`, `src/table.c` | `table.go` | T0 | manifolds | 22 | Open-addressing set of contact pairs. |
 | `src/solver.h`, `src/solver.c` | `solver.go` | T0/T1/T2 | solver | 23 | Nine ordered stages, from prepare joints to store impulses. `MakeSoft` is pure arithmetic. The integration tasks, the body finalize and the single-worker sub-step order landed with order 16; see D-004 and D-006. The constraint stages wait. |

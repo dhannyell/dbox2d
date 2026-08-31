@@ -34,6 +34,17 @@ type world struct {
 	// shapes maps a shape id to the shape data.
 	shapes []shape
 
+	contactIdPool idPool
+
+	// contacts maps a contact id to the cold contact data. The sims live in
+	// the solver sets.
+	contacts []contact
+
+	// pairSet answers whether two shapes already have a contact. The
+	// reference hosts the set on the broadphase; it moves there when the
+	// broadphase lands.
+	pairSet hashSet
+
 	// stepIndex advances once per step.
 	stepIndex uint64
 
@@ -57,6 +68,11 @@ type world struct {
 	// inv_h is the inverse time step of the last step, for force reports.
 	invH Q
 
+	// The mixing callbacks combine the material values of two shapes into
+	// the effective contact values.
+	frictionCallback    mixingCallback
+	restitutionCallback mixingCallback
+
 	worldId uint16
 
 	enableSleep        bool
@@ -65,6 +81,22 @@ type world struct {
 	enableContinuous   bool
 	enableSpeculative  bool
 	inUse              bool
+}
+
+// mixingCallback combines the material values of two shapes. It corresponds
+// to b2FrictionCallback and b2RestitutionCallback in include/box2d/types.h.
+type mixingCallback func(valueA Q, userMaterialIdA int, valueB Q, userMaterialIdB int) Q
+
+// defaultFrictionCallback is the geometric mean. It corresponds to
+// b2DefaultFrictionCallback in src/world.c.
+func defaultFrictionCallback(frictionA Q, _ int, frictionB Q, _ int) Q {
+	return frictionA.Mul(frictionB).Sqrt()
+}
+
+// defaultRestitutionCallback is the maximum. It corresponds to
+// b2DefaultRestitutionCallback in src/world.c.
+func defaultRestitutionCallback(restitutionA Q, _ int, restitutionB Q, _ int) Q {
+	return restitutionA.Max(restitutionB)
 }
 
 // worlds is the global registry. A WorldId indexes into it, so world zero
@@ -164,6 +196,13 @@ func CreateWorld(def *WorldDef) WorldId {
 	w.shapeIdPool = createIdPool()
 	w.shapes = make([]shape, 0, 16)
 
+	w.contactIdPool = createIdPool()
+	w.contacts = make([]contact, 0, 16)
+	w.pairSet = createSet(16)
+
+	w.frictionCallback = defaultFrictionCallback
+	w.restitutionCallback = defaultRestitutionCallback
+
 	w.stepIndex = 0
 	w.gravity = def.Gravity
 	w.hitEventThreshold = def.HitEventThreshold
@@ -197,6 +236,7 @@ func DestroyWorld(worldId WorldId) {
 
 	w.bodyIdPool.destroy()
 	w.shapeIdPool.destroy()
+	w.contactIdPool.destroy()
 	w.solverSetIdPool.destroy()
 
 	// Wipe world but preserve generation

@@ -29,6 +29,25 @@ type ShapeProxy struct {
 	Radius Q
 }
 
+// SegmentDistanceResult is the output of SegmentDistance. It corresponds
+// to b2SegmentDistanceResult in include/box2d/collision.h.
+type SegmentDistanceResult struct {
+	// Closest1 is the closest point on the first segment.
+	Closest1 Vec2
+
+	// Closest2 is the closest point on the second segment.
+	Closest2 Vec2
+
+	// Fraction1 is the barycentric coordinate on the first segment.
+	Fraction1 Q
+
+	// Fraction2 is the barycentric coordinate on the second segment.
+	Fraction2 Q
+
+	// DistanceSquared is the squared distance between the closest points.
+	DistanceSquared Q
+}
+
 // ShapeCastInput is the input of a shape cast in generic form.
 type ShapeCastInput struct {
 	Proxy       ShapeProxy
@@ -196,4 +215,19 @@ type Manifold struct {
 
 	// PointCount is zero, one or two.
 	PointCount int
+}
+
+// SimplexCache warm starts the distance solver between two steps. The zero
+// value is an empty cache. The solver that fills it comes with the distance
+// module; until then the cache is carried but stays empty. It corresponds to
+// b2SimplexCache in include/box2d/collision.h.
+type SimplexCache struct {
+	// Count is the number of stored simplex vertices.
+	Count uint16
+
+	// IndexA holds the vertices of shape A on the simplex.
+	IndexA [3]uint8
+
+	// IndexB holds the vertices of shape B on the simplex.
+	IndexB [3]uint8
 }

@@ -235,8 +235,8 @@ func CreateSegmentShape(bodyId BodyId, def *ShapeDef, segment *Segment) ShapeId 
 	return createShape(bodyId, def, segment, SegmentShape)
 }
 
-// destroyShapeInternal unlinks the shape from the body and frees its id.
-// DestroyBody does not need it: it walks the whole shape list itself.
+// destroyShapeInternal unlinks the shape, destroys its contacts and frees its
+// id. DestroyBody removes all contacts before walking the shape list itself.
 func destroyShapeInternal(w *world, s *shape, b *body) {
 	shapeId := s.id
 
@@ -257,8 +257,21 @@ func destroyShapeInternal(w *world, s *shape, b *body) {
 
 	b.shapeCount -= 1
 
-	// Deferred: the broad-phase proxy, the contacts of the shape and the
-	// sensor record go away here.
+	// Deferred: the broad-phase proxy and the sensor record go away here.
+
+	// Destroy contacts before releasing the shape id. The next key is read
+	// first because destroyContact unlinks the current edge from this body.
+	contactKey := b.headContactKey
+	for contactKey != nullIndex {
+		contactId := contactKey >> 1
+		edgeIndex := contactKey & 1
+		c := &w.contacts[contactId]
+		contactKey = c.edges[edgeIndex].nextKey
+
+		if c.shapeIdA == shapeId || c.shapeIdB == shapeId {
+			destroyContact(w, c, true)
+		}
+	}
 
 	// Return shape to free list.
 	w.shapeIdPool.freeId(shapeId)
@@ -313,6 +326,21 @@ func getShapeCentroid(s *shape) Vec2 {
 		return Lerp(s.chainSegment.Segment.Point1, s.chainSegment.Segment.Point2, fixed.Half())
 	default:
 		return Vec2Zero()
+	}
+}
+
+// getShapeRadius returns the round radius of a shape. Segments have no
+// radius. It corresponds to b2GetShapeRadius in src/shape.h.
+func getShapeRadius(s *shape) Q {
+	switch s.shapeType {
+	case CapsuleShape:
+		return s.capsule.Radius
+	case CircleShape:
+		return s.circle.Radius
+	case PolygonShape:
+		return s.polygon.Radius
+	default:
+		return fixed.Zero()
 	}
 }
 

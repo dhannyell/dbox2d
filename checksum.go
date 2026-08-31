@@ -163,10 +163,86 @@ func checksumBody(w *world, b *body) uint64 {
 	return fnvFold(h, shapeSum)
 }
 
+func checksumManifold(h uint64, m *Manifold, swap bool) uint64 {
+	normal := m.Normal
+	rollingImpulse := m.RollingImpulse
+	if swap {
+		normal = Neg(normal)
+		rollingImpulse = rollingImpulse.Neg()
+	}
+
+	h = checksumVec2(h, normal)
+	h = checksumQ(h, rollingImpulse)
+
+	var pointSum uint64
+	for i := range m.PointCount {
+		p := &m.Points[i]
+		anchorA := p.AnchorA
+		anchorB := p.AnchorB
+		id := p.Id
+		if swap {
+			anchorA, anchorB = anchorB, anchorA
+			id = id<<8 | id>>8
+		}
+
+		pointHash := fnvOffsetBasis
+		pointHash = checksumVec2(pointHash, p.Point)
+		pointHash = checksumVec2(pointHash, anchorA)
+		pointHash = checksumVec2(pointHash, anchorB)
+		pointHash = checksumQ(pointHash, p.Separation)
+		pointHash = checksumQ(pointHash, p.NormalImpulse)
+		pointHash = checksumQ(pointHash, p.TangentImpulse)
+		pointHash = checksumQ(pointHash, p.TotalNormalImpulse)
+		pointHash = checksumQ(pointHash, p.NormalVelocity)
+		pointHash = fnvFold(pointHash, uint64(id))
+		pointHash = checksumBool(pointHash, p.Persisted)
+		pointSum += pointHash
+	}
+	h = fnvFold(h, uint64(m.PointCount))
+	return fnvFold(h, pointSum)
+}
+
+func checksumContactEndpoint(w *world, shapeId int) uint64 {
+	s := &w.shapes[shapeId]
+	b := &w.bodies[s.bodyId]
+
+	h := fnvOffsetBasis
+	h = fnvFold(h, checksumBody(w, b))
+	return fnvFold(h, checksumShape(s))
+}
+
+func checksumContactOrientation(c *contact, cs *contactSim, endpointA, endpointB uint64, swap bool) uint64 {
+	if swap {
+		endpointA, endpointB = endpointB, endpointA
+	}
+
+	h := fnvOffsetBasis
+	h = fnvFold(h, checksumSetKind(c.setIndex))
+	h = fnvFold(h, endpointA)
+	h = fnvFold(h, endpointB)
+	h = fnvFold(h, uint64(c.flags))
+	h = checksumQ(h, cs.friction)
+	h = checksumQ(h, cs.restitution)
+	h = checksumQ(h, cs.rollingResistance)
+	h = checksumQ(h, cs.tangentSpeed)
+	h = fnvFold(h, uint64(cs.simFlags))
+	return checksumManifold(h, &cs.manifold, swap)
+}
+
+func checksumContact(w *world, c *contact) uint64 {
+	cs := getContactSim(w, c)
+	endpointA := checksumContactEndpoint(w, c.shapeIdA)
+	endpointB := checksumContactEndpoint(w, c.shapeIdB)
+
+	forward := checksumContactOrientation(c, cs, endpointA, endpointB, false)
+	reverse := checksumContactOrientation(c, cs, endpointA, endpointB, true)
+	return min(forward, reverse)
+}
+
 // Checksum folds the complete deterministic state of a world into one
 // integer. Application data and internal ids are excluded because they do not
-// affect simulation. Bodies and shapes use commutative folds, so equivalent
-// worlds do not depend on creation order.
+// affect simulation. Bodies, shapes and contacts use commutative folds, so
+// equivalent worlds do not depend on creation order.
 func Checksum(worldId WorldId) uint64 {
 	w := getWorldFromId(worldId)
 
@@ -197,5 +273,18 @@ func Checksum(worldId WorldId) uint64 {
 		bodyCount++
 	}
 	h = fnvFold(h, uint64(bodyCount))
-	return fnvFold(h, bodySum)
+	h = fnvFold(h, bodySum)
+
+	var contactSum uint64
+	contactCount := 0
+	for i := range w.contacts {
+		c := &w.contacts[i]
+		if c.contactId == nullIndex {
+			continue
+		}
+		contactSum += checksumContact(w, c)
+		contactCount++
+	}
+	h = fnvFold(h, uint64(contactCount))
+	return fnvFold(h, contactSum)
 }

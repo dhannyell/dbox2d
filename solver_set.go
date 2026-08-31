@@ -10,7 +10,11 @@ type solverSet struct {
 	// bodyStates of the bodies. Only the awake set has them.
 	bodyStates []bodyState
 
-	// Deferred: the joint, contact and island sim arrays of the reference.
+	// contactSims of the non-touching contacts in this set. A touching
+	// contact moves to the constraint graph when the solver lands.
+	contactSims []contactSim
+
+	// Deferred: the joint and island sim arrays of the reference.
 
 	// setIndex aligns with the solverSetIdPool of the world. It gives a
 	// stable id to the set, or nullIndex for an unused slot.
