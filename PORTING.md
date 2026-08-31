@@ -222,6 +222,17 @@ assertions retained by the step, and D-004 and D-006 grew `solver.go` entries.
 - `b2DestroyArenaAllocator` and the getter functions wait for the consumer;
   the world adopts the arena when a stage allocates through it.
 
+**Order 19 has landed**: the closed-form part of `distance.go`, and
+`SegmentDistanceResult` in `collision.go`. D-012 came with it.
+
+- `SegmentDistance` keeps the branch structure of the reference: the
+  degeneracy dispatch, the parallel case and the two do-over clamps.
+  The epsilon guard becomes an exact zero test per D-012.
+- `MakeProxy` takes a slice in place of the pointer and count pair.
+- `b2MakeOffsetProxy`, `b2GetSweepTransform` and the whole simplex
+  apparatus stay with their consumers: the shape casts, the sweeps and
+  the iterative distance solver.
+
 ## The map
 
 `Order` is the port sequence. A dash means the file waits for a later stage.

@@ -29,6 +29,25 @@ type ShapeProxy struct {
 	Radius Q
 }
 
+// SegmentDistanceResult is the output of SegmentDistance. It corresponds
+// to b2SegmentDistanceResult in include/box2d/collision.h.
+type SegmentDistanceResult struct {
+	// Closest1 is the closest point on the first segment.
+	Closest1 Vec2
+
+	// Closest2 is the closest point on the second segment.
+	Closest2 Vec2
+
+	// Fraction1 is the barycentric coordinate on the first segment.
+	Fraction1 Q
+
+	// Fraction2 is the barycentric coordinate on the second segment.
+	Fraction2 Q
+
+	// DistanceSquared is the squared distance between the closest points.
+	DistanceSquared Q
+}
+
 // ShapeCastInput is the input of a shape cast in generic form.
 type ShapeCastInput struct {
 	Proxy       ShapeProxy

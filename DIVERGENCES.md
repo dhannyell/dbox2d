@@ -197,3 +197,16 @@ Numbering is sequential from `D-001` and never reused.
 - Test: TestChecksumIsOrderIndependent, TestChecksumSeesAStateChange,
   TestChecksumSeesFutureBehaviour and TestChecksumMatchesDeterministicWitness
   in checksum_test.go, TestStepIsReproducibleBitForBit in step_test.go
+
+### D-012 An epsilon guard becomes an exact zero test
+
+- File: distance.go (upstream src/distance.c:44)
+- Tier: T2
+- Reason: `FLT_EPSILON` guards absorb float rounding noise. Q32.32 has no
+  such noise, and its smallest magnitude is one raw unit, which already
+  exceeds the squared-epsilon threshold of the reference. The exact zero is
+  the only dividing line Q can express below its own resolution.
+- Behaviour: the degenerate branch of `SegmentDistance` runs only when a
+  squared segment length is exactly zero. Every nonzero Q length takes the
+  regular path, as it would in float.
+- Test: TestSegmentDistanceHandlesDegenerateSegments in distance_test.go
