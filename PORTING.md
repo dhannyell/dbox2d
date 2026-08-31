@@ -220,8 +220,9 @@ assertions retained by the step, and D-004 and D-006 grew `solver.go` entries.
   accounting numbers match even though Go has no SIMD alignment need.
 - The heap fallback becomes a Go allocation. Arena slices carry a capped
   capacity, so an append by the caller cannot grow over the next entry.
-- `b2DestroyArenaAllocator` and the getter functions wait for the consumer;
-  the world adopts the arena when a stage allocates through it.
+- Destroy clears the backing slices and accounting explicitly; the three
+  getters expose the same capacity, current allocation and peak values as the
+  reference. The world adopts the arena when a stage allocates through it.
 
 **Order 19 has landed**: the closed-form part of `distance.go`, and
 `SegmentDistanceResult` in `collision.go`. D-012 came with it.
@@ -258,14 +259,15 @@ bookkeeping needs the pair set.
   the allocation always matches the rounded capacity.
 - The set only answers membership, so its internal slot order never enters
   a simulation result.
-- `b2DestroySet`, `b2ClearSet` and `b2GetHashSetBytes` wait for their
-  consumers.
+- Destroy releases the item slice, clear preserves it for reuse, and the byte
+  getter reports its actual Go storage size.
 
 **Order 21 has landed**: `contact.go` — the cold `contact`, the warm
 `contactSim`, the collide dispatch table, `createContact`, `destroyContact`,
-`getContactSim` and `updateContact`. The world gains the
+`getContactSim`, `updateContact` and `computeManifold`. The world gains the
 contact storage and the mixing callbacks; the solver sets gain the contact
-sim arrays; `DestroyBody` destroys the attached contacts.
+sim arrays; `DestroyBody` and `DestroyShape` destroy attached contacts before
+releasing their owners.
 
 - The lazy register flag becomes a package `init`, which runs once and in a
   deterministic order.
@@ -275,9 +277,9 @@ sim arrays; `DestroyBody` destroys the attached contacts.
 - The pair set lives on the world for now. The reference hosts it on the
   broadphase; it moves there when the broadphase lands.
 - The end touch event, the pre-solve callback, the wake on destroy, the
-  island and constraint graph branches, `b2ComputeManifold` and the inverse
-  mass copies of the sim wait for their stages. `islandId` and `colorIndex`
-  stay `nullIndex` until then.
+  island and constraint graph branches and the inverse mass copies of the sim
+  wait for their stages. `islandId` and `colorIndex` stay `nullIndex` until
+  then.
 - The speculative two-point reduction of the reference tests point zero in
   both branches, so only the first branch can fire; the port keeps the live
   branch only.

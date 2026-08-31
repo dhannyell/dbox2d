@@ -68,6 +68,51 @@ func TestCreateContactLinksBothBodies(t *testing.T) {
 	}
 }
 
+// TestCreateContactFlipsReversedTypes checks that the dispatch table stores a
+// mixed pair in the primary order expected by its manifold function.
+func TestCreateContactFlipsReversedTypes(t *testing.T) {
+	worldId := createTestWorld(t)
+	circleBody := addDynamicCircle(t, worldId, v2(0, 0))
+	polygonBody := addDynamicBox(t, worldId, v2(1, 0))
+	w := getWorldFromId(worldId)
+	circle := firstShape(w, circleBody)
+	polygon := firstShape(w, polygonBody)
+
+	createContact(w, circle, polygon)
+
+	c := &w.contacts[0]
+	if c.shapeIdA != polygon.id || c.shapeIdB != circle.id {
+		t.Fatal("the reversed pair was not stored in primary dispatch order")
+	}
+}
+
+// TestCreateContactUsesDisabledSetForSleepingBodies checks the storage rule
+// for a non-touching contact whose bodies are both asleep.
+func TestCreateContactUsesDisabledSetForSleepingBodies(t *testing.T) {
+	worldId := createTestWorld(t)
+	addSleepingCircle := func(position Vec2) BodyId {
+		bodyDef := DefaultBodyDef()
+		bodyDef.Type = DynamicBody
+		bodyDef.Position = position
+		bodyDef.IsAwake = false
+		bodyId := CreateBody(worldId, &bodyDef)
+		shapeDef := DefaultShapeDef()
+		circle := Circle{Radius: fixed.Half()}
+		CreateCircleShape(bodyId, &shapeDef, &circle)
+		return bodyId
+	}
+
+	idA := addSleepingCircle(v2(0, 0))
+	idB := addSleepingCircle(v2(1, 0))
+	w := getWorldFromId(worldId)
+	createContact(w, firstShape(w, idA), firstShape(w, idB))
+
+	c := &w.contacts[0]
+	if c.setIndex != disabledSet || len(w.solverSets[disabledSet].contactSims) != 1 {
+		t.Fatal("the sleeping contact is not stored in the disabled set")
+	}
+}
+
 // TestUpdateContactCarriesTheStoredImpulse pins the id matching: the second
 // update finds the point of the first update and copies its impulse into
 // the warm start.
@@ -85,6 +130,9 @@ func TestUpdateContactCarriesTheStoredImpulse(t *testing.T) {
 	cs := getContactSim(w, c)
 	xfA := getBodyTransformQuick(w, getBodyFullId(w, idA))
 	xfB := getBodyTransformQuick(w, getBodyFullId(w, idB))
+	if temporary := computeManifold(shapeA, xfA, shapeB, xfB); temporary.PointCount != 1 {
+		t.Fatalf("temporary manifold point count %d, want 1", temporary.PointCount)
+	}
 
 	if !updateContact(w, cs, shapeA, xfA, Vec2Zero(), shapeB, xfB, Vec2Zero()) {
 		t.Fatal("the overlapping circles do not touch")
@@ -178,5 +226,42 @@ func TestDestroyBodyDestroysItsContacts(t *testing.T) {
 	}
 	if len(w.solverSets[awakeSet].contactSims) != 0 {
 		t.Errorf("the awake set still holds contact sims")
+	}
+}
+
+// TestDestroyShapeDestroysItsContacts checks the direct shape path. A freed
+// shape id must not remain in the pair set or in either body's contact list.
+func TestDestroyShapeDestroysItsContacts(t *testing.T) {
+	worldId := createTestWorld(t)
+
+	bodyDef := DefaultBodyDef()
+	bodyDef.Type = DynamicBody
+	bodyA := CreateBody(worldId, &bodyDef)
+	bodyDef.Position = v2(1, 0)
+	bodyB := CreateBody(worldId, &bodyDef)
+	shapeDef := DefaultShapeDef()
+	circle := Circle{Radius: fixed.Half()}
+	shapeIdA := CreateCircleShape(bodyA, &shapeDef, &circle)
+	CreateCircleShape(bodyB, &shapeDef, &circle)
+
+	w := getWorldFromId(worldId)
+	shapeA := firstShape(w, bodyA)
+	shapeB := firstShape(w, bodyB)
+	pairKey := shapePairKey(shapeA.id, shapeB.id)
+	createContact(w, shapeA, shapeB)
+
+	DestroyShape(shapeIdA, false)
+
+	if shapeIdA.IsValid() {
+		t.Fatal("the destroyed shape id is still valid")
+	}
+	for _, bodyId := range []BodyId{bodyA, bodyB} {
+		b := getBodyFullId(w, bodyId)
+		if b.contactCount != 0 || b.headContactKey != nullIndex {
+			t.Fatal("a body still holds the destroyed shape contact")
+		}
+	}
+	if w.pairSet.containsKey(pairKey) || len(w.solverSets[awakeSet].contactSims) != 0 {
+		t.Fatal("the destroyed shape contact remains in contact storage")
 	}
 }

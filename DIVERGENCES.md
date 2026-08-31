@@ -200,13 +200,17 @@ Numbering is sequential from `D-001` and never reused.
   shape and contact hashes use wrapping sums, so the iteration order of the
   storage does not affect the result. Application data stays out because it
   cannot change the simulation. Q values enter as raw bits; no float ever
-  does. A contact folds its shape ids and edge keys, because they name which
-  bodies it joins; two worlds therefore compare equal only when they create
-  their shapes in the same order. The witness value re-baselines in the same
-  commit that grows the fold.
-- Test: TestChecksumIsOrderIndependent, TestChecksumSeesAStateChange,
-  TestChecksumSeesFutureBehaviour and TestChecksumMatchesDeterministicWitness
-  in checksum_test.go, TestStepIsReproducibleBitForBit in step_test.go
+  does. A contact identifies each endpoint by the canonical body and shape
+  state instead of storage ids or linked-list keys. Its two orientations fold
+  to one value; contact points use a wrapping sum as well. Equivalent worlds
+  therefore keep one checksum even when bodies, shapes, contacts or manifold
+  points were created in another order. The witness contains a real contact
+  and re-baselines in the same commit that grows the fold.
+- Test: TestChecksumIsOrderIndependent,
+  TestChecksumContactsIgnoreCreationOrder, TestChecksumSeesContactState,
+  TestChecksumSeesAStateChange, TestChecksumSeesFutureBehaviour and
+  TestChecksumMatchesDeterministicWitness in checksum_test.go,
+  TestStepIsReproducibleBitForBit in step_test.go
 
 ### D-012 An epsilon guard becomes an exact zero test
 

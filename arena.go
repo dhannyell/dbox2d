@@ -35,6 +35,28 @@ func createArenaAllocator(capacity int) arenaAllocator {
 	}
 }
 
+// destroyArenaAllocator releases the arena storage. Go would reclaim the
+// slices eventually; clearing them here preserves the explicit lifetime of
+// b2DestroyArenaAllocator in src/arena_allocator.c.
+func destroyArenaAllocator(a *arenaAllocator) {
+	*a = arenaAllocator{}
+}
+
+// getArenaCapacity returns the number of bytes reserved by the arena.
+func getArenaCapacity(a *arenaAllocator) int {
+	return len(a.data)
+}
+
+// getArenaAllocation returns the number of bytes in live allocations.
+func getArenaAllocation(a *arenaAllocator) int {
+	return a.allocation
+}
+
+// getMaxArenaAllocation returns the largest live allocation total observed.
+func getMaxArenaAllocation(a *arenaAllocator) int {
+	return a.maxAllocation
+}
+
 // allocateItem returns scratch memory for the current step. The reference
 // rounds every size up to a multiple of 32 bytes for SIMD alignment; the
 // port keeps the rounding so the accounting numbers match.

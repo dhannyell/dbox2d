@@ -1,6 +1,9 @@
 package dbox2d
 
-import "math/bits"
+import (
+	"math/bits"
+	"unsafe"
+)
 
 // shapePairKey builds the ordered 64-bit key of a shape pair, so the pair
 // (a, b) and the pair (b, a) share one key. It corresponds to
@@ -36,6 +39,26 @@ func createSet(capacity int) hashSet {
 		n = 1 << bits.Len(uint(capacity-1))
 	}
 	return hashSet{items: make([]setItem, n)}
+}
+
+// destroySet releases the set storage. It corresponds to b2DestroySet in
+// src/table.c.
+func destroySet(s *hashSet) {
+	s.items = nil
+	s.count = 0
+}
+
+// clearSet removes every key without releasing the reserved storage. It
+// corresponds to b2ClearSet in src/table.c.
+func clearSet(s *hashSet) {
+	clear(s.items)
+	s.count = 0
+}
+
+// getHashSetBytes returns the storage occupied by the item array. It
+// corresponds to b2GetHashSetBytes in src/table.c.
+func getHashSetBytes(s *hashSet) int {
+	return len(s.items) * int(unsafe.Sizeof(setItem{}))
 }
 
 // keyHash mixes the key with the 64-bit Murmur finalizer. The keys come

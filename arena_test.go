@@ -8,9 +8,9 @@ func TestArenaNestsAllocations(t *testing.T) {
 	arena := createArenaAllocator(128)
 
 	first := arena.allocateItem(1, "first")
-	if len(first) != 32 || arena.allocation != 32 || arena.index != 32 {
+	if len(first) != 32 || getArenaAllocation(&arena) != 32 || arena.index != 32 {
 		t.Fatalf("allocate(1): len=%d allocation=%d index=%d, want 32 for all",
-			len(first), arena.allocation, arena.index)
+			len(first), getArenaAllocation(&arena), arena.index)
 	}
 
 	second := arena.allocateItem(33, "second")
@@ -23,9 +23,9 @@ func TestArenaNestsAllocations(t *testing.T) {
 
 	arena.freeItem(second)
 	arena.freeItem(first)
-	if arena.index != 0 || arena.allocation != 0 || arena.maxAllocation != 96 {
+	if arena.index != 0 || getArenaAllocation(&arena) != 0 || getMaxArenaAllocation(&arena) != 96 {
 		t.Fatalf("after frees: index=%d allocation=%d max=%d, want 0, 0, 96",
-			arena.index, arena.allocation, arena.maxAllocation)
+			arena.index, getArenaAllocation(&arena), getMaxArenaAllocation(&arena))
 	}
 }
 
@@ -60,8 +60,8 @@ func TestArenaGrowsToPeakUsage(t *testing.T) {
 	arena.freeItem(item)
 
 	arena.grow()
-	if len(arena.data) != 96+96/2 {
-		t.Fatalf("capacity after grow is %d, want %d", len(arena.data), 96+96/2)
+	if getArenaCapacity(&arena) != 96+96/2 {
+		t.Fatalf("capacity after grow is %d, want %d", getArenaCapacity(&arena), 96+96/2)
 	}
 
 	again := arena.allocateItem(96, "reuse")
@@ -69,4 +69,20 @@ func TestArenaGrowsToPeakUsage(t *testing.T) {
 		t.Fatalf("reuse still fell back to the heap, index=%d", arena.index)
 	}
 	arena.freeItem(again)
+}
+
+// TestDestroyArenaAllocator releases the backing slices and resets the
+// accounting before the arena leaves its owner.
+func TestDestroyArenaAllocator(t *testing.T) {
+	arena := createArenaAllocator(64)
+	item := arena.allocateItem(1, "item")
+	arena.freeItem(item)
+
+	destroyArenaAllocator(&arena)
+	if arena.data != nil || arena.entries != nil {
+		t.Fatal("destroy left arena storage reachable")
+	}
+	if getArenaCapacity(&arena) != 0 || getArenaAllocation(&arena) != 0 || getMaxArenaAllocation(&arena) != 0 {
+		t.Fatal("destroy left arena accounting behind")
+	}
 }

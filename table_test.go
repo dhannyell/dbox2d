@@ -77,3 +77,31 @@ func TestHashSetGrowsAndKeepsEveryKey(t *testing.T) {
 		t.Fatalf("count %d, want %d", set.count, n/2)
 	}
 }
+
+// TestHashSetClearAndDestroy checks the two ownership operations: clear keeps
+// the allocation reusable, while destroy releases it.
+func TestHashSetClearAndDestroy(t *testing.T) {
+	set := createSet(32)
+	capacity := len(set.items)
+	bytes := getHashSetBytes(&set)
+	set.addKey(shapePairKey(1, 2))
+	set.addKey(shapePairKey(3, 4))
+
+	clearSet(&set)
+	if set.count != 0 || len(set.items) != capacity || getHashSetBytes(&set) != bytes {
+		t.Fatal("clear changed the set allocation")
+	}
+	for _, item := range set.items {
+		if item != (setItem{}) {
+			t.Fatal("clear left an occupied slot")
+		}
+	}
+	if set.addKey(shapePairKey(5, 6)) {
+		t.Fatal("a key added after clear reported as present")
+	}
+
+	destroySet(&set)
+	if set.items != nil || set.count != 0 || getHashSetBytes(&set) != 0 {
+		t.Fatal("destroy left set storage or accounting behind")
+	}
+}

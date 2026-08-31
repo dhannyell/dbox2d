@@ -2,6 +2,7 @@ package dbox2d
 
 import (
 	"math"
+	"runtime"
 	"testing"
 
 	"github.com/dhannyell/fixed"
@@ -337,11 +338,13 @@ type f64Polygon struct {
 
 // f64Manifold mirrors the manifold fields that the collider writes.
 type f64Manifold struct {
-	nx, ny float64
-	anchor [2][2]float64
-	sep    [2]float64
-	ids    [2]uint16
-	count  int
+	nx, ny  float64
+	point   [2][2]float64
+	anchorA [2][2]float64
+	anchorB [2][2]float64
+	sep     [2]float64
+	ids     [2]uint16
+	count   int
 }
 
 func makeBoxF64(h float64) f64Polygon {
@@ -498,19 +501,19 @@ func clipPolygonsF64(polyA, polyB *f64Polygon, edgeA, edgeB int, flip bool) f64M
 
 	if !flip {
 		manifold.nx, manifold.ny = nx, ny
-		manifold.anchor[0] = [2]float64{vLx, vLy}
+		manifold.anchorA[0] = [2]float64{vLx, vLy}
 		manifold.sep[0] = separationLower - radius
 		manifold.ids[0] = makeId(i11, i22)
-		manifold.anchor[1] = [2]float64{vUx, vUy}
+		manifold.anchorA[1] = [2]float64{vUx, vUy}
 		manifold.sep[1] = separationUpper - radius
 		manifold.ids[1] = makeId(i12, i21)
 		manifold.count = 2
 	} else {
 		manifold.nx, manifold.ny = -nx, -ny
-		manifold.anchor[0] = [2]float64{vUx, vUy}
+		manifold.anchorA[0] = [2]float64{vUx, vUy}
 		manifold.sep[0] = separationUpper - radius
 		manifold.ids[0] = makeId(i21, i12)
-		manifold.anchor[1] = [2]float64{vLx, vLy}
+		manifold.anchorA[1] = [2]float64{vLx, vLy}
 		manifold.sep[1] = separationLower - radius
 		manifold.ids[1] = makeId(i22, i11)
 		manifold.count = 2
@@ -646,7 +649,7 @@ func collidePolygonsF64(polygonA *f64Polygon, aPx, aPy, aQc, aQs float64, polygo
 				c2y := by - localPolyB.radius*ny
 
 				manifold.nx, manifold.ny = nx, ny
-				manifold.anchor[0] = [2]float64{0.5 * (c1x + c2x), 0.5 * (c1y + c2y)}
+				manifold.anchorA[0] = [2]float64{0.5 * (c1x + c2x), 0.5 * (c1y + c2y)}
 				manifold.sep[0] = distance - radius
 				manifold.ids[0] = id
 				manifold.count = 1
@@ -672,9 +675,13 @@ func collidePolygonsF64(polygonA *f64Polygon, aPx, aPy, aQc, aQs float64, polygo
 		manifold.nx = aQc*nx - aQs*ny
 		manifold.ny = aQs*nx + aQc*ny
 		for i := range manifold.count {
-			ax := manifold.anchor[i][0] + originX
-			ay := manifold.anchor[i][1] + originY
-			manifold.anchor[i] = [2]float64{aQc*ax - aQs*ay, aQs*ax + aQc*ay}
+			ax := manifold.anchorA[i][0] + originX
+			ay := manifold.anchorA[i][1] + originY
+			anchorAX := aQc*ax - aQs*ay
+			anchorAY := aQs*ax + aQc*ay
+			manifold.anchorA[i] = [2]float64{anchorAX, anchorAY}
+			manifold.anchorB[i] = [2]float64{anchorAX + aPx - bPx, anchorAY + aPy - bPy}
+			manifold.point[i] = [2]float64{aPx + anchorAX, aPy + anchorAY}
 		}
 	}
 
@@ -689,13 +696,13 @@ func BenchmarkCollidePolygonsQ(b *testing.B) {
 	xfA := TransformIdentity()
 	xfB := Transform{P: Vec2{Y: fixed.MustParse("1.5")}, Q: RotIdentity()}
 
-	var sink int
+	var result Manifold
 	b.ResetTimer()
 	for range b.N {
-		m := CollidePolygons(&boxA, xfA, &boxB, xfB)
-		sink += m.PointCount
+		result = CollidePolygons(&boxA, xfA, &boxB, xfB)
 	}
-	if sink == 0 {
+	runtime.KeepAlive(result)
+	if result.PointCount == 0 {
 		b.Fatal("the boxes did not collide")
 	}
 }
@@ -705,13 +712,13 @@ func BenchmarkCollidePolygonsF64(b *testing.B) {
 	boxA := makeBoxF64(1)
 	boxB := makeBoxF64(1)
 
-	var sink int
+	var result f64Manifold
 	b.ResetTimer()
 	for range b.N {
-		m := collidePolygonsF64(&boxA, 0, 0, 1, 0, &boxB, 0, 1.5, 1, 0)
-		sink += m.count
+		result = collidePolygonsF64(&boxA, 0, 0, 1, 0, &boxB, 0, 1.5, 1, 0)
 	}
-	if sink == 0 {
+	runtime.KeepAlive(result)
+	if result.count == 0 {
 		b.Fatal("the boxes did not collide")
 	}
 }

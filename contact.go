@@ -468,3 +468,12 @@ func updateContact(w *world, cs *contactSim, shapeA *shape, transformA Transform
 
 	return touching
 }
+
+// computeManifold computes a temporary manifold through the contact dispatch
+// table. It corresponds to b2ComputeManifold in src/contact.c and starts with
+// an empty simplex cache because the result is not a persistent contact.
+func computeManifold(shapeA *shape, transformA Transform, shapeB *shape, transformB Transform) Manifold {
+	fcn := contactRegisters[shapeA.shapeType][shapeB.shapeType].fcn
+	cache := SimplexCache{}
+	return fcn(shapeA, transformA, shapeB, transformB, &cache)
+}

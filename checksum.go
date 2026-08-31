@@ -163,46 +163,80 @@ func checksumBody(w *world, b *body) uint64 {
 	return fnvFold(h, shapeSum)
 }
 
-func checksumManifold(h uint64, m *Manifold) uint64 {
-	h = checksumVec2(h, m.Normal)
-	h = checksumQ(h, m.RollingImpulse)
-	h = fnvFold(h, uint64(m.PointCount))
+func checksumManifold(h uint64, m *Manifold, swap bool) uint64 {
+	normal := m.Normal
+	rollingImpulse := m.RollingImpulse
+	if swap {
+		normal = Neg(normal)
+		rollingImpulse = rollingImpulse.Neg()
+	}
+
+	h = checksumVec2(h, normal)
+	h = checksumQ(h, rollingImpulse)
+
+	var pointSum uint64
 	for i := range m.PointCount {
 		p := &m.Points[i]
-		h = checksumVec2(h, p.Point)
-		h = checksumVec2(h, p.AnchorA)
-		h = checksumVec2(h, p.AnchorB)
-		h = checksumQ(h, p.Separation)
-		h = checksumQ(h, p.NormalImpulse)
-		h = checksumQ(h, p.TangentImpulse)
-		h = checksumQ(h, p.TotalNormalImpulse)
-		h = checksumQ(h, p.NormalVelocity)
-		h = fnvFold(h, uint64(p.Id))
-		h = checksumBool(h, p.Persisted)
+		anchorA := p.AnchorA
+		anchorB := p.AnchorB
+		id := p.Id
+		if swap {
+			anchorA, anchorB = anchorB, anchorA
+			id = id<<8 | id>>8
+		}
+
+		pointHash := fnvOffsetBasis
+		pointHash = checksumVec2(pointHash, p.Point)
+		pointHash = checksumVec2(pointHash, anchorA)
+		pointHash = checksumVec2(pointHash, anchorB)
+		pointHash = checksumQ(pointHash, p.Separation)
+		pointHash = checksumQ(pointHash, p.NormalImpulse)
+		pointHash = checksumQ(pointHash, p.TangentImpulse)
+		pointHash = checksumQ(pointHash, p.TotalNormalImpulse)
+		pointHash = checksumQ(pointHash, p.NormalVelocity)
+		pointHash = fnvFold(pointHash, uint64(id))
+		pointHash = checksumBool(pointHash, p.Persisted)
+		pointSum += pointHash
 	}
-	return h
+	h = fnvFold(h, uint64(m.PointCount))
+	return fnvFold(h, pointSum)
 }
 
-func checksumContact(w *world, c *contact) uint64 {
-	cs := getContactSim(w, c)
+func checksumContactEndpoint(w *world, shapeId int) uint64 {
+	s := &w.shapes[shapeId]
+	b := &w.bodies[s.bodyId]
+
+	h := fnvOffsetBasis
+	h = fnvFold(h, checksumBody(w, b))
+	return fnvFold(h, checksumShape(s))
+}
+
+func checksumContactOrientation(c *contact, cs *contactSim, endpointA, endpointB uint64, swap bool) uint64 {
+	if swap {
+		endpointA, endpointB = endpointB, endpointA
+	}
 
 	h := fnvOffsetBasis
 	h = fnvFold(h, checksumSetKind(c.setIndex))
-	h = fnvFold(h, uint64(int64(c.shapeIdA)))
-	h = fnvFold(h, uint64(int64(c.shapeIdB)))
+	h = fnvFold(h, endpointA)
+	h = fnvFold(h, endpointB)
 	h = fnvFold(h, uint64(c.flags))
-	for i := range c.edges {
-		h = fnvFold(h, uint64(int64(c.edges[i].bodyId)))
-		h = fnvFold(h, uint64(int64(c.edges[i].prevKey)))
-		h = fnvFold(h, uint64(int64(c.edges[i].nextKey)))
-	}
-
 	h = checksumQ(h, cs.friction)
 	h = checksumQ(h, cs.restitution)
 	h = checksumQ(h, cs.rollingResistance)
 	h = checksumQ(h, cs.tangentSpeed)
 	h = fnvFold(h, uint64(cs.simFlags))
-	return checksumManifold(h, &cs.manifold)
+	return checksumManifold(h, &cs.manifold, swap)
+}
+
+func checksumContact(w *world, c *contact) uint64 {
+	cs := getContactSim(w, c)
+	endpointA := checksumContactEndpoint(w, c.shapeIdA)
+	endpointB := checksumContactEndpoint(w, c.shapeIdB)
+
+	forward := checksumContactOrientation(c, cs, endpointA, endpointB, false)
+	reverse := checksumContactOrientation(c, cs, endpointA, endpointB, true)
+	return min(forward, reverse)
 }
 
 // Checksum folds the complete deterministic state of a world into one
