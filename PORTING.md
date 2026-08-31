@@ -213,6 +213,15 @@ assertions retained by the step, and D-004 and D-006 grew `solver.go` entries.
 - One worker replaces the task system. The stage order is the contract that
   a second executor must keep.
 
+**Order 18 has landed**: `arena.go`.
+
+- The arena keeps the 32-byte size rounding of the reference, so the
+  accounting numbers match even though Go has no SIMD alignment need.
+- The heap fallback becomes a Go allocation. Arena slices carry a capped
+  capacity, so an append by the caller cannot grow over the next entry.
+- `b2DestroyArenaAllocator` and the getter functions wait for the consumer;
+  the world adopts the arena when a stage allocates through it.
+
 ## The map
 
 `Order` is the port sequence. A dash means the file waits for a later stage.
