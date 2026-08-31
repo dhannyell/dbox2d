@@ -15,6 +15,34 @@ Read the reference with `git show`, `git log` and `git blame` against that
 branch. Blame is part of the method: when an upstream line looks strange, the
 commit that introduced it usually names the bug it answers.
 
+## Layout
+
+The reference keeps its 59 sources flat in `src/`. The port mirrors that: one
+upstream file becomes one Go file at the module root, and the whole solver is
+one package. Go binds a package to a directory, so a subdirectory would split
+the solver into several packages and force its internals to become public. The
+flat layout keeps the internals internal and keeps each file beside the
+upstream file it answers to.
+
+A name is exported when the reference exports it from `include/box2d/`, plus
+the tolerances of `constants.h`, which content authoring needs. Everything
+else that the reference keeps under `src/` stays unexported here.
+
+A sizing constant lands with the file that reads it, not before. A constant
+with no consumer is dead weight that the compiler cannot check.
+
+## The order of operations
+
+Two rules follow from the arithmetic and apply to every file of the port.
+
+**A negation goes before the product.** The reference writes `-s * x`, which
+in C negates the operand. `Q.Mul` floors its result, and the floor of a
+negative product is not the negative of the floor, so negating the product
+instead shifts the result by one raw unit. Write `s.Neg().Mul(x)`.
+
+**A reciprocal becomes a division.** See `D-006`. The reference computes
+`1/d` once and multiplies by it; the port divides each term by `d`.
+
 ## Tiers
 
 | Tier | Rule |
@@ -74,6 +102,40 @@ solves the constraints that no color accepted. The `Task` family is the SIMD
 one. The scalar family is a faithful in-repository reference for the whole
 solver, so the port never has to invent the scalar form of the vector code.
 
+## Progress
+
+**Orders 1 to 6 have landed**: `constants.go`, `core.go`, `math.go`,
+`aabb.go`, `id.go` and `id_pool.go`. Seven divergences came with them, D-001
+to D-007. The notes below record what moved and what did not cross.
+
+- The `b2AABB` type and its inline helpers sit in
+  `include/box2d/math_functions.h` upstream. The port keeps them with the rest
+  of the box code, in `aabb.go`.
+- `b2AABB_RayCast` waits for `collision.go`, order 7, which owns the cast
+  output type.
+- `b2MinInt`, `b2MaxInt`, `b2AbsInt`, `b2MinFloat`, `b2MaxFloat`, `b2AbsFloat`
+  and `b2ClampFloat` do not cross. Go and the fixed-point module already give
+  them. `ClampInt` crosses, because Go has no three-argument clamp.
+- `b2CosSin` and `b2ComputeCosSin` do not cross. The fixed-point module owns
+  the sine and the cosine.
+- `b2GetIdBytes` does not cross. The size of an int changes with the platform,
+  and a public number that changes with the platform is a trap in a
+  deterministic library.
+- `b2GetVersion` becomes `ReferenceVersion`. It names the Box2D release that
+  this package ports; the module carries its own version.
+- The tree node flags of `constants.h` wait for `dynamic_tree.go`, order 27.
+- `b2Lerp` keeps the upstream weighted form, which returns each end exactly.
+  The fixed-point module interpolates by a scaled difference, so the two
+  round differently and the port does not delegate.
+- `b2Perimeter` and `b2EnlargeAABB` live in `src/aabb.h`, so they stay
+  unexported. Their consumer is the dynamic tree, order 27.
+- `B2_NULL_INDEX`, `B2_HUGE`, `B2_MAX_WORKERS`, `B2_GRAPH_COLOR_COUNT` and
+  `B2_MAX_WORLDS` wait for the files that read them: the body storage, the
+  worker pool, the constraint graph, the world registry and the input
+  validation of the world.
+- The import allowlist accepts the standard library and the fixed-point
+  module. `math/bits` and `sync/atomic` arrive with the broadphase.
+
 ## The map
 
 `Order` is the port sequence. A dash means the file waits for a later stage.
@@ -83,10 +145,11 @@ solver, so the port never has to invent the scalar form of the vector code.
 | `src/constants.h` | `constants.go` | T1 | foundation | 1 | Each constant keeps the upstream value in a comment. `B2_LINEAR_SLOP` is 0.005 m; the speculative distance is four slops. |
 | `include/box2d/base.h`, `src/core.h`, `src/core.c` | `core.go` | T1/T2 | foundation | 2 | Platform, SIMD and profiler macros do not cross. Allocation hooks become Go allocation. |
 | `include/box2d/math_functions.h`, `src/math_functions.c` | `math.go` | T1/T2 | foundation | 3 | Vector and rotation come from the fixed-point module. Only the shapes that module lacks stay here: `Transform`, sweeps, validation. |
-| `src/aabb.h`, `src/aabb.c` | `aabb.go` | T0 | foundation | 4 | Union, overlap, contains, ray cast. |
+| `src/aabb.h` | `aabb.go` | T0 | foundation | 4 | Union, overlap and contains. |
 | `include/box2d/id.h` | `id.go` | T0 | foundation | 5 | Index plus generation handles. |
 | `src/id_pool.h`, `src/id_pool.c` | `id_pool.go` | T0 | foundation | 6 | Free list over a monotonic index. |
 | `include/box2d/collision.h` | `collision.go` | T0 | foundation | 7 | Shape structs, manifold structs, cast input and output. |
+| `src/aabb.c` | `collision.go` | T0 | foundation | 7 | AABB ray cast; waits for the cast output type. |
 | `src/hull.c` | `hull.go` | T0 | foundation | 8 | Recursive quickhull. Its tolerances are T2 candidates. |
 | `src/geometry.c` | `geometry.go` | T0/T1 | foundation | 9 | Shape constructors, mass data, AABB per shape, point tests, ray casts. |
 | `include/box2d/types.h`, `src/types.c` | `types.go` | T1 | foundation | 10 | Definition structs and their defaults. |

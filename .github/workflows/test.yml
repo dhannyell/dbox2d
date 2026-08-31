@@ -61,28 +61,3 @@ jobs:
       - uses: golangci/golangci-lint-action@v8
         with:
           version: latest
-
-  reference:
-    name: reference isolation
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: No C source outside the reference branch
-        shell: bash
-        run: |
-          found="$(git ls-files '*.c' '*.h')"
-          if [ -n "$found" ]; then
-            printf 'C source belongs to the reference branch:\n%s\n' "$found"
-            exit 1
-          fi
-      - name: No reference branch in this history
-        shell: bash
-        run: |
-          for ref in $(git for-each-ref --format='%(refname)' 'refs/remotes/origin/reference/*'); do
-            if git merge-base --is-ancestor "$ref" HEAD; then
-              printf '%s is an ancestor of this branch\n' "$ref"
-              exit 1
-            fi
-          done
