@@ -47,7 +47,7 @@ Numbering is sequential from `D-001` and never reused.
 ### D-003 An assertion becomes a panic
 
 - Files: id_pool.go, aabb.go, math.go, hull.go, geometry.go, step.go,
-  solver.go, manifold.go (upstream `B2_ASSERT`)
+  solver.go, manifold.go, table.go, contact.go (upstream `B2_ASSERT`)
 - Tier: T2
 - Reason: `B2_ASSERT` compiles out in a release build. Go has no such switch,
   and a silent corruption costs more than a stop.
@@ -196,10 +196,14 @@ Numbering is sequential from `D-001` and never reused.
   equality. A fixed-point world does, and the promise needs a witness that
   the tests and a network peer can compare.
 - Behaviour: `Checksum` folds the deterministic world configuration and the
-  complete simulation state of every live body and shape. Body and shape
-  hashes use wrapping sums, so internal ids and creation order do not affect
-  the result. Application data stays out because it cannot change the
-  simulation. Q values enter as raw bits; no float ever does.
+  complete simulation state of every live body, shape and contact. Body,
+  shape and contact hashes use wrapping sums, so the iteration order of the
+  storage does not affect the result. Application data stays out because it
+  cannot change the simulation. Q values enter as raw bits; no float ever
+  does. A contact folds its shape ids and edge keys, because they name which
+  bodies it joins; two worlds therefore compare equal only when they create
+  their shapes in the same order. The witness value re-baselines in the same
+  commit that grows the fold.
 - Test: TestChecksumIsOrderIndependent, TestChecksumSeesAStateChange,
   TestChecksumSeesFutureBehaviour and TestChecksumMatchesDeterministicWitness
   in checksum_test.go, TestStepIsReproducibleBitForBit in step_test.go

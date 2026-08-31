@@ -113,7 +113,7 @@ func TestChecksumMatchesDeterministicWitness(t *testing.T) {
 		Step(worldId, dt, 4)
 	}
 
-	const want uint64 = 8463437550946494699
+	const want uint64 = 10536231650420157355
 	if got := Checksum(worldId); got != want {
 		t.Errorf("checksum = %d, want %d", got, want)
 	}

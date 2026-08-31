@@ -316,6 +316,21 @@ func getShapeCentroid(s *shape) Vec2 {
 	}
 }
 
+// getShapeRadius returns the round radius of a shape. Segments have no
+// radius. It corresponds to b2GetShapeRadius in src/shape.h.
+func getShapeRadius(s *shape) Q {
+	switch s.shapeType {
+	case CapsuleShape:
+		return s.capsule.Radius
+	case CircleShape:
+		return s.circle.Radius
+	case PolygonShape:
+		return s.polygon.Radius
+	default:
+		return fixed.Zero()
+	}
+}
+
 // computeShapeMass returns the mass data of a shape. Segments have no area,
 // so they return zero mass.
 func computeShapeMass(s *shape) MassData {

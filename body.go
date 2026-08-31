@@ -300,8 +300,18 @@ func DestroyBody(bodyId BodyId) {
 
 	b := getBodyFullId(w, bodyId)
 
-	// Deferred: the joints and the contacts attached to the body go away
-	// here.
+	// Deferred: the joints attached to the body go away here.
+
+	// Destroy the attached contacts.
+	edgeKey := b.headContactKey
+	for edgeKey != nullIndex {
+		contactId := edgeKey >> 1
+		edgeIndex := edgeKey & 1
+
+		c := &w.contacts[contactId]
+		edgeKey = c.edges[edgeIndex].nextKey
+		destroyContact(w, c, false)
+	}
 
 	// Destroy the attached shapes. Deferred: their broad-phase proxies and
 	// their sensor records.

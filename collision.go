@@ -216,3 +216,18 @@ type Manifold struct {
 	// PointCount is zero, one or two.
 	PointCount int
 }
+
+// SimplexCache warm starts the distance solver between two steps. The zero
+// value is an empty cache. The solver that fills it comes with the distance
+// module; until then the cache is carried but stays empty. It corresponds to
+// b2SimplexCache in include/box2d/collision.h.
+type SimplexCache struct {
+	// Count is the number of stored simplex vertices.
+	Count uint16
+
+	// IndexA holds the vertices of shape A on the simplex.
+	IndexA [3]uint8
+
+	// IndexB holds the vertices of shape B on the simplex.
+	IndexB [3]uint8
+}

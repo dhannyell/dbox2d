@@ -163,10 +163,52 @@ func checksumBody(w *world, b *body) uint64 {
 	return fnvFold(h, shapeSum)
 }
 
+func checksumManifold(h uint64, m *Manifold) uint64 {
+	h = checksumVec2(h, m.Normal)
+	h = checksumQ(h, m.RollingImpulse)
+	h = fnvFold(h, uint64(m.PointCount))
+	for i := range m.PointCount {
+		p := &m.Points[i]
+		h = checksumVec2(h, p.Point)
+		h = checksumVec2(h, p.AnchorA)
+		h = checksumVec2(h, p.AnchorB)
+		h = checksumQ(h, p.Separation)
+		h = checksumQ(h, p.NormalImpulse)
+		h = checksumQ(h, p.TangentImpulse)
+		h = checksumQ(h, p.TotalNormalImpulse)
+		h = checksumQ(h, p.NormalVelocity)
+		h = fnvFold(h, uint64(p.Id))
+		h = checksumBool(h, p.Persisted)
+	}
+	return h
+}
+
+func checksumContact(w *world, c *contact) uint64 {
+	cs := getContactSim(w, c)
+
+	h := fnvOffsetBasis
+	h = fnvFold(h, checksumSetKind(c.setIndex))
+	h = fnvFold(h, uint64(int64(c.shapeIdA)))
+	h = fnvFold(h, uint64(int64(c.shapeIdB)))
+	h = fnvFold(h, uint64(c.flags))
+	for i := range c.edges {
+		h = fnvFold(h, uint64(int64(c.edges[i].bodyId)))
+		h = fnvFold(h, uint64(int64(c.edges[i].prevKey)))
+		h = fnvFold(h, uint64(int64(c.edges[i].nextKey)))
+	}
+
+	h = checksumQ(h, cs.friction)
+	h = checksumQ(h, cs.restitution)
+	h = checksumQ(h, cs.rollingResistance)
+	h = checksumQ(h, cs.tangentSpeed)
+	h = fnvFold(h, uint64(cs.simFlags))
+	return checksumManifold(h, &cs.manifold)
+}
+
 // Checksum folds the complete deterministic state of a world into one
 // integer. Application data and internal ids are excluded because they do not
-// affect simulation. Bodies and shapes use commutative folds, so equivalent
-// worlds do not depend on creation order.
+// affect simulation. Bodies, shapes and contacts use commutative folds, so
+// equivalent worlds do not depend on creation order.
 func Checksum(worldId WorldId) uint64 {
 	w := getWorldFromId(worldId)
 
@@ -197,5 +239,18 @@ func Checksum(worldId WorldId) uint64 {
 		bodyCount++
 	}
 	h = fnvFold(h, uint64(bodyCount))
-	return fnvFold(h, bodySum)
+	h = fnvFold(h, bodySum)
+
+	var contactSum uint64
+	contactCount := 0
+	for i := range w.contacts {
+		c := &w.contacts[i]
+		if c.contactId == nullIndex {
+			continue
+		}
+		contactSum += checksumContact(w, c)
+		contactCount++
+	}
+	h = fnvFold(h, uint64(contactCount))
+	return fnvFold(h, contactSum)
 }

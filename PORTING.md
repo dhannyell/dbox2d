@@ -261,6 +261,29 @@ bookkeeping needs the pair set.
 - `b2DestroySet`, `b2ClearSet` and `b2GetHashSetBytes` wait for their
   consumers.
 
+**Order 21 has landed**: `contact.go` — the cold `contact`, the warm
+`contactSim`, the collide dispatch table, `createContact`, `destroyContact`,
+`getContactSim` and `updateContact`. The world gains the
+contact storage and the mixing callbacks; the solver sets gain the contact
+sim arrays; `DestroyBody` destroys the attached contacts.
+
+- The lazy register flag becomes a package `init`, which runs once and in a
+  deterministic order.
+- The chain segment pairs against capsule and polygon stay out of the
+  register until the iterative distance solver lands; their nil entries make
+  `createContact` skip the pair.
+- The pair set lives on the world for now. The reference hosts it on the
+  broadphase; it moves there when the broadphase lands.
+- The end touch event, the pre-solve callback, the wake on destroy, the
+  island and constraint graph branches, `b2ComputeManifold` and the inverse
+  mass copies of the sim wait for their stages. `islandId` and `colorIndex`
+  stay `nullIndex` until then.
+- The speculative two-point reduction of the reference tests point zero in
+  both branches, so only the first branch can fire; the port keeps the live
+  branch only.
+- `b2SimplexCache` enters as a data-only struct. The distance solver that
+  fills it comes later; until then every dispatch runs with an empty cache.
+
 ## The map
 
 `Order` is the port sequence. A dash means the file waits for a later stage.
