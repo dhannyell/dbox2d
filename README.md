@@ -39,21 +39,24 @@ go get github.com/dhannyell/dbox2d
 ## Performance
 
 Fixed point buys determinism and pays in speed. The repository measures that
-price with a benchmark pair in `bench_test.go`: the velocity integrator in
-Q32.32, and a line-by-line `float64` mirror of the same code, which stands in
-for the floating-point formulation of the reference.
+price with two benchmark pairs in `bench_test.go`. Each pair runs the Q32.32
+code against a line-by-line `float64` mirror of the same code, which stands
+in for the floating-point formulation of the reference.
 
 | Benchmark (1024 bodies, amd64) | Median time | Allocations |
 | --- | --- | --- |
-| Velocity integration, Q32.32 | ~41 µs | 0 |
-| Velocity integration, `float64` mirror | ~4.8 µs | 0 |
-| Full `Step`, 4 sub-steps, Q32.32 | ~0.5 ms | 0 |
+| Full `Step`, 4 sub-steps, Q32.32 | ~0.50 ms | 0 |
+| Full `Step`, 4 sub-steps, `float64` mirror | ~0.11 ms | 0 |
+| Velocity integration only, Q32.32 | ~41 µs | 0 |
+| Velocity integration only, `float64` mirror | ~4.8 µs | 0 |
 
-The fixed-point integrator runs about 8.5× slower than its `float64` mirror.
-The dominant cost is division: each Q division is a 128-by-64-bit hardware
-divide, and the damping factor alone takes three of them per body. A full
-`Step` costs about 0.5 µs per body and allocates nothing after the world is
-built.
+The composite number is the honest one: a full `Step` runs about **4.4×**
+slower than its `float64` mirror, at about 0.5 µs per body, and allocates
+nothing after the world is built. The micro pair explains where the cost
+lives: the velocity integrator alone pays about 8.5×, because each Q division
+is a 128-by-64-bit hardware divide and the damping factor takes three of them
+per body. The rest of the pipeline, with its square roots, normalizations and
+bounds work, dilutes that hot spot.
 
 These numbers come from one machine (Ryzen 7 5800X3D) and one snapshot of the
 code. Run `go test -run "^$" -bench . -benchmem` for your own.
