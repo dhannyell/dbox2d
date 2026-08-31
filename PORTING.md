@@ -180,7 +180,7 @@ adds no arithmetic divergence.
   before its cross product, because the cross needs radians per second.
 - Where the reference creates a broad-phase proxy, the port calls
   `updateShapeAABBs` and leaves `proxyKey` null, so the stored bounds stay
-  faithful. The proxy arrives with order 28.
+  faithful. The proxy arrives with order 30.
 - A sensor shape panics until the sensor module lands. The chains, joints,
   contacts, islands and events defer the same way: `b2CreateBody`,
   `b2DestroyBody` and `b2DestroyShapeInternal` cross with their deferred
@@ -190,6 +190,23 @@ adds no arithmetic divergence.
 - `b2WakeBody`, `b2ShouldBodiesCollide`, `b2MakeSweep`, the wake, sleep and
   merge of solver sets and the step, query and cast surface of `world.c`
   wait for their stages.
+
+**Orders 16 and 17 have landed**: `step.go`, the integration skeleton in
+`solver.go` and `checksum.go`. D-011 came with them, and D-004 and D-006 grew
+`solver.go` entries.
+
+- `Step` mirrors `b2World_Step`. The event, broad-phase, collision, softness
+  and sensor blocks are deferred with comments at their points. A zero time
+  step returns early, as the reference does.
+- The sub-step keeps the stage order of the reference: integrate velocities,
+  the deferred constraint stages, integrate positions. The body finalize
+  runs once, after the loop.
+- The damping factor becomes a division per D-006. The torque delta and the
+  arc speed of the sleep test scale by one turn per D-004.
+- The finalize refreshes the fat bounds directly. The `enlargedAABB` flag
+  and the bit sets stay with the broad-phase.
+- One worker replaces the task system. The stage order is the contract that
+  a second executor must keep.
 
 ## The map
 
@@ -206,27 +223,29 @@ adds no arithmetic divergence.
 | `include/box2d/collision.h` | `collision.go` | T0 | foundation | 7 | Shape structs, manifold structs, cast input and output. |
 | `src/aabb.c` | `aabb.go` | T0/T2 | foundation | 7 | AABB ray cast, unexported: `src/aabb.h` declares it, `include/box2d/` does not. `IsValidAABB` landed with order 4. See D-006, D-008 and D-009. |
 | `src/hull.c` | `hull.go` | T0/T2 | foundation | 8 | Recursive quickhull. Its tolerances are multiples of the linear slop, so only the `FLT_MAX` seed diverged. See D-009. |
-| `src/geometry.c` | `geometry.go` | T0/T1/T2 | foundation | 9 | Shape constructors, mass data, AABB per shape, point tests, ray casts. The shape casts and the mover collisions wait for order 17. |
+| `src/geometry.c` | `geometry.go` | T0/T1/T2 | foundation | 9 | Shape constructors, mass data, AABB per shape, point tests, ray casts. The shape casts and the mover collisions wait for order 19. |
 | `include/box2d/types.h`, `src/types.c` | `types.go` | T1 | foundation | 10 | Definition structs and their defaults. |
 | `src/body.h`, `src/body.c` | `body.go` | T0/T2 | foundation | 11 | `body`, `bodySim`, `bodyState`, unexported: `src/body.h` declares them. Layout preserved. The mass update scales the angular velocity by one turn; see D-004. The islands and the body events wait for the solver. |
 | `src/shape.h`, `src/shape.c` | `shape.go` | T0 | foundation | 12 | Shape storage and the mass, AABB, centroid and extent dispatchers. The proxies, sensors, chains and cast queries wait for their stages. |
 | `src/solver_set.h`, `src/solver_set.c` | `solver_set.go` | T0 | foundation | 13 | Static, awake, disabled and sleeping sets; body transfer between them. The joint, contact and island arrays wait for the solver. |
-| `src/world.h`, `src/world.c` | `world.go` | T0 | foundation | 14 | Split across stages. The foundation takes the registry, creation, destruction, the validity checks and the trimmed set validation. The step waits for the solver. |
+| `src/world.h`, `src/world.c` | `world.go` | T0 | foundation | 14 | Split across stages. The foundation takes the registry, creation, destruction, the validity checks and the trimmed set validation. `b2World_Step` landed with order 16 in `step.go`; the query and cast surface waits. |
 | `src/array.h`, `src/array.c` | `array.go` | T2 | foundation | 15 | The macro-generated array template becomes a Go slice; `removeSwap` keeps the swap-remove contract. Capacity follows the Go runtime and never enters a result. See D-010. |
-| `src/arena_allocator.h`, `src/arena_allocator.c` | `arena.go` | T1 | foundation | 16 | Per-step scratch. It is how the step allocates nothing. |
-| `src/distance.c` (segment distance, proxies) | `distance.go` | T0 | manifolds | 17 | Closed-form part only. |
-| `src/manifold.c` | `manifold.go` | T0/T1 | manifolds | 18 | Eight `FLT_EPSILON` guards become exact zero tests, one T2 entry each. |
-| `src/contact.h`, `src/contact.c` | `contact.go` | T0 | manifolds | 19 | Contact bookkeeping and the collide dispatch table. |
-| `src/table.h`, `src/table.c` | `table.go` | T0 | manifolds | 20 | Open-addressing set of contact pairs. |
-| `src/solver.h`, `src/solver.c` | `solver.go` | T0/T1 | solver | 21 | Nine ordered stages, from prepare joints to store impulses. `MakeSoft` is pure arithmetic. |
-| `src/contact_solver.h`, `src/contact_solver.c` | `contact_solver.go` | T0/T1 | solver | 22 | Port the `Overflow` family. The `Task` family is T2 until the second executor exists. |
-| `src/island.h`, `src/island.c` | `island.go` | T0 | solver | 23 | Island linking, merging, splitting, sleeping. |
-| `src/constraint_graph.h`, `src/constraint_graph.c` | `constraint_graph.go` | T0 | solver | 24 | Twelve colors plus the overflow set. The color schedule is the parallel contract. |
-| `src/bitset.h`, `src/bitset.c` | `bitset.go` | T0 | broadphase | 25 | Backs island splitting and pair finding. |
-| `src/ctz.h` | `math/bits` | T2 | broadphase | 26 | The standard library replaces the compiler intrinsics. |
-| `src/dynamic_tree.c` | `dynamic_tree.go` | T0 | broadphase | 27 | Fattened AABBs, surface-area heuristic, rotation rebalance. |
-| `src/broad_phase.h`, `src/broad_phase.c` | `broad_phase.go` | T0 | broadphase | 28 | Pair output is sorted by integer id, so any equivalent tree gives the same world. |
-| `src/atomic.h` | `sync/atomic` | T2 | broadphase | 29 | Needed only when a second executor exists. |
+| `src/world.c` (`b2World_Step`), `src/solver.h` (`b2StepContext`) | `step.go` | T1 | foundation | 16 | The step surface: validation, the context, the sub-step split, the locked flag. The softness setup, the events and the collision blocks wait for their stages. |
+| — | `checksum.go` | T2 | foundation | 17 | Port-only determinism witness: FNV-1a over raw Q bits, commutative over the bodies. See D-011. |
+| `src/arena_allocator.h`, `src/arena_allocator.c` | `arena.go` | T1 | foundation | 18 | Per-step scratch. It is how the step allocates nothing. |
+| `src/distance.c` (segment distance, proxies) | `distance.go` | T0 | manifolds | 19 | Closed-form part only. |
+| `src/manifold.c` | `manifold.go` | T0/T1 | manifolds | 20 | Eight `FLT_EPSILON` guards become exact zero tests, one T2 entry each. |
+| `src/contact.h`, `src/contact.c` | `contact.go` | T0 | manifolds | 21 | Contact bookkeeping and the collide dispatch table. |
+| `src/table.h`, `src/table.c` | `table.go` | T0 | manifolds | 22 | Open-addressing set of contact pairs. |
+| `src/solver.h`, `src/solver.c` | `solver.go` | T0/T1/T2 | solver | 23 | Nine ordered stages, from prepare joints to store impulses. `MakeSoft` is pure arithmetic. The integration tasks, the body finalize and the single-worker sub-step order landed with order 16; see D-004 and D-006. The constraint stages wait. |
+| `src/contact_solver.h`, `src/contact_solver.c` | `contact_solver.go` | T0/T1 | solver | 24 | Port the `Overflow` family. The `Task` family is T2 until the second executor exists. |
+| `src/island.h`, `src/island.c` | `island.go` | T0 | solver | 25 | Island linking, merging, splitting, sleeping. |
+| `src/constraint_graph.h`, `src/constraint_graph.c` | `constraint_graph.go` | T0 | solver | 26 | Twelve colors plus the overflow set. The color schedule is the parallel contract. |
+| `src/bitset.h`, `src/bitset.c` | `bitset.go` | T0 | broadphase | 27 | Backs island splitting and pair finding. |
+| `src/ctz.h` | `math/bits` | T2 | broadphase | 28 | The standard library replaces the compiler intrinsics. |
+| `src/dynamic_tree.c` | `dynamic_tree.go` | T0 | broadphase | 29 | Fattened AABBs, surface-area heuristic, rotation rebalance. |
+| `src/broad_phase.h`, `src/broad_phase.c` | `broad_phase.go` | T0 | broadphase | 30 | Pair output is sorted by integer id, so any equivalent tree gives the same world. |
+| `src/atomic.h` | `sync/atomic` | T2 | broadphase | 31 | Needed only when a second executor exists. |
 | `include/box2d/box2d.h` | public API | T0 | all stages | — | The public surface arrives file by file with its owner. |
 | `src/joint.h`, `src/joint.c` | `joint.go` | T3 | later | — | Eight joint types follow it. |
 | `src/distance_joint.c`, `src/motor_joint.c`, `src/mouse_joint.c`, `src/prismatic_joint.c`, `src/revolute_joint.c`, `src/weld_joint.c`, `src/wheel_joint.c` | one file each | T3 | later | — | Ports after the solver is proven. |
