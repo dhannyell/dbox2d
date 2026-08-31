@@ -250,6 +250,17 @@ then the polygon colliders: `makeCapsule`, `clipPolygons`,
 - `clipSegments` has no caller yet: the chain-segment colliders that use it
   also need GJK and wait with the distance solver.
 
+**Order 22 has landed**: `table.go`, ahead of order 21 because the contact
+bookkeeping needs the pair set.
+
+- The set keeps the open-addressing scheme, the Murmur finalizer and the
+  probe chain repair of the reference. The capacity stays a power of two;
+  the allocation always matches the rounded capacity.
+- The set only answers membership, so its internal slot order never enters
+  a simulation result.
+- `b2DestroySet`, `b2ClearSet` and `b2GetHashSetBytes` wait for their
+  consumers.
+
 ## The map
 
 `Order` is the port sequence. A dash means the file waits for a later stage.
