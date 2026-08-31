@@ -7,7 +7,7 @@
 //
 // # Fidelity
 //
-// The package is a port of Box2D v3.1. It keeps the upstream file
+// The package is a port of Box2D v3.1.1. It keeps the upstream file
 // decomposition, the upstream names without the b2 prefix, and the upstream
 // order of operations. The closeness is one of formulation, never one of bits:
 // the upstream computes in floating point, and the two libraries produce

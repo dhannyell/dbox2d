@@ -10,7 +10,7 @@ stable release. It requires Go 1.26.4 or newer.
 
 ## Fidelity contract
 
-`dbox2d` is a port of [Box2D](https://box2d.org) v3.1, not a rewrite. It keeps
+`dbox2d` is a port of [Box2D](https://box2d.org) v3.1.1, not a rewrite. It keeps
 the upstream file decomposition, the upstream names without the `b2` prefix, and
 the upstream order of operations. Years of edge-case work are the reason the
 port exists, and a faithful port lets each function be compared against its
@@ -33,12 +33,12 @@ go get github.com/dhannyell/dbox2d
 ## Reference source
 
 The upstream C source sits in this repository on the orphan branch
-`reference/box2d-v3.1`. That branch never merges into `main`, it never builds,
+`reference/box2d-v3.1.1`. That branch never merges into `main`, it never builds,
 and no Go file imports it. It exists so that the porting work has one pinned,
 versioned reference:
 
 ```sh
-git show reference/box2d-v3.1:src/manifold.c
+git show reference/box2d-v3.1.1:src/manifold.c
 ```
 
 The Go module zip contains only the tagged tree, so `go get` never downloads the
