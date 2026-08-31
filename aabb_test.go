@@ -118,3 +118,34 @@ func TestIsValidAABBRejectsAnInvertedBox(t *testing.T) {
 		t.Errorf("a degenerate but ordered box failed validation")
 	}
 }
+
+// TestAABBRayCastHitsTheNearFace pins the slab test. The chosen numbers are
+// exact in Q32.32, so the comparison needs no tolerance.
+func TestAABBRayCastHitsTheNearFace(t *testing.T) {
+	a := box(0, 0, 2, 2)
+
+	p1 := Vec2{X: fixed.FromInt(-1), Y: fixed.One()}
+	p2 := Vec2{X: fixed.FromInt(3), Y: fixed.One()}
+
+	output := AABBRayCast(a, p1, p2)
+
+	if !output.Hit {
+		t.Fatalf("the ray misses the box")
+	}
+	if want := fixed.MustParse("0.25"); !output.Fraction.Eq(want) {
+		t.Errorf("fraction = %v, want %v", output.Fraction, want)
+	}
+	if !output.Point.X.Eq(fixed.Zero()) || !output.Point.Y.Eq(fixed.One()) {
+		t.Errorf("point = %v, want (0, 1)", output.Point)
+	}
+	if !output.Normal.X.Eq(fixed.FromInt(-1)) || !output.Normal.Y.Eq(fixed.Zero()) {
+		t.Errorf("normal = %v, want (-1, 0)", output.Normal)
+	}
+
+	// A ray parallel to a slab and outside it misses.
+	above1 := Vec2{X: fixed.FromInt(-1), Y: fixed.FromInt(3)}
+	above2 := Vec2{X: fixed.FromInt(3), Y: fixed.FromInt(3)}
+	if AABBRayCast(a, above1, above2).Hit {
+		t.Errorf("a ray that passes above the box reports a hit")
+	}
+}

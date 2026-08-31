@@ -108,3 +108,33 @@ Numbering is sequential from `D-001` and never reused.
   which is the magnitude of the upstream 1.2e-5. `IsNormalizedRot` keeps the
   literal 0.0006 of the reference, because that one is a plain number.
 - Test: TestNormalizedChecksAcceptAUnitPair in math_test.go
+
+### D-008 An epsilon guard becomes a test against zero
+
+- File: collision.go, geometry.go (upstream src/aabb.c `b2AABB_RayCast`,
+  src/geometry.c `b2RayCastCapsule`, `b2RayCastSegment`,
+  `b2ComputePolygonCentroid`, `b2ComputePolygonMass`, `b2MakePolygon`)
+- Tier: T2
+- Reason: `FLT_EPSILON` describes the spacing of the float grid near one.
+  Q32.32 has one spacing everywhere, so a value below the float epsilon is
+  either exactly zero or exactly representable. The guard has no meaning.
+- Behaviour: each guard compares against zero. A parallel slab, a capsule of
+  zero length, a segment of zero length and a determinant of zero are exact
+  cases now, not near cases. A degenerate area still panics, which follows
+  D-003, because a polygon with no area has no mass.
+- Test: TestAABBRayCastHitsTheNearFace in aabb_test.go,
+  TestZeroLengthCapsuleMassEqualsACircle and
+  TestRayCastSegmentSkipsTheLeftSide in geometry_test.go
+
+### D-009 An infinite sentinel becomes the largest representable value
+
+- File: collision.go, hull.go (upstream src/aabb.c `b2AABB_RayCast`,
+  src/hull.c `b2ComputeHull`)
+- Tier: T2
+- Reason: the reference seeds a search with `FLT_MAX`, which no coordinate
+  reaches. Q32.32 has no infinity and it saturates instead.
+- Behaviour: the seeds are the largest and the smallest representable values.
+  A coordinate that equals a seed is already saturated, so `IsValidQ` reports
+  it as invalid before the search runs.
+- Test: TestAABBRayCastHitsTheNearFace in aabb_test.go and
+  TestComputeHullDropsAnInteriorPoint in hull_test.go
