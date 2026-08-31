@@ -135,8 +135,8 @@ to D-007. The notes below record what moved and what did not cross.
   broadphase.
 
 **Orders 7 to 9 have landed**: `collision.go`, `hull.go`, `geometry.go` and
-the ray cast of `aabb.go`. Two divergences came with them, D-008 and D-009,
-and D-003 and D-006 grew new entries.
+the AABB ray cast in `aabb.go`. Two divergences came with them, D-008 and
+D-009, and D-003 and D-006 grew new entries.
 
 - The distance, the time of impact and the character mover own their types.
   `SegmentDistanceResult`, `SimplexCache`, `DistanceInput`, `DistanceOutput`,

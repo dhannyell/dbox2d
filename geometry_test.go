@@ -35,18 +35,19 @@ func TestMakeBoxMassMatchesTheReference(t *testing.T) {
 	}
 }
 
-// TestComputeCircleMassMatchesTheReference pins the circle integral. A unit
-// circle of unit density has a mass of pi and half that as inertia.
+// TestComputeCircleMassMatchesTheReference pins the circle integral to the
+// upstream constant. A unit circle has a mass of pi and half that as inertia.
 func TestComputeCircleMassMatchesTheReference(t *testing.T) {
 	circle := dbox2d.Circle{Radius: fixed.One()}
 	data := dbox2d.ComputeCircleMass(&circle, fixed.One())
 
-	limit := tol(1, 10000)
-	if !near(data.Mass, dbox2d.Pi(), limit) {
-		t.Errorf("mass = %v, want pi", data.Mass)
+	wantMass := fixed.MustParse("3.14159265359")
+	wantInertia := fixed.MustParse("1.570796326795")
+	if !data.Mass.Eq(wantMass) {
+		t.Errorf("mass = %v, want %v", data.Mass, wantMass)
 	}
-	if want := dbox2d.Pi().Mul(fixed.Half()); !near(data.RotationalInertia, want, limit) {
-		t.Errorf("rotational inertia = %v, want %v", data.RotationalInertia, want)
+	if !data.RotationalInertia.Eq(wantInertia) {
+		t.Errorf("rotational inertia = %v, want %v", data.RotationalInertia, wantInertia)
 	}
 }
 
@@ -72,15 +73,32 @@ func TestZeroLengthCapsuleMassEqualsACircle(t *testing.T) {
 	}
 }
 
-// TestPolygonCentroidOfATriangle pins the area centroid, which is the mean
-// of the three vertices.
+// TestPolygonCentroidOfATriangle pins the area divisions. The centroid of a
+// triangle is exactly the mean of its vertices.
 func TestPolygonCentroidOfATriangle(t *testing.T) {
 	hull := dbox2d.ComputeHull([]dbox2d.Vec2{pt("0", "0"), pt("3", "0"), pt("0", "3")})
 	polygon := dbox2d.MakePolygon(&hull, fixed.Zero())
 
-	limit := tol(1, 1000)
-	if !near(polygon.Centroid.X, fixed.One(), limit) || !near(polygon.Centroid.Y, fixed.One(), limit) {
+	if polygon.Centroid != pt("1", "1") {
 		t.Errorf("centroid = %v, want (1, 1)", polygon.Centroid)
+	}
+}
+
+// TestTriangleMassMatchesTheReference pins the polygon mass divisions. A
+// right triangle with legs of length three has an exact integral in Q32.32.
+func TestTriangleMassMatchesTheReference(t *testing.T) {
+	hull := dbox2d.ComputeHull([]dbox2d.Vec2{pt("0", "0"), pt("3", "0"), pt("0", "3")})
+	triangle := dbox2d.MakePolygon(&hull, fixed.Zero())
+	data := dbox2d.ComputePolygonMass(&triangle, fixed.One())
+
+	if want := fixed.MustParse("4.5"); !data.Mass.Eq(want) {
+		t.Errorf("mass = %v, want %v", data.Mass, want)
+	}
+	if data.Center != pt("1", "1") {
+		t.Errorf("center = %v, want (1, 1)", data.Center)
+	}
+	if want := fixed.MustParse("13.5"); !data.RotationalInertia.Eq(want) {
+		t.Errorf("rotational inertia = %v, want %v", data.RotationalInertia, want)
 	}
 }
 
@@ -104,18 +122,36 @@ func TestComputePolygonAABBContainsTheVertices(t *testing.T) {
 	}
 }
 
-// TestTransformPolygonAgreesWithMakeOffsetBox checks that moving a shape
-// gives the same polygon as building it in place.
-func TestTransformPolygonAgreesWithMakeOffsetBox(t *testing.T) {
+// TestTransformedBoxesMatchAQuarterTurn checks both ways to place a box
+// against coordinates calculated independently from their shared helpers.
+func TestTransformedBoxesMatchAQuarterTurn(t *testing.T) {
 	center := pt("2", "-3")
-	rotation := dbox2d.MakeRot(fixed.MustParse("0.2"))
+	rotation := dbox2d.Rot{Sin: fixed.One(), Cos: fixed.Zero()}
 
 	box := dbox2d.MakeBox(fixed.One(), fixed.Half())
-	got := dbox2d.TransformPolygon(dbox2d.Transform{P: center, Q: rotation}, &box)
-	want := dbox2d.MakeOffsetBox(fixed.One(), fixed.Half(), center, rotation)
+	cases := []struct {
+		name string
+		got  dbox2d.Polygon
+	}{
+		{"TransformPolygon", dbox2d.TransformPolygon(dbox2d.Transform{P: center, Q: rotation}, &box)},
+		{"MakeOffsetBox", dbox2d.MakeOffsetBox(fixed.One(), fixed.Half(), center, rotation)},
+	}
+	wantVertices := []dbox2d.Vec2{pt("2.5", "-4"), pt("2.5", "-2"), pt("1.5", "-2"), pt("1.5", "-4")}
+	wantNormals := []dbox2d.Vec2{pt("1", "0"), pt("0", "1"), pt("-1", "0"), pt("0", "-1")}
 
-	if got != want {
-		t.Errorf("TransformPolygon = %v, want %v", got, want)
+	for _, c := range cases {
+		if c.got.Count != 4 || c.got.Centroid != center || !c.got.Radius.Eq(fixed.Zero()) {
+			t.Errorf("%s metadata = %+v, want count 4, center %v and radius 0", c.name, c.got, center)
+			continue
+		}
+		for i := range c.got.Count {
+			if c.got.Vertices[i] != wantVertices[i] {
+				t.Errorf("%s vertex %d = %v, want %v", c.name, i, c.got.Vertices[i], wantVertices[i])
+			}
+			if c.got.Normals[i] != wantNormals[i] {
+				t.Errorf("%s normal %d = %v, want %v", c.name, i, c.got.Normals[i], wantNormals[i])
+			}
+		}
 	}
 }
 
@@ -227,24 +263,31 @@ func TestRayCastPolygonHitsABoxFace(t *testing.T) {
 	}
 }
 
-// TestRayCastCapsuleHitsTheSide pins the Cramer solve of the capsule cast.
+// TestRayCastCapsuleHitsTheSide pins the Cramer solve with an oblique ray.
+// Its determinant is not reciprocal-exact in Q32.32.
 func TestRayCastCapsuleHitsTheSide(t *testing.T) {
 	capsule := dbox2d.Capsule{Center1: pt("-1", "0"), Center2: pt("1", "0"), Radius: fixed.Half()}
-	input := ray(pt("0", "3"), pt("0", "-6"))
+	translation := pt("-9.5", "-9.5")
+	wantFraction := fixed.FromRatio(3, 5)
+	target := pt("0", "0.5")
+	origin := target.Sub(translation.Mul(wantFraction))
+	input := ray(origin, translation)
 
 	output := dbox2d.RayCastCapsule(&input, &capsule)
 
 	if !output.Hit {
 		t.Fatalf("the ray misses the capsule")
 	}
-	limit := tol(1, 1000)
-	if want := fixed.FromRatio(5, 12); !near(output.Fraction, want, limit) {
-		t.Errorf("fraction = %v, want %v", output.Fraction, want)
+	if !output.Fraction.Eq(wantFraction) {
+		t.Errorf("fraction = %v, want %v", output.Fraction, wantFraction)
 	}
-	if !near(output.Point.X, fixed.Zero(), limit) || !near(output.Point.Y, fixed.Half(), limit) {
-		t.Errorf("point = %v, want (0, 0.5)", output.Point)
+	// The reference order of operations floors the x coordinate two raw
+	// units below zero.
+	wantPoint := dbox2d.Vec2{X: fixed.FromRaw(-2), Y: fixed.Half()}
+	if output.Point != wantPoint {
+		t.Errorf("point = %v, want %v", output.Point, wantPoint)
 	}
-	if !near(output.Normal.Y, fixed.One(), limit) {
+	if output.Normal != pt("0", "1") {
 		t.Errorf("normal = %v, want (0, 1)", output.Normal)
 	}
 }
@@ -271,9 +314,9 @@ func TestIsValidRayBoundsTheFraction(t *testing.T) {
 	}
 }
 
-// TestRayCastCapsuleDegenerateCases pins the two exact guards of D-008: a
-// capsule of zero length is a circle, and a parallel ray outside the
-// surface misses. Upstream both are epsilon tests.
+// TestRayCastCapsuleDegenerateCases pins both exact guards: a capsule of zero
+// length is a circle, and a parallel ray outside the surface misses. The
+// upstream uses epsilon guards for both cases.
 func TestRayCastCapsuleDegenerateCases(t *testing.T) {
 	radius := fixed.MustParse("0.5")
 	point := dbox2d.Capsule{Center1: pt("0", "0"), Center2: pt("0", "0"), Radius: radius}
@@ -307,6 +350,52 @@ func TestRayCastCapsuleDegenerateCases(t *testing.T) {
 	if dbox2d.RayCastCapsule(&beside, &capsule).Hit {
 		t.Errorf("a parallel ray outside the capsule reports a hit")
 	}
+}
+
+// TestPolygonConstructorsRejectInvalidHull checks the common validation
+// boundary before either constructor computes normals or a centroid.
+func TestPolygonConstructorsRejectInvalidHull(t *testing.T) {
+	hull := dbox2d.Hull{Count: 3}
+	hull.Points[0] = pt("0", "0")
+	hull.Points[1] = pt("1", "0")
+	hull.Points[2] = pt("1", "0")
+
+	cases := []struct {
+		name  string
+		build func()
+	}{
+		{"MakePolygon", func() { dbox2d.MakePolygon(&hull, fixed.Zero()) }},
+		{"MakeOffsetRoundedPolygon", func() {
+			dbox2d.MakeOffsetRoundedPolygon(&hull, pt("0", "0"), dbox2d.RotIdentity(), fixed.Half())
+		}},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			defer func() {
+				if recover() == nil {
+					t.Errorf("%s accepts a hull with a zero-length edge", c.name)
+				}
+			}()
+			c.build()
+		})
+	}
+}
+
+// TestComputePolygonMassRejectsZeroArea checks the exact area guard on a
+// hand-written polygon, which does not pass through a hull constructor.
+func TestComputePolygonMassRejectsZeroArea(t *testing.T) {
+	polygon := dbox2d.Polygon{Count: 3}
+	polygon.Vertices[0] = pt("0", "0")
+	polygon.Vertices[1] = pt("1", "0")
+	polygon.Vertices[2] = pt("2", "0")
+
+	defer func() {
+		if recover() == nil {
+			t.Errorf("ComputePolygonMass accepts a polygon with zero area")
+		}
+	}()
+	dbox2d.ComputePolygonMass(&polygon, fixed.One())
 }
 
 // TestPolygonConstructorsMatchTheReference pins the literal layout of each

@@ -54,8 +54,10 @@ Numbering is sequential from `D-001` and never reused.
 - Behaviour: a failed precondition panics in every build. Functions whose
   upstream contract is a validation query still return a bool.
 - Test: TestIdPoolRejectsAnUnknownIndex in id_pool_test.go,
-  TestMakeAABBRejectsEmptyPoints in aabb_test.go and
-  TestComputeRotationBetweenUnitVectors in math_test.go
+  TestMakeAABBRejectsEmptyPoints in aabb_test.go,
+  TestComputeRotationBetweenUnitVectors in math_test.go,
+  TestPolygonConstructorsRejectInvalidHull and
+  TestComputePolygonMassRejectsZeroArea in geometry_test.go
 
 ### D-004 An angle is a turn
 
@@ -93,7 +95,7 @@ Numbering is sequential from `D-001` and never reused.
 - Tier: T2
 - Reason: a Q32.32 reciprocal keeps only the leading bits of a large value.
   Multiplying by it discards the precision that a division keeps.
-- Behaviour: each entry divides by the determinant. Normalization delegates
+- Behaviour: each site divides by its denominator. Normalization delegates
   to the fixed-point module, which scales the pair before it squares, so a
   short vector cannot underflow to zero. The guard against a zero length
   becomes an exact test against zero instead of a test against an epsilon.
@@ -105,8 +107,8 @@ Numbering is sequential from `D-001` and never reused.
 - Test: TestSolve22SolvesTheSystem, TestNormalizeKeepsAShortVector and
   TestNormalizeRotKeepsAZeroRotation in math_test.go,
   TestAABBRayCastHitsTheNearFace in aabb_test.go,
-  TestMakeBoxMassMatchesTheReference and TestRayCastCapsuleHitsTheSide
-  in geometry_test.go
+  TestPolygonCentroidOfATriangle, TestTriangleMassMatchesTheReference and
+  TestRayCastCapsuleHitsTheSide in geometry_test.go
 
 ### D-007 The normalization tolerance is in raw units
 
@@ -123,17 +125,21 @@ Numbering is sequential from `D-001` and never reused.
 
 - Files: aabb.go, geometry.go (upstream src/aabb.c `b2AABB_RayCast`,
   src/geometry.c `b2RayCastCapsule`, `b2ComputePolygonCentroid`,
-  `b2ComputePolygonMass`, `b2MakePolygon`)
+  `b2ComputePolygonMass`, `b2MakePolygon`, `b2MakeOffsetRoundedPolygon`)
 - Tier: T2
 - Reason: `FLT_EPSILON` describes the spacing of the float grid near one.
   Q32.32 has one spacing everywhere, so a value below the float epsilon is
   either exactly zero or exactly representable. The guard has no meaning.
-- Behaviour: each guard compares against zero. A parallel slab, a capsule of
-  zero length, a segment of zero length and a determinant of zero are exact
-  cases now, not near cases. A degenerate area still panics, which follows
-  D-003, because a polygon with no area has no mass.
-- Test: TestAABBRayCastHitsTheNearFace in aabb_test.go and
-  TestRayCastCapsuleDegenerateCases in geometry_test.go
+- Behaviour: each guard compares against zero. A parallel slab, a capsule or
+  polygon edge of zero length, a determinant of zero and an area of zero are
+  exact cases now, not near cases. A degenerate area still panics, which
+  follows D-003, because a polygon with no area has no centroid or mass.
+  `ValidateHull` rejects a zero-length edge before either polygon constructor
+  reaches its redundant edge guard.
+- Test: TestAABBRayCastHitsTheNearFace in aabb_test.go,
+  TestComputePolygonCentroidRejectsZeroArea in geometry_internal_test.go and
+  TestRayCastCapsuleDegenerateCases, TestPolygonConstructorsRejectInvalidHull
+  and TestComputePolygonMassRejectsZeroArea in geometry_test.go
 
 ### D-009 An infinite sentinel becomes the largest representable value
 
@@ -143,7 +149,7 @@ Numbering is sequential from `D-001` and never reused.
 - Reason: the reference seeds a search with `FLT_MAX`, which no coordinate
   reaches. Q32.32 has no infinity and it saturates instead.
 - Behaviour: the seeds are the largest and the smallest representable values.
-  A coordinate that equals a seed is already saturated, so `IsValidQ` reports
-  it as invalid before the search runs.
+  Those values sit outside the valid input range: `IsValidQ` rejects a
+  coordinate that equals either seed.
 - Test: TestAABBRayCastHitsTheNearFace in aabb_test.go and
   TestComputeHullDropsAnInteriorPoint in hull_test.go

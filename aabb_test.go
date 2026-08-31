@@ -119,20 +119,20 @@ func TestIsValidAABBRejectsAnInvertedBox(t *testing.T) {
 	}
 }
 
-// TestAABBRayCastHitsTheNearFace pins the slab test. The chosen numbers are
-// exact in Q32.32, so the comparison needs no tolerance.
+// TestAABBRayCastHitsTheNearFace pins the slab division. Dividing 1.5 by 3
+// is exact here, but multiplying by a truncated reciprocal loses one raw bit.
 func TestAABBRayCastHitsTheNearFace(t *testing.T) {
 	a := box(0, 0, 2, 2)
 
-	p1 := Vec2{X: fixed.FromInt(-1), Y: fixed.One()}
-	p2 := Vec2{X: fixed.FromInt(3), Y: fixed.One()}
+	p1 := Vec2{X: fixed.FromRatio(-3, 2), Y: fixed.One()}
+	p2 := Vec2{X: fixed.FromRatio(3, 2), Y: fixed.One()}
 
 	output := aabbRayCast(a, p1, p2)
 
 	if !output.Hit {
 		t.Fatalf("the ray misses the box")
 	}
-	if want := fixed.MustParse("0.25"); !output.Fraction.Eq(want) {
+	if want := fixed.Half(); !output.Fraction.Eq(want) {
 		t.Errorf("fraction = %v, want %v", output.Fraction, want)
 	}
 	if !output.Point.X.Eq(fixed.Zero()) || !output.Point.Y.Eq(fixed.One()) {
