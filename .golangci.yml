@@ -25,3 +25,11 @@ linters:
         - -ST1020
         - -ST1021
         - -ST1022
+  exclusions:
+    rules:
+      # A struct mirrors its upstream layout in full, so a field can land
+      # before the module that reads it arrives. This keeps the layout from
+      # drifting away from the reference.
+      - linters:
+          - unused
+        text: "field .* is unused"
