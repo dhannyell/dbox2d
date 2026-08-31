@@ -136,8 +136,7 @@ Numbering is sequential from `D-001` and never reused.
   follows D-003, because a polygon with no area has no centroid or mass.
   `ValidateHull` rejects a zero-length edge before either polygon constructor
   reaches its redundant edge guard.
-- Test: TestAABBRayCastHitsTheNearFace in aabb_test.go,
-  TestComputePolygonCentroidRejectsZeroArea in geometry_internal_test.go and
+- Test: TestAABBRayCastHitsTheNearFace in aabb_test.go and
   TestRayCastCapsuleDegenerateCases, TestPolygonConstructorsRejectInvalidHull
   and TestComputePolygonMassRejectsZeroArea in geometry_test.go
 
