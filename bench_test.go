@@ -326,3 +326,392 @@ func BenchmarkStepF64(b *testing.B) {
 		stepF64(sims, states, shapes, dt, 4)
 	}
 }
+
+// f64Polygon mirrors the Polygon fields that the collider reads.
+type f64Polygon struct {
+	verts  [8][2]float64
+	norms  [8][2]float64
+	radius float64
+	count  int
+}
+
+// f64Manifold mirrors the manifold fields that the collider writes.
+type f64Manifold struct {
+	nx, ny float64
+	anchor [2][2]float64
+	sep    [2]float64
+	ids    [2]uint16
+	count  int
+}
+
+func makeBoxF64(h float64) f64Polygon {
+	return f64Polygon{
+		verts: [8][2]float64{{-h, -h}, {h, -h}, {h, h}, {-h, h}},
+		norms: [8][2]float64{{0, -1}, {1, 0}, {0, 1}, {-1, 0}},
+		count: 4,
+	}
+}
+
+// segmentDistanceF64 mirrors SegmentDistance line by line and returns the
+// fractions, the closest points and the squared distance.
+func segmentDistanceF64(p1x, p1y, q1x, q1y, p2x, p2y, q2x, q2y float64) (f1, f2, c1x, c1y, c2x, c2y, distSq float64) {
+	d1x, d1y := q1x-p1x, q1y-p1y
+	d2x, d2y := q2x-p2x, q2y-p2y
+	rx, ry := p1x-p2x, p1y-p2y
+	dd1 := d1x*d1x + d1y*d1y
+	dd2 := d2x*d2x + d2y*d2y
+	rd1 := rx*d1x + ry*d1y
+	rd2 := rx*d2x + ry*d2y
+
+	clamp := func(v float64) float64 {
+		return math.Max(0, math.Min(1, v))
+	}
+
+	if dd1 == 0 || dd2 == 0 {
+		if dd1 != 0 {
+			f1 = clamp(-rd1 / dd1)
+		} else if dd2 != 0 {
+			f2 = clamp(rd2 / dd2)
+		}
+	} else {
+		d12 := d1x*d2x + d1y*d2y
+		denominator := dd1*dd2 - d12*d12
+
+		if denominator != 0 {
+			f1 = clamp((d12*rd2 - rd1*dd2) / denominator)
+		}
+
+		f2 = (d12*f1 + rd2) / dd2
+
+		if f2 < 0 {
+			f2 = 0
+			f1 = clamp(-rd1 / dd1)
+		} else if f2 > 1 {
+			f2 = 1
+			f1 = clamp((d12 - rd1) / dd1)
+		}
+	}
+
+	c1x, c1y = p1x+f1*d1x, p1y+f1*d1y
+	c2x, c2y = p2x+f2*d2x, p2y+f2*d2y
+	dx, dy := c2x-c1x, c2y-c1y
+	distSq = dx*dx + dy*dy
+	return
+}
+
+// findMaxSeparationF64 mirrors findMaxSeparation line by line.
+func findMaxSeparationF64(poly1, poly2 *f64Polygon) (float64, int) {
+	bestIndex := 0
+	maxSeparation := math.Inf(-1)
+	for i := range poly1.count {
+		nx, ny := poly1.norms[i][0], poly1.norms[i][1]
+		v1x, v1y := poly1.verts[i][0], poly1.verts[i][1]
+
+		si := math.Inf(1)
+		for j := range poly2.count {
+			sij := nx*(poly2.verts[j][0]-v1x) + ny*(poly2.verts[j][1]-v1y)
+			if sij < si {
+				si = sij
+			}
+		}
+
+		if si > maxSeparation {
+			maxSeparation = si
+			bestIndex = i
+		}
+	}
+	return maxSeparation, bestIndex
+}
+
+// clipPolygonsF64 mirrors clipPolygons line by line.
+func clipPolygonsF64(polyA, polyB *f64Polygon, edgeA, edgeB int, flip bool) f64Manifold {
+	var manifold f64Manifold
+
+	var poly1, poly2 *f64Polygon
+	var i11, i12, i21, i22 int
+
+	if flip {
+		poly1, poly2 = polyB, polyA
+		i11 = edgeB
+		if edgeB+1 < polyB.count {
+			i12 = edgeB + 1
+		}
+		i21 = edgeA
+		if edgeA+1 < polyA.count {
+			i22 = edgeA + 1
+		}
+	} else {
+		poly1, poly2 = polyA, polyB
+		i11 = edgeA
+		if edgeA+1 < polyA.count {
+			i12 = edgeA + 1
+		}
+		i21 = edgeB
+		if edgeB+1 < polyB.count {
+			i22 = edgeB + 1
+		}
+	}
+
+	nx, ny := poly1.norms[i11][0], poly1.norms[i11][1]
+
+	v11x, v11y := poly1.verts[i11][0], poly1.verts[i11][1]
+	v12x, v12y := poly1.verts[i12][0], poly1.verts[i12][1]
+	v21x, v21y := poly2.verts[i21][0], poly2.verts[i21][1]
+	v22x, v22y := poly2.verts[i22][0], poly2.verts[i22][1]
+
+	tx, ty := -ny, nx
+
+	lower1 := 0.0
+	upper1 := (v12x-v11x)*tx + (v12y-v11y)*ty
+
+	upper2 := (v21x-v11x)*tx + (v21y-v11y)*ty
+	lower2 := (v22x-v11x)*tx + (v22y-v11y)*ty
+
+	if upper2 < lower1 || upper1 < lower2 {
+		return manifold
+	}
+
+	vLx, vLy := v22x, v22y
+	if lower2 < lower1 && upper2-lower2 > 0 {
+		f := (lower1 - lower2) / (upper2 - lower2)
+		vLx, vLy = v22x+f*(v21x-v22x), v22y+f*(v21y-v22y)
+	}
+
+	vUx, vUy := v21x, v21y
+	if upper2 > upper1 && upper2-lower2 > 0 {
+		f := (upper1 - lower2) / (upper2 - lower2)
+		vUx, vUy = v22x+f*(v21x-v22x), v22y+f*(v21y-v22y)
+	}
+
+	separationLower := (vLx-v11x)*nx + (vLy-v11y)*ny
+	separationUpper := (vUx-v11x)*nx + (vUy-v11y)*ny
+
+	r1 := poly1.radius
+	r2 := poly2.radius
+
+	vLx += 0.5 * (r1 - r2 - separationLower) * nx
+	vLy += 0.5 * (r1 - r2 - separationLower) * ny
+	vUx += 0.5 * (r1 - r2 - separationUpper) * nx
+	vUy += 0.5 * (r1 - r2 - separationUpper) * ny
+
+	radius := r1 + r2
+
+	if !flip {
+		manifold.nx, manifold.ny = nx, ny
+		manifold.anchor[0] = [2]float64{vLx, vLy}
+		manifold.sep[0] = separationLower - radius
+		manifold.ids[0] = makeId(i11, i22)
+		manifold.anchor[1] = [2]float64{vUx, vUy}
+		manifold.sep[1] = separationUpper - radius
+		manifold.ids[1] = makeId(i12, i21)
+		manifold.count = 2
+	} else {
+		manifold.nx, manifold.ny = -nx, -ny
+		manifold.anchor[0] = [2]float64{vUx, vUy}
+		manifold.sep[0] = separationUpper - radius
+		manifold.ids[0] = makeId(i21, i12)
+		manifold.anchor[1] = [2]float64{vLx, vLy}
+		manifold.sep[1] = separationLower - radius
+		manifold.ids[1] = makeId(i22, i11)
+		manifold.count = 2
+	}
+
+	return manifold
+}
+
+// collidePolygonsF64 mirrors CollidePolygons line by line, with the same
+// origin shift and the same branch structure.
+func collidePolygonsF64(polygonA *f64Polygon, aPx, aPy, aQc, aQs float64, polygonB *f64Polygon, bPx, bPy, bQc, bQs float64) f64Manifold {
+	const linearSlopF64 = 0.005
+	const speculativeF64 = 4 * linearSlopF64
+
+	originX, originY := polygonA.verts[0][0], polygonA.verts[0][1]
+
+	// Shift polygon A to the origin.
+	sfPx := aPx + aQc*originX - aQs*originY
+	sfPy := aPy + aQs*originX + aQc*originY
+
+	// xf = InvMulTransforms(sfA, xfB)
+	xfQc := aQc*bQc + aQs*bQs
+	xfQs := aQc*bQs - aQs*bQc
+	dxp, dyp := bPx-sfPx, bPy-sfPy
+	xfPx := aQc*dxp + aQs*dyp
+	xfPy := -aQs*dxp + aQc*dyp
+
+	var localPolyA f64Polygon
+	localPolyA.count = polygonA.count
+	localPolyA.radius = polygonA.radius
+	localPolyA.norms[0] = polygonA.norms[0]
+	for i := 1; i < localPolyA.count; i++ {
+		localPolyA.verts[i] = [2]float64{polygonA.verts[i][0] - originX, polygonA.verts[i][1] - originY}
+		localPolyA.norms[i] = polygonA.norms[i]
+	}
+
+	var localPolyB f64Polygon
+	localPolyB.count = polygonB.count
+	localPolyB.radius = polygonB.radius
+	for i := range localPolyB.count {
+		vx, vy := polygonB.verts[i][0], polygonB.verts[i][1]
+		localPolyB.verts[i] = [2]float64{xfPx + xfQc*vx - xfQs*vy, xfPy + xfQs*vx + xfQc*vy}
+		nx, ny := polygonB.norms[i][0], polygonB.norms[i][1]
+		localPolyB.norms[i] = [2]float64{xfQc*nx - xfQs*ny, xfQs*nx + xfQc*ny}
+	}
+
+	separationA, edgeA := findMaxSeparationF64(&localPolyA, &localPolyB)
+	separationB, edgeB := findMaxSeparationF64(&localPolyB, &localPolyA)
+
+	radius := localPolyA.radius + localPolyB.radius
+
+	if separationA > speculativeF64+radius || separationB > speculativeF64+radius {
+		return f64Manifold{}
+	}
+
+	var flip bool
+	if separationA >= separationB {
+		flip = false
+		sdx, sdy := localPolyA.norms[edgeA][0], localPolyA.norms[edgeA][1]
+
+		edgeB = 0
+		minDot := math.Inf(1)
+		for i := range localPolyB.count {
+			dot := sdx*localPolyB.norms[i][0] + sdy*localPolyB.norms[i][1]
+			if dot < minDot {
+				minDot = dot
+				edgeB = i
+			}
+		}
+	} else {
+		flip = true
+		sdx, sdy := localPolyB.norms[edgeB][0], localPolyB.norms[edgeB][1]
+
+		edgeA = 0
+		minDot := math.Inf(1)
+		for i := range localPolyA.count {
+			dot := sdx*localPolyA.norms[i][0] + sdy*localPolyA.norms[i][1]
+			if dot < minDot {
+				minDot = dot
+				edgeA = i
+			}
+		}
+	}
+
+	var manifold f64Manifold
+
+	const slopBias = 0.1 * linearSlopF64
+	if separationA > slopBias || separationB > slopBias {
+		// The edges are disjoint.
+		i11 := edgeA
+		i12 := 0
+		if edgeA+1 < localPolyA.count {
+			i12 = edgeA + 1
+		}
+		i21 := edgeB
+		i22 := 0
+		if edgeB+1 < localPolyB.count {
+			i22 = edgeB + 1
+		}
+
+		v11 := localPolyA.verts[i11]
+		v12 := localPolyA.verts[i12]
+		v21 := localPolyB.verts[i21]
+		v22 := localPolyB.verts[i22]
+
+		f1, f2, c1x, c1y, c2x, c2y, distSq := segmentDistanceF64(
+			v11[0], v11[1], v12[0], v12[1], v21[0], v21[1], v22[0], v22[1])
+		_, _, _, _ = c1x, c1y, c2x, c2y
+
+		distance := math.Sqrt(distSq)
+		separation := distance - radius
+
+		if distance-radius > speculativeF64 {
+			return manifold
+		}
+
+		manifold = clipPolygonsF64(&localPolyA, &localPolyB, edgeA, edgeB, flip)
+
+		minSeparation := math.Inf(1)
+		for i := range manifold.count {
+			minSeparation = math.Min(minSeparation, manifold.sep[i])
+		}
+
+		if minSeparation > separation+slopBias {
+			vertexVertex := func(ax, ay, bx, by float64, id uint16) {
+				invDistance := 1 / distance
+				nx := (bx - ax) * invDistance
+				ny := (by - ay) * invDistance
+
+				c1x := ax + localPolyA.radius*nx
+				c1y := ay + localPolyA.radius*ny
+				c2x := bx - localPolyB.radius*nx
+				c2y := by - localPolyB.radius*ny
+
+				manifold.nx, manifold.ny = nx, ny
+				manifold.anchor[0] = [2]float64{0.5 * (c1x + c2x), 0.5 * (c1y + c2y)}
+				manifold.sep[0] = distance - radius
+				manifold.ids[0] = id
+				manifold.count = 1
+			}
+			if f1 == 0 && f2 == 0 {
+				vertexVertex(v11[0], v11[1], v21[0], v21[1], makeId(i11, i21))
+			} else if f1 == 0 && f2 == 1 {
+				vertexVertex(v11[0], v11[1], v22[0], v22[1], makeId(i11, i22))
+			} else if f1 == 1 && f2 == 0 {
+				vertexVertex(v12[0], v12[1], v21[0], v21[1], makeId(i12, i21))
+			} else if f1 == 1 && f2 == 1 {
+				vertexVertex(v12[0], v12[1], v22[0], v22[1], makeId(i12, i22))
+			}
+		}
+	} else {
+		// The polygons overlap.
+		manifold = clipPolygonsF64(&localPolyA, &localPolyB, edgeA, edgeB, flip)
+	}
+
+	// Convert the manifold to world space.
+	if manifold.count > 0 {
+		nx, ny := manifold.nx, manifold.ny
+		manifold.nx = aQc*nx - aQs*ny
+		manifold.ny = aQs*nx + aQc*ny
+		for i := range manifold.count {
+			ax := manifold.anchor[i][0] + originX
+			ay := manifold.anchor[i][1] + originY
+			manifold.anchor[i] = [2]float64{aQc*ax - aQs*ay, aQs*ax + aQc*ay}
+		}
+	}
+
+	return manifold
+}
+
+// BenchmarkCollidePolygonsQ measures the dominant contact pattern: two unit
+// boxes on the overlap branch of the clip path.
+func BenchmarkCollidePolygonsQ(b *testing.B) {
+	boxA := MakeSquare(fixed.One())
+	boxB := MakeSquare(fixed.One())
+	xfA := TransformIdentity()
+	xfB := Transform{P: Vec2{Y: fixed.MustParse("1.5")}, Q: RotIdentity()}
+
+	var sink int
+	b.ResetTimer()
+	for range b.N {
+		m := CollidePolygons(&boxA, xfA, &boxB, xfB)
+		sink += m.PointCount
+	}
+	if sink == 0 {
+		b.Fatal("the boxes did not collide")
+	}
+}
+
+// BenchmarkCollidePolygonsF64 runs the float64 mirror over the same boxes.
+func BenchmarkCollidePolygonsF64(b *testing.B) {
+	boxA := makeBoxF64(1)
+	boxB := makeBoxF64(1)
+
+	var sink int
+	b.ResetTimer()
+	for range b.N {
+		m := collidePolygonsF64(&boxA, 0, 0, 1, 0, &boxB, 0, 1.5, 1, 0)
+		sink += m.count
+	}
+	if sink == 0 {
+		b.Fatal("the boxes did not collide")
+	}
+}
