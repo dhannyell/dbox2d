@@ -8,9 +8,10 @@ import (
 	"testing"
 )
 
-// TestArrowRule limits production imports to the approved modules. The solver
-// depends on the fixed-point module and on nothing else, so a consumer never
-// inherits a transitive dependency from it. A new entry is a deliberate choice.
+// TestArrowRule limits production imports to the standard library and to the
+// approved modules. The solver depends on the fixed-point module and on
+// nothing else, so a consumer never inherits a transitive dependency from it.
+// A new entry is a deliberate choice.
 func TestArrowRule(t *testing.T) {
 	allow := map[string]bool{`"github.com/dhannyell/fixed"`: true}
 	entries, err := os.ReadDir(".")
@@ -27,9 +28,17 @@ func TestArrowRule(t *testing.T) {
 			t.Fatal(err)
 		}
 		for _, imp := range file.Imports {
-			if !allow[imp.Path.Value] {
-				t.Errorf("%s imports %s: outside the allowlist", name, imp.Path.Value)
+			if isStdlib(imp.Path.Value) || allow[imp.Path.Value] {
+				continue
 			}
+			t.Errorf("%s imports %s: outside the allowlist", name, imp.Path.Value)
 		}
 	}
+}
+
+// isStdlib reports whether a quoted import path belongs to the standard
+// library. A module path carries a domain, so its first element has a dot.
+func isStdlib(quoted string) bool {
+	first, _, _ := strings.Cut(strings.Trim(quoted, `"`), "/")
+	return !strings.Contains(first, ".")
 }

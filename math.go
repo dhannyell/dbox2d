@@ -103,12 +103,12 @@ func Cross(a, b Vec2) Q {
 
 // CrossVS returns the cross product of a vector and a scalar.
 func CrossVS(v Vec2, s Q) Vec2 {
-	return Vec2{X: s.Mul(v.Y), Y: s.Mul(v.X).Neg()}
+	return Vec2{X: s.Mul(v.Y), Y: s.Neg().Mul(v.X)}
 }
 
 // CrossSV returns the cross product of a scalar and a vector.
 func CrossSV(s Q, v Vec2) Vec2 {
-	return Vec2{X: s.Mul(v.Y).Neg(), Y: s.Mul(v.X)}
+	return Vec2{X: s.Neg().Mul(v.Y), Y: s.Mul(v.X)}
 }
 
 // LeftPerp returns the left pointing perpendicular of v. It equals
@@ -187,8 +187,16 @@ func GetLengthAndNormalize(v Vec2) (Q, Vec2) {
 	return v.Len(), v.Normalize()
 }
 
-// NormalizeRot rescales q to unit length. A zero q returns the identity.
+// NormalizeRot rescales q to unit length.
+//
+// A zero q returns a zero rotation, as the reference does. The zero rotation
+// is invalid, so IsValidRotation reports the bad state instead of hiding it
+// behind the identity.
 func NormalizeRot(q Rot) Rot {
+	zero := fixed.Zero()
+	if q.Sin.Eq(zero) && q.Cos.Eq(zero) {
+		return Rot{}
+	}
 	return q.Normalize()
 }
 
@@ -205,7 +213,7 @@ func IntegrateRotation(q1 Rot, deltaAngle Q) Rot {
 		Cos: q1.Cos.Sub(d.Mul(q1.Sin)),
 		Sin: q1.Sin.Add(d.Mul(q1.Cos)),
 	}
-	return q2.Normalize()
+	return NormalizeRot(q2)
 }
 
 // MakeRot returns the rotation by the angle t, in turns.
@@ -214,8 +222,13 @@ func MakeRot(t Q) Rot {
 }
 
 // ComputeRotationBetweenUnitVectors returns the rotation that carries the
-// unit vector v1 onto the unit vector v2.
+// unit vector v1 onto the unit vector v2. It panics when either vector is not
+// a unit vector, because the result would be a rotation of the wrong scale.
 func ComputeRotationBetweenUnitVectors(v1, v2 Vec2) Rot {
+	if !IsNormalized(v1) || !IsNormalized(v2) {
+		panic("dbox2d: ComputeRotationBetweenUnitVectors needs two unit vectors")
+	}
+
 	rot := Rot{Cos: v1.Dot(v2), Sin: Cross(v1, v2)}
 	return NormalizeRot(rot)
 }
@@ -234,7 +247,7 @@ func NLerp(q1, q2 Rot, t Q) Rot {
 		Cos: omt.Mul(q1.Cos).Add(t.Mul(q2.Cos)),
 		Sin: omt.Mul(q1.Sin).Add(t.Mul(q2.Sin)),
 	}
-	return q.Normalize()
+	return NormalizeRot(q)
 }
 
 // ComputeAngularVelocity returns the angular velocity, in turns per second,
@@ -316,7 +329,7 @@ func RotateVector(q Rot, v Vec2) Vec2 {
 func InvRotateVector(q Rot, v Vec2) Vec2 {
 	return Vec2{
 		X: q.Cos.Mul(v.X).Add(q.Sin.Mul(v.Y)),
-		Y: q.Sin.Mul(v.X).Neg().Add(q.Cos.Mul(v.Y)),
+		Y: q.Sin.Neg().Mul(v.X).Add(q.Cos.Mul(v.Y)),
 	}
 }
 
@@ -335,7 +348,7 @@ func InvTransformPoint(t Transform, p Vec2) Vec2 {
 	vy := p.Y.Sub(t.P.Y)
 	return Vec2{
 		X: t.Q.Cos.Mul(vx).Add(t.Q.Sin.Mul(vy)),
-		Y: t.Q.Sin.Mul(vx).Neg().Add(t.Q.Cos.Mul(vy)),
+		Y: t.Q.Sin.Neg().Mul(vx).Add(t.Q.Cos.Mul(vy)),
 	}
 }
 

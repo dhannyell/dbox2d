@@ -1,7 +1,7 @@
 package dbox2d
 
-// NullIndex marks an absent element in every internal index array.
-const NullIndex = -1
+// B2_NULL_INDEX and B2_HUGE land with the files that read them: the body
+// storage and the input validation of the world. See PORTING.md.
 
 // Version reports a three part release number.
 type Version struct {

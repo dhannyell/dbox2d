@@ -52,7 +52,8 @@ Numbering is sequential from `D-001` and never reused.
   and a silent corruption costs more than a stop.
 - Behaviour: a defect in the caller panics in every build. The two validation
   helpers of the reference return a bool instead of asserting.
-- Test: TestIdPoolRejectsAnUnknownIndex in id_pool_test.go
+- Test: TestIdPoolRejectsAnUnknownIndex in id_pool_test.go and
+  TestComputeRotationBetweenUnitVectors in math_test.go
 
 ### D-004 An angle is a turn
 
@@ -91,7 +92,10 @@ Numbering is sequential from `D-001` and never reused.
   to the fixed-point module, which scales the pair before it squares, so a
   short vector cannot underflow to zero. The guard against a zero length
   becomes an exact test against zero instead of a test against an epsilon.
-- Test: TestSolve22SolvesTheSystem in math_test.go
+  `NormalizeRot` still returns a zero rotation for a zero input, as the
+  reference does, so an invalid rotation stays visible to `IsValidRotation`.
+- Test: TestSolve22SolvesTheSystem, TestNormalizeKeepsAShortVector and
+  TestNormalizeRotKeepsAZeroRotation in math_test.go
 
 ### D-007 The normalization tolerance is in raw units
 

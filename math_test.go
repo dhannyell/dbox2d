@@ -217,12 +217,14 @@ func TestSpringDamperRemovesEnergy(t *testing.T) {
 // infinity, so a computation that leaves the range saturates, and the
 // validity check is what notices.
 func TestSaturationMarksAValueInvalid(t *testing.T) {
-	if !dbox2d.IsValidQ(dbox2d.Huge()) {
-		t.Fatalf("Huge is outside the representable range")
+	// One hundred kilometres, the largest coordinate the reference accepts.
+	big := fixed.FromInt(100000)
+	if !dbox2d.IsValidQ(big) {
+		t.Fatalf("the largest accepted coordinate is outside the range")
 	}
 
 	fixed.ResetSaturationCount()
-	over := dbox2d.Huge().Mul(dbox2d.Huge())
+	over := big.Mul(big)
 
 	if fixed.SaturationCount() == 0 {
 		t.Errorf("the product of two huge values did not saturate")
@@ -250,5 +252,72 @@ func TestNormalizedChecksAcceptAUnitPair(t *testing.T) {
 
 	if dbox2d.IsNormalized(dbox2d.Vec2{X: fixed.FromInt(2)}) {
 		t.Errorf("IsNormalized accepted a vector of length two")
+	}
+}
+
+// TestNegationComesBeforeTheProduct pins the order of operations. The
+// reference writes -s * x, which negates the operand. A product in Q32.32
+// floors, so negating the product instead shifts the result by one raw unit.
+func TestNegationComesBeforeTheProduct(t *testing.T) {
+	// Three raw units times one half is one and a half raw units. The floor
+	// of that is 1, and the floor of its negative is -2.
+	s := fixed.FromRaw(3)
+	v := dbox2d.Vec2{X: fixed.Half(), Y: fixed.Half()}
+
+	if got := dbox2d.CrossVS(v, s).Y.Raw(); got != -2 {
+		t.Errorf("CrossVS y = %d raw, want -2: the product was negated", got)
+	}
+	if got := dbox2d.CrossSV(s, v).X.Raw(); got != -2 {
+		t.Errorf("CrossSV x = %d raw, want -2: the product was negated", got)
+	}
+}
+
+// TestNormalizeRotKeepsAZeroRotation checks that an invalid rotation stays
+// invalid. The identity would hide the bad state from every later check.
+func TestNormalizeRotKeepsAZeroRotation(t *testing.T) {
+	got := dbox2d.NormalizeRot(dbox2d.Rot{})
+
+	if got != (dbox2d.Rot{}) {
+		t.Errorf("NormalizeRot of a zero rotation = %v, want the zero rotation", got)
+	}
+	if dbox2d.IsValidRotation(got) {
+		t.Errorf("IsValidRotation accepted a zero rotation")
+	}
+	if !dbox2d.IsValidRotation(dbox2d.RotIdentity()) {
+		t.Errorf("IsValidRotation rejected the identity")
+	}
+}
+
+// TestComputeRotationBetweenUnitVectors covers the assertion of the
+// reference, which this port keeps as a panic in every build.
+func TestComputeRotationBetweenUnitVectors(t *testing.T) {
+	x := dbox2d.Vec2{X: fixed.One()}
+	y := dbox2d.Vec2{Y: fixed.One()}
+
+	got := dbox2d.ComputeRotationBetweenUnitVectors(x, y)
+	if angle := dbox2d.RotGetAngle(got); !near(angle, fixed.MustParse("0.25"), tol(1, 1000)) {
+		t.Errorf("angle from the x axis to the y axis = %v, want 0.25 turns", angle)
+	}
+
+	defer func() {
+		if recover() == nil {
+			t.Errorf("a vector of length two did not panic")
+		}
+	}()
+	dbox2d.ComputeRotationBetweenUnitVectors(x, dbox2d.Vec2{X: fixed.FromInt(2)})
+}
+
+// TestNormalizeKeepsAShortVector is the evidence for the divergence that
+// replaced the reciprocal. A vector of a few raw units would collapse to
+// zero if the port multiplied by one over its length.
+func TestNormalizeKeepsAShortVector(t *testing.T) {
+	v := dbox2d.Vec2{X: fixed.FromRaw(3), Y: fixed.FromRaw(4)}
+
+	length, unit := dbox2d.GetLengthAndNormalize(v)
+	if got := length.Raw(); got != 5 {
+		t.Errorf("length = %d raw, want 5", got)
+	}
+	if !dbox2d.IsNormalized(unit) {
+		t.Errorf("the unit vector of a short vector is not normalized: %v", unit)
 	}
 }

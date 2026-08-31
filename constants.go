@@ -2,27 +2,13 @@ package dbox2d
 
 import "github.com/dhannyell/fixed"
 
-// The counts below size fixed arrays and must stay compile-time constants.
-const (
-	// MaxWorkers is the maximum number of parallel workers.
-	MaxWorkers = 64
-
-	// GraphColorCount is the number of colors in the constraint graph.
-	// Constraints that find no color join the overflow set, which one
-	// worker solves alone.
-	GraphColorCount = 12
-
-	// MaxWorlds is the maximum number of worlds allocated at once.
-	MaxWorlds = 128
-)
+// The sizing counts of the reference, B2_MAX_WORKERS, B2_GRAPH_COLOR_COUNT
+// and B2_MAX_WORLDS, land with the files that read them. See PORTING.md.
 
 // A length is a meter. The reference lets an application rescale its
 // tolerances; this package does not, because a world that rescales them
 // stops matching a world that does not. See DIVERGENCES.md.
 var (
-	// upstream 100000.0f * b2_lengthUnitsPerMeter
-	huge = fixed.FromInt(100000)
-
 	// upstream 0.005f * b2_lengthUnitsPerMeter
 	linearSlop = fixed.MustParse("0.005")
 
@@ -44,10 +30,6 @@ var (
 	// upstream 2.0f
 	jointConstraintDampingRatio = fixed.FromInt(2)
 )
-
-// Huge is the largest coordinate the solver accepts. It detects bad input:
-// a position beyond it has lost too much precision to simulate.
-func Huge() Q { return huge }
 
 // LinearSlop is the collision and constraint tolerance in meters. It is
 // numerically significant and visually insignificant.

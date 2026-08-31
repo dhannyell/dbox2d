@@ -16,15 +16,15 @@ func IsValidAABB(a AABB) bool {
 	return valid
 }
 
-// Perimeter returns the surface area of a, which in 2D is its perimeter.
-func Perimeter(a AABB) Q {
+// perimeter returns the surface area of a, which in 2D is its perimeter.
+func perimeter(a AABB) Q {
 	wx := a.UpperBound.X.Sub(a.LowerBound.X)
 	wy := a.UpperBound.Y.Sub(a.LowerBound.Y)
 	return fixed.FromInt(2).Mul(wx.Add(wy))
 }
 
-// EnlargeAABB grows a until it contains b. It reports whether a grew.
-func EnlargeAABB(a *AABB, b AABB) bool {
+// enlargeAABB grows a until it contains b. It reports whether a grew.
+func enlargeAABB(a *AABB, b AABB) bool {
 	changed := false
 	if b.LowerBound.X.Less(a.LowerBound.X) {
 		a.LowerBound.X = b.LowerBound.X

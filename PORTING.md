@@ -25,8 +25,23 @@ flat layout keeps the internals internal and keeps each file beside the
 upstream file it answers to.
 
 A name is exported when the reference exports it from `include/box2d/`, plus
-the tolerances of `constants.h`, which content authoring needs. Internal
-machinery, such as the id pool, stays unexported.
+the tolerances of `constants.h`, which content authoring needs. Everything
+else that the reference keeps under `src/` stays unexported here.
+
+A sizing constant lands with the file that reads it, not before. A constant
+with no consumer is dead weight that the compiler cannot check.
+
+## The order of operations
+
+Two rules follow from the arithmetic and apply to every file of the port.
+
+**A negation goes before the product.** The reference writes `-s * x`, which
+in C negates the operand. `Q.Mul` floors its result, and the floor of a
+negative product is not the negative of the floor, so negating the product
+instead shifts the result by one raw unit. Write `s.Neg().Mul(x)`.
+
+**A reciprocal becomes a division.** See `D-006`. The reference computes
+`1/d` once and multiplies by it; the port divides each term by `d`.
 
 ## Tiers
 
@@ -112,6 +127,14 @@ to D-007. The notes below record what moved and what did not cross.
 - `b2Lerp` keeps the upstream weighted form, which returns each end exactly.
   The fixed-point module interpolates by a scaled difference, so the two
   round differently and the port does not delegate.
+- `b2Perimeter` and `b2EnlargeAABB` live in `src/aabb.h`, so they stay
+  unexported. Their consumer is the dynamic tree, order 27.
+- `B2_NULL_INDEX`, `B2_HUGE`, `B2_MAX_WORKERS`, `B2_GRAPH_COLOR_COUNT` and
+  `B2_MAX_WORLDS` wait for the files that read them: the body storage, the
+  worker pool, the constraint graph, the world registry and the input
+  validation of the world.
+- The import allowlist accepts the standard library and the fixed-point
+  module. `math/bits` and `sync/atomic` arrive with the broadphase.
 
 ## The map
 
