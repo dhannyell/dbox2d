@@ -249,8 +249,9 @@ func TestRayCastCapsuleHitsTheSide(t *testing.T) {
 	}
 }
 
-// TestIsValidRayBoundsTheFraction guards the input check that every cast
-// runs first.
+// TestIsValidRayBoundsTheFraction guards the input check that the circle,
+// capsule and polygon casts run first. The segment cast skips it, as the
+// reference does.
 func TestIsValidRayBoundsTheFraction(t *testing.T) {
 	good := ray(pt("0", "0"), pt("1", "0"))
 	if !dbox2d.IsValidRay(&good) {
@@ -267,5 +268,138 @@ func TestIsValidRayBoundsTheFraction(t *testing.T) {
 	saturated.Origin = dbox2d.Vec2{X: fixed.MaxValue(), Y: fixed.Zero()}
 	if dbox2d.IsValidRay(&saturated) {
 		t.Errorf("IsValidRay accepts a saturated origin")
+	}
+}
+
+// TestRayCastCapsuleDegenerateCases pins the two exact guards of D-008: a
+// capsule of zero length is a circle, and a parallel ray outside the
+// surface misses. Upstream both are epsilon tests.
+func TestRayCastCapsuleDegenerateCases(t *testing.T) {
+	radius := fixed.MustParse("0.5")
+	point := dbox2d.Capsule{Center1: pt("0", "0"), Center2: pt("0", "0"), Radius: radius}
+	input := ray(pt("-2", "0"), pt("4", "0"))
+
+	output := dbox2d.RayCastCapsule(&input, &point)
+
+	// The delegation target gives the oracle, and the literal values pin it.
+	circle := dbox2d.Circle{Center: pt("0", "0"), Radius: radius}
+	viaCircle := dbox2d.RayCastCircle(&input, &circle)
+	if output != viaCircle {
+		t.Errorf("capsule cast = %+v, circle cast = %+v", output, viaCircle)
+	}
+	if !output.Hit {
+		t.Fatalf("the ray misses the zero-length capsule")
+	}
+	if want := fixed.MustParse("0.375"); !output.Fraction.Eq(want) {
+		t.Errorf("fraction = %v, want %v", output.Fraction, want)
+	}
+	if want := pt("-0.5", "0"); output.Point != want {
+		t.Errorf("point = %v, want %v", output.Point, want)
+	}
+	if want := pt("-1", "0"); output.Normal != want {
+		t.Errorf("normal = %v, want %v", output.Normal, want)
+	}
+
+	// A ray parallel to the axis and outside the surface misses: the
+	// determinant is exactly zero.
+	capsule := dbox2d.Capsule{Center1: pt("-1", "0"), Center2: pt("1", "0"), Radius: fixed.MustParse("0.25")}
+	beside := ray(pt("-2", "1"), pt("4", "0"))
+	if dbox2d.RayCastCapsule(&beside, &capsule).Hit {
+		t.Errorf("a parallel ray outside the capsule reports a hit")
+	}
+}
+
+// TestPolygonConstructorsMatchTheReference pins the literal layout of each
+// constructor on dyadic inputs. Vertices, normals and radius are exact
+// copies, so they compare exactly; the centroid integral may floor.
+func TestPolygonConstructorsMatchTheReference(t *testing.T) {
+	unitSquare := dbox2d.ComputeHull([]dbox2d.Vec2{
+		pt("-1", "-1"), pt("1", "-1"), pt("1", "1"), pt("-1", "1"),
+	})
+	quarter := fixed.MustParse("0.25")
+
+	boxNormals := []dbox2d.Vec2{pt("0", "-1"), pt("1", "0"), pt("0", "1"), pt("-1", "0")}
+
+	cases := []struct {
+		name     string
+		got      dbox2d.Polygon
+		vertices []dbox2d.Vec2
+		normals  []dbox2d.Vec2
+		centroid dbox2d.Vec2
+		radius   dbox2d.Q
+	}{
+		{
+			"MakeSquare",
+			dbox2d.MakeSquare(fixed.Half()),
+			[]dbox2d.Vec2{pt("-0.5", "-0.5"), pt("0.5", "-0.5"), pt("0.5", "0.5"), pt("-0.5", "0.5")},
+			boxNormals, pt("0", "0"), fixed.Zero(),
+		},
+		{
+			"MakeRoundedBox",
+			dbox2d.MakeRoundedBox(fixed.One(), fixed.FromInt(2), quarter),
+			[]dbox2d.Vec2{pt("-1", "-2"), pt("1", "-2"), pt("1", "2"), pt("-1", "2")},
+			boxNormals, pt("0", "0"), quarter,
+		},
+		{
+			"MakeOffsetPolygon",
+			dbox2d.MakeOffsetPolygon(&unitSquare, pt("2", "3"), dbox2d.RotIdentity()),
+			[]dbox2d.Vec2{pt("1", "2"), pt("3", "2"), pt("3", "4"), pt("1", "4")},
+			boxNormals, pt("2", "3"), fixed.Zero(),
+		},
+		{
+			"MakeOffsetRoundedPolygon",
+			dbox2d.MakeOffsetRoundedPolygon(&unitSquare, pt("2", "3"), dbox2d.RotIdentity(), quarter),
+			[]dbox2d.Vec2{pt("1", "2"), pt("3", "2"), pt("3", "4"), pt("1", "4")},
+			boxNormals, pt("2", "3"), quarter,
+		},
+	}
+
+	limit := tol(1, 10000)
+	for _, c := range cases {
+		if c.got.Count != len(c.vertices) {
+			t.Errorf("%s: count = %d, want %d", c.name, c.got.Count, len(c.vertices))
+			continue
+		}
+		for i := range c.vertices {
+			if c.got.Vertices[i] != c.vertices[i] {
+				t.Errorf("%s: vertex %d = %v, want %v", c.name, i, c.got.Vertices[i], c.vertices[i])
+			}
+			if c.got.Normals[i] != c.normals[i] {
+				t.Errorf("%s: normal %d = %v, want %v", c.name, i, c.got.Normals[i], c.normals[i])
+			}
+		}
+		if !c.got.Radius.Eq(c.radius) {
+			t.Errorf("%s: radius = %v, want %v", c.name, c.got.Radius, c.radius)
+		}
+		if !near(c.got.Centroid.X, c.centroid.X, limit) || !near(c.got.Centroid.Y, c.centroid.Y, limit) {
+			t.Errorf("%s: centroid = %v, want %v", c.name, c.got.Centroid, c.centroid)
+		}
+	}
+}
+
+// TestShapeAABBsMatchTheReference pins the box of each shape under one
+// translation. The inputs are dyadic, so every bound compares exactly.
+func TestShapeAABBsMatchTheReference(t *testing.T) {
+	xf := dbox2d.Transform{P: pt("1", "2"), Q: dbox2d.RotIdentity()}
+	quarter := fixed.MustParse("0.25")
+
+	circle := dbox2d.Circle{Center: pt("0.5", "0"), Radius: quarter}
+	capsule := dbox2d.Capsule{Center1: pt("-0.5", "0"), Center2: pt("0.5", "0"), Radius: quarter}
+	segment := dbox2d.Segment{Point1: pt("0", "-1"), Point2: pt("2", "1")}
+
+	cases := []struct {
+		name         string
+		got          dbox2d.AABB
+		lower, upper dbox2d.Vec2
+	}{
+		{"circle", dbox2d.ComputeCircleAABB(&circle, xf), pt("1.25", "1.75"), pt("1.75", "2.25")},
+		{"capsule", dbox2d.ComputeCapsuleAABB(&capsule, xf), pt("0.25", "1.75"), pt("1.75", "2.25")},
+		{"segment", dbox2d.ComputeSegmentAABB(&segment, xf), pt("1", "1"), pt("3", "3")},
+	}
+
+	for _, c := range cases {
+		if c.got.LowerBound != c.lower || c.got.UpperBound != c.upper {
+			t.Errorf("%s: aabb = %+v, want [%v, %v]", c.name, c.got, c.lower, c.upper)
+		}
 	}
 }

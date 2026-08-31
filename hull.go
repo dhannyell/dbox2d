@@ -75,7 +75,7 @@ func recurseHull(p1, p2 Vec2, ps []Vec2) Hull {
 }
 
 // ComputeHull returns the convex hull of a set of points. It welds points
-// that are closer than the linear slop and it drops collinear points. It
+// that are closer than four linear slops and it drops collinear points. It
 // returns an empty hull on failure: fewer than three points, more than
 // MaxPolygonVertices points, points all very close, or points all on a line.
 func ComputeHull(points []Vec2) Hull {

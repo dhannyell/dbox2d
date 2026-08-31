@@ -46,7 +46,8 @@ Numbering is sequential from `D-001` and never reused.
 
 ### D-003 An assertion becomes a panic
 
-- Files: id_pool.go, aabb.go, math.go (upstream `B2_ASSERT`)
+- Files: id_pool.go, aabb.go, math.go, hull.go, geometry.go (upstream
+  `B2_ASSERT`)
 - Tier: T2
 - Reason: `B2_ASSERT` compiles out in a release build. Go has no such switch,
   and a silent corruption costs more than a stop.
@@ -84,8 +85,11 @@ Numbering is sequential from `D-001` and never reused.
 
 ### D-006 A reciprocal becomes a division
 
-- File: math.go (upstream include/box2d/math_functions.h `b2GetInverse22`,
-  `b2Solve22`, `b2Normalize`, `b2NormalizeRot`)
+- Files: math.go, aabb.go, geometry.go (upstream
+  include/box2d/math_functions.h `b2GetInverse22`, `b2Solve22`,
+  `b2Normalize`, `b2NormalizeRot`; src/aabb.c `b2AABB_RayCast` `inv_d`;
+  src/geometry.c `b2ComputePolygonCentroid` and `b2ComputePolygonMass`
+  `inv3` and `invArea`, `b2RayCastCapsule` `invDen`)
 - Tier: T2
 - Reason: a Q32.32 reciprocal keeps only the leading bits of a large value.
   Multiplying by it discards the precision that a division keeps.
@@ -95,8 +99,14 @@ Numbering is sequential from `D-001` and never reused.
   becomes an exact test against zero instead of a test against an epsilon.
   `NormalizeRot` still returns a zero rotation for a zero input, as the
   reference does, so an invalid rotation stays visible to `IsValidRotation`.
+  The slab test divides each distance by the direction component. The
+  centroid, the polygon mass and the capsule side hit divide by the area or
+  by the determinant at each use.
 - Test: TestSolve22SolvesTheSystem, TestNormalizeKeepsAShortVector and
-  TestNormalizeRotKeepsAZeroRotation in math_test.go
+  TestNormalizeRotKeepsAZeroRotation in math_test.go,
+  TestAABBRayCastHitsTheNearFace in aabb_test.go,
+  TestMakeBoxMassMatchesTheReference and TestRayCastCapsuleHitsTheSide
+  in geometry_test.go
 
 ### D-007 The normalization tolerance is in raw units
 
@@ -111,9 +121,9 @@ Numbering is sequential from `D-001` and never reused.
 
 ### D-008 An epsilon guard becomes a test against zero
 
-- File: collision.go, geometry.go (upstream src/aabb.c `b2AABB_RayCast`,
-  src/geometry.c `b2RayCastCapsule`, `b2RayCastSegment`,
-  `b2ComputePolygonCentroid`, `b2ComputePolygonMass`, `b2MakePolygon`)
+- Files: aabb.go, geometry.go (upstream src/aabb.c `b2AABB_RayCast`,
+  src/geometry.c `b2RayCastCapsule`, `b2ComputePolygonCentroid`,
+  `b2ComputePolygonMass`, `b2MakePolygon`)
 - Tier: T2
 - Reason: `FLT_EPSILON` describes the spacing of the float grid near one.
   Q32.32 has one spacing everywhere, so a value below the float epsilon is
@@ -122,13 +132,12 @@ Numbering is sequential from `D-001` and never reused.
   zero length, a segment of zero length and a determinant of zero are exact
   cases now, not near cases. A degenerate area still panics, which follows
   D-003, because a polygon with no area has no mass.
-- Test: TestAABBRayCastHitsTheNearFace in aabb_test.go,
-  TestZeroLengthCapsuleMassEqualsACircle and
-  TestRayCastSegmentSkipsTheLeftSide in geometry_test.go
+- Test: TestAABBRayCastHitsTheNearFace in aabb_test.go and
+  TestRayCastCapsuleDegenerateCases in geometry_test.go
 
 ### D-009 An infinite sentinel becomes the largest representable value
 
-- File: collision.go, hull.go (upstream src/aabb.c `b2AABB_RayCast`,
+- Files: aabb.go, hull.go (upstream src/aabb.c `b2AABB_RayCast`,
   src/hull.c `b2ComputeHull`)
 - Tier: T2
 - Reason: the reference seeds a search with `FLT_MAX`, which no coordinate

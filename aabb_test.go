@@ -127,7 +127,7 @@ func TestAABBRayCastHitsTheNearFace(t *testing.T) {
 	p1 := Vec2{X: fixed.FromInt(-1), Y: fixed.One()}
 	p2 := Vec2{X: fixed.FromInt(3), Y: fixed.One()}
 
-	output := AABBRayCast(a, p1, p2)
+	output := aabbRayCast(a, p1, p2)
 
 	if !output.Hit {
 		t.Fatalf("the ray misses the box")
@@ -145,7 +145,7 @@ func TestAABBRayCastHitsTheNearFace(t *testing.T) {
 	// A ray parallel to a slab and outside it misses.
 	above1 := Vec2{X: fixed.FromInt(-1), Y: fixed.FromInt(3)}
 	above2 := Vec2{X: fixed.FromInt(3), Y: fixed.FromInt(3)}
-	if AABBRayCast(a, above1, above2).Hit {
+	if aabbRayCast(a, above1, above2).Hit {
 		t.Errorf("a ray that passes above the box reports a hit")
 	}
 }

@@ -134,8 +134,9 @@ to D-007. The notes below record what moved and what did not cross.
   and on nothing else. `math/bits` and `sync/atomic` arrive with the
   broadphase.
 
-**Orders 7 to 9 have landed**: `collision.go`, `hull.go` and `geometry.go`.
-Two divergences came with them, D-008 and D-009.
+**Orders 7 to 9 have landed**: `collision.go`, `hull.go`, `geometry.go` and
+the ray cast of `aabb.go`. Two divergences came with them, D-008 and D-009,
+and D-003 and D-006 grew new entries.
 
 - The distance, the time of impact and the character mover own their types.
   `SegmentDistanceResult`, `SimplexCache`, `DistanceInput`, `DistanceOutput`,
@@ -149,8 +150,9 @@ Two divergences came with them, D-008 and D-009.
   A rounded polygon panics until the shape cast lands.
 - `B2_MAX_POLYGON_VERTICES` becomes `MaxPolygonVertices`. A shape keeps the
   upstream layout: a fixed array of that size beside a count.
-- `B2_HUGE` lands with `geometry.go`, its first reader. It bounds the ray
-  fraction, so it stays unexported like the rest of `src/constants.h`.
+- `B2_HUGE` lands in `constants.go` with order 9, because `IsValidRay` in
+  `geometry.go` is its first reader. It bounds the ray fraction, so it
+  stays unexported like the rest of `src/constants.h`.
 - The point arrays that the reference passes as a pointer and a count become
   slices. The fixed arrays inside `Hull`, `Polygon` and `ShapeProxy` stay.
 
@@ -167,7 +169,7 @@ Two divergences came with them, D-008 and D-009.
 | `include/box2d/id.h` | `id.go` | T0 | foundation | 5 | Index plus generation handles. |
 | `src/id_pool.h`, `src/id_pool.c` | `id_pool.go` | T0 | foundation | 6 | Free list over a monotonic index. |
 | `include/box2d/collision.h` | `collision.go` | T0 | foundation | 7 | Shape structs, manifold structs, cast input and output. |
-| `src/aabb.c` | `collision.go` | T0/T2 | foundation | 7 | AABB ray cast. `IsValidAABB` landed with order 4. See D-008 and D-009. |
+| `src/aabb.c` | `aabb.go` | T0/T2 | foundation | 7 | AABB ray cast, unexported: `src/aabb.h` declares it, `include/box2d/` does not. `IsValidAABB` landed with order 4. See D-006, D-008 and D-009. |
 | `src/hull.c` | `hull.go` | T0/T2 | foundation | 8 | Recursive quickhull. Its tolerances are multiples of the linear slop, so only the `FLT_MAX` seed diverged. See D-009. |
 | `src/geometry.c` | `geometry.go` | T0/T1/T2 | foundation | 9 | Shape constructors, mass data, AABB per shape, point tests, ray casts. The shape casts and the mover collisions wait for order 17. |
 | `include/box2d/types.h`, `src/types.c` | `types.go` | T1 | foundation | 10 | Definition structs and their defaults. |

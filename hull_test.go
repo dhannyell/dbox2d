@@ -28,13 +28,14 @@ func TestComputeHullDropsAnInteriorPoint(t *testing.T) {
 		t.Errorf("ValidateHull rejects the hull of a square")
 	}
 
-	// The winding is counterclockwise, so every turn is a left turn.
-	for i := range hull.Count {
-		a := hull.Points[i]
-		b := hull.Points[(i+1)%hull.Count]
-		c := hull.Points[(i+2)%hull.Count]
-		if turn := dbox2d.Cross(b.Sub(a), c.Sub(b)); !fixed.Zero().Less(turn) {
-			t.Errorf("turn at point %d is %v, want a left turn", i, turn)
+	// The exact order pins the reference algorithm: the first hull point is
+	// the input point farthest from the AABB center, ties keep the earliest,
+	// and the stitch walks counterclockwise from there.
+	want := []dbox2d.Vec2{pt("-1", "-1"), pt("1", "-1"), pt("1", "1"), pt("-1", "1")}
+	for i, w := range want {
+		got := hull.Points[i]
+		if !got.X.Eq(w.X) || !got.Y.Eq(w.Y) {
+			t.Errorf("point %d = %v, want %v", i, got, w)
 		}
 	}
 }
