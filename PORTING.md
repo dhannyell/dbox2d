@@ -233,6 +233,20 @@ assertions retained by the step, and D-004 and D-006 grew `solver.go` entries.
   apparatus stay with their consumers: the shape casts, the sweeps and
   the iterative distance solver.
 
+**Order 20 has landed (circles and capsules)**: the first part of
+`manifold.go` — `CollideCircles`, `CollideCapsuleAndCircle`,
+`CollidePolygonAndCircle`, `CollideCapsules`, the two segment wrappers and
+`CollideChainSegmentAndCircle`.
+
+- The branch structure of the reference stays intact. The epsilon guards
+  become exact zero tests per D-012; the capsule length assert becomes a
+  panic per D-003.
+- `makeId` mirrors `B2_MAKE_ID`, so the point ids keep the warm-starting
+  contract across frames.
+- `b2MakeCapsule`, `b2ClipPolygons`, `b2FindMaxSeparation`, the polygon
+  pair colliders and the chain-segment pairs that need GJK wait for the
+  next order.
+
 ## The map
 
 `Order` is the port sequence. A dash means the file waits for a later stage.

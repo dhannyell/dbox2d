@@ -47,7 +47,7 @@ Numbering is sequential from `D-001` and never reused.
 ### D-003 An assertion becomes a panic
 
 - Files: id_pool.go, aabb.go, math.go, hull.go, geometry.go, step.go,
-  solver.go (upstream `B2_ASSERT`)
+  solver.go, manifold.go (upstream `B2_ASSERT`)
 - Tier: T2
 - Reason: `B2_ASSERT` compiles out in a release build. Go has no such switch,
   and a silent corruption costs more than a stop.
@@ -96,12 +96,13 @@ Numbering is sequential from `D-001` and never reused.
 
 ### D-006 A reciprocal becomes a division
 
-- Files: math.go, aabb.go, geometry.go, solver.go (upstream
+- Files: math.go, aabb.go, geometry.go, solver.go, manifold.go (upstream
   include/box2d/math_functions.h `b2GetInverse22`, `b2Solve22`,
   `b2Normalize`, `b2NormalizeRot`; src/aabb.c `b2AABB_RayCast` `inv_d`;
   src/geometry.c `b2ComputePolygonCentroid` and `b2ComputePolygonMass`
   `inv3` and `invArea`, `b2RayCastCapsule` `invDen`;
-  src/solver.c `b2IntegrateVelocitiesTask` damping factors)
+  src/solver.c `b2IntegrateVelocitiesTask` damping factors;
+  src/manifold.c `b2CollideChainSegmentAndCircle` `1/ee`)
 - Tier: T2
 - Reason: a Q32.32 reciprocal keeps only the leading bits of a large value.
   Multiplying by it discards the precision that a division keeps.
@@ -200,7 +201,9 @@ Numbering is sequential from `D-001` and never reused.
 
 ### D-012 An epsilon guard becomes an exact zero test
 
-- File: distance.go (upstream src/distance.c:44)
+- Files: distance.go (upstream src/distance.c:44), manifold.go (upstream
+  src/manifold.c:186, 209 vertex-region guards; 284 capsule length assert;
+  495 single-point normal fallback)
 - Tier: T2
 - Reason: `FLT_EPSILON` guards absorb float rounding noise. Q32.32 has no
   such noise, and its smallest magnitude is one raw unit, which already
@@ -208,5 +211,10 @@ Numbering is sequential from `D-001` and never reused.
   the only dividing line Q can express below its own resolution.
 - Behaviour: the degenerate branch of `SegmentDistance` runs only when a
   squared segment length is exactly zero. Every nonzero Q length takes the
-  regular path, as it would in float.
-- Test: TestSegmentDistanceHandlesDegenerateSegments in distance_test.go
+  regular path, as it would in float. In `CollidePolygonAndCircle` the
+  vertex region needs an exactly positive separation. In `CollideCapsules`
+  a zero axis length panics per D-003 and an exactly zero closest-point
+  difference selects the perpendicular fallback normal.
+- Test: TestSegmentDistanceHandlesDegenerateSegments in distance_test.go,
+  TestCollidePolygonAndCircleRegions and
+  TestCollideCapsulesFallsBackOnCoincidentClosestPoints in manifold_test.go
