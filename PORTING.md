@@ -158,8 +158,9 @@ D-009, and D-003 and D-006 grew new entries.
 
 **Orders 10 to 15 have landed**: `types.go`, `body.go`, `shape.go`,
 `solver_set.go`, `world.go` and `array.go`, plus `nullIndex`, `maxWorlds`,
-`secretCookie` and `checkDef` in `core.go`. No new divergence: the state
-management is index bookkeeping, which fixed point does not touch.
+`secretCookie` and `checkDef` in `core.go`. One language divergence came with
+them, D-010, and D-004 grew a `body.go` entry. The state bookkeeping itself
+adds no arithmetic divergence.
 
 - A function on a handle becomes a method: `b2Body_GetPosition` becomes
   `Position` on `BodyId`. The receiver replaces the first parameter and the

@@ -43,7 +43,7 @@ type WorldDef struct {
 	// Deferred: the mixing callbacks and the task system fields of the
 	// reference.
 
-	// Can bodies go to sleep to improve performance.
+	// Enable sleeping to improve performance.
 	EnableSleep bool
 
 	// Enable continuous collision.
@@ -139,7 +139,7 @@ type BodyDef struct {
 	// Set this to false if the body must never fall asleep.
 	EnableSleep bool
 
-	// Is the body initially awake or sleeping.
+	// Whether the body starts awake.
 	IsAwake bool
 
 	// Prevent the body from rotating. Useful for characters.
@@ -280,8 +280,8 @@ type ShapeDef struct {
 	Filter Filter
 
 	// A sensor generates overlap events and never a collision response.
-	// Warning: sensors are not ported yet. A shape creation with IsSensor
-	// set panics.
+	// Warning: sensors are not ported yet. Creating a shape with IsSensor set
+	// panics.
 	IsSensor bool
 
 	// Enable sensor events for this shape. False by default, even for
