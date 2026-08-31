@@ -147,10 +147,11 @@ func TestCreateAndDestroyOrdersProduceTheSameWorld(t *testing.T) {
 		{"second survivor", b1, b2},
 	}
 	for _, pair := range pairs {
-		x1 := getBodyTransform(getWorldFromId(world1), int(pair.s1.index1)-1)
-		x2 := getBodyTransform(getWorldFromId(world2), int(pair.s2.index1)-1)
-		if x1 != x2 {
-			t.Errorf("%s: transform %v, want %v", pair.name, x2, x1)
+		if pair.s1.Position() != pair.s2.Position() {
+			t.Errorf("%s: position %v, want %v", pair.name, pair.s2.Position(), pair.s1.Position())
+		}
+		if pair.s1.Rotation() != pair.s2.Rotation() {
+			t.Errorf("%s: rotation %v, want %v", pair.name, pair.s2.Rotation(), pair.s1.Rotation())
 		}
 		if !pair.s1.Mass().Eq(pair.s2.Mass()) {
 			t.Errorf("%s: mass %v, want %v", pair.name, pair.s2.Mass(), pair.s1.Mass())

@@ -2,10 +2,6 @@ package dbox2d
 
 import "github.com/dhannyell/fixed"
 
-// The broad-phase proxies, the sensors, the chains, the contacts and the
-// cast, perimeter and mover queries arrive with their modules. PORTING.md
-// lists the deferrals.
-
 // shape is the internal record of a shape on a body.
 type shape struct {
 	id          int
@@ -155,9 +151,7 @@ func createShapeInternal(w *world, b *body, transform Transform, def *ShapeDef, 
 	b.headShapeId = shapeId
 	b.shapeCount += 1
 
-	if def.IsSensor {
-		panic("dbox2d: the sensor module is not ported yet")
-	}
+	// Deferred: the sensor record of the reference sits here.
 	s.sensorIndex = nullIndex
 
 	return s
@@ -181,6 +175,12 @@ func createShape(bodyId BodyId, def *ShapeDef, geometry any, shapeType ShapeType
 	}
 	if !IsValidQ(def.Material.TangentSpeed) {
 		panic("dbox2d: ShapeDef.Material.TangentSpeed is not valid")
+	}
+
+	// Deferred: the sensor module. The rejection comes before the first
+	// mutation, so a recovered panic leaves no orphan shape.
+	if def.IsSensor {
+		panic("dbox2d: a sensor shape is not supported yet")
 	}
 
 	w := getWorldLocked(bodyId.world0)

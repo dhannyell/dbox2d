@@ -6,9 +6,6 @@ import (
 	"github.com/dhannyell/fixed"
 )
 
-// The task system, the mixing callbacks and the debug draw of the reference
-// stay out of this milestone. PORTING.md lists the deferrals.
-
 // Default filter bits. upstream B2_DEFAULT_CATEGORY_BITS, B2_DEFAULT_MASK_BITS
 const (
 	DefaultCategoryBits uint64 = 1
@@ -42,6 +39,9 @@ type WorldDef struct {
 
 	// Maximum linear speed, usually in meters per second.
 	MaximumLinearSpeed Q
+
+	// Deferred: the mixing callbacks and the task system fields of the
+	// reference.
 
 	// Can bodies go to sleep to improve performance.
 	EnableSleep bool
@@ -280,6 +280,8 @@ type ShapeDef struct {
 	Filter Filter
 
 	// A sensor generates overlap events and never a collision response.
+	// Warning: sensors are not ported yet. A shape creation with IsSensor
+	// set panics.
 	IsSensor bool
 
 	// Enable sensor events for this shape. False by default, even for

@@ -1,9 +1,5 @@
 package dbox2d
 
-// The joint, contact and island sim arrays, the wake, sleep and merge
-// operations and the joint transfer arrive with their modules. PORTING.md
-// lists the deferrals.
-
 // solverSet groups the sim data of bodies that the solver treats together:
 // one static set, one disabled set, one awake set and one set per sleeping
 // island. The grouping gives the solver high memory locality.
@@ -13,6 +9,8 @@ type solverSet struct {
 
 	// bodyStates of the bodies. Only the awake set has them.
 	bodyStates []bodyState
+
+	// Deferred: the joint, contact and island sim arrays of the reference.
 
 	// setIndex aligns with the solverSetIdPool of the world. It gives a
 	// stable id to the set, or nullIndex for an unused slot.

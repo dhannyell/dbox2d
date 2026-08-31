@@ -2,10 +2,6 @@ package dbox2d
 
 import "github.com/dhannyell/fixed"
 
-// The island management, the joint and contact edges, the body events and the
-// sweep live with the solver and the broad-phase. PORTING.md lists the
-// deferrals.
-
 // body holds the organizational details that the solver does not use.
 type body struct {
 	name [32]byte
@@ -142,12 +138,6 @@ func getBodyFullId(w *world, bodyId BodyId) *body {
 func getBodyTransformQuick(w *world, b *body) Transform {
 	set := &w.solverSets[b.setIndex]
 	return set.bodySims[b.localIndex].transform
-}
-
-// getBodyTransform returns the transform of the body with the raw id.
-func getBodyTransform(w *world, bodyId int) Transform {
-	b := &w.bodies[bodyId]
-	return getBodyTransformQuick(w, b)
 }
 
 // makeBodyId builds a BodyId from a raw id.
@@ -300,7 +290,6 @@ func CreateBody(worldId WorldId, def *BodyDef) BodyId {
 	b.isMarked = false
 
 	// Deferred: an enabled dynamic or kinematic body joins an island here.
-	// The island module arrives with the solver.
 
 	return BodyId{index1: int32(bodyId) + 1, world0: w.worldId, generation: b.generation}
 }
@@ -312,10 +301,10 @@ func DestroyBody(bodyId BodyId) {
 	b := getBodyFullId(w, bodyId)
 
 	// Deferred: the joints and the contacts attached to the body go away
-	// here. Both modules arrive with the solver.
+	// here.
 
-	// Destroy the attached shapes. Deferred with the broad-phase: the shape
-	// proxies and the sensors.
+	// Destroy the attached shapes. Deferred: their broad-phase proxies and
+	// their sensor records.
 	shapeId := b.headShapeId
 	for shapeId != nullIndex {
 		s := &w.shapes[shapeId]

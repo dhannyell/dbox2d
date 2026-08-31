@@ -3,7 +3,8 @@ package dbox2d
 // removeSwap removes s[index] by moving the last element into its place. It
 // returns the shrunk slice and the old index of the moved element, or
 // nullIndex when nothing moved. The caller must repair the stored index of
-// the moved element. upstream b2Array_RemoveSwap
+// the moved element.
+// upstream b2Array_RemoveSwap
 func removeSwap[T any](s []T, index int) ([]T, int) {
 	last := len(s) - 1
 	movedIndex := nullIndex

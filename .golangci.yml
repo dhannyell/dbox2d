@@ -27,9 +27,13 @@ linters:
         - -ST1022
   exclusions:
     rules:
-      # A struct mirrors its upstream layout in full, so a field can land
-      # before the module that reads it arrives. This keeps the layout from
-      # drifting away from the reference.
+      # These fields mirror the upstream layout and wait for the solver,
+      # their first reader. Any other unused field stays a finding.
       - linters:
           - unused
-        text: "field .* is unused"
+        path: body\.go
+        text: "field (flags|deltaPosition|force|torque|isFast|isSpeedCapped|enlargeAABB) is unused"
+      - linters:
+          - unused
+        path: world\.go
+        text: "field (contactSpeed|invH) is unused"

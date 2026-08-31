@@ -1,9 +1,5 @@
 package dbox2d
 
-// The broad-phase, the constraint graph, the arena, the joint, contact,
-// island and chain storage, the events, the callbacks and the task system
-// arrive with their modules. PORTING.md lists the deferrals.
-
 // The solver set positions of src/world.h. The first sets have fixed
 // indices; every later index is a sleeping island set.
 const (
@@ -15,6 +11,10 @@ const (
 
 // world manages all physics entities and the dynamic simulation.
 type world struct {
+	// Deferred: the arena, the broad-phase, the constraint graph, the
+	// joint, contact, island, chain and sensor storage, the events, the
+	// callbacks and the task system of the reference.
+
 	// bodyIdPool allocates and recycles body ids. An id gives the
 	// application a stable identifier; the sim data moves between sets.
 	bodyIdPool idPool
