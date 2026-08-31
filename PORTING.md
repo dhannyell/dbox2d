@@ -15,6 +15,19 @@ Read the reference with `git show`, `git log` and `git blame` against that
 branch. Blame is part of the method: when an upstream line looks strange, the
 commit that introduced it usually names the bug it answers.
 
+## Layout
+
+The reference keeps its 59 sources flat in `src/`. The port mirrors that: one
+upstream file becomes one Go file at the module root, and the whole solver is
+one package. Go binds a package to a directory, so a subdirectory would split
+the solver into several packages and force its internals to become public. The
+flat layout keeps the internals internal and keeps each file beside the
+upstream file it answers to.
+
+A name is exported when the reference exports it from `include/box2d/`, plus
+the tolerances of `constants.h`, which content authoring needs. Internal
+machinery, such as the id pool, stays unexported.
+
 ## Tiers
 
 | Tier | Rule |
@@ -73,6 +86,32 @@ solve, restitution and store impulses. The `Overflow` family is scalar and
 solves the constraints that no color accepted. The `Task` family is the SIMD
 one. The scalar family is a faithful in-repository reference for the whole
 solver, so the port never has to invent the scalar form of the vector code.
+
+## Progress
+
+**Orders 1 to 6 have landed**: `constants.go`, `core.go`, `math.go`,
+`aabb.go`, `id.go` and `id_pool.go`. Seven divergences came with them, D-001
+to D-007. The notes below record what moved and what did not cross.
+
+- The `b2AABB` type and its inline helpers sit in
+  `include/box2d/math_functions.h` upstream. The port keeps them with the rest
+  of the box code, in `aabb.go`.
+- `b2AABB_RayCast` waits for `collision.go`, order 7, which owns the cast
+  output type.
+- `b2MinInt`, `b2MaxInt`, `b2AbsInt`, `b2MinFloat`, `b2MaxFloat`, `b2AbsFloat`
+  and `b2ClampFloat` do not cross. Go and the fixed-point module already give
+  them. `ClampInt` crosses, because Go has no three argument clamp.
+- `b2CosSin` and `b2ComputeCosSin` do not cross. The fixed-point module owns
+  the sine and the cosine.
+- `b2GetIdBytes` does not cross. The size of an int changes with the platform,
+  and a public number that changes with the platform is a trap in a
+  deterministic library.
+- `b2GetVersion` becomes `ReferenceVersion`. It names the Box2D release that
+  this package ports; the module carries its own version.
+- The tree node flags of `constants.h` wait for `dynamic_tree.go`, order 27.
+- `b2Lerp` keeps the upstream weighted form, which returns each end exactly.
+  The fixed-point module interpolates by a scaled difference, so the two
+  round differently and the port does not delegate.
 
 ## The map
 
