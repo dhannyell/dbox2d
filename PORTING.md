@@ -72,10 +72,11 @@ one place: chain segment against polygon. Everything else in the narrowphase
 ports at T0 or T1.
 
 **2. The float tolerances in the narrowphase are few and local.**
-`manifold.c` compares against `FLT_EPSILON` in eight places, all of them
-guards against a degenerate segment or a zero-length span. In Q32.32 those
-comparisons become exact tests against zero, which is a T2 entry each and
-nothing more. The port loses no algorithm to arithmetic.
+`manifold.c` compares against `FLT_EPSILON` in nine places — eight literal
+uses and one through the `epsSqr` variable — all of them guards against a
+degenerate segment or a zero-length span. In Q32.32 those comparisons become
+exact tests against zero, which is a T2 entry each and nothing more. The
+port loses no algorithm to arithmetic.
 
 **3. The hot path has no trigonometry.** Neither `solver.c` nor
 `contact_solver.c` nor `manifold.c` calls a trigonometric function. The only
@@ -233,19 +234,21 @@ assertions retained by the step, and D-004 and D-006 grew `solver.go` entries.
   apparatus stay with their consumers: the shape casts, the sweeps and
   the iterative distance solver.
 
-**Order 20 has landed (circles and capsules)**: the first part of
-`manifold.go` — `CollideCircles`, `CollideCapsuleAndCircle`,
-`CollidePolygonAndCircle`, `CollideCapsules`, the two segment wrappers and
-`CollideChainSegmentAndCircle`.
+**Order 20 has landed**: `manifold.go` — the circle and capsule colliders,
+then the polygon colliders: `makeCapsule`, `clipPolygons`,
+`findMaxSeparation`, `CollidePolygons`, `CollidePolygonAndCapsule`,
+`CollideSegmentAndPolygon` and `clipSegments`.
 
 - The branch structure of the reference stays intact. The epsilon guards
-  become exact zero tests per D-012; the capsule length assert becomes a
-  panic per D-003.
+  become exact zero tests per D-012; the length asserts become panics per
+  D-003. In the two clippers the guarded lerp span is provably positive in
+  Q, so the guard is structural only.
 - `makeId` mirrors `B2_MAKE_ID`, so the point ids keep the warm-starting
   contract across frames.
-- `b2MakeCapsule`, `b2ClipPolygons`, `b2FindMaxSeparation`, the polygon
-  pair colliders and the chain-segment pairs that need GJK wait for the
-  next order.
+- `CollidePolygons` ports the compiled `#if 1` branch of the reference; the
+  dead `#else` block does not enter.
+- `clipSegments` has no caller yet: the chain-segment colliders that use it
+  also need GJK and wait with the distance solver.
 
 ## The map
 
@@ -273,7 +276,7 @@ assertions retained by the step, and D-004 and D-006 grew `solver.go` entries.
 | — | `checksum.go` | T2 | foundation | 17 | Port-only determinism witness over the complete canonical world state, commutative over bodies and shapes. See D-011. |
 | `src/arena_allocator.h`, `src/arena_allocator.c` | `arena.go` | T1 | foundation | 18 | Per-step scratch. It is how the step allocates nothing. |
 | `src/distance.c` (segment distance, proxies) | `distance.go` | T0 | manifolds | 19 | Closed-form part only. |
-| `src/manifold.c` | `manifold.go` | T0/T1 | manifolds | 20 | Eight `FLT_EPSILON` guards become exact zero tests, one T2 entry each. |
+| `src/manifold.c` | `manifold.go` | T0/T1 | manifolds | 20 | Nine `FLT_EPSILON` sites become exact zero tests, one T2 entry each. |
 | `src/contact.h`, `src/contact.c` | `contact.go` | T0 | manifolds | 21 | Contact bookkeeping and the collide dispatch table. |
 | `src/table.h`, `src/table.c` | `table.go` | T0 | manifolds | 22 | Open-addressing set of contact pairs. |
 | `src/solver.h`, `src/solver.c` | `solver.go` | T0/T1/T2 | solver | 23 | Nine ordered stages, from prepare joints to store impulses. `MakeSoft` is pure arithmetic. The integration tasks, the body finalize and the single-worker sub-step order landed with order 16; see D-004 and D-006. The constraint stages wait. |

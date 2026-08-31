@@ -8,6 +8,31 @@ func makeId(a, b int) uint16 {
 	return uint16(uint8(a))<<8 | uint16(uint8(b))
 }
 
+// makeCapsule builds the two-vertex rounded polygon of a capsule. It
+// corresponds to the static b2MakeCapsule in src/manifold.c.
+func makeCapsule(p1, p2 Vec2, radius Q) Polygon {
+	var shape Polygon
+	shape.Vertices[0] = p1
+	shape.Vertices[1] = p2
+	shape.Centroid = Lerp(p1, p2, fixed.Half())
+
+	d := p2.Sub(p1)
+	// The reference asserts the length against FLT_EPSILON. The exact zero
+	// is the Q form. See D-003 and D-012.
+	if d.Dot(d).Eq(fixed.Zero()) {
+		panic("dbox2d: degenerate capsule")
+	}
+	axis := d.Normalize()
+	normal := RightPerp(axis)
+
+	shape.Normals[0] = normal
+	shape.Normals[1] = Neg(normal)
+	shape.Count = 2
+	shape.Radius = radius
+
+	return shape
+}
+
 // CollideCircles computes the contact manifold of two circles. It
 // corresponds to b2CollideCircles in src/manifold.c.
 func CollideCircles(circleA *Circle, xfA Transform, circleB *Circle, xfB Transform) Manifold {
@@ -466,11 +491,367 @@ func CollideSegmentAndCapsule(segmentA *Segment, xfA Transform, capsuleB *Capsul
 	return CollideCapsules(&capsuleA, xfA, capsuleB, xfB)
 }
 
+// CollidePolygonAndCapsule computes the contact manifold of a polygon and a
+// capsule. It corresponds to b2CollidePolygonAndCapsule in src/manifold.c.
+func CollidePolygonAndCapsule(polygonA *Polygon, xfA Transform, capsuleB *Capsule, xfB Transform) Manifold {
+	polyB := makeCapsule(capsuleB.Center1, capsuleB.Center2, capsuleB.Radius)
+	return CollidePolygons(polygonA, xfA, &polyB, xfB)
+}
+
+// clipPolygons computes the contact points of two potentially touching
+// polygon edges. It corresponds to the static b2ClipPolygons in
+// src/manifold.c.
+func clipPolygons(polyA, polyB *Polygon, edgeA, edgeB int, flip bool) Manifold {
+	var manifold Manifold
+
+	// The reference polygon and the incident polygon.
+	var poly1, poly2 *Polygon
+	var i11, i12, i21, i22 int
+
+	if flip {
+		poly1 = polyB
+		poly2 = polyA
+		i11 = edgeB
+		i12 = 0
+		if edgeB+1 < polyB.Count {
+			i12 = edgeB + 1
+		}
+		i21 = edgeA
+		i22 = 0
+		if edgeA+1 < polyA.Count {
+			i22 = edgeA + 1
+		}
+	} else {
+		poly1 = polyA
+		poly2 = polyB
+		i11 = edgeA
+		i12 = 0
+		if edgeA+1 < polyA.Count {
+			i12 = edgeA + 1
+		}
+		i21 = edgeB
+		i22 = 0
+		if edgeB+1 < polyB.Count {
+			i22 = edgeB + 1
+		}
+	}
+
+	normal := poly1.Normals[i11]
+
+	// The reference edge vertices.
+	v11 := poly1.Vertices[i11]
+	v12 := poly1.Vertices[i12]
+
+	// The incident edge vertices.
+	v21 := poly2.Vertices[i21]
+	v22 := poly2.Vertices[i22]
+
+	tangent := CrossSV(fixed.One(), normal)
+
+	zero := fixed.Zero()
+	lower1 := zero
+	upper1 := v12.Sub(v11).Dot(tangent)
+
+	// The incident edge points opposite the tangent due to CCW winding.
+	upper2 := v21.Sub(v11).Dot(tangent)
+	lower2 := v22.Sub(v11).Dot(tangent)
+
+	// Are the segments disjoint?
+	if upper2.Less(lower1) || upper1.Less(lower2) {
+		return manifold
+	}
+
+	// The reference guards each lerp span with FLT_EPSILON. In Q the span is
+	// always exactly positive here, because the disjoint test above bounds
+	// it. The exact zero test stays for structure. See D-012.
+	vLower := v22
+	if lower2.Less(lower1) && zero.Less(upper2.Sub(lower2)) {
+		vLower = Lerp(v22, v21, lower1.Sub(lower2).Div(upper2.Sub(lower2)))
+	}
+
+	vUpper := v21
+	if upper1.Less(upper2) && zero.Less(upper2.Sub(lower2)) {
+		vUpper = Lerp(v22, v21, upper1.Sub(lower2).Div(upper2.Sub(lower2)))
+	}
+
+	separationLower := vLower.Sub(v11).Dot(normal)
+	separationUpper := vUpper.Sub(v11).Dot(normal)
+
+	r1 := poly1.Radius
+	r2 := poly2.Radius
+
+	// Put the contact points at the midpoint, accounting for the radii.
+	half := fixed.Half()
+	vLower = MulAdd(vLower, half.Mul(r1.Sub(r2).Sub(separationLower)), normal)
+	vUpper = MulAdd(vUpper, half.Mul(r1.Sub(r2).Sub(separationUpper)), normal)
+
+	radius := r1.Add(r2)
+
+	if !flip {
+		manifold.Normal = normal
+		manifold.Points[0].AnchorA = vLower
+		manifold.Points[0].Separation = separationLower.Sub(radius)
+		manifold.Points[0].Id = makeId(i11, i22)
+		manifold.Points[1].AnchorA = vUpper
+		manifold.Points[1].Separation = separationUpper.Sub(radius)
+		manifold.Points[1].Id = makeId(i12, i21)
+		manifold.PointCount = 2
+	} else {
+		manifold.Normal = Neg(normal)
+		manifold.Points[0].AnchorA = vUpper
+		manifold.Points[0].Separation = separationUpper.Sub(radius)
+		manifold.Points[0].Id = makeId(i21, i12)
+		manifold.Points[1].AnchorA = vLower
+		manifold.Points[1].Separation = separationLower.Sub(radius)
+		manifold.Points[1].Id = makeId(i22, i11)
+		manifold.PointCount = 2
+	}
+
+	return manifold
+}
+
+// findMaxSeparation finds the maximum separation of poly2 from the edge
+// normals of poly1. It corresponds to b2FindMaxSeparation in src/manifold.c.
+func findMaxSeparation(poly1, poly2 *Polygon) (Q, int) {
+	count1 := poly1.Count
+	count2 := poly2.Count
+
+	bestIndex := 0
+	// The seed follows D-009.
+	maxSeparation := fixed.MinValue()
+	for i := range count1 {
+		// Get the poly1 normal and vertex.
+		n := poly1.Normals[i]
+		v1 := poly1.Vertices[i]
+
+		// Find the deepest poly2 point for normal i.
+		si := fixed.MaxValue()
+		for j := range count2 {
+			sij := n.Dot(poly2.Vertices[j].Sub(v1))
+			if sij.Less(si) {
+				si = sij
+			}
+		}
+
+		if maxSeparation.Less(si) {
+			maxSeparation = si
+			bestIndex = i
+		}
+	}
+
+	return maxSeparation, bestIndex
+}
+
+// CollidePolygons computes the contact manifold of two rounded polygons with
+// the separating axis test and edge clipping. It corresponds to
+// b2CollidePolygons in src/manifold.c.
+func CollidePolygons(polygonA *Polygon, xfA Transform, polygonB *Polygon, xfB Transform) Manifold {
+	origin := polygonA.Vertices[0]
+	linearSlop := LinearSlop()
+	speculativeDistance := SpeculativeDistance()
+	zero := fixed.Zero()
+	one := fixed.One()
+	half := fixed.Half()
+
+	// Shift polygon A to the origin.
+	sfA := Transform{P: xfA.P.Add(RotateVector(xfA.Q, origin)), Q: xfA.Q}
+	xf := InvMulTransforms(sfA, xfB)
+
+	var localPolyA Polygon
+	localPolyA.Count = polygonA.Count
+	localPolyA.Radius = polygonA.Radius
+	localPolyA.Vertices[0] = Vec2{}
+	localPolyA.Normals[0] = polygonA.Normals[0]
+	for i := 1; i < localPolyA.Count; i++ {
+		localPolyA.Vertices[i] = polygonA.Vertices[i].Sub(origin)
+		localPolyA.Normals[i] = polygonA.Normals[i]
+	}
+
+	// Put polygon B in the frame of polygon A to reduce round-off error.
+	var localPolyB Polygon
+	localPolyB.Count = polygonB.Count
+	localPolyB.Radius = polygonB.Radius
+	for i := range localPolyB.Count {
+		localPolyB.Vertices[i] = TransformPoint(xf, polygonB.Vertices[i])
+		localPolyB.Normals[i] = RotateVector(xf.Q, polygonB.Normals[i])
+	}
+
+	separationA, edgeA := findMaxSeparation(&localPolyA, &localPolyB)
+	separationB, edgeB := findMaxSeparation(&localPolyB, &localPolyA)
+
+	radius := localPolyA.Radius.Add(localPolyB.Radius)
+
+	if speculativeDistance.Add(radius).Less(separationA) ||
+		speculativeDistance.Add(radius).Less(separationB) {
+		return Manifold{}
+	}
+
+	// Find the incident edge.
+	var flip bool
+	if separationA.Cmp(separationB) >= 0 {
+		flip = false
+
+		searchDirection := localPolyA.Normals[edgeA]
+
+		// Find the incident edge on polygon B.
+		edgeB = 0
+		minDot := fixed.MaxValue()
+		for i := range localPolyB.Count {
+			dot := searchDirection.Dot(localPolyB.Normals[i])
+			if dot.Less(minDot) {
+				minDot = dot
+				edgeB = i
+			}
+		}
+	} else {
+		flip = true
+
+		searchDirection := localPolyB.Normals[edgeB]
+
+		// Find the incident edge on polygon A.
+		edgeA = 0
+		minDot := fixed.MaxValue()
+		for i := range localPolyA.Count {
+			dot := searchDirection.Dot(localPolyA.Normals[i])
+			if dot.Less(minDot) {
+				minDot = dot
+				edgeA = i
+			}
+		}
+	}
+
+	var manifold Manifold
+
+	// The slop keeps vertex-vertex normals safely normalizable; upstream
+	// 0.1f * B2_LINEAR_SLOP.
+	slopBias := linearSlop.Div(fixed.FromInt(10))
+	if slopBias.Less(separationA) || slopBias.Less(separationB) {
+		// The edges are disjoint. Find the closest points of the reference
+		// edge and the incident edge.
+		i11 := edgeA
+		i12 := 0
+		if edgeA+1 < localPolyA.Count {
+			i12 = edgeA + 1
+		}
+		i21 := edgeB
+		i22 := 0
+		if edgeB+1 < localPolyB.Count {
+			i22 = edgeB + 1
+		}
+
+		v11 := localPolyA.Vertices[i11]
+		v12 := localPolyA.Vertices[i12]
+		v21 := localPolyB.Vertices[i21]
+		v22 := localPolyB.Vertices[i22]
+
+		result := SegmentDistance(v11, v12, v21, v22)
+
+		// The reference asserts a positive squared distance. See D-003.
+		if result.DistanceSquared.Eq(zero) {
+			panic("dbox2d: coincident polygon edges")
+		}
+		distance := result.DistanceSquared.Sqrt()
+		separation := distance.Sub(radius)
+
+		if speculativeDistance.Less(distance.Sub(radius)) {
+			// This can happen in the vertex-vertex case.
+			return manifold
+		}
+
+		// Attempt to clip the edges.
+		manifold = clipPolygons(&localPolyA, &localPolyB, edgeA, edgeB, flip)
+
+		minSeparation := fixed.MaxValue()
+		for i := range manifold.PointCount {
+			minSeparation = minSeparation.Min(manifold.Points[i].Separation)
+		}
+
+		// Does vertex-vertex have a substantially larger separation?
+		if separation.Add(slopBias).Less(minSeparation) {
+			if result.Fraction1.Eq(zero) && result.Fraction2.Eq(zero) {
+				// v11 versus v21. The reference multiplies by the reciprocal
+				// of the distance; the port divides per D-006.
+				normal := v21.Sub(v11).Div(distance)
+
+				c1 := MulAdd(v11, localPolyA.Radius, normal)
+				c2 := MulAdd(v21, localPolyB.Radius.Neg(), normal)
+
+				manifold.Normal = normal
+				manifold.Points[0].AnchorA = Lerp(c1, c2, half)
+				manifold.Points[0].Separation = distance.Sub(radius)
+				manifold.Points[0].Id = makeId(i11, i21)
+				manifold.PointCount = 1
+			} else if result.Fraction1.Eq(zero) && result.Fraction2.Eq(one) {
+				// v11 versus v22.
+				normal := v22.Sub(v11).Div(distance)
+
+				c1 := MulAdd(v11, localPolyA.Radius, normal)
+				c2 := MulAdd(v22, localPolyB.Radius.Neg(), normal)
+
+				manifold.Normal = normal
+				manifold.Points[0].AnchorA = Lerp(c1, c2, half)
+				manifold.Points[0].Separation = distance.Sub(radius)
+				manifold.Points[0].Id = makeId(i11, i22)
+				manifold.PointCount = 1
+			} else if result.Fraction1.Eq(one) && result.Fraction2.Eq(zero) {
+				// v12 versus v21.
+				normal := v21.Sub(v12).Div(distance)
+
+				c1 := MulAdd(v12, localPolyA.Radius, normal)
+				c2 := MulAdd(v21, localPolyB.Radius.Neg(), normal)
+
+				manifold.Normal = normal
+				manifold.Points[0].AnchorA = Lerp(c1, c2, half)
+				manifold.Points[0].Separation = distance.Sub(radius)
+				manifold.Points[0].Id = makeId(i12, i21)
+				manifold.PointCount = 1
+			} else if result.Fraction1.Eq(one) && result.Fraction2.Eq(one) {
+				// v12 versus v22.
+				normal := v22.Sub(v12).Div(distance)
+
+				c1 := MulAdd(v12, localPolyA.Radius, normal)
+				c2 := MulAdd(v22, localPolyB.Radius.Neg(), normal)
+
+				manifold.Normal = normal
+				manifold.Points[0].AnchorA = Lerp(c1, c2, half)
+				manifold.Points[0].Separation = distance.Sub(radius)
+				manifold.Points[0].Id = makeId(i12, i22)
+				manifold.PointCount = 1
+			}
+		}
+	} else {
+		// The polygons overlap.
+		manifold = clipPolygons(&localPolyA, &localPolyB, edgeA, edgeB, flip)
+	}
+
+	// Convert the manifold to world space.
+	if manifold.PointCount > 0 {
+		manifold.Normal = RotateVector(xfA.Q, manifold.Normal)
+		for i := range manifold.PointCount {
+			mp := &manifold.Points[i]
+
+			// Anchor points relative to the shape origin in world space.
+			mp.AnchorA = RotateVector(xfA.Q, mp.AnchorA.Add(origin))
+			mp.AnchorB = mp.AnchorA.Add(xfA.P.Sub(xfB.P))
+			mp.Point = xfA.P.Add(mp.AnchorA)
+		}
+	}
+
+	return manifold
+}
+
 // CollideSegmentAndCircle computes the contact manifold of a segment and a
 // circle. It corresponds to b2CollideSegmentAndCircle in src/manifold.c.
 func CollideSegmentAndCircle(segmentA *Segment, xfA Transform, circleB *Circle, xfB Transform) Manifold {
 	capsuleA := Capsule{Center1: segmentA.Point1, Center2: segmentA.Point2}
 	return CollideCapsuleAndCircle(&capsuleA, xfA, circleB, xfB)
+}
+
+// CollideSegmentAndPolygon computes the contact manifold of a segment and a
+// polygon. It corresponds to b2CollideSegmentAndPolygon in src/manifold.c.
+func CollideSegmentAndPolygon(segmentA *Segment, xfA Transform, polygonB *Polygon, xfB Transform) Manifold {
+	polygonA := makeCapsule(segmentA.Point1, segmentA.Point2, fixed.Zero())
+	return CollidePolygons(&polygonA, xfA, polygonB, xfB)
 }
 
 // CollideChainSegmentAndCircle computes the contact manifold of a one-sided
@@ -551,5 +932,63 @@ func CollideChainSegmentAndCircle(segmentA *ChainSegment, xfA Transform, circleB
 	mp.Separation = separation
 	mp.Id = 0
 	manifold.PointCount = 1
+	return manifold
+}
+
+// clipSegments clips segment b against segment a along the normal and
+// always yields two points. It corresponds to the static b2ClipSegments in
+// src/manifold.c.
+func clipSegments(a1, a2, b1, b2 Vec2, normal Vec2, ra, rb Q, id1, id2 uint16) Manifold {
+	var manifold Manifold
+
+	tangent := LeftPerp(normal)
+
+	zero := fixed.Zero()
+
+	// Barycentric coordinates of each point relative to a1 along the tangent.
+	lower1 := zero
+	upper1 := a2.Sub(a1).Dot(tangent)
+
+	// The incident edge points opposite the tangent due to CCW winding.
+	upper2 := b1.Sub(a1).Dot(tangent)
+	lower2 := b2.Sub(a1).Dot(tangent)
+
+	// Do the segments overlap?
+	if upper2.Less(lower1) || upper1.Less(lower2) {
+		return manifold
+	}
+
+	// The reference guards each lerp span with FLT_EPSILON. In Q the span is
+	// always exactly positive here, because the overlap test above bounds
+	// it. The exact zero test stays for structure. See D-012.
+	vLower := b2
+	if lower2.Less(lower1) && zero.Less(upper2.Sub(lower2)) {
+		vLower = Lerp(b2, b1, lower1.Sub(lower2).Div(upper2.Sub(lower2)))
+	}
+
+	vUpper := b1
+	if upper1.Less(upper2) && zero.Less(upper2.Sub(lower2)) {
+		vUpper = Lerp(b2, b1, upper1.Sub(lower2).Div(upper2.Sub(lower2)))
+	}
+
+	separationLower := vLower.Sub(a1).Dot(normal)
+	separationUpper := vUpper.Sub(a1).Dot(normal)
+
+	// Put the contact points at the midpoint, accounting for the radii.
+	half := fixed.Half()
+	vLower = MulAdd(vLower, half.Mul(ra.Sub(rb).Sub(separationLower)), normal)
+	vUpper = MulAdd(vUpper, half.Mul(ra.Sub(rb).Sub(separationUpper)), normal)
+
+	radius := ra.Add(rb)
+
+	manifold.Normal = normal
+	manifold.Points[0].AnchorA = vLower
+	manifold.Points[0].Separation = separationLower.Sub(radius)
+	manifold.Points[0].Id = id1
+	manifold.Points[1].AnchorA = vUpper
+	manifold.Points[1].Separation = separationUpper.Sub(radius)
+	manifold.Points[1].Id = id2
+	manifold.PointCount = 2
+
 	return manifold
 }

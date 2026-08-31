@@ -337,3 +337,195 @@ func TestCollideChainSegmentAndCircleIsOneSided(t *testing.T) {
 		t.Fatalf("p1 region: normal %v, want (0, -1)", manifold.Normal)
 	}
 }
+
+// TestCollidePolygonsClipsOverlappingBoxes checks the parallel-face overlap
+// branch of the clipper: two points, exact values, stable ids.
+func TestCollidePolygonsClipsOverlappingBoxes(t *testing.T) {
+	boxA := dbox2d.MakeBox(fixed.One(), fixed.One())
+	boxB := dbox2d.MakeBox(fixed.One(), fixed.One())
+	xfA := dbox2d.TransformIdentity()
+	xfB := dbox2d.Transform{P: vecQ("0", "1.5"), Q: dbox2d.RotIdentity()}
+
+	manifold := dbox2d.CollidePolygons(&boxA, xfA, &boxB, xfB)
+	if manifold.PointCount != 2 {
+		t.Fatalf("pointCount %d, want 2", manifold.PointCount)
+	}
+	if !manifold.Normal.X.Eq(fixed.Zero()) || !manifold.Normal.Y.Eq(fixed.One()) {
+		t.Fatalf("normal %v, want (0, 1)", manifold.Normal)
+	}
+
+	negHalf := fixed.MustParse("-0.5")
+	p0 := manifold.Points[0]
+	if p0.Point != vecQ("1", "0.75") || !p0.Separation.Eq(negHalf) {
+		t.Fatalf("point 0 %v separation %v, want (1, 0.75) and -0.5", p0.Point, p0.Separation)
+	}
+	if p0.Id != makeIdWant(2, 1) {
+		t.Fatalf("point 0 id %d, want %d", p0.Id, makeIdWant(2, 1))
+	}
+
+	p1 := manifold.Points[1]
+	if p1.Point != vecQ("-1", "0.75") || !p1.Separation.Eq(negHalf) {
+		t.Fatalf("point 1 %v separation %v, want (-1, 0.75) and -0.5", p1.Point, p1.Separation)
+	}
+	if p1.Id != makeIdWant(3, 0) {
+		t.Fatalf("point 1 id %d, want %d", p1.Id, makeIdWant(3, 0))
+	}
+}
+
+// TestCollidePolygonsClipsThePartialOverlap puts a small box on the corner
+// side of the top face, so the lower clip point comes from the guarded lerp.
+func TestCollidePolygonsClipsThePartialOverlap(t *testing.T) {
+	boxA := dbox2d.MakeBox(fixed.One(), fixed.One())
+	boxB := dbox2d.MakeBox(fixed.Half(), fixed.Half())
+	xfA := dbox2d.TransformIdentity()
+	xfB := dbox2d.Transform{P: vecQ("0.75", "1.25"), Q: dbox2d.RotIdentity()}
+
+	manifold := dbox2d.CollidePolygons(&boxA, xfA, &boxB, xfB)
+	if manifold.PointCount != 2 {
+		t.Fatalf("pointCount %d, want 2", manifold.PointCount)
+	}
+	if !manifold.Normal.X.Eq(fixed.Zero()) || !manifold.Normal.Y.Eq(fixed.One()) {
+		t.Fatalf("normal %v, want (0, 1)", manifold.Normal)
+	}
+
+	sep := fixed.MustParse("-0.25")
+	p0 := manifold.Points[0]
+	if p0.Point != vecQ("1", "0.875") || !p0.Separation.Eq(sep) {
+		t.Fatalf("point 0 %v separation %v, want (1, 0.875) and -0.25", p0.Point, p0.Separation)
+	}
+	p1 := manifold.Points[1]
+	if p1.Point != vecQ("0.25", "0.875") || !p1.Separation.Eq(sep) {
+		t.Fatalf("point 1 %v separation %v, want (0.25, 0.875) and -0.25", p1.Point, p1.Separation)
+	}
+	if p0.Id != makeIdWant(2, 1) || p1.Id != makeIdWant(3, 0) {
+		t.Fatalf("ids %d, %d, want %d, %d", p0.Id, p1.Id, makeIdWant(2, 1), makeIdWant(3, 0))
+	}
+}
+
+// TestCollidePolygonsFindsTheVertexVertexContact offsets a box past the
+// corner, so the clipper finds disjoint edges and the closest vertices win.
+func TestCollidePolygonsFindsTheVertexVertexContact(t *testing.T) {
+	boxA := dbox2d.MakeBox(fixed.One(), fixed.One())
+	boxB := dbox2d.MakeBox(fixed.One(), fixed.One())
+	xfA := dbox2d.TransformIdentity()
+
+	// The offset 1/128 keeps the corner gap inside the speculative distance.
+	offset := fixed.FromInt(2).Add(fixed.MustParse("0.0078125"))
+	xfB := dbox2d.Transform{P: dbox2d.Vec2{X: offset, Y: offset}, Q: dbox2d.RotIdentity()}
+
+	manifold := dbox2d.CollidePolygons(&boxA, xfA, &boxB, xfB)
+	if manifold.PointCount != 1 {
+		t.Fatalf("pointCount %d, want 1", manifold.PointCount)
+	}
+
+	// The normal is the unit diagonal; the square root brings rounding.
+	invSqrt2 := fixed.MustParse("0.7071067811")
+	if !nearVec(manifold.Normal, dbox2d.Vec2{X: invSqrt2, Y: invSqrt2}, sqrtTol()) {
+		t.Fatalf("normal %v, want the unit diagonal", manifold.Normal)
+	}
+
+	// The separation is the corner distance sqrt(2)/128.
+	wantSep := fixed.MustParse("0.0110485434")
+	if !near(manifold.Points[0].Separation, wantSep, sqrtTol()) {
+		t.Fatalf("separation %v, want %v", manifold.Points[0].Separation, wantSep)
+	}
+
+	// The contact point is the exact midpoint of the two corners.
+	if manifold.Points[0].Point != vecQ("1.00390625", "1.00390625") {
+		t.Fatalf("point %v, want the corner midpoint", manifold.Points[0].Point)
+	}
+	if manifold.Points[0].Id != makeIdWant(2, 0) {
+		t.Fatalf("id %d, want %d", manifold.Points[0].Id, makeIdWant(2, 0))
+	}
+}
+
+// TestCollidePolygonsRejectsTheSpeculativeGap separates the boxes beyond the
+// speculative distance.
+func TestCollidePolygonsRejectsTheSpeculativeGap(t *testing.T) {
+	boxA := dbox2d.MakeBox(fixed.One(), fixed.One())
+	boxB := dbox2d.MakeBox(fixed.One(), fixed.One())
+	xfA := dbox2d.TransformIdentity()
+	xfB := dbox2d.Transform{P: vecQ("0", "2.125"), Q: dbox2d.RotIdentity()}
+
+	manifold := dbox2d.CollidePolygons(&boxA, xfA, &boxB, xfB)
+	if manifold.PointCount != 0 {
+		t.Fatalf("separated boxes produced %d points", manifold.PointCount)
+	}
+}
+
+// TestCollidePolygonAndCapsuleClipsTheEndCap stands a capsule on a box top
+// face: the degenerate incident edge keeps both clip endpoints, one real and
+// one speculative.
+func TestCollidePolygonAndCapsuleClipsTheEndCap(t *testing.T) {
+	boxA := dbox2d.MakeBox(fixed.One(), fixed.One())
+	quarter := fixed.MustParse("0.25")
+	capsuleB := dbox2d.Capsule{Center1: vecQ("0", "-0.5"), Center2: vecQ("0", "0.5"), Radius: quarter}
+	xfA := dbox2d.TransformIdentity()
+	xfB := dbox2d.Transform{P: vecQ("0", "1.625"), Q: dbox2d.RotIdentity()}
+
+	manifold := dbox2d.CollidePolygonAndCapsule(&boxA, xfA, &capsuleB, xfB)
+	if manifold.PointCount != 2 {
+		t.Fatalf("pointCount %d, want 2", manifold.PointCount)
+	}
+	if !manifold.Normal.X.Eq(fixed.Zero()) || !manifold.Normal.Y.Eq(fixed.One()) {
+		t.Fatalf("normal %v, want (0, 1)", manifold.Normal)
+	}
+
+	p0 := manifold.Points[0]
+	if p0.Point != vecQ("0", "1.4375") || !p0.Separation.Eq(fixed.MustParse("0.875")) {
+		t.Fatalf("point 0 %v separation %v, want (0, 1.4375) and 0.875", p0.Point, p0.Separation)
+	}
+	p1 := manifold.Points[1]
+	if p1.Point != vecQ("0", "0.9375") || !p1.Separation.Eq(fixed.MustParse("-0.125")) {
+		t.Fatalf("point 1 %v separation %v, want (0, 0.9375) and -0.125", p1.Point, p1.Separation)
+	}
+	if p0.Id != makeIdWant(2, 1) || p1.Id != makeIdWant(3, 0) {
+		t.Fatalf("ids %d, %d, want %d, %d", p0.Id, p1.Id, makeIdWant(2, 1), makeIdWant(3, 0))
+	}
+}
+
+// TestCollideSegmentAndPolygonMatchesTheGround rests a box on a segment.
+// The reference edge index wraps, so the second id uses vertex zero.
+func TestCollideSegmentAndPolygonMatchesTheGround(t *testing.T) {
+	segmentA := dbox2d.Segment{Point1: vec(-2, 0), Point2: vec(2, 0)}
+	boxB := dbox2d.MakeBox(fixed.One(), fixed.One())
+	xfA := dbox2d.TransformIdentity()
+	xfB := dbox2d.Transform{P: vecQ("0", "0.75"), Q: dbox2d.RotIdentity()}
+
+	manifold := dbox2d.CollideSegmentAndPolygon(&segmentA, xfA, &boxB, xfB)
+	if manifold.PointCount != 2 {
+		t.Fatalf("pointCount %d, want 2", manifold.PointCount)
+	}
+	if !manifold.Normal.X.Eq(fixed.Zero()) || !manifold.Normal.Y.Eq(fixed.One()) {
+		t.Fatalf("normal %v, want (0, 1)", manifold.Normal)
+	}
+
+	sep := fixed.MustParse("-0.25")
+	p0 := manifold.Points[0]
+	if p0.Point != vecQ("1", "-0.125") || !p0.Separation.Eq(sep) {
+		t.Fatalf("point 0 %v separation %v, want (1, -0.125) and -0.25", p0.Point, p0.Separation)
+	}
+	p1 := manifold.Points[1]
+	if p1.Point != vecQ("-1", "-0.125") || !p1.Separation.Eq(sep) {
+		t.Fatalf("point 1 %v separation %v, want (-1, -0.125) and -0.25", p1.Point, p1.Separation)
+	}
+	if p0.Id != makeIdWant(1, 1) || p1.Id != makeIdWant(0, 0) {
+		t.Fatalf("ids %d, %d, want %d, %d", p0.Id, p1.Id, makeIdWant(1, 1), makeIdWant(0, 0))
+	}
+}
+
+// TestCollideSegmentAndPolygonRejectsADegenerateSegment checks the length
+// assert of the capsule builder: a zero axis becomes a panic. See D-003 and
+// D-012.
+func TestCollideSegmentAndPolygonRejectsADegenerateSegment(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("a zero-length segment did not panic")
+		}
+	}()
+
+	segmentA := dbox2d.Segment{Point1: vec(1, 1), Point2: vec(1, 1)}
+	boxB := dbox2d.MakeBox(fixed.One(), fixed.One())
+	xf := dbox2d.TransformIdentity()
+	dbox2d.CollideSegmentAndPolygon(&segmentA, xf, &boxB, xf)
+}
