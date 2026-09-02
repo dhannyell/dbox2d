@@ -11,9 +11,12 @@ const (
 
 // world manages all physics entities and the dynamic simulation.
 type world struct {
-	// Deferred: the arena, the broad-phase, the constraint graph, the
-	// joint, contact, island, chain and sensor storage, the events, the
-	// callbacks and the task system of the reference.
+	// Deferred: the broad-phase, the constraint graph, the joint, chain
+	// and sensor storage, the events, the callbacks and the task system
+	// of the reference.
+
+	// arena is the scratch allocator of one step.
+	arena arenaAllocator
 
 	// bodyIdPool allocates and recycles body ids. An id gives the
 	// application a stable identifier; the sim data moves between sets.
@@ -39,6 +42,16 @@ type world struct {
 	// contacts maps a contact id to the cold contact data. The sims live in
 	// the solver sets.
 	contacts []contact
+
+	islandIdPool idPool
+
+	// islands maps an island id to the island data. The sims live in the
+	// solver sets.
+	islands []island
+
+	// splitIslandId is the island chosen for a split on the next step, or
+	// nullIndex.
+	splitIslandId int
 
 	// pairSet answers whether two shapes already have a contact. The
 	// reference hosts the set on the broadphase; it moves there when the
@@ -200,6 +213,13 @@ func CreateWorld(def *WorldDef) WorldId {
 	w.contacts = make([]contact, 0, 16)
 	w.pairSet = createSet(16)
 
+	w.islandIdPool = createIdPool()
+	w.islands = make([]island, 0, 8)
+
+	w.arena = createArenaAllocator(2048)
+
+	w.splitIslandId = nullIndex
+
 	w.frictionCallback = defaultFrictionCallback
 	w.restitutionCallback = defaultRestitutionCallback
 
@@ -237,7 +257,10 @@ func DestroyWorld(worldId WorldId) {
 	w.bodyIdPool.destroy()
 	w.shapeIdPool.destroy()
 	w.contactIdPool.destroy()
+	w.islandIdPool.destroy()
 	w.solverSetIdPool.destroy()
+
+	destroyArenaAllocator(&w.arena)
 
 	// Wipe world but preserve generation
 	generation := w.generation
@@ -339,9 +362,13 @@ func validateSolverSets(w *world) {
 	if w.solverSetIdPool.idCapacity() != len(w.solverSets) {
 		panic("dbox2d: the set pool and the set array disagree")
 	}
+	if w.islandIdPool.idCapacity() != len(w.islands) {
+		panic("dbox2d: the island pool and the island array disagree")
+	}
 
 	activeSetCount := 0
 	totalBodyCount := 0
+	totalIslandCount := 0
 
 	// Validate all solver sets
 	for setIndex := range w.solverSets {
@@ -387,8 +414,21 @@ func validateSolverSets(w *world) {
 					shapeId = s.nextShapeId
 				}
 			}
+
+			// Validate islands
+			totalIslandCount += len(set.islandSims)
+			for i := range set.islandSims {
+				islandId := set.islandSims[i].islandId
+				if islandId < 0 || islandId >= len(w.islands) {
+					panic("dbox2d: an island sim points outside the island array")
+				}
+				isl := &w.islands[islandId]
+				if isl.setIndex != setIndex || isl.localIndex != i {
+					panic("dbox2d: an island does not point back at its sim")
+				}
+			}
 		} else {
-			if len(set.bodySims) != 0 || len(set.bodyStates) != 0 {
+			if len(set.bodySims) != 0 || len(set.bodyStates) != 0 || len(set.islandSims) != 0 {
 				panic("dbox2d: an unused set is not empty")
 			}
 		}
@@ -400,6 +440,10 @@ func validateSolverSets(w *world) {
 
 	if totalBodyCount != w.bodyIdPool.idCount() {
 		panic("dbox2d: the body count and the body pool disagree")
+	}
+
+	if totalIslandCount != w.islandIdPool.idCount() {
+		panic("dbox2d: the island count and the island pool disagree")
 	}
 }
 

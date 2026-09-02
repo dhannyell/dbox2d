@@ -316,6 +316,13 @@ func TestSleepingBodyGetsItsOwnSolverSet(t *testing.T) {
 	if len(w.solverSets[sleepIndex].bodySims) != 0 {
 		t.Fatalf("the sleeping set still has sims")
 	}
+
+	// The island follows its body, as the wake operation does.
+	isl := &w.islands[b.islandId]
+	isl.setIndex = awakeSet
+	isl.localIndex = len(w.solverSets[awakeSet].islandSims)
+	w.solverSets[awakeSet].islandSims = append(w.solverSets[awakeSet].islandSims, w.solverSets[sleepIndex].islandSims[0])
+
 	destroySolverSet(w, sleepIndex)
 	validateSolverSets(w)
 

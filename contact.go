@@ -6,6 +6,9 @@ import "github.com/dhannyell/fixed"
 // src/contact.h. The touching flag arrives with the narrowphase update of
 // the step; the hit event flag arrives with the solver events.
 const (
+	// contactTouchingFlag is set when the shapes touch.
+	contactTouchingFlag uint32 = 0x0001
+
 	// contactEnableContactEvents marks a contact that wants contact events.
 	contactEnableContactEvents uint32 = 0x0004
 )
@@ -343,10 +346,14 @@ func destroyContact(w *world, c *contact, wakeBodies bool) {
 	}
 	bodyB.contactCount--
 
-	// The island unlink and the constraint graph removal wait for their
-	// stages; islandId and colorIndex stay nullIndex until then. The
-	// contact is non-touching or sleeping, so its sim lives in a solver
-	// set.
+	// Remove contact from the array that owns it
+	if c.islandId != nullIndex {
+		unlinkContact(w, c)
+	}
+
+	// The constraint graph removal waits for the graph; colorIndex stays
+	// nullIndex until then. The contact is non-touching or sleeping, so
+	// its sim lives in a solver set.
 	set := &w.solverSets[c.setIndex]
 	var movedIndex int
 	set.contactSims, movedIndex = removeSwap(set.contactSims, c.localIndex)

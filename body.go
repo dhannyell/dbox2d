@@ -289,7 +289,10 @@ func CreateBody(worldId WorldId, def *BodyDef) BodyId {
 	b.isSpeedCapped = false
 	b.isMarked = false
 
-	// Deferred: an enabled dynamic or kinematic body joins an island here.
+	// dynamic and kinematic bodies that are enabled need a island
+	if setId >= awakeSet {
+		createIslandForBody(w, setId, b)
+	}
 
 	return BodyId{index1: int32(bodyId) + 1, world0: w.worldId, generation: b.generation}
 }
@@ -328,7 +331,7 @@ func DestroyBody(bodyId BodyId) {
 
 	// Deferred: the attached chains go away here, after their shapes.
 
-	// Deferred: the body leaves its island here.
+	removeBodyFromIsland(w, b)
 
 	// Remove body sim from solver set that owns it
 	set := &w.solverSets[b.setIndex]
@@ -490,4 +493,76 @@ func (bodyId BodyId) ShapeCount() int {
 	w := getWorld(bodyId.world0)
 	b := getBodyFullId(w, bodyId)
 	return b.shapeCount
+}
+
+// createIslandForBody gives an enabled body its own island. It corresponds
+// to b2CreateIslandForBody in src/body.c.
+func createIslandForBody(w *world, setIndex int, b *body) {
+	if b.islandId != nullIndex || b.islandPrev != nullIndex || b.islandNext != nullIndex {
+		panic("dbox2d: the body is already in an island")
+	}
+	if setIndex == disabledSet {
+		panic("dbox2d: a disabled body has no island")
+	}
+
+	isl := createIsland(w, setIndex)
+
+	b.islandId = isl.islandId
+	isl.headBody = b.id
+	isl.tailBody = b.id
+	isl.bodyCount = 1
+}
+
+// removeBodyFromIsland unlinks a body from its island and destroys the
+// island when it becomes empty. It corresponds to b2RemoveBodyFromIsland in
+// src/body.c.
+func removeBodyFromIsland(w *world, b *body) {
+	if b.islandId == nullIndex {
+		if b.islandPrev != nullIndex || b.islandNext != nullIndex {
+			panic("dbox2d: a body without an island has island links")
+		}
+		return
+	}
+
+	islandId := b.islandId
+	isl := &w.islands[islandId]
+
+	// Fix the island's linked list of sims
+	if b.islandPrev != nullIndex {
+		prevBody := &w.bodies[b.islandPrev]
+		prevBody.islandNext = b.islandNext
+	}
+
+	if b.islandNext != nullIndex {
+		nextBody := &w.bodies[b.islandNext]
+		nextBody.islandPrev = b.islandPrev
+	}
+
+	if isl.bodyCount <= 0 {
+		panic("dbox2d: the island body count underflows")
+	}
+	isl.bodyCount -= 1
+
+	if isl.headBody == b.id {
+		isl.headBody = b.islandNext
+
+		if isl.headBody == nullIndex {
+			// Destroy empty island
+			if isl.tailBody != b.id || isl.bodyCount != 0 {
+				panic("dbox2d: the emptied island still lists bodies")
+			}
+			if isl.contactCount != 0 {
+				panic("dbox2d: the emptied island still lists contacts")
+			}
+
+			// Free the island
+			destroyIsland(w, isl.islandId)
+		}
+	} else if isl.tailBody == b.id {
+		isl.tailBody = b.islandPrev
+	}
+
+	b.islandId = nullIndex
+	b.islandPrev = nullIndex
+	b.islandNext = nullIndex
 }

@@ -14,7 +14,11 @@ type solverSet struct {
 	// contact moves to the constraint graph when the solver lands.
 	contactSims []contactSim
 
-	// Deferred: the joint and island sim arrays of the reference.
+	// Deferred: the joint sim array of the reference.
+
+	// islandSims of the islands in this set. The static and disabled sets
+	// have none.
+	islandSims []islandSim
 
 	// setIndex aligns with the solverSetIdPool of the world. It gives a
 	// stable id to the set, or nullIndex for an unused slot.
