@@ -45,7 +45,7 @@ func TestChecksumIsOrderIndependent(t *testing.T) {
 // the body and shape folds. The second world reverses both object creation and
 // contact orientation, but represents the same physical state.
 func TestChecksumContactsIgnoreCreationOrder(t *testing.T) {
-	positions := [3]Vec2{v2(0, 0), {X: fixed.MustParse("0.75")}, v2(4, 0)}
+	positions := [3]Vec2{v2(0, 0), {X: fixed.Q32MustParse("0.75")}, v2(4, 0)}
 	build := func(order [3]int, reverseContact bool) WorldId {
 		worldId := createTestWorld(t)
 		var bodies [3]BodyId
@@ -80,7 +80,7 @@ func TestChecksumContactsIgnoreCreationOrder(t *testing.T) {
 func TestChecksumSeesContactState(t *testing.T) {
 	worldId := createTestWorld(t)
 	idA := addDynamicCircle(t, worldId, v2(0, 0))
-	idB := addDynamicCircle(t, worldId, Vec2{X: fixed.MustParse("0.75")})
+	idB := addDynamicCircle(t, worldId, Vec2{X: fixed.Q32MustParse("0.75")})
 	w := getWorldFromId(worldId)
 	shapeA := firstShape(w, idA)
 	shapeB := firstShape(w, idB)
@@ -102,7 +102,7 @@ func TestChecksumSeesContactState(t *testing.T) {
 		t.Fatal("updating the contact manifold did not change the checksum")
 	}
 
-	cs.manifold.Points[0].NormalImpulse = fixed.One()
+	cs.manifold.Points[0].NormalImpulse = fixed.Q32One()
 	if Checksum(worldId) == withManifold {
 		t.Fatal("a stored contact impulse did not change the checksum")
 	}
@@ -117,7 +117,7 @@ func TestChecksumSeesAStateChange(t *testing.T) {
 
 	w := getWorldFromId(worldId)
 	b := getBodyFullId(w, bodyId)
-	getBodyState(w, b).linearVelocity = Vec2{X: fixed.One()}
+	getBodyState(w, b).linearVelocity = Vec2{X: fixed.Q32One()}
 	if Checksum(worldId) == before {
 		t.Errorf("a velocity change did not change the checksum")
 	}
@@ -148,14 +148,14 @@ func TestChecksumSeesFutureBehaviour(t *testing.T) {
 		bodyDef.LinearDamping = damping
 		bodyId := CreateBody(worldId, &bodyDef)
 		shapeDef := DefaultShapeDef()
-		box := MakeSquare(fixed.One())
+		box := MakeSquare(fixed.Q32One())
 		CreatePolygonShape(bodyId, &shapeDef, &box)
 		return worldId
 	}
 
-	base := build(v2(0, -10), fixed.Zero())
-	differentGravity := build(v2(0, -9), fixed.Zero())
-	differentDamping := build(v2(0, -10), fixed.One())
+	base := build(v2(0, -10), fixed.Q32Zero())
+	differentGravity := build(v2(0, -9), fixed.Q32Zero())
+	differentDamping := build(v2(0, -10), fixed.Q32One())
 	if Checksum(base) == Checksum(differentGravity) {
 		t.Errorf("world gravity did not change the checksum")
 	}
@@ -178,7 +178,7 @@ func TestChecksumMatchesDeterministicWitness(t *testing.T) {
 		bodies[i] = id
 		w := getWorldFromId(worldId)
 		b := getBodyFullId(w, id)
-		getBodyState(w, b).angularVelocity = fixed.MustParse("0.1")
+		getBodyState(w, b).angularVelocity = fixed.Q32MustParse("0.1")
 	}
 
 	w := getWorldFromId(worldId)

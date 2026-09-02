@@ -59,14 +59,14 @@ type WorldDef struct {
 // DefaultWorldDef returns the default world definition.
 func DefaultWorldDef() WorldDef {
 	return WorldDef{
-		Gravity:              Vec2{Y: fixed.FromInt(-10)},
-		RestitutionThreshold: fixed.One(),
-		HitEventThreshold:    fixed.One(),
-		ContactHertz:         fixed.FromInt(30),
-		ContactDampingRatio:  fixed.FromInt(10),
-		MaxContactPushSpeed:  fixed.FromInt(3),
+		Gravity:              Vec2{Y: fixed.Q32FromInt(-10)},
+		RestitutionThreshold: fixed.Q32One(),
+		HitEventThreshold:    fixed.Q32One(),
+		ContactHertz:         fixed.Q32FromInt(30),
+		ContactDampingRatio:  fixed.Q32FromInt(10),
+		MaxContactPushSpeed:  fixed.Q32FromInt(3),
 		// 400 meters per second, faster than the speed of sound
-		MaximumLinearSpeed: fixed.FromInt(400),
+		MaximumLinearSpeed: fixed.Q32FromInt(400),
 		EnableSleep:        true,
 		EnableContinuous:   true,
 		internalValue:      secretCookie,
@@ -167,8 +167,8 @@ func DefaultBodyDef() BodyDef {
 	return BodyDef{
 		Type:           StaticBody,
 		Rotation:       fixed.RotIdentity(),
-		SleepThreshold: fixed.MustParse("0.05"),
-		GravityScale:   fixed.One(),
+		SleepThreshold: fixed.Q32MustParse("0.05"),
+		GravityScale:   fixed.Q32One(),
 		EnableSleep:    true,
 		IsAwake:        true,
 		IsEnabled:      true,
@@ -259,7 +259,7 @@ type SurfaceMaterial struct {
 
 // DefaultSurfaceMaterial returns the default material: friction 0.6.
 func DefaultSurfaceMaterial() SurfaceMaterial {
-	return SurfaceMaterial{Friction: fixed.MustParse("0.6")}
+	return SurfaceMaterial{Friction: fixed.Q32MustParse("0.6")}
 }
 
 // ShapeDef holds the data to create a shape. It is a temporary bundle of
@@ -316,7 +316,7 @@ type ShapeDef struct {
 func DefaultShapeDef() ShapeDef {
 	return ShapeDef{
 		Material:              DefaultSurfaceMaterial(),
-		Density:               fixed.One(),
+		Density:               fixed.Q32One(),
 		Filter:                DefaultFilter(),
 		InvokeContactCreation: true,
 		UpdateBodyMass:        true,

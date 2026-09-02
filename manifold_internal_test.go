@@ -10,7 +10,7 @@ import (
 // land, so these tests pin its contract directly.
 
 func qv(x, y string) Vec2 {
-	return Vec2{X: fixed.MustParse(x), Y: fixed.MustParse(y)}
+	return Vec2{X: fixed.Q32MustParse(x), Y: fixed.Q32MustParse(y)}
 }
 
 // TestClipSegmentsLerpsBothEnds makes the incident segment overhang both
@@ -21,14 +21,14 @@ func TestClipSegmentsLerpsBothEnds(t *testing.T) {
 	b1 := qv("-6", "0.5")
 	b2 := qv("2", "0.5")
 	normal := qv("0", "1")
-	zero := fixed.Zero()
+	zero := fixed.Q32Zero()
 
 	manifold := clipSegments(a1, a2, b1, b2, normal, zero, zero, makeId(0, 1), makeId(1, 0))
 	if manifold.PointCount != 2 {
 		t.Fatalf("pointCount %d, want 2", manifold.PointCount)
 	}
 
-	sep := fixed.Half()
+	sep := fixed.Q32Half()
 	p0 := manifold.Points[0]
 	if p0.AnchorA != qv("0", "0.25") || !p0.Separation.Eq(sep) {
 		t.Fatalf("point 0 %v separation %v, want (0, 0.25) and 0.5", p0.AnchorA, p0.Separation)
@@ -50,8 +50,8 @@ func TestClipSegmentsKeepsADegeneratePoint(t *testing.T) {
 	a2 := qv("-2", "0")
 	point := qv("-1", "0.25")
 	normal := qv("0", "1")
-	zero := fixed.Zero()
-	quarter := fixed.MustParse("0.25")
+	zero := fixed.Q32Zero()
+	quarter := fixed.Q32MustParse("0.25")
 
 	manifold := clipSegments(a1, a2, point, point, normal, zero, quarter, makeId(0, 0), makeId(1, 1))
 	if manifold.PointCount != 2 {
@@ -72,7 +72,7 @@ func TestClipSegmentsRejectsDisjointSegments(t *testing.T) {
 	a2 := qv("-2", "0")
 	point := qv("1", "0.25")
 	normal := qv("0", "1")
-	zero := fixed.Zero()
+	zero := fixed.Q32Zero()
 
 	manifold := clipSegments(a1, a2, point, point, normal, zero, zero, makeId(0, 0), makeId(1, 1))
 	if manifold.PointCount != 0 {

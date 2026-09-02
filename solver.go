@@ -15,8 +15,8 @@ func integrateVelocitiesTask(startIndex, endIndex int, context *stepContext) {
 	maxLinearSpeedSquared := maxLinearSpeed.Mul(maxLinearSpeed)
 	maxAngularSpeedSquared := maxAngularSpeed.Mul(maxAngularSpeed)
 
-	zero := fixed.Zero()
-	one := fixed.One()
+	zero := fixed.Q32Zero()
+	one := fixed.Q32One()
 	for i := startIndex; i < endIndex; i++ {
 		sim := &sims[i]
 		state := &states[i]
@@ -107,8 +107,8 @@ func finalizeBodiesTask(startIndex, endIndex int, context *stepContext) {
 		panic("dbox2d: the task range is inverted")
 	}
 
-	zero := fixed.Zero()
-	half := fixed.Half()
+	zero := fixed.Q32Zero()
+	half := fixed.Q32Half()
 	for simIndex := startIndex; simIndex < endIndex; simIndex++ {
 		state := &states[simIndex]
 		sim := &sims[simIndex]

@@ -11,7 +11,7 @@ import (
 
 // stepDt returns the recommended fixed time step of 1/60 second.
 func stepDt() Q {
-	return fixed.One().Div(fixed.FromInt(60))
+	return fixed.Q32One().Div(fixed.Q32FromInt(60))
 }
 
 // addDynamicBox creates a dynamic body with a unit box at the position.
@@ -22,7 +22,7 @@ func addDynamicBox(t *testing.T, worldId WorldId, position Vec2) BodyId {
 	bodyDef.Position = position
 	bodyId := CreateBody(worldId, &bodyDef)
 	shapeDef := DefaultShapeDef()
-	box := MakeSquare(fixed.One())
+	box := MakeSquare(fixed.Q32One())
 	CreatePolygonShape(bodyId, &shapeDef, &box)
 	return bodyId
 }
@@ -48,15 +48,15 @@ func TestStepAppliesGravityExactly(t *testing.T) {
 	const subStepCount = 4
 	const stepCount = 8
 
-	h := dt.Div(fixed.FromInt(subStepCount))
+	h := dt.Div(fixed.Q32FromInt(subStepCount))
 	gravity := worldId.Gravity()
 
 	// The scalar mirror of the loop: velocity gains h*g per sub-step and the
 	// position gains h*v after each velocity update.
-	wantVelocityY := fixed.Zero()
+	wantVelocityY := fixed.Q32Zero()
 	wantPositionY := bodyId.Position().Y
 	for range stepCount {
-		deltaY := fixed.Zero()
+		deltaY := fixed.Q32Zero()
 		for range subStepCount {
 			wantVelocityY = wantVelocityY.Add(h.Mul(gravity.Y))
 			deltaY = deltaY.Add(h.Mul(wantVelocityY))
@@ -77,7 +77,7 @@ func TestStepAppliesGravityExactly(t *testing.T) {
 	if !bodyId.Position().Y.Eq(wantPositionY) {
 		t.Errorf("position y = %v, want %v", bodyId.Position().Y, wantPositionY)
 	}
-	if !bodyId.Position().X.Eq(fixed.Zero()) {
+	if !bodyId.Position().X.Eq(fixed.Q32Zero()) {
 		t.Errorf("position x moved to %v", bodyId.Position().X)
 	}
 }
@@ -92,13 +92,13 @@ func TestStepAppliesDampingByDivision(t *testing.T) {
 
 	bodyDef := DefaultBodyDef()
 	bodyDef.Type = DynamicBody
-	bodyDef.LinearVelocity = Vec2{X: fixed.FromInt(12), Y: fixed.FromInt(-7)}
-	bodyDef.AngularVelocity = fixed.MustParse("0.25")
-	bodyDef.LinearDamping = fixed.MustParse("0.4")
-	bodyDef.AngularDamping = fixed.MustParse("0.7")
+	bodyDef.LinearVelocity = Vec2{X: fixed.Q32FromInt(12), Y: fixed.Q32FromInt(-7)}
+	bodyDef.AngularVelocity = fixed.Q32MustParse("0.25")
+	bodyDef.LinearDamping = fixed.Q32MustParse("0.4")
+	bodyDef.AngularDamping = fixed.Q32MustParse("0.7")
 	bodyId := CreateBody(worldId, &bodyDef)
 	shapeDef := DefaultShapeDef()
-	box := MakeSquare(fixed.One())
+	box := MakeSquare(fixed.Q32One())
 	CreatePolygonShape(bodyId, &shapeDef, &box)
 
 	w := getWorldFromId(worldId)
@@ -108,8 +108,8 @@ func TestStepAppliesDampingByDivision(t *testing.T) {
 	Step(worldId, dt, 1)
 
 	state := getBodyState(w, b)
-	linearDenominator := fixed.One().Add(dt.Mul(bodyDef.LinearDamping))
-	angularDenominator := fixed.One().Add(dt.Mul(bodyDef.AngularDamping))
+	linearDenominator := fixed.Q32One().Add(dt.Mul(bodyDef.LinearDamping))
+	angularDenominator := fixed.Q32One().Add(dt.Mul(bodyDef.AngularDamping))
 	wantLinear := Vec2{
 		X: initialState.linearVelocity.X.Div(linearDenominator),
 		Y: initialState.linearVelocity.Y.Div(linearDenominator),
@@ -133,18 +133,18 @@ func TestStepConvertsTorqueAndArcSpeedToTurns(t *testing.T) {
 
 	bodyDef := DefaultBodyDef()
 	bodyDef.Type = DynamicBody
-	bodyDef.AngularVelocity = fixed.MustParse("0.02")
-	bodyDef.SleepThreshold = fixed.MustParse("0.1")
+	bodyDef.AngularVelocity = fixed.Q32MustParse("0.02")
+	bodyDef.SleepThreshold = fixed.Q32MustParse("0.1")
 	bodyId := CreateBody(worldId, &bodyDef)
 	shapeDef := DefaultShapeDef()
-	box := MakeSquare(fixed.One())
+	box := MakeSquare(fixed.Q32One())
 	CreatePolygonShape(bodyId, &shapeDef, &box)
 
 	w := getWorldFromId(worldId)
 	b := getBodyFullId(w, bodyId)
 	sim := getBodySim(w, b)
 	sim.torque = tau
-	b.sleepTime = fixed.One()
+	b.sleepTime = fixed.Q32One()
 
 	dt := stepDt()
 	wantAngular := bodyDef.AngularVelocity.Add(dt.Mul(sim.invInertia).Mul(sim.torque).Div(tau))
@@ -154,7 +154,7 @@ func TestStepConvertsTorqueAndArcSpeedToTurns(t *testing.T) {
 	if !state.angularVelocity.Eq(wantAngular) {
 		t.Errorf("angular velocity = %v, want %v", state.angularVelocity, wantAngular)
 	}
-	if !b.sleepTime.Eq(fixed.Zero()) {
+	if !b.sleepTime.Eq(fixed.Q32Zero()) {
 		t.Errorf("sleep time = %v, want zero for the rotating body", b.sleepTime)
 	}
 }
@@ -169,10 +169,10 @@ func TestStepRefreshesFastBodyBoundsWithoutCCD(t *testing.T) {
 
 	bodyDef := DefaultBodyDef()
 	bodyDef.Type = DynamicBody
-	bodyDef.LinearVelocity = Vec2{X: fixed.FromInt(100)}
+	bodyDef.LinearVelocity = Vec2{X: fixed.Q32FromInt(100)}
 	bodyId := CreateBody(worldId, &bodyDef)
 	shapeDef := DefaultShapeDef()
-	box := MakeSquare(fixed.One())
+	box := MakeSquare(fixed.Q32One())
 	shapeId := CreatePolygonShape(bodyId, &shapeDef, &box)
 
 	w := getWorldFromId(worldId)
@@ -204,7 +204,7 @@ func TestStepRejectsInvalidInput(t *testing.T) {
 	worldId := createTestWorld(t)
 
 	t.Run("saturated time step", func(t *testing.T) {
-		requirePanic(t, func() { Step(worldId, fixed.MaxValue(), 4) })
+		requirePanic(t, func() { Step(worldId, fixed.Q32MaxValue(), 4) })
 	})
 	t.Run("non-positive sub-step count", func(t *testing.T) {
 		requirePanic(t, func() { Step(worldId, stepDt(), 0) })
@@ -237,16 +237,16 @@ func TestStepTracksSleepTime(t *testing.T) {
 
 	w := getWorldFromId(worldId)
 	resting := getBodyFullId(w, restingId)
-	wantSleep := dt.Mul(fixed.FromInt(stepCount))
+	wantSleep := dt.Mul(fixed.Q32FromInt(stepCount))
 	if !resting.sleepTime.Eq(wantSleep) {
 		t.Errorf("sleep time at rest = %v, want %v", resting.sleepTime, wantSleep)
 	}
 
 	// A push above the sleep threshold resets the sleep time.
 	moving := getBodyFullId(w, movingId)
-	getBodyState(w, moving).linearVelocity = Vec2{X: fixed.One()}
+	getBodyState(w, moving).linearVelocity = Vec2{X: fixed.Q32One()}
 	Step(worldId, dt, 4)
-	if !moving.sleepTime.Eq(fixed.Zero()) {
+	if !moving.sleepTime.Eq(fixed.Q32Zero()) {
 		t.Errorf("sleep time in motion = %v, want zero", moving.sleepTime)
 	}
 }
@@ -279,7 +279,7 @@ func TestStepIsReproducibleBitForBit(t *testing.T) {
 			id := addDynamicBox(t, worldId, v2(i*3, i))
 			w := getWorldFromId(worldId)
 			b := getBodyFullId(w, id)
-			getBodyState(w, b).angularVelocity = fixed.MustParse("0.1")
+			getBodyState(w, b).angularVelocity = fixed.Q32MustParse("0.1")
 		}
 		return worldId
 	}

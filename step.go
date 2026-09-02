@@ -51,7 +51,7 @@ func Step(worldId WorldId, timeStep Q, subStepCount int) {
 
 	// Deferred: the event arrays of the reference clear here.
 
-	zero := fixed.Zero()
+	zero := fixed.Q32Zero()
 	if timeStep.Eq(zero) {
 		// Deferred: the end event buffers of the reference swap here.
 		return
@@ -68,9 +68,9 @@ func Step(worldId WorldId, timeStep Q, subStepCount int) {
 	context.subStepCount = max(1, subStepCount)
 
 	if zero.Less(timeStep) {
-		context.invDt = fixed.One().Div(timeStep)
-		context.h = timeStep.Div(fixed.FromInt(context.subStepCount))
-		context.invH = fixed.FromInt(context.subStepCount).Mul(context.invDt)
+		context.invDt = fixed.Q32One().Div(timeStep)
+		context.h = timeStep.Div(fixed.Q32FromInt(context.subStepCount))
+		context.invH = fixed.Q32FromInt(context.subStepCount).Mul(context.invDt)
 	}
 
 	w.invH = context.invH

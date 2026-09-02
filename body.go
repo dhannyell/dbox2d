@@ -179,7 +179,7 @@ func CreateBody(worldId WorldId, def *BodyDef) BodyId {
 	if !IsValidQ(def.AngularVelocity) {
 		panic("dbox2d: BodyDef.AngularVelocity is not valid")
 	}
-	zero := fixed.Zero()
+	zero := fixed.Q32Zero()
 	if !IsValidQ(def.LinearDamping) || def.LinearDamping.Less(zero) {
 		panic("dbox2d: BodyDef.LinearDamping is not valid")
 	}
@@ -235,7 +235,7 @@ func CreateBody(worldId WorldId, def *BodyDef) BodyId {
 		rotation0:         def.Rotation,
 		center0:           def.Position,
 		minExtent:         huge,
-		maxExtent:         fixed.Zero(),
+		maxExtent:         fixed.Q32Zero(),
 		linearDamping:     def.LinearDamping,
 		angularDamping:    def.AngularDamping,
 		gravityScale:      def.GravityScale,
@@ -279,10 +279,10 @@ func CreateBody(worldId WorldId, def *BodyDef) BodyId {
 	b.islandNext = nullIndex
 	b.bodyMoveIndex = nullIndex
 	b.id = bodyId
-	b.mass = fixed.Zero()
-	b.inertia = fixed.Zero()
+	b.mass = fixed.Q32Zero()
+	b.inertia = fixed.Q32Zero()
 	b.sleepThreshold = def.SleepThreshold
-	b.sleepTime = fixed.Zero()
+	b.sleepTime = fixed.Q32Zero()
 	b.bodyType = def.Type
 	b.enableSleep = def.EnableSleep
 	b.fixedRotation = def.FixedRotation
@@ -370,7 +370,7 @@ func updateBodyMassData(w *world, b *body) {
 	sim := getBodySim(w, b)
 
 	// Compute mass data from shapes. Each shape has its own density.
-	zero := fixed.Zero()
+	zero := fixed.Q32Zero()
 	b.mass = zero
 	b.inertia = zero
 
@@ -420,7 +420,7 @@ func updateBodyMassData(w *world, b *body) {
 
 	// Compute center of mass.
 	if zero.Less(b.mass) {
-		sim.invMass = fixed.One().Div(b.mass)
+		sim.invMass = fixed.Q32One().Div(b.mass)
 		localCenter = localCenter.Mul(sim.invMass)
 	}
 
@@ -430,7 +430,7 @@ func updateBodyMassData(w *world, b *body) {
 		if !zero.Less(b.inertia) {
 			panic("dbox2d: the centered inertia is not positive")
 		}
-		sim.invInertia = fixed.One().Div(b.inertia)
+		sim.invInertia = fixed.Q32One().Div(b.inertia)
 	} else {
 		b.inertia = zero
 		sim.invInertia = zero

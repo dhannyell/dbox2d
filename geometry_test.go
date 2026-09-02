@@ -12,7 +12,7 @@ func ray(origin, translation dbox2d.Vec2) dbox2d.RayCastInput {
 	return dbox2d.RayCastInput{
 		Origin:      origin,
 		Translation: translation,
-		MaxFraction: fixed.One(),
+		MaxFraction: fixed.Q32One(),
 	}
 }
 
@@ -20,17 +20,17 @@ func ray(origin, translation dbox2d.Vec2) dbox2d.RayCastInput {
 // whose exact answer is known: a unit square of unit density has a mass of
 // one and a rotational inertia of one twelfth per unit of squared side.
 func TestMakeBoxMassMatchesTheReference(t *testing.T) {
-	box := dbox2d.MakeBox(fixed.Half(), fixed.Half())
-	data := dbox2d.ComputePolygonMass(&box, fixed.One())
+	box := dbox2d.MakeBox(fixed.Q32Half(), fixed.Q32Half())
+	data := dbox2d.ComputePolygonMass(&box, fixed.Q32One())
 
 	limit := tol(1, 10000)
-	if !near(data.Mass, fixed.One(), limit) {
+	if !near(data.Mass, fixed.Q32One(), limit) {
 		t.Errorf("mass = %v, want 1", data.Mass)
 	}
-	if !near(data.Center.X, fixed.Zero(), limit) || !near(data.Center.Y, fixed.Zero(), limit) {
+	if !near(data.Center.X, fixed.Q32Zero(), limit) || !near(data.Center.Y, fixed.Q32Zero(), limit) {
 		t.Errorf("center = %v, want the origin", data.Center)
 	}
-	if want := fixed.FromRatio(1, 6); !near(data.RotationalInertia, want, limit) {
+	if want := fixed.Q32FromRatio(1, 6); !near(data.RotationalInertia, want, limit) {
 		t.Errorf("rotational inertia = %v, want %v", data.RotationalInertia, want)
 	}
 }
@@ -38,11 +38,11 @@ func TestMakeBoxMassMatchesTheReference(t *testing.T) {
 // TestComputeCircleMassMatchesTheReference pins the circle integral to the
 // upstream constant. A unit circle has a mass of pi and half that as inertia.
 func TestComputeCircleMassMatchesTheReference(t *testing.T) {
-	circle := dbox2d.Circle{Radius: fixed.One()}
-	data := dbox2d.ComputeCircleMass(&circle, fixed.One())
+	circle := dbox2d.Circle{Radius: fixed.Q32One()}
+	data := dbox2d.ComputeCircleMass(&circle, fixed.Q32One())
 
-	wantMass := fixed.MustParse("3.14159265359")
-	wantInertia := fixed.MustParse("1.570796326795")
+	wantMass := fixed.Q32MustParse("3.14159265359")
+	wantInertia := fixed.Q32MustParse("1.570796326795")
 	if !data.Mass.Eq(wantMass) {
 		t.Errorf("mass = %v, want %v", data.Mass, wantMass)
 	}
@@ -55,11 +55,11 @@ func TestComputeCircleMassMatchesTheReference(t *testing.T) {
 // capsule integral. The rectangle vanishes and the two half circles rejoin.
 func TestZeroLengthCapsuleMassEqualsACircle(t *testing.T) {
 	center := pt("2", "-1")
-	capsule := dbox2d.Capsule{Center1: center, Center2: center, Radius: fixed.Half()}
-	circle := dbox2d.Circle{Center: center, Radius: fixed.Half()}
+	capsule := dbox2d.Capsule{Center1: center, Center2: center, Radius: fixed.Q32Half()}
+	circle := dbox2d.Circle{Center: center, Radius: fixed.Q32Half()}
 
-	got := dbox2d.ComputeCapsuleMass(&capsule, fixed.FromInt(3))
-	want := dbox2d.ComputeCircleMass(&circle, fixed.FromInt(3))
+	got := dbox2d.ComputeCapsuleMass(&capsule, fixed.Q32FromInt(3))
+	want := dbox2d.ComputeCircleMass(&circle, fixed.Q32FromInt(3))
 
 	limit := tol(1, 10000)
 	if !near(got.Mass, want.Mass, limit) {
@@ -77,7 +77,7 @@ func TestZeroLengthCapsuleMassEqualsACircle(t *testing.T) {
 // triangle is exactly the mean of its vertices.
 func TestPolygonCentroidOfATriangle(t *testing.T) {
 	hull := dbox2d.ComputeHull([]dbox2d.Vec2{pt("0", "0"), pt("3", "0"), pt("0", "3")})
-	polygon := dbox2d.MakePolygon(&hull, fixed.Zero())
+	polygon := dbox2d.MakePolygon(&hull, fixed.Q32Zero())
 
 	if polygon.Centroid != pt("1", "1") {
 		t.Errorf("centroid = %v, want (1, 1)", polygon.Centroid)
@@ -88,16 +88,16 @@ func TestPolygonCentroidOfATriangle(t *testing.T) {
 // right triangle with legs of length three has an exact integral in Q32.32.
 func TestTriangleMassMatchesTheReference(t *testing.T) {
 	hull := dbox2d.ComputeHull([]dbox2d.Vec2{pt("0", "0"), pt("3", "0"), pt("0", "3")})
-	triangle := dbox2d.MakePolygon(&hull, fixed.Zero())
-	data := dbox2d.ComputePolygonMass(&triangle, fixed.One())
+	triangle := dbox2d.MakePolygon(&hull, fixed.Q32Zero())
+	data := dbox2d.ComputePolygonMass(&triangle, fixed.Q32One())
 
-	if want := fixed.MustParse("4.5"); !data.Mass.Eq(want) {
+	if want := fixed.Q32MustParse("4.5"); !data.Mass.Eq(want) {
 		t.Errorf("mass = %v, want %v", data.Mass, want)
 	}
 	if data.Center != pt("1", "1") {
 		t.Errorf("center = %v, want (1, 1)", data.Center)
 	}
-	if want := fixed.MustParse("13.5"); !data.RotationalInertia.Eq(want) {
+	if want := fixed.Q32MustParse("13.5"); !data.RotationalInertia.Eq(want) {
 		t.Errorf("rotational inertia = %v, want %v", data.RotationalInertia, want)
 	}
 }
@@ -105,10 +105,10 @@ func TestTriangleMassMatchesTheReference(t *testing.T) {
 // TestComputePolygonAABBContainsTheVertices guards the box that the
 // broadphase stores. A rotated box still needs every vertex inside.
 func TestComputePolygonAABBContainsTheVertices(t *testing.T) {
-	box := dbox2d.MakeBox(fixed.One(), fixed.Half())
+	box := dbox2d.MakeBox(fixed.Q32One(), fixed.Q32Half())
 	xf := dbox2d.Transform{
 		P: pt("2", "3"),
-		Q: dbox2d.MakeRot(fixed.MustParse("0.125")),
+		Q: dbox2d.MakeRot(fixed.Q32MustParse("0.125")),
 	}
 
 	aabb := dbox2d.ComputePolygonAABB(&box, xf)
@@ -126,21 +126,21 @@ func TestComputePolygonAABBContainsTheVertices(t *testing.T) {
 // against coordinates calculated independently from their shared helpers.
 func TestTransformedBoxesMatchAQuarterTurn(t *testing.T) {
 	center := pt("2", "-3")
-	rotation := dbox2d.Rot{Sin: fixed.One(), Cos: fixed.Zero()}
+	rotation := dbox2d.Rot{Sin: fixed.Q32One(), Cos: fixed.Q32Zero()}
 
-	box := dbox2d.MakeBox(fixed.One(), fixed.Half())
+	box := dbox2d.MakeBox(fixed.Q32One(), fixed.Q32Half())
 	cases := []struct {
 		name string
 		got  dbox2d.Polygon
 	}{
 		{"TransformPolygon", dbox2d.TransformPolygon(dbox2d.Transform{P: center, Q: rotation}, &box)},
-		{"MakeOffsetBox", dbox2d.MakeOffsetBox(fixed.One(), fixed.Half(), center, rotation)},
+		{"MakeOffsetBox", dbox2d.MakeOffsetBox(fixed.Q32One(), fixed.Q32Half(), center, rotation)},
 	}
 	wantVertices := []dbox2d.Vec2{pt("2.5", "-4"), pt("2.5", "-2"), pt("1.5", "-2"), pt("1.5", "-4")}
 	wantNormals := []dbox2d.Vec2{pt("1", "0"), pt("0", "1"), pt("-1", "0"), pt("0", "-1")}
 
 	for _, c := range cases {
-		if c.got.Count != 4 || c.got.Centroid != center || !c.got.Radius.Eq(fixed.Zero()) {
+		if c.got.Count != 4 || c.got.Centroid != center || !c.got.Radius.Eq(fixed.Q32Zero()) {
 			t.Errorf("%s metadata = %+v, want count 4, center %v and radius 0", c.name, c.got, center)
 			continue
 		}
@@ -158,7 +158,7 @@ func TestTransformedBoxesMatchAQuarterTurn(t *testing.T) {
 // TestPointTestsIncludeTheBoundary pins the closed comparison. A point on
 // the surface counts as inside, for the circle and for the capsule.
 func TestPointTestsIncludeTheBoundary(t *testing.T) {
-	circle := dbox2d.Circle{Radius: fixed.FromInt(2)}
+	circle := dbox2d.Circle{Radius: fixed.Q32FromInt(2)}
 	if !dbox2d.PointInCircle(pt("2", "0"), &circle) {
 		t.Errorf("a point on the circle surface is outside")
 	}
@@ -166,7 +166,7 @@ func TestPointTestsIncludeTheBoundary(t *testing.T) {
 		t.Errorf("a point beyond the circle surface is inside")
 	}
 
-	capsule := dbox2d.Capsule{Center1: pt("-1", "0"), Center2: pt("1", "0"), Radius: fixed.Half()}
+	capsule := dbox2d.Capsule{Center1: pt("-1", "0"), Center2: pt("1", "0"), Radius: fixed.Q32Half()}
 	if !dbox2d.PointInCapsule(pt("0", "0.5"), &capsule) {
 		t.Errorf("a point on the capsule side is outside")
 	}
@@ -181,7 +181,7 @@ func TestPointTestsIncludeTheBoundary(t *testing.T) {
 // TestRayCastCircleHitsTheNearSurface pins the fraction, the point and the
 // normal against values computed by hand.
 func TestRayCastCircleHitsTheNearSurface(t *testing.T) {
-	circle := dbox2d.Circle{Radius: fixed.One()}
+	circle := dbox2d.Circle{Radius: fixed.Q32One()}
 	input := ray(pt("-3", "0"), pt("6", "0"))
 
 	output := dbox2d.RayCastCircle(&input, &circle)
@@ -190,13 +190,13 @@ func TestRayCastCircleHitsTheNearSurface(t *testing.T) {
 		t.Fatalf("the ray misses the circle")
 	}
 	limit := tol(1, 1000)
-	if want := fixed.FromRatio(1, 3); !near(output.Fraction, want, limit) {
+	if want := fixed.Q32FromRatio(1, 3); !near(output.Fraction, want, limit) {
 		t.Errorf("fraction = %v, want %v", output.Fraction, want)
 	}
-	if !near(output.Point.X, fixed.FromInt(-1), limit) || !near(output.Point.Y, fixed.Zero(), limit) {
+	if !near(output.Point.X, fixed.Q32FromInt(-1), limit) || !near(output.Point.Y, fixed.Q32Zero(), limit) {
 		t.Errorf("point = %v, want (-1, 0)", output.Point)
 	}
-	if !near(output.Normal.X, fixed.FromInt(-1), limit) || !near(output.Normal.Y, fixed.Zero(), limit) {
+	if !near(output.Normal.X, fixed.Q32FromInt(-1), limit) || !near(output.Normal.Y, fixed.Q32Zero(), limit) {
 		t.Errorf("normal = %v, want (-1, 0)", output.Normal)
 	}
 
@@ -226,10 +226,10 @@ func TestRayCastSegmentSkipsTheLeftSide(t *testing.T) {
 		t.Fatalf("the one-sided segment rejects a ray from the right side")
 	}
 	limit := tol(1, 1000)
-	if !near(output.Fraction, fixed.Half(), limit) {
+	if !near(output.Fraction, fixed.Q32Half(), limit) {
 		t.Errorf("fraction = %v, want 0.5", output.Fraction)
 	}
-	if !near(output.Normal.Y, fixed.FromInt(-1), limit) {
+	if !near(output.Normal.Y, fixed.Q32FromInt(-1), limit) {
 		t.Errorf("normal = %v, want (0, -1)", output.Normal)
 	}
 }
@@ -237,7 +237,7 @@ func TestRayCastSegmentSkipsTheLeftSide(t *testing.T) {
 // TestRayCastPolygonHitsABoxFace pins the half-space clip. The reference
 // avoids a division in the comparison, so the port must keep that form.
 func TestRayCastPolygonHitsABoxFace(t *testing.T) {
-	box := dbox2d.MakeBox(fixed.One(), fixed.One())
+	box := dbox2d.MakeBox(fixed.Q32One(), fixed.Q32One())
 	input := ray(pt("-3", "0"), pt("6", "0"))
 
 	output := dbox2d.RayCastPolygon(&input, &box)
@@ -246,19 +246,19 @@ func TestRayCastPolygonHitsABoxFace(t *testing.T) {
 		t.Fatalf("the ray misses the box")
 	}
 	limit := tol(1, 1000)
-	if want := fixed.FromRatio(1, 3); !near(output.Fraction, want, limit) {
+	if want := fixed.Q32FromRatio(1, 3); !near(output.Fraction, want, limit) {
 		t.Errorf("fraction = %v, want %v", output.Fraction, want)
 	}
-	if !near(output.Point.X, fixed.FromInt(-1), limit) || !near(output.Point.Y, fixed.Zero(), limit) {
+	if !near(output.Point.X, fixed.Q32FromInt(-1), limit) || !near(output.Point.Y, fixed.Q32Zero(), limit) {
 		t.Errorf("point = %v, want (-1, 0)", output.Point)
 	}
-	if !near(output.Normal.X, fixed.FromInt(-1), limit) || !near(output.Normal.Y, fixed.Zero(), limit) {
+	if !near(output.Normal.X, fixed.Q32FromInt(-1), limit) || !near(output.Normal.Y, fixed.Q32Zero(), limit) {
 		t.Errorf("normal = %v, want (-1, 0)", output.Normal)
 	}
 
 	// A ray that starts inside reports the origin and a zero fraction.
 	inside := ray(pt("0", "0"), pt("6", "0"))
-	if output := dbox2d.RayCastPolygon(&inside, &box); !output.Hit || !output.Fraction.Eq(fixed.Zero()) {
+	if output := dbox2d.RayCastPolygon(&inside, &box); !output.Hit || !output.Fraction.Eq(fixed.Q32Zero()) {
 		t.Errorf("initial overlap = %+v, want a hit with a zero fraction", output)
 	}
 }
@@ -266,9 +266,9 @@ func TestRayCastPolygonHitsABoxFace(t *testing.T) {
 // TestRayCastCapsuleHitsTheSide pins the Cramer solve with an oblique ray.
 // Its determinant is not reciprocal-exact in Q32.32.
 func TestRayCastCapsuleHitsTheSide(t *testing.T) {
-	capsule := dbox2d.Capsule{Center1: pt("-1", "0"), Center2: pt("1", "0"), Radius: fixed.Half()}
+	capsule := dbox2d.Capsule{Center1: pt("-1", "0"), Center2: pt("1", "0"), Radius: fixed.Q32Half()}
 	translation := pt("-9.5", "-9.5")
-	wantFraction := fixed.FromRatio(3, 5)
+	wantFraction := fixed.Q32FromRatio(3, 5)
 	target := pt("0", "0.5")
 	origin := target.Sub(translation.Mul(wantFraction))
 	input := ray(origin, translation)
@@ -283,7 +283,7 @@ func TestRayCastCapsuleHitsTheSide(t *testing.T) {
 	}
 	// The reference order of operations floors the x coordinate two raw
 	// units below zero.
-	wantPoint := dbox2d.Vec2{X: fixed.FromRaw(-2), Y: fixed.Half()}
+	wantPoint := dbox2d.Vec2{X: fixed.Q32FromRaw(-2), Y: fixed.Q32Half()}
 	if output.Point != wantPoint {
 		t.Errorf("point = %v, want %v", output.Point, wantPoint)
 	}
@@ -302,13 +302,13 @@ func TestIsValidRayBoundsTheFraction(t *testing.T) {
 	}
 
 	negative := good
-	negative.MaxFraction = fixed.One().Neg()
+	negative.MaxFraction = fixed.Q32One().Neg()
 	if dbox2d.IsValidRay(&negative) {
 		t.Errorf("IsValidRay accepts a negative fraction")
 	}
 
 	saturated := good
-	saturated.Origin = dbox2d.Vec2{X: fixed.MaxValue(), Y: fixed.Zero()}
+	saturated.Origin = dbox2d.Vec2{X: fixed.Q32MaxValue(), Y: fixed.Q32Zero()}
 	if dbox2d.IsValidRay(&saturated) {
 		t.Errorf("IsValidRay accepts a saturated origin")
 	}
@@ -318,7 +318,7 @@ func TestIsValidRayBoundsTheFraction(t *testing.T) {
 // length is a circle, and a parallel ray outside the surface misses. The
 // upstream uses epsilon guards for both cases.
 func TestRayCastCapsuleDegenerateCases(t *testing.T) {
-	radius := fixed.MustParse("0.5")
+	radius := fixed.Q32MustParse("0.5")
 	point := dbox2d.Capsule{Center1: pt("0", "0"), Center2: pt("0", "0"), Radius: radius}
 	input := ray(pt("-2", "0"), pt("4", "0"))
 
@@ -333,7 +333,7 @@ func TestRayCastCapsuleDegenerateCases(t *testing.T) {
 	if !output.Hit {
 		t.Fatalf("the ray misses the zero-length capsule")
 	}
-	if want := fixed.MustParse("0.375"); !output.Fraction.Eq(want) {
+	if want := fixed.Q32MustParse("0.375"); !output.Fraction.Eq(want) {
 		t.Errorf("fraction = %v, want %v", output.Fraction, want)
 	}
 	if want := pt("-0.5", "0"); output.Point != want {
@@ -345,7 +345,7 @@ func TestRayCastCapsuleDegenerateCases(t *testing.T) {
 
 	// A ray parallel to the axis and outside the surface misses: the
 	// determinant is exactly zero.
-	capsule := dbox2d.Capsule{Center1: pt("-1", "0"), Center2: pt("1", "0"), Radius: fixed.MustParse("0.25")}
+	capsule := dbox2d.Capsule{Center1: pt("-1", "0"), Center2: pt("1", "0"), Radius: fixed.Q32MustParse("0.25")}
 	beside := ray(pt("-2", "1"), pt("4", "0"))
 	if dbox2d.RayCastCapsule(&beside, &capsule).Hit {
 		t.Errorf("a parallel ray outside the capsule reports a hit")
@@ -364,9 +364,9 @@ func TestPolygonConstructorsRejectInvalidHull(t *testing.T) {
 		name  string
 		build func()
 	}{
-		{"MakePolygon", func() { dbox2d.MakePolygon(&hull, fixed.Zero()) }},
+		{"MakePolygon", func() { dbox2d.MakePolygon(&hull, fixed.Q32Zero()) }},
 		{"MakeOffsetRoundedPolygon", func() {
-			dbox2d.MakeOffsetRoundedPolygon(&hull, pt("0", "0"), dbox2d.RotIdentity(), fixed.Half())
+			dbox2d.MakeOffsetRoundedPolygon(&hull, pt("0", "0"), dbox2d.RotIdentity(), fixed.Q32Half())
 		}},
 	}
 
@@ -395,7 +395,7 @@ func TestComputePolygonMassRejectsZeroArea(t *testing.T) {
 			t.Errorf("ComputePolygonMass accepts a polygon with zero area")
 		}
 	}()
-	dbox2d.ComputePolygonMass(&polygon, fixed.One())
+	dbox2d.ComputePolygonMass(&polygon, fixed.Q32One())
 }
 
 // TestPolygonConstructorsMatchTheReference pins the literal layout of each
@@ -405,7 +405,7 @@ func TestPolygonConstructorsMatchTheReference(t *testing.T) {
 	unitSquare := dbox2d.ComputeHull([]dbox2d.Vec2{
 		pt("-1", "-1"), pt("1", "-1"), pt("1", "1"), pt("-1", "1"),
 	})
-	quarter := fixed.MustParse("0.25")
+	quarter := fixed.Q32MustParse("0.25")
 
 	boxNormals := []dbox2d.Vec2{pt("0", "-1"), pt("1", "0"), pt("0", "1"), pt("-1", "0")}
 
@@ -419,13 +419,13 @@ func TestPolygonConstructorsMatchTheReference(t *testing.T) {
 	}{
 		{
 			"MakeSquare",
-			dbox2d.MakeSquare(fixed.Half()),
+			dbox2d.MakeSquare(fixed.Q32Half()),
 			[]dbox2d.Vec2{pt("-0.5", "-0.5"), pt("0.5", "-0.5"), pt("0.5", "0.5"), pt("-0.5", "0.5")},
-			boxNormals, pt("0", "0"), fixed.Zero(),
+			boxNormals, pt("0", "0"), fixed.Q32Zero(),
 		},
 		{
 			"MakeRoundedBox",
-			dbox2d.MakeRoundedBox(fixed.One(), fixed.FromInt(2), quarter),
+			dbox2d.MakeRoundedBox(fixed.Q32One(), fixed.Q32FromInt(2), quarter),
 			[]dbox2d.Vec2{pt("-1", "-2"), pt("1", "-2"), pt("1", "2"), pt("-1", "2")},
 			boxNormals, pt("0", "0"), quarter,
 		},
@@ -433,7 +433,7 @@ func TestPolygonConstructorsMatchTheReference(t *testing.T) {
 			"MakeOffsetPolygon",
 			dbox2d.MakeOffsetPolygon(&unitSquare, pt("2", "3"), dbox2d.RotIdentity()),
 			[]dbox2d.Vec2{pt("1", "2"), pt("3", "2"), pt("3", "4"), pt("1", "4")},
-			boxNormals, pt("2", "3"), fixed.Zero(),
+			boxNormals, pt("2", "3"), fixed.Q32Zero(),
 		},
 		{
 			"MakeOffsetRoundedPolygon",
@@ -470,7 +470,7 @@ func TestPolygonConstructorsMatchTheReference(t *testing.T) {
 // translation. The inputs are dyadic, so every bound compares exactly.
 func TestShapeAABBsMatchTheReference(t *testing.T) {
 	xf := dbox2d.Transform{P: pt("1", "2"), Q: dbox2d.RotIdentity()}
-	quarter := fixed.MustParse("0.25")
+	quarter := fixed.Q32MustParse("0.25")
 
 	circle := dbox2d.Circle{Center: pt("0.5", "0"), Radius: quarter}
 	capsule := dbox2d.Capsule{Center1: pt("-0.5", "0"), Center2: pt("0.5", "0"), Radius: quarter}

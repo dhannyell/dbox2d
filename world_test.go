@@ -27,7 +27,7 @@ func createTestWorld(t *testing.T) WorldId {
 }
 
 func v2(x, y int) Vec2 {
-	return Vec2{X: fixed.FromInt(x), Y: fixed.FromInt(y)}
+	return Vec2{X: fixed.Q32FromInt(x), Y: fixed.Q32FromInt(y)}
 }
 
 // TestIdReuseInvalidatesTheOldHandle pins the generation scheme: a destroyed
@@ -83,7 +83,7 @@ func TestIdReuseInvalidatesTheOldHandle(t *testing.T) {
 		bodyId := CreateBody(worldId, &bodyDef)
 
 		shapeDef := DefaultShapeDef()
-		circle := Circle{Radius: fixed.One()}
+		circle := Circle{Radius: fixed.Q32One()}
 		oldId := CreateCircleShape(bodyId, &shapeDef, &circle)
 		DestroyShape(oldId, true)
 		if oldId.IsValid() {
@@ -116,7 +116,7 @@ func TestSensorRejectionLeavesBodyUnchanged(t *testing.T) {
 
 	shapeDef := DefaultShapeDef()
 	shapeDef.IsSensor = true
-	circle := Circle{Radius: fixed.One()}
+	circle := Circle{Radius: fixed.Q32One()}
 
 	panicked := false
 	func() {
@@ -148,7 +148,7 @@ func TestCreateAndDestroyOrdersProduceTheSameWorld(t *testing.T) {
 	bodyDef := DefaultBodyDef()
 	bodyDef.Type = DynamicBody
 	shapeDef := DefaultShapeDef()
-	box := MakeSquare(fixed.One())
+	box := MakeSquare(fixed.Q32One())
 
 	addBody := func(worldId WorldId, position Vec2) BodyId {
 		def := bodyDef
@@ -217,7 +217,7 @@ func TestBodyMassComesFromItsShapes(t *testing.T) {
 	worldId := createTestWorld(t)
 
 	// Half a turn per second, so the velocity correction is visible.
-	omega := fixed.Half()
+	omega := fixed.Q32Half()
 
 	bodyDef := DefaultBodyDef()
 	bodyDef.Type = DynamicBody
@@ -226,7 +226,7 @@ func TestBodyMassComesFromItsShapes(t *testing.T) {
 	bodyId := CreateBody(worldId, &bodyDef)
 
 	shapeDef := DefaultShapeDef()
-	box := MakeSquare(fixed.One())
+	box := MakeSquare(fixed.Q32One())
 	CreatePolygonShape(bodyId, &shapeDef, &box)
 
 	wantBox := ComputePolygonMass(&box, shapeDef.Density)
@@ -242,7 +242,7 @@ func TestBodyMassComesFromItsShapes(t *testing.T) {
 	velocityBefore := getBodyState(w, b).linearVelocity
 
 	// A degenerate capsule welds into a circle at its midpoint.
-	capsule := Capsule{Center1: v2(2, 0), Center2: v2(2, 0), Radius: fixed.One()}
+	capsule := Capsule{Center1: v2(2, 0), Center2: v2(2, 0), Radius: fixed.Q32One()}
 	weldedId := CreateCapsuleShape(bodyId, &shapeDef, &capsule)
 
 	welded := getShape(w, weldedId)
@@ -266,7 +266,7 @@ func TestBodyMassComesFromItsShapes(t *testing.T) {
 	}
 
 	// The stored inverse comes from one division, as in the reference.
-	if !sim.invMass.Eq(fixed.One().Div(b.mass)) {
+	if !sim.invMass.Eq(fixed.Q32One().Div(b.mass)) {
 		t.Errorf("invMass = %v, want 1 / mass", sim.invMass)
 	}
 

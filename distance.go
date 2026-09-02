@@ -8,8 +8,8 @@ import "github.com/dhannyell/fixed"
 func SegmentDistance(p1, q1, p2, q2 Vec2) SegmentDistanceResult {
 	var result SegmentDistanceResult
 
-	zero := fixed.Zero()
-	one := fixed.One()
+	zero := fixed.Q32Zero()
+	one := fixed.Q32One()
 
 	d1 := q1.Sub(p1)
 	d2 := q2.Sub(p2)

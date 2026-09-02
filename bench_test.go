@@ -18,31 +18,31 @@ const benchBodyCount = 1024
 // makeBenchContext builds the integration inputs directly, without a world,
 // so the benchmark isolates the arithmetic.
 func makeBenchContext() *stepContext {
-	w := &world{gravity: Vec2{Y: fixed.FromInt(-10)}}
+	w := &world{gravity: Vec2{Y: fixed.Q32FromInt(-10)}}
 
-	dt := fixed.One().Div(fixed.FromInt(60))
+	dt := fixed.Q32One().Div(fixed.Q32FromInt(60))
 	context := &stepContext{
 		world:             w,
 		dt:                dt,
-		invDt:             fixed.FromInt(60),
-		h:                 dt.Div(fixed.FromInt(4)),
+		invDt:             fixed.Q32FromInt(60),
+		h:                 dt.Div(fixed.Q32FromInt(4)),
 		subStepCount:      4,
-		maxLinearVelocity: fixed.FromInt(400),
+		maxLinearVelocity: fixed.Q32FromInt(400),
 	}
 
-	damping := fixed.MustParse("0.1")
+	damping := fixed.Q32MustParse("0.1")
 	context.sims = make([]bodySim, benchBodyCount)
 	context.states = make([]bodyState, benchBodyCount)
 	for i := range benchBodyCount {
 		sim := &context.sims[i]
-		sim.invMass = fixed.One()
-		sim.invInertia = fixed.FromInt(6)
+		sim.invMass = fixed.Q32One()
+		sim.invInertia = fixed.Q32FromInt(6)
 		sim.linearDamping = damping
 		sim.angularDamping = damping
-		sim.gravityScale = fixed.One()
+		sim.gravityScale = fixed.Q32One()
 		state := &context.states[i]
-		state.linearVelocity = Vec2{X: fixed.FromInt(i % 7), Y: fixed.FromInt(i % 5)}
-		state.angularVelocity = fixed.MustParse("0.25")
+		state.linearVelocity = Vec2{X: fixed.Q32FromInt(i % 7), Y: fixed.Q32FromInt(i % 5)}
+		state.angularVelocity = fixed.Q32MustParse("0.25")
 	}
 	return context
 }
@@ -281,14 +281,14 @@ func BenchmarkStep(b *testing.B) {
 	bodyDef := DefaultBodyDef()
 	bodyDef.Type = DynamicBody
 	shapeDef := DefaultShapeDef()
-	box := MakeSquare(fixed.One())
+	box := MakeSquare(fixed.Q32One())
 	for i := range benchBodyCount {
-		bodyDef.Position = Vec2{X: fixed.FromInt(i * 3), Y: fixed.FromInt(i % 16)}
+		bodyDef.Position = Vec2{X: fixed.Q32FromInt(i * 3), Y: fixed.Q32FromInt(i % 16)}
 		bodyId := CreateBody(worldId, &bodyDef)
 		CreatePolygonShape(bodyId, &shapeDef, &box)
 	}
 
-	dt := fixed.One().Div(fixed.FromInt(60))
+	dt := fixed.Q32One().Div(fixed.Q32FromInt(60))
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
@@ -691,10 +691,10 @@ func collidePolygonsF64(polygonA *f64Polygon, aPx, aPy, aQc, aQs float64, polygo
 // BenchmarkCollidePolygonsQ measures the dominant contact pattern: two unit
 // boxes on the overlap branch of the clip path.
 func BenchmarkCollidePolygonsQ(b *testing.B) {
-	boxA := MakeSquare(fixed.One())
-	boxB := MakeSquare(fixed.One())
+	boxA := MakeSquare(fixed.Q32One())
+	boxB := MakeSquare(fixed.Q32One())
 	xfA := TransformIdentity()
-	xfB := Transform{P: Vec2{Y: fixed.MustParse("1.5")}, Q: RotIdentity()}
+	xfB := Transform{P: Vec2{Y: fixed.Q32MustParse("1.5")}, Q: RotIdentity()}
 
 	var result Manifold
 	b.ResetTimer()

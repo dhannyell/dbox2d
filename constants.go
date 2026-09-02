@@ -7,29 +7,29 @@ import "github.com/dhannyell/fixed"
 // stops matching a world that does not. See DIVERGENCES.md.
 var (
 	// upstream 0.005f * b2_lengthUnitsPerMeter
-	linearSlop = fixed.MustParse("0.005")
+	linearSlop = fixed.Q32MustParse("0.005")
 
 	// upstream 100000.0f * b2_lengthUnitsPerMeter. It bounds a length that
 	// an application supplies, so a wild input fails early.
-	huge = fixed.FromInt(100000)
+	huge = fixed.Q32FromInt(100000)
 
 	// upstream 0.25f * B2_PI radians, which is 0.125 turns
-	maxRotation = fixed.MustParse("0.125")
+	maxRotation = fixed.Q32MustParse("0.125")
 
 	// upstream 4.0f * B2_LINEAR_SLOP
-	speculativeDistance = linearSlop.Mul(fixed.FromInt(4))
+	speculativeDistance = linearSlop.Mul(fixed.Q32FromInt(4))
 
 	// upstream 0.05f * b2_lengthUnitsPerMeter
-	aabbMargin = fixed.MustParse("0.05")
+	aabbMargin = fixed.Q32MustParse("0.05")
 
 	// upstream 0.5f
-	timeToSleep = fixed.Half()
+	timeToSleep = fixed.Q32Half()
 
 	// upstream 60.0f
-	jointConstraintHertz = fixed.FromInt(60)
+	jointConstraintHertz = fixed.Q32FromInt(60)
 
 	// upstream 2.0f
-	jointConstraintDampingRatio = fixed.FromInt(2)
+	jointConstraintDampingRatio = fixed.Q32FromInt(2)
 )
 
 // LinearSlop is the collision and constraint tolerance in meters. It is

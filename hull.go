@@ -19,7 +19,7 @@ func recurseHull(p1, p2 Vec2, ps []Vec2) Hull {
 	var rightPoints [MaxPolygonVertices]Vec2
 	rightCount := 0
 
-	zero := fixed.Zero()
+	zero := fixed.Q32Zero()
 
 	bestIndex := 0
 	bestDistance := Cross(ps[bestIndex].Sub(p1), e)
@@ -41,7 +41,7 @@ func recurseHull(p1, p2 Vec2, ps []Vec2) Hull {
 		}
 	}
 
-	if bestDistance.Less(fixed.FromInt(2).Mul(linearSlop)) {
+	if bestDistance.Less(fixed.Q32FromInt(2).Mul(linearSlop)) {
 		return hull
 	}
 
@@ -90,15 +90,15 @@ func ComputeHull(points []Vec2) Hull {
 	count = min(count, MaxPolygonVertices)
 
 	aabb := AABB{
-		LowerBound: Vec2{X: fixed.MaxValue(), Y: fixed.MaxValue()},
-		UpperBound: Vec2{X: fixed.MinValue(), Y: fixed.MinValue()},
+		LowerBound: Vec2{X: fixed.Q32MaxValue(), Y: fixed.Q32MaxValue()},
+		UpperBound: Vec2{X: fixed.Q32MinValue(), Y: fixed.Q32MinValue()},
 	}
 
 	// Perform aggressive point welding. First point always remains.
 	// Also compute the bounding box for later.
 	var ps [MaxPolygonVertices]Vec2
 	n := 0
-	tolSqr := fixed.FromInt(16).Mul(linearSlop).Mul(linearSlop)
+	tolSqr := fixed.Q32FromInt(16).Mul(linearSlop).Mul(linearSlop)
 	for i := range count {
 		aabb.LowerBound = Min(aabb.LowerBound, points[i])
 		aabb.UpperBound = Max(aabb.UpperBound, points[i])
@@ -168,7 +168,7 @@ func ComputeHull(points []Vec2) Hull {
 
 	e := p2.Sub(p1).Normalize()
 
-	twoSlops := fixed.FromInt(2).Mul(linearSlop)
+	twoSlops := fixed.Q32FromInt(2).Mul(linearSlop)
 
 	for i := range n {
 		d := Cross(ps[i].Sub(p1), e)
@@ -261,7 +261,7 @@ func ValidateHull(hull *Hull) bool {
 		return false
 	}
 
-	zero := fixed.Zero()
+	zero := fixed.Q32Zero()
 
 	// test that every point is behind every edge
 	for i := range hull.Count {

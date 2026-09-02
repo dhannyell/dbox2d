@@ -14,25 +14,25 @@ func near(a, b, limit dbox2d.Q) bool {
 
 // tol returns num/den as a tolerance value.
 func tol(num, den int) dbox2d.Q {
-	return fixed.FromRatio(num, den)
+	return fixed.Q32FromRatio(num, den)
 }
 
 // TestConstantsMatchTheReference checks the values that the whole solver is
 // tuned around. A wrong slop changes every contact.
 func TestConstantsMatchTheReference(t *testing.T) {
-	if got, want := dbox2d.LinearSlop(), fixed.MustParse("0.005"); !got.Eq(want) {
+	if got, want := dbox2d.LinearSlop(), fixed.Q32MustParse("0.005"); !got.Eq(want) {
 		t.Errorf("LinearSlop = %v, want %v", got, want)
 	}
 	// The reference derives the speculative distance from the slop, so the
 	// port derives it too. It sits one raw unit below the nearest 0.02.
-	if got, want := dbox2d.SpeculativeDistance(), dbox2d.LinearSlop().Mul(fixed.FromInt(4)); !got.Eq(want) {
+	if got, want := dbox2d.SpeculativeDistance(), dbox2d.LinearSlop().Mul(fixed.Q32FromInt(4)); !got.Eq(want) {
 		t.Errorf("SpeculativeDistance = %v, want %v", got, want)
 	}
-	if got, want := dbox2d.AABBMargin(), fixed.MustParse("0.05"); !got.Eq(want) {
+	if got, want := dbox2d.AABBMargin(), fixed.Q32MustParse("0.05"); !got.Eq(want) {
 		t.Errorf("AABBMargin = %v, want %v", got, want)
 	}
 	// The reference limits a step to 0.25 * pi radians, which is 0.125 turns.
-	if got, want := dbox2d.MaxRotation(), fixed.MustParse("0.125"); !got.Eq(want) {
+	if got, want := dbox2d.MaxRotation(), fixed.Q32MustParse("0.125"); !got.Eq(want) {
 		t.Errorf("MaxRotation = %v, want %v", got, want)
 	}
 	if got := dbox2d.ReferenceVersion(); got.Major != 3 || got.Minor != 1 || got.Revision != 1 {
@@ -44,10 +44,10 @@ func TestConstantsMatchTheReference(t *testing.T) {
 // space. Every shape query depends on the pair agreeing.
 func TestTransformRoundTrip(t *testing.T) {
 	xf := dbox2d.Transform{
-		P: dbox2d.Vec2{X: fixed.FromInt(3), Y: fixed.MustParse("-7.25")},
-		Q: dbox2d.MakeRot(fixed.MustParse("0.3")),
+		P: dbox2d.Vec2{X: fixed.Q32FromInt(3), Y: fixed.Q32MustParse("-7.25")},
+		Q: dbox2d.MakeRot(fixed.Q32MustParse("0.3")),
 	}
-	p := dbox2d.Vec2{X: fixed.MustParse("1.5"), Y: fixed.MustParse("2.125")}
+	p := dbox2d.Vec2{X: fixed.Q32MustParse("1.5"), Y: fixed.Q32MustParse("2.125")}
 
 	world := dbox2d.TransformPoint(xf, p)
 	back := dbox2d.InvTransformPoint(xf, world)
@@ -62,12 +62,12 @@ func TestTransformRoundTrip(t *testing.T) {
 // against its inverse, which the solver uses for every joint frame.
 func TestInvMulTransformsUndoesMulTransforms(t *testing.T) {
 	a := dbox2d.Transform{
-		P: dbox2d.Vec2{X: fixed.FromInt(2), Y: fixed.FromInt(5)},
-		Q: dbox2d.MakeRot(fixed.MustParse("0.1")),
+		P: dbox2d.Vec2{X: fixed.Q32FromInt(2), Y: fixed.Q32FromInt(5)},
+		Q: dbox2d.MakeRot(fixed.Q32MustParse("0.1")),
 	}
 	b := dbox2d.Transform{
-		P: dbox2d.Vec2{X: fixed.MustParse("-1.5"), Y: fixed.MustParse("0.75")},
-		Q: dbox2d.MakeRot(fixed.MustParse("0.4")),
+		P: dbox2d.Vec2{X: fixed.Q32MustParse("-1.5"), Y: fixed.Q32MustParse("0.75")},
+		Q: dbox2d.MakeRot(fixed.Q32MustParse("0.4")),
 	}
 
 	got := dbox2d.InvMulTransforms(a, dbox2d.MulTransforms(a, b))
@@ -87,7 +87,7 @@ func TestInvMulTransformsUndoesMulTransforms(t *testing.T) {
 func TestIntegrateRotationCompletesATurn(t *testing.T) {
 	const steps = 360
 	q := dbox2d.RotIdentity()
-	delta := fixed.FromRatio(1, steps)
+	delta := fixed.Q32FromRatio(1, steps)
 	for range steps {
 		q = dbox2d.IntegrateRotation(q, delta)
 	}
@@ -96,7 +96,7 @@ func TestIntegrateRotationCompletesATurn(t *testing.T) {
 		t.Fatalf("rotation left the unit circle: %v", q)
 	}
 	// One full turn returns to the identity.
-	if angle := dbox2d.RotGetAngle(q); !near(angle, fixed.Zero(), tol(1, 1000)) {
+	if angle := dbox2d.RotGetAngle(q); !near(angle, fixed.Q32Zero(), tol(1, 1000)) {
 		t.Errorf("angle after one turn = %v, want 0", angle)
 	}
 }
@@ -104,11 +104,11 @@ func TestIntegrateRotationCompletesATurn(t *testing.T) {
 // TestComputeAngularVelocityInvertsIntegration checks that the solver can
 // recover the velocity it used to advance a rotation.
 func TestComputeAngularVelocityInvertsIntegration(t *testing.T) {
-	h := fixed.FromRatio(1, 60)
-	invH := fixed.FromInt(60)
-	omega := fixed.MustParse("0.25") // turns per second
+	h := fixed.Q32FromRatio(1, 60)
+	invH := fixed.Q32FromInt(60)
+	omega := fixed.Q32MustParse("0.25") // turns per second
 
-	q1 := dbox2d.MakeRot(fixed.MustParse("0.2"))
+	q1 := dbox2d.MakeRot(fixed.Q32MustParse("0.2"))
 	q2 := dbox2d.IntegrateRotation(q1, omega.Mul(h))
 
 	if got := dbox2d.ComputeAngularVelocity(q1, q2, invH); !near(got, omega, tol(1, 1000)) {
@@ -119,14 +119,14 @@ func TestComputeAngularVelocityInvertsIntegration(t *testing.T) {
 // TestUnwindAngleReducesToHalfTurn checks the reduction that replaces the
 // remainder of two pi. In turns the reduction is exact.
 func TestUnwindAngleReducesToHalfTurn(t *testing.T) {
-	half := fixed.Half()
+	half := fixed.Q32Half()
 	for _, in := range []string{"0.25", "1.25", "-1.25", "7.5", "-3.75"} {
-		got := dbox2d.UnwindAngle(fixed.MustParse(in))
+		got := dbox2d.UnwindAngle(fixed.Q32MustParse(in))
 		if half.Less(got.Abs()) {
 			t.Errorf("UnwindAngle(%s) = %v, outside [-0.5, 0.5]", in, got)
 		}
 		// The reduced angle names the same direction.
-		if a, b := dbox2d.MakeRot(got), dbox2d.MakeRot(fixed.MustParse(in)); !a.Cos.Eq(b.Cos) || !a.Sin.Eq(b.Sin) {
+		if a, b := dbox2d.MakeRot(got), dbox2d.MakeRot(fixed.Q32MustParse(in)); !a.Cos.Eq(b.Cos) || !a.Sin.Eq(b.Sin) {
 			t.Errorf("UnwindAngle(%s) = %v, which is a different rotation", in, got)
 		}
 	}
@@ -135,8 +135,8 @@ func TestUnwindAngleReducesToHalfTurn(t *testing.T) {
 // TestCrossAndPerpAgree checks the identities that the reference documents:
 // the perpendiculars are cross products with one.
 func TestCrossAndPerpAgree(t *testing.T) {
-	v := dbox2d.Vec2{X: fixed.FromInt(3), Y: fixed.MustParse("-4.5")}
-	one := fixed.One()
+	v := dbox2d.Vec2{X: fixed.Q32FromInt(3), Y: fixed.Q32MustParse("-4.5")}
+	one := fixed.Q32One()
 
 	if got, want := dbox2d.CrossSV(one, v), dbox2d.LeftPerp(v); got != want {
 		t.Errorf("CrossSV(1, v) = %v, want %v", got, want)
@@ -145,7 +145,7 @@ func TestCrossAndPerpAgree(t *testing.T) {
 		t.Errorf("CrossVS(v, 1) = %v, want %v", got, want)
 	}
 	// A vector is parallel to itself, so the cross product is zero.
-	if got := dbox2d.Cross(v, v); !got.Eq(fixed.Zero()) {
+	if got := dbox2d.Cross(v, v); !got.Eq(fixed.Q32Zero()) {
 		t.Errorf("Cross(v, v) = %v, want 0", got)
 	}
 }
@@ -153,13 +153,13 @@ func TestCrossAndPerpAgree(t *testing.T) {
 // TestLerpHitsBothEnds checks the endpoint behaviour that decided the
 // formula. The weighted form returns each end exactly.
 func TestLerpHitsBothEnds(t *testing.T) {
-	a := dbox2d.Vec2{X: fixed.FromInt(1), Y: fixed.FromInt(2)}
-	b := dbox2d.Vec2{X: fixed.FromInt(9), Y: fixed.MustParse("-3.5")}
+	a := dbox2d.Vec2{X: fixed.Q32FromInt(1), Y: fixed.Q32FromInt(2)}
+	b := dbox2d.Vec2{X: fixed.Q32FromInt(9), Y: fixed.Q32MustParse("-3.5")}
 
-	if got := dbox2d.Lerp(a, b, fixed.Zero()); got != a {
+	if got := dbox2d.Lerp(a, b, fixed.Q32Zero()); got != a {
 		t.Errorf("Lerp at 0 = %v, want %v", got, a)
 	}
-	if got := dbox2d.Lerp(a, b, fixed.One()); got != b {
+	if got := dbox2d.Lerp(a, b, fixed.Q32One()); got != b {
 		t.Errorf("Lerp at 1 = %v, want %v", got, b)
 	}
 }
@@ -168,10 +168,10 @@ func TestLerpHitsBothEnds(t *testing.T) {
 // singular matrix returns zero instead of dividing by zero.
 func TestSolve22SolvesTheSystem(t *testing.T) {
 	m := dbox2d.Mat22{
-		Cx: dbox2d.Vec2{X: fixed.FromInt(4), Y: fixed.FromInt(1)},
-		Cy: dbox2d.Vec2{X: fixed.FromInt(2), Y: fixed.FromInt(3)},
+		Cx: dbox2d.Vec2{X: fixed.Q32FromInt(4), Y: fixed.Q32FromInt(1)},
+		Cy: dbox2d.Vec2{X: fixed.Q32FromInt(2), Y: fixed.Q32FromInt(3)},
 	}
-	b := dbox2d.Vec2{X: fixed.FromInt(10), Y: fixed.FromInt(8)}
+	b := dbox2d.Vec2{X: fixed.Q32FromInt(10), Y: fixed.Q32FromInt(8)}
 
 	x := dbox2d.Solve22(m, b)
 	got := dbox2d.MulMV(m, x)
@@ -182,8 +182,8 @@ func TestSolve22SolvesTheSystem(t *testing.T) {
 	}
 
 	singular := dbox2d.Mat22{
-		Cx: dbox2d.Vec2{X: fixed.FromInt(1), Y: fixed.FromInt(2)},
-		Cy: dbox2d.Vec2{X: fixed.FromInt(2), Y: fixed.FromInt(4)},
+		Cx: dbox2d.Vec2{X: fixed.Q32FromInt(1), Y: fixed.Q32FromInt(2)},
+		Cy: dbox2d.Vec2{X: fixed.Q32FromInt(2), Y: fixed.Q32FromInt(4)},
 	}
 	if got := dbox2d.Solve22(singular, b); got != (dbox2d.Vec2{}) {
 		t.Errorf("singular solve = %v, want the zero vector", got)
@@ -196,19 +196,19 @@ func TestSolve22SolvesTheSystem(t *testing.T) {
 // TestSpringDamperRemovesEnergy checks the implicit spring: a body at rest
 // away from zero gains a velocity that points back to zero.
 func TestSpringDamperRemovesEnergy(t *testing.T) {
-	hertz := fixed.FromInt(4)
-	damping := fixed.One()
-	position := fixed.FromInt(2)
-	step := fixed.FromRatio(1, 60)
+	hertz := fixed.Q32FromInt(4)
+	damping := fixed.Q32One()
+	position := fixed.Q32FromInt(2)
+	step := fixed.Q32FromRatio(1, 60)
 
-	v := dbox2d.SpringDamper(hertz, damping, position, fixed.Zero(), step)
-	if !v.Less(fixed.Zero()) {
+	v := dbox2d.SpringDamper(hertz, damping, position, fixed.Q32Zero(), step)
+	if !v.Less(fixed.Q32Zero()) {
 		t.Errorf("velocity = %v, want a value below zero", v)
 	}
 
 	// A zero stiffness leaves the velocity alone.
-	kept := fixed.MustParse("1.5")
-	if got := dbox2d.SpringDamper(fixed.Zero(), damping, position, kept, step); !got.Eq(kept) {
+	kept := fixed.Q32MustParse("1.5")
+	if got := dbox2d.SpringDamper(fixed.Q32Zero(), damping, position, kept, step); !got.Eq(kept) {
 		t.Errorf("velocity at zero hertz = %v, want %v", got, kept)
 	}
 }
@@ -218,7 +218,7 @@ func TestSpringDamperRemovesEnergy(t *testing.T) {
 // validity check is what notices.
 func TestSaturationMarksAValueInvalid(t *testing.T) {
 	// One hundred kilometres, the largest coordinate the reference accepts.
-	big := fixed.FromInt(100000)
+	big := fixed.Q32FromInt(100000)
 	if !dbox2d.IsValidQ(big) {
 		t.Fatalf("the largest accepted coordinate is outside the range")
 	}
@@ -241,7 +241,7 @@ func TestSaturationMarksAValueInvalid(t *testing.T) {
 // the float epsilons of the reference.
 func TestNormalizedChecksAcceptAUnitPair(t *testing.T) {
 	for _, turns := range []string{"0", "0.125", "0.3", "-0.4"} {
-		q := dbox2d.MakeRot(fixed.MustParse(turns))
+		q := dbox2d.MakeRot(fixed.Q32MustParse(turns))
 		if !dbox2d.IsNormalizedRot(q) {
 			t.Errorf("rotation at %s turns is not normalized: %v", turns, q)
 		}
@@ -250,7 +250,7 @@ func TestNormalizedChecksAcceptAUnitPair(t *testing.T) {
 		}
 	}
 
-	if dbox2d.IsNormalized(dbox2d.Vec2{X: fixed.FromInt(2)}) {
+	if dbox2d.IsNormalized(dbox2d.Vec2{X: fixed.Q32FromInt(2)}) {
 		t.Errorf("IsNormalized accepted a vector of length two")
 	}
 }
@@ -261,8 +261,8 @@ func TestNormalizedChecksAcceptAUnitPair(t *testing.T) {
 func TestNegationComesBeforeTheProduct(t *testing.T) {
 	// Three raw units times one half is one and a half raw units. The floor
 	// of that is 1, and the floor of its negative is -2.
-	s := fixed.FromRaw(3)
-	v := dbox2d.Vec2{X: fixed.Half(), Y: fixed.Half()}
+	s := fixed.Q32FromRaw(3)
+	v := dbox2d.Vec2{X: fixed.Q32Half(), Y: fixed.Q32Half()}
 
 	if got := dbox2d.CrossVS(v, s).Y.Raw(); got != -2 {
 		t.Errorf("CrossVS y = %d raw, want -2: the product was negated", got)
@@ -273,8 +273,8 @@ func TestNegationComesBeforeTheProduct(t *testing.T) {
 
 	// A normalized rotation with sin equal to one half exercises the same
 	// order in the inverse rotation and transform helpers.
-	q := dbox2d.Rot{Sin: fixed.Half(), Cos: fixed.MustParse("0.8660254038")}
-	p := dbox2d.Vec2{X: fixed.FromRaw(3)}
+	q := dbox2d.Rot{Sin: fixed.Q32Half(), Cos: fixed.Q32MustParse("0.8660254038")}
+	p := dbox2d.Vec2{X: fixed.Q32FromRaw(3)}
 	if got := dbox2d.InvRotateVector(q, p).Y.Raw(); got != -2 {
 		t.Errorf("InvRotateVector y = %d raw, want -2: the product was negated", got)
 	}
@@ -303,11 +303,11 @@ func TestNormalizeRotKeepsAZeroRotation(t *testing.T) {
 // TestComputeRotationBetweenUnitVectors covers the assertion of the
 // reference, which this port keeps as a panic in every build.
 func TestComputeRotationBetweenUnitVectors(t *testing.T) {
-	x := dbox2d.Vec2{X: fixed.One()}
-	y := dbox2d.Vec2{Y: fixed.One()}
+	x := dbox2d.Vec2{X: fixed.Q32One()}
+	y := dbox2d.Vec2{Y: fixed.Q32One()}
 
 	got := dbox2d.ComputeRotationBetweenUnitVectors(x, y)
-	if angle := dbox2d.RotGetAngle(got); !near(angle, fixed.MustParse("0.25"), tol(1, 1000)) {
+	if angle := dbox2d.RotGetAngle(got); !near(angle, fixed.Q32MustParse("0.25"), tol(1, 1000)) {
 		t.Errorf("angle from the x axis to the y axis = %v, want 0.25 turns", angle)
 	}
 
@@ -316,14 +316,14 @@ func TestComputeRotationBetweenUnitVectors(t *testing.T) {
 			t.Errorf("a vector of length two did not panic")
 		}
 	}()
-	dbox2d.ComputeRotationBetweenUnitVectors(x, dbox2d.Vec2{X: fixed.FromInt(2)})
+	dbox2d.ComputeRotationBetweenUnitVectors(x, dbox2d.Vec2{X: fixed.Q32FromInt(2)})
 }
 
 // TestNormalizeKeepsAShortVector is the evidence for the divergence that
 // replaced the reciprocal. A vector of a few raw units would collapse to
 // zero if the port multiplied by one over its length.
 func TestNormalizeKeepsAShortVector(t *testing.T) {
-	v := dbox2d.Vec2{X: fixed.FromRaw(3), Y: fixed.FromRaw(4)}
+	v := dbox2d.Vec2{X: fixed.Q32FromRaw(3), Y: fixed.Q32FromRaw(4)}
 
 	length, unit := dbox2d.GetLengthAndNormalize(v)
 	if got := length.Raw(); got != 5 {

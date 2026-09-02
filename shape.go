@@ -160,7 +160,7 @@ func createShapeInternal(w *world, b *body, transform Transform, def *ShapeDef, 
 // createShape validates the definition and dispatches on the geometry.
 func createShape(bodyId BodyId, def *ShapeDef, geometry any, shapeType ShapeType) ShapeId {
 	checkDef(def.internalValue)
-	zero := fixed.Zero()
+	zero := fixed.Q32Zero()
 	if !IsValidQ(def.Density) || def.Density.Less(zero) {
 		panic("dbox2d: ShapeDef.Density is not valid")
 	}
@@ -208,7 +208,7 @@ func CreateCircleShape(bodyId BodyId, def *ShapeDef, circle *Circle) ShapeId {
 func CreateCapsuleShape(bodyId BodyId, def *ShapeDef, capsule *Capsule) ShapeId {
 	lengthSqr := capsule.Center1.DistanceSq(capsule.Center2)
 	if !linearSlop.Mul(linearSlop).Less(lengthSqr) {
-		circle := Circle{Center: Lerp(capsule.Center1, capsule.Center2, fixed.Half()), Radius: capsule.Radius}
+		circle := Circle{Center: Lerp(capsule.Center1, capsule.Center2, fixed.Q32Half()), Radius: capsule.Radius}
 		return createShape(bodyId, def, &circle, CircleShape)
 	}
 
@@ -218,7 +218,7 @@ func CreateCapsuleShape(bodyId BodyId, def *ShapeDef, capsule *Capsule) ShapeId 
 // CreatePolygonShape creates a polygon shape on a body. Build the polygon
 // with MakePolygon or MakeBox.
 func CreatePolygonShape(bodyId BodyId, def *ShapeDef, polygon *Polygon) ShapeId {
-	if !IsValidQ(polygon.Radius) || polygon.Radius.Less(fixed.Zero()) {
+	if !IsValidQ(polygon.Radius) || polygon.Radius.Less(fixed.Q32Zero()) {
 		panic("dbox2d: Polygon.Radius is not valid")
 	}
 	return createShape(bodyId, def, polygon, PolygonShape)
@@ -315,15 +315,15 @@ func computeShapeAABB(s *shape, xf Transform) AABB {
 func getShapeCentroid(s *shape) Vec2 {
 	switch s.shapeType {
 	case CapsuleShape:
-		return Lerp(s.capsule.Center1, s.capsule.Center2, fixed.Half())
+		return Lerp(s.capsule.Center1, s.capsule.Center2, fixed.Q32Half())
 	case CircleShape:
 		return s.circle.Center
 	case PolygonShape:
 		return s.polygon.Centroid
 	case SegmentShape:
-		return Lerp(s.segment.Point1, s.segment.Point2, fixed.Half())
+		return Lerp(s.segment.Point1, s.segment.Point2, fixed.Q32Half())
 	case ChainSegmentShape:
-		return Lerp(s.chainSegment.Segment.Point1, s.chainSegment.Segment.Point2, fixed.Half())
+		return Lerp(s.chainSegment.Segment.Point1, s.chainSegment.Segment.Point2, fixed.Q32Half())
 	default:
 		return Vec2Zero()
 	}
@@ -340,7 +340,7 @@ func getShapeRadius(s *shape) Q {
 	case PolygonShape:
 		return s.polygon.Radius
 	default:
-		return fixed.Zero()
+		return fixed.Q32Zero()
 	}
 }
 
@@ -380,7 +380,7 @@ func computeShapeExtent(s *shape, localCenter Vec2) shapeExtent {
 	case PolygonShape:
 		poly := &s.polygon
 		minExtent := huge
-		maxExtentSqr := fixed.Zero()
+		maxExtentSqr := fixed.Q32Zero()
 		for i := range poly.Count {
 			v := poly.Vertices[i]
 			planeOffset := poly.Normals[i].Dot(v.Sub(poly.Centroid))
@@ -394,13 +394,13 @@ func computeShapeExtent(s *shape, localCenter Vec2) shapeExtent {
 		extent.maxExtent = maxExtentSqr.Sqrt().Add(poly.Radius)
 
 	case SegmentShape:
-		extent.minExtent = fixed.Zero()
+		extent.minExtent = fixed.Q32Zero()
 		c1 := s.segment.Point1.Sub(localCenter)
 		c2 := s.segment.Point2.Sub(localCenter)
 		extent.maxExtent = c1.LenSq().Max(c2.LenSq()).Sqrt()
 
 	case ChainSegmentShape:
-		extent.minExtent = fixed.Zero()
+		extent.minExtent = fixed.Q32Zero()
 		c1 := s.chainSegment.Segment.Point1.Sub(localCenter)
 		c2 := s.chainSegment.Segment.Point2.Sub(localCenter)
 		extent.maxExtent = c1.LenSq().Max(c2.LenSq()).Sqrt()

@@ -389,7 +389,7 @@ func updateContact(w *world, cs *contactSim, shapeA *shape, transformA Transform
 	cs.friction = w.frictionCallback(shapeA.friction, shapeA.userMaterialId, shapeB.friction, shapeB.userMaterialId)
 	cs.restitution = w.restitutionCallback(shapeA.restitution, shapeA.userMaterialId, shapeB.restitution, shapeB.userMaterialId)
 
-	zero := fixed.Zero()
+	zero := fixed.Q32Zero()
 	if zero.Less(shapeA.rollingResistance) || zero.Less(shapeB.rollingResistance) {
 		radiusA := getShapeRadius(shapeA)
 		radiusB := getShapeRadius(shapeB)
@@ -411,7 +411,7 @@ func updateContact(w *world, cs *contactSim, shapeA *shape, transformA Transform
 	// behaviour without the dead branch.
 	if !w.enableSpeculative && pointCount == 2 {
 		slop := LinearSlop()
-		if slop.Add(slop.Div(fixed.FromInt(2))).Less(cs.manifold.Points[0].Separation) {
+		if slop.Add(slop.Div(fixed.Q32FromInt(2))).Less(cs.manifold.Points[0].Separation) {
 			cs.manifold.Points[0] = cs.manifold.Points[1]
 			cs.manifold.PointCount = 1
 		}
