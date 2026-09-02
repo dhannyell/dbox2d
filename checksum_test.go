@@ -164,6 +164,37 @@ func TestChecksumSeesFutureBehaviour(t *testing.T) {
 	}
 }
 
+// TestChecksumSeesAPendingSplit pins the island state that the bodies and
+// contacts do not show: an island with a removed constraint splits on the
+// next step and cannot sleep, so two worlds with the same visible state
+// must not share a checksum.
+func TestChecksumSeesAPendingSplit(t *testing.T) {
+	build := func(chain bool) (WorldId, BodyId) {
+		worldId := createTestWorld(t)
+		w := getWorldFromId(worldId)
+		idA := addDynamicCircle(t, worldId, v2(0, 0))
+		idB := addDynamicCircle(t, worldId, v2(1, 0))
+		idC := addDynamicCircle(t, worldId, v2(2, 0))
+		startTouching(t, w, idA, idB)
+		if chain {
+			c := startTouching(t, w, idB, idC)
+			mergeAwakeIslands(w)
+			destroyContact(w, c, false)
+		}
+		return worldId, idA
+	}
+
+	pending, idA := build(true)
+	settled, _ := build(false)
+	w := getWorldFromId(pending)
+	if w.islands[getBodyFullId(w, idA).islandId].constraintRemoveCount == 0 {
+		t.Fatalf("the chain world has no pending split")
+	}
+	if Checksum(pending) == Checksum(settled) {
+		t.Errorf("a pending island split did not change the checksum")
+	}
+}
+
 // TestChecksumMatchesDeterministicWitness pins one value across processes and
 // architectures. Every CI target must produce the same integer.
 func TestChecksumMatchesDeterministicWitness(t *testing.T) {
@@ -191,7 +222,7 @@ func TestChecksumMatchesDeterministicWitness(t *testing.T) {
 		Step(worldId, dt, 4)
 	}
 
-	const want uint64 = 7276873791857727847
+	const want uint64 = 7856699544564466143
 	if got := Checksum(worldId); got != want {
 		t.Errorf("checksum = %d, want %d", got, want)
 	}

@@ -123,6 +123,11 @@ func checksumBody(w *world, b *body) uint64 {
 	h = checksumBool(h, b.isSpeedCapped)
 	h = checksumBool(h, b.isMarked)
 
+	// A pending island split changes the next step: it blocks sleep and
+	// picks the island to split. Only the sign of the count matters.
+	pendingSplit := b.islandId != nullIndex && w.islands[b.islandId].constraintRemoveCount > 0
+	h = checksumBool(h, pendingSplit)
+
 	h = checksumVec2(h, sim.transform.P)
 	h = checksumRot(h, sim.transform.Q)
 	h = checksumVec2(h, sim.center)

@@ -223,12 +223,16 @@ Numbering is sequential from `D-001` and never reused.
   state instead of storage ids or linked-list keys. Its two orientations fold
   to one value; contact points use a wrapping sum as well. Equivalent worlds
   therefore keep one checksum even when bodies, shapes, contacts or manifold
-  points were created in another order. The witness contains a real contact
-  that the step itself detects and solves, and re-baselines in the same
-  commit that grows the fold or changes the solved state.
+  points were created in another order. Each body folds whether its island
+  has a pending split, because that flag blocks sleep and picks the island
+  to split on the next step while no body or contact field shows it; the
+  island id itself stays out. The witness contains a real contact that the
+  step itself detects and solves, and re-baselines in the same commit that
+  grows the fold or changes the solved state.
 - Test: TestChecksumIsOrderIndependent,
   TestChecksumContactsIgnoreCreationOrder, TestChecksumSeesContactState,
-  TestChecksumSeesAStateChange, TestChecksumSeesFutureBehaviour and
+  TestChecksumSeesAStateChange, TestChecksumSeesFutureBehaviour,
+  TestChecksumSeesAPendingSplit and
   TestChecksumMatchesDeterministicWitness in checksum_test.go,
   TestStepIsReproducibleBitForBit in step_test.go
 
