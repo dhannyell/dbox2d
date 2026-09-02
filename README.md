@@ -52,26 +52,31 @@ in for the floating-point formulation of the reference.
 
 | Benchmark (amd64) | Median time | Allocations |
 | --- | --- | --- |
-| Pyramid `Step`, 210 boxes, 590 contacts, 4 sub-steps, Q32.32 | ~2.3 ms | 0 |
-| Pyramid `Step`, 210 boxes, 590 contacts, 4 sub-steps, `float64` mirror | ~0.67 ms | 0 |
-| Free-fall `Step`, 1024 bodies, 4 sub-steps, Q32.32 | ~0.39 ms | 0 |
-| Free-fall `Step`, 1024 bodies, 4 sub-steps, `float64` mirror | ~0.13 ms | 0 |
-| Velocity integration only, 1024 bodies, Q32.32 | ~41 µs | 0 |
-| Velocity integration only, 1024 bodies, `float64` mirror | ~4.8 µs | 0 |
-| One `CollidePolygons`, two boxes, Q32.32 | ~0.61 µs | 0 |
-| One `CollidePolygons`, two boxes, `float64` mirror | ~0.094 µs | 0 |
+| Pyramid `Step`, 210 boxes, 590 contacts, 4 sub-steps, Q32.32 | ~2.1 ms | 0 |
+| Pyramid `Step`, 210 boxes, 590 contacts, 4 sub-steps, `float64` mirror | ~0.64 ms | 0 |
+| Free-fall `Step`, 1024 bodies, 4 sub-steps, Q32.32 | ~0.36 ms | 0 |
+| Free-fall `Step`, 1024 bodies, 4 sub-steps, `float64` mirror | ~0.11 ms | 0 |
+| Velocity integration only, 1024 bodies, Q32.32 | ~31 µs | 0 |
+| Velocity integration only, 1024 bodies, `float64` mirror | ~4.4 µs | 0 |
+| One `CollidePolygons`, two boxes, Q32.32 | ~0.40 µs | 0 |
+| One `CollidePolygons`, two boxes, `float64` mirror | ~0.091 µs | 0 |
 
 The composite numbers are the honest ones. The pyramid, a settled stack that
-collides and solves every contact on every step, runs about **3.4×** slower
+collides and solves every contact on every step, runs about **3.3×** slower
 than its `float64` mirror and allocates nothing after the world is built. The
-free-fall step, with no contacts, pays about 3.1×. The micro pairs explain
-where the cost lives: the velocity integrator alone pays about 8.5×, because
+free-fall step, with no contacts, pays about 3.4×. The micro pairs explain
+where the cost lives: the velocity integrator alone pays about 7×, because
 each Q division is a 128-by-64-bit hardware divide and the damping factor
-takes three of them per body, and the polygon collider pays about 6.5×. The
+takes three of them per body, and the polygon collider pays about 4.4×. The
 rest of the pipeline, with its bookkeeping, square roots and bounds work,
 dilutes those hot spots. The pyramid mirror keeps one constraint list instead
 of the graph colors and skips the island and event bookkeeping, so its ratio
 is an upper bound.
+
+The `fixed` v0.3.0 release moved these numbers: its `Q32.Mul` now inlines,
+and its `Normalize` skips two divisions when the length is already one. The
+integrator dropped about a quarter and the collider about a third against
+the previous snapshot, with the same result bits.
 
 These numbers come from one machine (Ryzen 7 5800X3D) and one snapshot of the
 code. Run `go test -run "^$" -bench . -benchmem` for your own.
