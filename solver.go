@@ -2,6 +2,41 @@ package dbox2d
 
 import "github.com/dhannyell/fixed"
 
+// softness holds the soft constraint coefficients of one sub-step. It
+// corresponds to b2Softness in src/solver.h.
+type softness struct {
+	biasRate     Q
+	massScale    Q
+	impulseScale Q
+}
+
+// makeSoft derives the coefficients from the frequency (hertz), the damping
+// ratio (zeta) and the sub-step time (h). A zero frequency means a rigid
+// constraint. It corresponds to b2MakeSoft in src/solver.h.
+func makeSoft(hertz, zeta, h Q) softness {
+	if hertz.Eq(fixed.Q32Zero()) {
+		return softness{}
+	}
+
+	// D-004: the reference multiplies by two pi; one turn is the same value.
+	omega := tau.Mul(hertz)
+	a1 := zeta.Add(zeta).Add(h.Mul(omega))
+	a2 := h.Mul(omega).Mul(a1)
+
+	// bias = w / (2 * z + hw)
+	// massScale = hw * (2 * z + hw) / (1 + hw * (2 * z + hw))
+	// impulseScale = 1 / (1 + hw * (2 * z + hw))
+	// In all cases: massScale + impulseScale == 1
+	// D-006: the reference multiplies by the reciprocal of (1 + a2). Each
+	// coefficient divides instead.
+	one := fixed.Q32One()
+	return softness{
+		biasRate:     omega.Div(a1),
+		massScale:    a2.Div(one.Add(a2)),
+		impulseScale: one.Div(one.Add(a2)),
+	}
+}
+
 // integrateVelocitiesTask applies forces, gravity and damping to the awake
 // bodies. It corresponds to b2IntegrateVelocitiesTask in src/solver.c.
 func integrateVelocitiesTask(startIndex, endIndex int, context *stepContext) {

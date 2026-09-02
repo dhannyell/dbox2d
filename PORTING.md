@@ -327,6 +327,21 @@ set validation now covers contacts, the graph colors and the pair set.
 - The body move event of a body that falls asleep, the end touch event and
   the joint transfers wait for their stages.
 
+**Order 24 has landed**: `contact_solver.go` ports the `Overflow` family:
+prepare, warm start, solve, restitution and store impulses over the
+overflow color. `solver.go` gains `softness` and `makeSoft`; the step
+context gains the contact and static softness; the overflow color gains
+its constraint scratch. See D-004 and D-006.
+
+- The body state keeps the angular velocity in turns per second. Each
+  stage scales it by one turn on load and divides on store, so the cross
+  products of the reference stay in radians.
+- The effective masses store the reciprocal once, as the reference and
+  the body inverse mass do. The guard against a zero mass is an exact
+  test.
+- The `Task` family stays T2 until a second executor exists. The stage
+  order that calls the overflow family waits for order 23.
+
 ## The map
 
 `Order` is the port sequence. A dash means the file waits for a later stage.
@@ -356,8 +371,8 @@ set validation now covers contacts, the graph colors and the pair set.
 | `src/manifold.c` | `manifold.go` | T0/T1 | manifolds | 20 | Nine `FLT_EPSILON` sites become exact zero tests, one T2 entry each. |
 | `src/contact.h`, `src/contact.c` | `contact.go` | T0 | manifolds | 21 | Contact bookkeeping and the collide dispatch table. The island and graph branches landed with orders 25 and 26. |
 | `src/table.h`, `src/table.c` | `table.go` | T0 | manifolds | 22 | Open-addressing set of contact pairs. |
-| `src/solver.h`, `src/solver.c` | `solver.go` | T0/T1/T2 | solver | 23 | Nine ordered stages, from prepare joints to store impulses. `MakeSoft` is pure arithmetic. The integration tasks, the body finalize and the single-worker sub-step order landed with order 16; see D-004 and D-006. The constraint stages wait. |
-| `src/contact_solver.h`, `src/contact_solver.c` | `contact_solver.go` | T0/T1 | solver | 24 | Port the `Overflow` family. The `Task` family is T2 until the second executor exists. |
+| `src/solver.h`, `src/solver.c` | `solver.go` | T0/T1/T2 | solver | 23 | Nine ordered stages, from prepare joints to store impulses. `makeSoft` landed with order 24. The integration tasks, the body finalize and the single-worker sub-step order landed with order 16; see D-004 and D-006. The constraint stages wait. |
+| `src/contact_solver.h`, `src/contact_solver.c` | `contact_solver.go` | T0/T1/T2 | solver | 24 | The `Overflow` family landed; see D-004 and D-006. The `Task` family is T2 until the second executor exists. |
 | `src/island.h`, `src/island.c` | `island.go` | T0 | solver | 25 | Island linking, merging and splitting landed. The joint lists, the wake calls and the sleep path wait for their stages. |
 | `src/constraint_graph.h`, `src/constraint_graph.c` | `constraint_graph.go` | T0 | solver | 26 | Eleven colors plus the overflow color landed. The color schedule is the parallel contract. The joint functions wait. |
 | `src/bitset.h`, `src/bitset.c` | `bitset.go` | T0 | broadphase | 27 | Set, clear, test, grow and union landed. Backs the constraint graph and the contact state of the step. |

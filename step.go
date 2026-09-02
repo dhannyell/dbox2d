@@ -21,8 +21,13 @@ type stepContext struct {
 
 	subStepCount int
 
-	// Deferred: the softness parameters, the constraint arrays and the
-	// worker fields of the reference.
+	// Stiffer for static contacts to avoid bodies getting pushed through
+	// the ground.
+	contactSoftness softness
+	staticSoftness  softness
+
+	// Deferred: the constraint arrays and the worker fields of the
+	// reference.
 
 	maxLinearVelocity Q
 
