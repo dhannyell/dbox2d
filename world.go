@@ -622,3 +622,120 @@ func GetContactEvents(worldId WorldId) ContactEvents {
 		HitEvents:   w.contactHitEvents,
 	}
 }
+
+// validateConnectivity checks that every touching contact of a body sits
+// in the root island of that body, and that a non-touching contact has no
+// island. Only the tests call it. It corresponds to b2ValidateConnectivity
+// in src/world.c.
+func validateConnectivity(w *world) {
+	for bodyIndex := range w.bodies {
+		b := &w.bodies[bodyIndex]
+		if b.id == nullIndex {
+			if !w.bodyIdPool.isFreeId(bodyIndex) {
+				panic("dbox2d: a free body slot holds a used id")
+			}
+			continue
+		}
+		if !w.bodyIdPool.isUsedId(bodyIndex) {
+			panic("dbox2d: a live body holds a free id")
+		}
+		if bodyIndex != b.id {
+			panic("dbox2d: the body id does not match its slot")
+		}
+
+		// Islands merge on the next step, so compare the roots.
+		bodyIslandId := nullIndex
+		if b.islandId != nullIndex {
+			_, bodyIslandId = findRootIsland(w, b.islandId)
+		}
+		bodySetIndex := b.setIndex
+
+		contactKey := b.headContactKey
+		for contactKey != nullIndex {
+			contactId := contactKey >> 1
+			edgeIndex := contactKey & 1
+			c := &w.contacts[contactId]
+
+			touching := c.flags&contactTouchingFlag != 0
+			if touching {
+				if bodySetIndex != staticSet {
+					_, contactIslandId := findRootIsland(w, c.islandId)
+					if contactIslandId != bodyIslandId {
+						panic("dbox2d: a touching contact and its body are in different islands")
+					}
+				}
+			} else if c.islandId != nullIndex {
+				panic("dbox2d: a non-touching contact has an island")
+			}
+
+			contactKey = c.edges[edgeIndex].nextKey
+		}
+
+		// Deferred: the joint edges of the reference.
+	}
+}
+
+// validateContacts checks the set, color and sim of every live contact.
+// Only the tests call it. It corresponds to b2ValidateContacts in
+// src/world.c.
+func validateContacts(w *world) {
+	if len(w.contacts) != w.contactIdPool.idCapacity() {
+		panic("dbox2d: the contact array and the id pool differ in capacity")
+	}
+	allocatedContactCount := 0
+
+	for contactIndex := range w.contacts {
+		c := &w.contacts[contactIndex]
+		if c.contactId == nullIndex {
+			continue
+		}
+		if c.contactId != contactIndex {
+			panic("dbox2d: the contact id does not match its slot")
+		}
+		allocatedContactCount += 1
+
+		touching := c.flags&contactTouchingFlag != 0
+		setId := c.setIndex
+
+		switch {
+		case setId == awakeSet:
+			if touching {
+				if c.colorIndex < 0 || c.colorIndex >= graphColorCount {
+					panic("dbox2d: an awake touching contact has no color")
+				}
+			} else if c.colorIndex != nullIndex {
+				panic("dbox2d: an awake non-touching contact has a color")
+			}
+		case setId >= firstSleepingSet:
+			// Only touching contacts sleep.
+			if !touching {
+				panic("dbox2d: a sleeping set holds a non-touching contact")
+			}
+		default:
+			// Sleeping and non-touching contacts belong in the disabled set.
+			if touching || setId != disabledSet {
+				panic("dbox2d: a non-touching contact is outside the disabled set")
+			}
+		}
+
+		cs := getContactSim(w, c)
+		if cs.contactId != contactIndex {
+			panic("dbox2d: the contact sim id does not match")
+		}
+		if cs.shapeIdA != c.shapeIdA || cs.shapeIdB != c.shapeIdB {
+			panic("dbox2d: the contact sim shapes do not match")
+		}
+
+		simTouching := cs.simFlags&simTouchingFlag != 0
+		if touching != simTouching {
+			panic("dbox2d: the contact and its sim disagree on touching")
+		}
+		if cs.manifold.PointCount < 0 || cs.manifold.PointCount > 2 {
+			panic("dbox2d: the manifold point count is out of range")
+		}
+	}
+
+	if allocatedContactCount != w.contactIdPool.idCount() {
+		panic("dbox2d: the live contact count and the id pool differ")
+	}
+}

@@ -407,6 +407,7 @@ func boxOnGround(t *testing.T, worldId WorldId, height Q) BodyId {
 	groundId := CreateBody(worldId, &groundDef)
 	shapeDef := DefaultShapeDef()
 	shapeDef.EnableContactEvents = true
+	shapeDef.EnableHitEvents = true
 	ground := MakeBox(fixed.Q32FromInt(5), fixed.Q32Half())
 	CreatePolygonShape(groundId, &shapeDef, &ground)
 
@@ -589,5 +590,146 @@ func TestStepKeepsAZeroContactFrequencyFinite(t *testing.T) {
 	Step(worldId, stepDt(), 4)
 	if !w.contactSpeed.Eq(fixed.Q32Zero()) {
 		t.Errorf("the contact speed is %v, want zero", w.contactSpeed)
+	}
+}
+
+// validateWorld runs every validator of the reference that the port has.
+func validateWorld(w *world) {
+	validateSolverSets(w)
+	validateConnectivity(w)
+	validateContacts(w)
+}
+
+// TestStepReportsAHitEvent pins the hit event: a box that lands faster
+// than the threshold reports one hit on the contact normal. The box starts
+// inside the fat margin with its fall speed, because a contact outside the
+// margin dies before the broad phase can recreate it.
+func TestStepReportsAHitEvent(t *testing.T) {
+	worldId := createTestWorld(t)
+	w := getWorldFromId(worldId)
+	boxId := boxOnGround(t, worldId, fixed.Q32MustParse("0.05"))
+	getBodyState(w, getBodyFullId(w, boxId)).linearVelocity = Vec2{Y: fixed.Q32FromInt(-3)}
+
+	dt := stepDt()
+	for range 10 {
+		Step(worldId, dt, 4)
+		events := GetContactEvents(worldId)
+		if len(events.HitEvents) == 0 {
+			continue
+		}
+		if len(events.HitEvents) != 1 {
+			t.Fatalf("the landing step reports %d hit events, want 1", len(events.HitEvents))
+		}
+		hit := events.HitEvents[0]
+		if hit.ShapeIdB != shapeIdOf(w, firstShape(w, boxId)) {
+			t.Errorf("the hit event names the wrong shape")
+		}
+		if !w.hitEventThreshold.Less(hit.ApproachSpeed) {
+			t.Errorf("approach speed = %v, want above the threshold %v", hit.ApproachSpeed, w.hitEventThreshold)
+		}
+		if !hit.Normal.Y.Eq(fixed.Q32One()) || !withinQ(hit.Point.Y, fixed.Q32Zero(), fixed.Q32MustParse("0.05")) {
+			t.Errorf("hit normal %v at %v, want the ground normal near y = 0", hit.Normal, hit.Point)
+		}
+		validateWorld(w)
+		return
+	}
+	t.Fatal("no hit event in 10 steps")
+}
+
+// TestStepOrdersEventsByContactId pins the event order: begin, hit and end
+// events follow the contact id, which follows the creation order.
+func TestStepOrdersEventsByContactId(t *testing.T) {
+	worldId := createTestWorld(t)
+	w := getWorldFromId(worldId)
+
+	groundDef := DefaultBodyDef()
+	groundDef.Position = Vec2{Y: fixed.Q32Half().Neg()}
+	groundId := CreateBody(worldId, &groundDef)
+	shapeDef := DefaultShapeDef()
+	shapeDef.EnableContactEvents = true
+	shapeDef.EnableHitEvents = true
+	ground := MakeBox(fixed.Q32FromInt(5), fixed.Q32Half())
+	CreatePolygonShape(groundId, &shapeDef, &ground)
+
+	unit := MakeBox(fixed.Q32Half(), fixed.Q32Half())
+	// The right box is created first, so the creation order of the
+	// contacts, not the position, decides the event order. Both start
+	// inside the fat margin with their fall speed.
+	var bodies [2]BodyId
+	var shapes [2]ShapeId
+	for i, x := range []int{3, 0} {
+		boxDef := DefaultBodyDef()
+		boxDef.Type = DynamicBody
+		boxDef.Position = Vec2{X: fixed.Q32FromInt(x), Y: fixed.Q32MustParse("0.55")}
+		bodies[i] = CreateBody(worldId, &boxDef)
+		shapes[i] = CreatePolygonShape(bodies[i], &shapeDef, &unit)
+		getBodyState(w, getBodyFullId(w, bodies[i])).linearVelocity = Vec2{Y: fixed.Q32FromInt(-3)}
+	}
+	for i := range bodies {
+		createContact(w, firstShape(w, groundId), firstShape(w, bodies[i]))
+	}
+
+	dt := stepDt()
+	events := GetContactEvents(worldId)
+	for range 10 {
+		Step(worldId, dt, 4)
+		events = GetContactEvents(worldId)
+		if len(events.BeginEvents) == 2 {
+			break
+		}
+	}
+	if len(events.BeginEvents) != 2 || events.BeginEvents[0].ShapeIdB != shapes[0] || events.BeginEvents[1].ShapeIdB != shapes[1] {
+		t.Fatalf("the begin events do not follow the contact ids")
+	}
+	if len(events.HitEvents) != 2 || events.HitEvents[0].ShapeIdB != shapes[0] || events.HitEvents[1].ShapeIdB != shapes[1] {
+		t.Fatalf("the hit events do not follow the contact ids: %d events", len(events.HitEvents))
+	}
+
+	// Lift both boxes out of the speculative margin.
+	for i := range bodies {
+		b := getBodyFullId(w, bodies[i])
+		sim := getBodySim(w, b)
+		sim.center.Y = sim.center.Y.Add(fixed.Q32One())
+		sim.transform.P.Y = sim.transform.P.Y.Add(fixed.Q32One())
+		getBodyState(w, b).linearVelocity = Vec2{Y: fixed.Q32FromInt(5)}
+	}
+	Step(worldId, dt, 4)
+	events = GetContactEvents(worldId)
+	if len(events.EndEvents) != 2 || events.EndEvents[0].ShapeIdB != shapes[0] || events.EndEvents[1].ShapeIdB != shapes[1] {
+		t.Fatalf("the end events do not follow the contact ids: %d events", len(events.EndEvents))
+	}
+	validateWorld(w)
+}
+
+// TestSmallPyramidStaysStable pins the scene of the plan: a five-row pyramid
+// keeps its top box in place for one hundred steps, falls asleep, passes
+// every validator and yields the same checksum in a second build.
+func TestSmallPyramidStaysStable(t *testing.T) {
+	const rows = 5
+	run := func() (uint64, Q, int) {
+		worldId := createTestWorld(t)
+		w := getWorldFromId(worldId)
+		topId := buildPyramid(worldId, rows)
+		createBruteForcePairs(w)
+		dt := stepDt()
+		for range 100 {
+			Step(worldId, dt, 4)
+		}
+		validateWorld(w)
+		top := getBodyFullId(w, topId)
+		return Checksum(worldId), getBodySim(w, top).center.Y, top.setIndex
+	}
+
+	first, topY, setIndex := run()
+	second, _, _ := run()
+	if first != second {
+		t.Errorf("two builds of the pyramid differ: %d and %d", first, second)
+	}
+	want := fixed.Q32Half().Mul(fixed.Q32FromInt(2*rows - 1))
+	if !withinQ(topY, want, fixed.Q32MustParse("0.02")) {
+		t.Errorf("the top box rests at y = %v, want %v", topY, want)
+	}
+	if setIndex < firstSleepingSet {
+		t.Errorf("the pyramid is in set %d, want a sleeping set", setIndex)
 	}
 }

@@ -188,6 +188,8 @@ adds no arithmetic divergence.
   blocks marked in comments.
 - `b2ValidateSolverSets` crosses trimmed to the bodies and the sets, and
   only the tests call it. The reference compiles it out of release builds.
+  `b2ValidateConnectivity` and `b2ValidateContacts` landed with the
+  post-review fixes of the solver stage, without their joint branches.
 - `b2WakeBody` and the wake, sleep and merge of solver sets landed when
   order 13 completed. The step surface landed with order 16 and the events
   with order 28. `b2ShouldBodiesCollide`, `b2MakeSweep` and the query and

@@ -776,28 +776,35 @@ func createBruteForcePairs(w *world) {
 	}
 }
 
-func BenchmarkStepPyramid(b *testing.B) {
-	def := DefaultWorldDef()
-	def.EnableSleep = false
-	worldId := CreateWorld(&def)
-	defer DestroyWorld(worldId)
-
+// buildPyramid creates the ground and the boxes of a pyramid and returns
+// the top box.
+func buildPyramid(worldId WorldId, rows int) BodyId {
 	half := fixed.Q32Half()
 	groundDef := DefaultBodyDef()
 	groundDef.Position = Vec2{Y: half.Neg()}
 	groundId := CreateBody(worldId, &groundDef)
 	shapeDef := DefaultShapeDef()
-	ground := MakeBox(fixed.Q32FromInt(pyramidRows), half)
+	ground := MakeBox(fixed.Q32FromInt(rows), half)
 	CreatePolygonShape(groundId, &shapeDef, &ground)
 
 	bodyDef := DefaultBodyDef()
 	bodyDef.Type = DynamicBody
 	box := MakeSquare(half)
-	for _, c := range pyramidCenters(pyramidRows) {
+	var bodyId BodyId
+	for _, c := range pyramidCenters(rows) {
 		bodyDef.Position = Vec2{X: half.Mul(fixed.Q32FromInt(c[0])), Y: half.Mul(fixed.Q32FromInt(c[1]))}
-		bodyId := CreateBody(worldId, &bodyDef)
+		bodyId = CreateBody(worldId, &bodyDef)
 		CreatePolygonShape(bodyId, &shapeDef, &box)
 	}
+	return bodyId
+}
+
+func BenchmarkStepPyramid(b *testing.B) {
+	def := DefaultWorldDef()
+	def.EnableSleep = false
+	worldId := CreateWorld(&def)
+	defer DestroyWorld(worldId)
+	buildPyramid(worldId, pyramidRows)
 
 	w := getWorldFromId(worldId)
 	createBruteForcePairs(w)
