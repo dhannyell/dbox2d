@@ -316,6 +316,17 @@ sim gains the inverse mass copies that the graph fills.
 - The joint color assignment and the joint graph functions wait for the
   joints.
 
+**Order 13 is complete for the solver**: `solver_set.go` gains
+`wakeSolverSet`, `trySleepIsland` and `mergeSolverSets`; `body.go` gains
+`wakeBody` and `destroyBodyContacts`; `linkContact` wakes the sleeping side;
+`destroyContact` wakes both bodies when a touching contact goes away. The
+set validation now covers contacts, the graph colors and the pair set.
+
+- A body that leaves the awake set drops its state; a body that enters it
+  starts from the identity state, as the reference does.
+- The body move event of a body that falls asleep, the end touch event and
+  the joint transfers wait for their stages.
+
 ## The map
 
 `Order` is the port sequence. A dash means the file waits for a later stage.
@@ -335,7 +346,7 @@ sim gains the inverse mass copies that the graph fills.
 | `include/box2d/types.h`, `src/types.c` | `types.go` | T1 | foundation | 10 | Definition structs and their defaults. |
 | `src/body.h`, `src/body.c` | `body.go` | T0/T2 | foundation | 11 | `body`, `bodySim`, `bodyState`, unexported: `src/body.h` declares them. Layout preserved. The mass update scales the angular velocity by one turn; see D-004. The island hooks landed with order 25; the body events wait for the solver. |
 | `src/shape.h`, `src/shape.c` | `shape.go` | T0 | foundation | 12 | Shape storage and the mass, AABB, centroid and extent dispatchers. The proxies, sensors, chains and cast queries wait for their stages. |
-| `src/solver_set.h`, `src/solver_set.c` | `solver_set.go` | T0 | foundation | 13 | Static, awake, disabled and sleeping sets; body transfer between them. The contact arrays landed with order 21 and the island arrays with order 25; the joint arrays and the wake and sleep paths wait. |
+| `src/solver_set.h`, `src/solver_set.c` | `solver_set.go` | T0 | foundation | 13 | Static, awake, disabled and sleeping sets; body transfer, wake, sleep and set merge. The joint arrays wait. |
 | `src/world.h`, `src/world.c` | `world.go` | T0 | foundation | 14 | Split across stages. The foundation takes the registry, creation, destruction, the validity checks and the trimmed set validation. `b2World_Step` landed with order 16 in `step.go`; the query and cast surface waits. |
 | `src/array.h`, `src/array.c` | `array.go` | T2 | foundation | 15 | The macro-generated array template becomes a Go slice; `removeSwap` keeps the swap-remove contract. Capacity follows the Go runtime and never enters a result. See D-010. |
 | `src/world.c` (`b2World_Step`), `src/solver.h` (`b2StepContext`) | `step.go` | T1/T2 | foundation | 16 | The step surface: validation, the context, the sub-step split, the locked flag. Assertions become panics per D-003. The softness setup, the events and the collision blocks wait for their stages. |

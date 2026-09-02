@@ -171,7 +171,7 @@ func TestDestroyContactLeavesTheIsland(t *testing.T) {
 	idB := addDynamicCircle(t, worldId, v2(1, 0))
 	bodyA := getBodyFullId(w, idA)
 
-	c := linkTouching(t, w, idA, idB)
+	c := startTouching(t, w, idA, idB)
 	mergeAwakeIslands(w)
 	islandId := bodyA.islandId
 

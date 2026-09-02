@@ -14,11 +14,20 @@ const (
 )
 
 // Contact sim flags, shifted to be distinct from the contact flags. They
-// correspond to b2ContactSimFlags in src/contact.h. The disjoint and the
-// started/stopped flags arrive with the broadphase and the solver.
+// correspond to b2ContactSimFlags in src/contact.h.
 const (
 	// simTouchingFlag is set when the shapes touch.
 	simTouchingFlag uint32 = 0x00010000
+
+	// simDisjoint is set when the bounding boxes stop overlapping.
+	simDisjoint uint32 = 0x00020000
+
+	// simStartedTouching is set when the shapes began to touch this step.
+	simStartedTouching uint32 = 0x00040000
+
+	// simStoppedTouching is set when the shapes stopped touching this
+	// step.
+	simStoppedTouching uint32 = 0x00080000
 
 	// simEnableHitEvent is set when a touching contact wants hit events.
 	simEnableHitEvent uint32 = 0x00100000
@@ -303,12 +312,10 @@ func createContact(w *world, shapeA, shapeB *shape) {
 }
 
 // destroyContact unlinks a contact from both bodies and frees it.
-// wakeBodies asks to wake the bodies of a touching contact; the wake itself
-// waits for the island stage, as does the end touch event. It corresponds
-// to b2DestroyContact in src/contact.c.
+// wakeBodies wakes the bodies of a touching contact. The end touch event
+// waits for the events. It corresponds to b2DestroyContact in
+// src/contact.c.
 func destroyContact(w *world, c *contact, wakeBodies bool) {
-	_ = wakeBodies
-
 	// Remove the pair from the set.
 	w.pairSet.removeKey(shapePairKey(c.shapeIdA, c.shapeIdB))
 
@@ -317,6 +324,10 @@ func destroyContact(w *world, c *contact, wakeBodies bool) {
 
 	bodyA := &w.bodies[edgeA.bodyId]
 	bodyB := &w.bodies[edgeB.bodyId]
+
+	touching := c.flags&contactTouchingFlag != 0
+
+	// Deferred: the end touch event of a touching contact.
 
 	// Remove from body A.
 	if edgeA.prevKey != nullIndex {
@@ -363,6 +374,9 @@ func destroyContact(w *world, c *contact, wakeBodies bool) {
 		removeContactFromGraph(w, edgeA.bodyId, edgeB.bodyId, c.colorIndex, c.localIndex)
 	} else {
 		// contact is non-touching or is sleeping
+		if c.setIndex == awakeSet && touching {
+			panic("dbox2d: a touching awake contact is outside the graph")
+		}
 		set := &w.solverSets[c.setIndex]
 		var movedIndex int
 		set.contactSims, movedIndex = removeSwap(set.contactSims, c.localIndex)
@@ -379,6 +393,11 @@ func destroyContact(w *world, c *contact, wakeBodies bool) {
 	c.localIndex = nullIndex
 
 	w.contactIdPool.freeId(contactId)
+
+	if wakeBodies && touching {
+		wakeBody(w, bodyA)
+		wakeBody(w, bodyB)
+	}
 }
 
 // getContactSim returns the warm data of a contact. It corresponds to

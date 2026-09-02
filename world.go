@@ -372,8 +372,13 @@ func validateSolverSets(w *world) {
 		panic("dbox2d: the island pool and the island array disagree")
 	}
 
+	if w.contactIdPool.idCapacity() != len(w.contacts) {
+		panic("dbox2d: the contact pool and the contact array disagree")
+	}
+
 	activeSetCount := 0
 	totalBodyCount := 0
+	totalContactCount := 0
 	totalIslandCount := 0
 
 	// Validate all solver sets
@@ -382,12 +387,23 @@ func validateSolverSets(w *world) {
 		if set.setIndex != nullIndex {
 			activeSetCount += 1
 
-			if setIndex == awakeSet {
+			switch setIndex {
+			case staticSet:
+				if len(set.contactSims) != 0 || len(set.islandSims) != 0 || len(set.bodyStates) != 0 {
+					panic("dbox2d: the static set holds contacts, islands or states")
+				}
+			case awakeSet:
 				if len(set.bodySims) != len(set.bodyStates) {
 					panic("dbox2d: the awake sims and states differ in length")
 				}
-			} else if len(set.bodyStates) != 0 {
-				panic("dbox2d: only the awake set holds body states")
+			case disabledSet:
+				if len(set.islandSims) != 0 || len(set.bodyStates) != 0 {
+					panic("dbox2d: the disabled set holds islands or states")
+				}
+			default:
+				if len(set.bodyStates) != 0 {
+					panic("dbox2d: only the awake set holds body states")
+				}
 			}
 
 			// Validate bodies
@@ -402,6 +418,10 @@ func validateSolverSets(w *world) {
 				b := &w.bodies[bodyId]
 				if b.setIndex != setIndex || b.localIndex != i {
 					panic("dbox2d: a body does not point back at its sim")
+				}
+
+				if setIndex == disabledSet && b.headContactKey != nullIndex {
+					panic("dbox2d: a disabled body has contacts")
 				}
 
 				// Validate body shapes
@@ -419,6 +439,39 @@ func validateSolverSets(w *world) {
 					prevShapeId = shapeId
 					shapeId = s.nextShapeId
 				}
+
+				// Validate body contacts
+				contactKey := b.headContactKey
+				for contactKey != nullIndex {
+					contactId := contactKey >> 1
+					edgeIndex := contactKey & 1
+
+					c := &w.contacts[contactId]
+					if c.setIndex == staticSet {
+						panic("dbox2d: a contact is in the static set")
+					}
+					if c.edges[0].bodyId != bodyId && c.edges[1].bodyId != bodyId {
+						panic("dbox2d: a contact on the body list does not touch the body")
+					}
+					contactKey = c.edges[edgeIndex].nextKey
+				}
+			}
+
+			// Validate contacts
+			totalContactCount += len(set.contactSims)
+			for i := range set.contactSims {
+				cs := &set.contactSims[i]
+				c := &w.contacts[cs.contactId]
+				if setIndex == awakeSet {
+					// contact should be non-touching if awake
+					// or it could be this contact hasn't been transferred yet
+					if cs.manifold.PointCount != 0 && cs.simFlags&simStartedTouching == 0 {
+						panic("dbox2d: a touching contact is outside the graph")
+					}
+				}
+				if c.setIndex != setIndex || c.colorIndex != nullIndex || c.localIndex != i {
+					panic("dbox2d: a contact does not point back at its sim")
+				}
 			}
 
 			// Validate islands
@@ -434,7 +487,7 @@ func validateSolverSets(w *world) {
 				}
 			}
 		} else {
-			if len(set.bodySims) != 0 || len(set.bodyStates) != 0 || len(set.islandSims) != 0 {
+			if len(set.bodySims) != 0 || len(set.contactSims) != 0 || len(set.islandSims) != 0 || len(set.bodyStates) != 0 {
 				panic("dbox2d: an unused set is not empty")
 			}
 		}
@@ -450,6 +503,44 @@ func validateSolverSets(w *world) {
 
 	if totalIslandCount != w.islandIdPool.idCount() {
 		panic("dbox2d: the island count and the island pool disagree")
+	}
+
+	// Validate constraint graph
+	for colorIndex := range graphColorCount {
+		color := &w.constraintGraph.colors[colorIndex]
+		totalContactCount += len(color.contactSims)
+		for i := range color.contactSims {
+			cs := &color.contactSims[i]
+			c := &w.contacts[cs.contactId]
+			// contact should be touching in the constraint graph or awaiting transfer to non-touching
+			if cs.manifold.PointCount <= 0 && cs.simFlags&(simStoppedTouching|simDisjoint) == 0 {
+				panic("dbox2d: a non-touching contact is in the graph")
+			}
+			if c.setIndex != awakeSet || c.colorIndex != colorIndex || c.localIndex != i {
+				panic("dbox2d: a graph contact does not point back at its sim")
+			}
+
+			bodyIdA := c.edges[0].bodyId
+			bodyIdB := c.edges[1].bodyId
+
+			if colorIndex < overflowIndex {
+				bodyA := &w.bodies[bodyIdA]
+				bodyB := &w.bodies[bodyIdB]
+				if color.bodySet.getBit(bodyIdA) != (bodyA.bodyType != StaticBody) {
+					panic("dbox2d: the color bit of body A is wrong")
+				}
+				if color.bodySet.getBit(bodyIdB) != (bodyB.bodyType != StaticBody) {
+					panic("dbox2d: the color bit of body B is wrong")
+				}
+			}
+		}
+	}
+
+	if totalContactCount != w.contactIdPool.idCount() {
+		panic("dbox2d: the contact count and the contact pool disagree")
+	}
+	if totalContactCount != w.pairSet.count {
+		panic("dbox2d: the contact count and the pair set disagree")
 	}
 }
 

@@ -165,8 +165,15 @@ func linkContact(w *world, c *contact) {
 		panic("dbox2d: two static bodies cannot link a contact")
 	}
 
-	// Deferred: an awake body wakes the sleeping set of the other body
-	// here, when the solver sets learn to wake.
+	// Wake bodyB if bodyA is awake and bodyB is sleeping
+	if bodyA.setIndex == awakeSet && bodyB.setIndex >= firstSleepingSet {
+		wakeSolverSet(w, bodyB.setIndex)
+	}
+
+	// Wake bodyA if bodyB is awake and bodyA is sleeping
+	if bodyB.setIndex == awakeSet && bodyA.setIndex >= firstSleepingSet {
+		wakeSolverSet(w, bodyA.setIndex)
+	}
 
 	islandIdA := bodyA.islandId
 	islandIdB := bodyB.islandId

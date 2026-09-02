@@ -303,18 +303,12 @@ func DestroyBody(bodyId BodyId) {
 
 	b := getBodyFullId(w, bodyId)
 
+	// Wake bodies attached to this body, even if this body is static.
+	wakeBodies := true
+
 	// Deferred: the joints attached to the body go away here.
 
-	// Destroy the attached contacts.
-	edgeKey := b.headContactKey
-	for edgeKey != nullIndex {
-		contactId := edgeKey >> 1
-		edgeIndex := edgeKey & 1
-
-		c := &w.contacts[contactId]
-		edgeKey = c.edges[edgeIndex].nextKey
-		destroyContact(w, c, false)
-	}
+	destroyBodyContacts(w, b, wakeBodies)
 
 	// Destroy the attached shapes. Deferred: their broad-phase proxies and
 	// their sensor records.
@@ -493,6 +487,32 @@ func (bodyId BodyId) ShapeCount() int {
 	w := getWorld(bodyId.world0)
 	b := getBodyFullId(w, bodyId)
 	return b.shapeCount
+}
+
+// wakeBody wakes the sleeping set of a body. It reports whether a set
+// woke. It corresponds to b2WakeBody in src/body.c.
+func wakeBody(w *world, b *body) bool {
+	if b.setIndex >= firstSleepingSet {
+		wakeSolverSet(w, b.setIndex)
+		return true
+	}
+
+	return false
+}
+
+// destroyBodyContacts destroys every contact of a body. It corresponds to
+// b2DestroyBodyContacts in src/body.c.
+func destroyBodyContacts(w *world, b *body, wakeBodies bool) {
+	// Destroy the attached contacts
+	edgeKey := b.headContactKey
+	for edgeKey != nullIndex {
+		contactId := edgeKey >> 1
+		edgeIndex := edgeKey & 1
+
+		c := &w.contacts[contactId]
+		edgeKey = c.edges[edgeIndex].nextKey
+		destroyContact(w, c, wakeBodies)
+	}
 }
 
 // createIslandForBody gives an enabled body its own island. It corresponds
