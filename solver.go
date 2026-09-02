@@ -142,6 +142,9 @@ func finalizeBodiesTask(startIndex, endIndex int, context *stepContext) {
 		panic("dbox2d: the task range is inverted")
 	}
 
+	taskContext := &w.taskContext
+	awakeIslandBitSet := &taskContext.awakeIslandBitSet
+
 	zero := fixed.Q32Zero()
 	half := fixed.Q32Half()
 	for simIndex := startIndex; simIndex < endIndex; simIndex++ {
@@ -209,7 +212,20 @@ func finalizeBodiesTask(startIndex, endIndex int, context *stepContext) {
 			b.sleepTime = b.sleepTime.Add(timeStep)
 		}
 
-		// Deferred: the island sleep bookkeeping of the reference runs here.
+		// Any single body in an island can keep it awake
+		isl := &w.islands[b.islandId]
+		if b.sleepTime.Less(timeToSleep) {
+			// keep island awake
+			islandIndex := isl.localIndex
+			awakeIslandBitSet.setBit(islandIndex)
+		} else if isl.constraintRemoveCount > 0 {
+			// body wants to sleep but its island needs splitting first
+			if taskContext.splitSleepTime.Less(b.sleepTime) {
+				// pick the sleepiest candidate
+				taskContext.splitIslandId = b.islandId
+				taskContext.splitSleepTime = b.sleepTime
+			}
+		}
 
 		// Update shapes AABBs
 		transform := sim.transform
@@ -239,38 +255,110 @@ func finalizeBodiesTask(startIndex, endIndex int, context *stepContext) {
 	}
 }
 
-// solve runs the sub-step loop over the awake set, then finalizes the
-// bodies. The reference splits the same order into parallel stages; the port
-// runs them on one worker. It corresponds to b2Solve and b2SolverTask in
-// src/solver.c.
+// solve merges the islands, runs the constraint stages over the awake set,
+// finalizes the bodies and puts the sleepy islands to sleep. The reference
+// splits the same order into parallel stages over the graph colors; the
+// port runs them on one worker, so only the overflow color solves. It
+// corresponds to b2Solve and b2SolverTask in src/solver.c.
 func solve(w *world, context *stepContext) {
 	w.stepIndex += 1
 
-	// Deferred: the island merge of the reference runs here.
+	// Merge islands
+	mergeAwakeIslands(w)
 
-	set := &w.solverSets[awakeSet]
-	awakeBodyCount := len(set.bodySims)
+	// Are there any awake bodies? This scenario should not be important for profiling.
+	awake := &w.solverSets[awakeSet]
+	awakeBodyCount := len(awake.bodySims)
 	if awakeBodyCount == 0 {
+		// Deferred: the broad-phase tree task of the reference finishes here.
 		return
 	}
 
-	context.sims = set.bodySims
-	context.states = set.bodyStates
+	// Solve constraints using graph coloring
+	{
+		graph := context.graph
+		colors := &graph.colors
 
-	// Deferred: the constraint graph, the joint and contact preparation and
-	// the stage blocks of the reference.
+		context.sims = awake.bodySims
+		context.states = awake.bodyStates
 
-	for range context.subStepCount {
-		integrateVelocitiesTask(0, awakeBodyCount, context)
-		// Deferred: the warm start and the constraint solve run here.
-		integratePositionsTask(0, awakeBodyCount, context)
-		// Deferred: the relax iteration runs here.
+		// Deferred: the color occupancy count, the contact pointers, the
+		// joints and the stage blocks serve the parallel executor. Every
+		// contact of the port solves in the overflow color.
+		overflowContactCount := len(colors[overflowIndex].contactSims)
+		overflowContactConstraints, overflowMem := arenaSlice[contactConstraint](&w.arena, overflowContactCount, "overflow contact constraint")
+		colors[overflowIndex].overflowConstraints = overflowContactConstraints
+
+		// Deferred: the joint stages of the reference run beside each
+		// contact stage below.
+		prepareOverflowContacts(context)
+
+		for range context.subStepCount {
+			integrateVelocitiesTask(0, awakeBodyCount, context)
+			warmStartOverflowContacts(context)
+			solveOverflowContacts(context, true)
+			integratePositionsTask(0, awakeBodyCount, context)
+			solveOverflowContacts(context, false)
+		}
+
+		applyOverflowRestitution(context)
+		storeOverflowImpulses(context)
+
+		// Split an awake island. This modifies:
+		// - stack allocator
+		// - world island array and solver set
+		// - island indices on bodies, contacts, and joints
+		// The reference runs the split beside the constraint solve. The
+		// split cannot run beside the body finalize.
+		if w.splitIslandId != nullIndex {
+			splitIsland(w, w.splitIslandId)
+		}
+		w.splitIslandId = nullIndex
+
+		// Prepare the island bit set used in body finalization.
+		awakeIslandCount := len(awake.islandSims)
+		taskContext := &w.taskContext
+		setBitCountAndClear(&taskContext.awakeIslandBitSet, awakeIslandCount)
+		taskContext.splitIslandId = nullIndex
+		taskContext.splitSleepTime = fixed.Q32Zero()
+
+		// Finalize bodies. Must happen after the constraint solver and after island splitting.
+		finalizeBodiesTask(0, awakeBodyCount, context)
+
+		colors[overflowIndex].overflowConstraints = nil
+		w.arena.freeItem(overflowMem)
 	}
 
-	// Deferred: the restitution pass and the impulse store run here.
+	// Deferred: the hit events, the broad-phase refit and the continuous
+	// collision stage of the reference run here.
 
-	finalizeBodiesTask(0, awakeBodyCount, context)
+	// Island sleeping
+	// This must be done last because putting islands to sleep invalidates the enlarged body bits.
+	if w.enableSleep {
+		// Collect split island candidate for the next time step. No need to split if sleeping is disabled.
+		if w.splitIslandId != nullIndex {
+			panic("dbox2d: the split candidate is not clear")
+		}
+		taskContext := &w.taskContext
+		if taskContext.splitIslandId != nullIndex {
+			if !fixed.Q32Zero().Less(taskContext.splitSleepTime) {
+				panic("dbox2d: the split candidate has no sleep time")
+			}
+			w.splitIslandId = taskContext.splitIslandId
+		}
 
-	// Deferred: the continuous collision stage and the island sleep of the
-	// reference run here.
+		awakeIslandBitSet := &taskContext.awakeIslandBitSet
+
+		// Need to process in reverse because this moves islands to sleeping solver sets.
+		islands := awake.islandSims
+		for islandIndex := len(islands) - 1; islandIndex >= 0; islandIndex-- {
+			if awakeIslandBitSet.getBit(islandIndex) {
+				// this island is still awake
+				continue
+			}
+
+			islandId := islands[islandIndex].islandId
+			trySleepIsland(w, islandId)
+		}
+	}
 }

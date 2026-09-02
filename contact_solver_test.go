@@ -185,6 +185,7 @@ func TestRestingBoxHoldsItsGround(t *testing.T) {
 		}
 		applyOverflowRestitution(context)
 		storeOverflowImpulses(context)
+		setBitCountAndClear(&w.taskContext.awakeIslandBitSet, len(w.solverSets[awakeSet].islandSims))
 		finalizeBodiesTask(0, 1, context)
 	}
 

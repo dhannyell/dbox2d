@@ -55,6 +55,10 @@ type world struct {
 	// nullIndex.
 	splitIslandId int
 
+	// taskContext is the per-worker scratch of the reference. The port has
+	// one worker.
+	taskContext taskContext
+
 	// pairSet answers whether two shapes already have a contact. The
 	// reference hosts the set on the broadphase; it moves there when the
 	// broadphase lands.
@@ -223,6 +227,9 @@ func CreateWorld(def *WorldDef) WorldId {
 	createGraph(&w.constraintGraph, 16)
 
 	w.splitIslandId = nullIndex
+
+	w.taskContext.awakeIslandBitSet = createBitSet(256)
+	w.taskContext.splitIslandId = nullIndex
 
 	w.frictionCallback = defaultFrictionCallback
 	w.restitutionCallback = defaultRestitutionCallback
@@ -548,4 +555,18 @@ func validateSolverSets(w *world) {
 func (id WorldId) Gravity() Vec2 {
 	w := getWorldFromId(id)
 	return w.gravity
+}
+
+// taskContext is the scratch that the body finalize fills for the island
+// sleep. It corresponds to b2TaskContext in src/world.h.
+type taskContext struct {
+	// awakeIslandBitSet marks the awake islands by local index.
+	awakeIslandBitSet bitSet
+
+	// splitIslandId is the sleepiest island with a pending split.
+	splitIslandId  int
+	splitSleepTime Q
+
+	// Deferred: the contact state and enlarged body bit sets of the
+	// reference serve the collide pass and the broad-phase.
 }

@@ -26,10 +26,13 @@ type stepContext struct {
 	contactSoftness softness
 	staticSoftness  softness
 
-	// Deferred: the constraint arrays and the worker fields of the
-	// reference.
+	restitutionThreshold Q
+	maxLinearVelocity    Q
 
-	maxLinearVelocity Q
+	graph *constraintGraph
+
+	// Deferred: the contact pointer array and the worker fields of the
+	// reference serve the parallel executor.
 
 	enableWarmStarting bool
 
@@ -83,7 +86,9 @@ func Step(worldId WorldId, timeStep Q, subStepCount int) {
 	// Deferred: the contact softness, the static softness and the contact
 	// speed of the reference need the soft constraint setup.
 
+	context.restitutionThreshold = w.restitutionThreshold
 	context.maxLinearVelocity = w.maxLinearSpeed
+	context.graph = &w.constraintGraph
 	context.enableWarmStarting = w.enableWarmStarting
 
 	if zero.Less(context.dt) {

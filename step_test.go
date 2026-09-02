@@ -297,3 +297,86 @@ func TestStepIsReproducibleBitForBit(t *testing.T) {
 		}
 	}
 }
+
+// TestStepPutsARestingIslandToSleep pins the sleep tail of solve: a body
+// at rest for the sleep time leaves the awake set, and a moving body stays.
+func TestStepPutsARestingIslandToSleep(t *testing.T) {
+	def := DefaultWorldDef()
+	def.Gravity = Vec2Zero()
+	worldId := CreateWorld(&def)
+	t.Cleanup(func() { DestroyWorld(worldId) })
+
+	restingId := addDynamicBox(t, worldId, v2(0, 0))
+	movingId := addDynamicBox(t, worldId, v2(10, 0))
+	w := getWorldFromId(worldId)
+	moving := getBodyFullId(w, movingId)
+	getBodyState(w, moving).linearVelocity = Vec2{X: fixed.Q32One()}
+
+	dt := stepDt()
+	// The sleep time is one half second. A rounded 1/60 times 30 falls one
+	// bit short, so the 31st step crosses it.
+	for range 31 {
+		Step(worldId, dt, 4)
+	}
+
+	resting := getBodyFullId(w, restingId)
+	if resting.setIndex < firstSleepingSet {
+		t.Fatalf("the resting body is in set %d, want a sleeping set", resting.setIndex)
+	}
+	if moving.setIndex != awakeSet {
+		t.Errorf("the moving body is in set %d, want the awake set", moving.setIndex)
+	}
+	if len(w.solverSets[awakeSet].islandSims) != 1 {
+		t.Errorf("the awake set holds %d islands, want 1", len(w.solverSets[awakeSet].islandSims))
+	}
+	validateSolverSets(w)
+}
+
+// TestStepSplitsTheIslandBeforeItSleeps pins the split candidate: an
+// island with a removed constraint cannot sleep, so the finalize picks it
+// for a split and the next step splits it into two sleeping islands.
+func TestStepSplitsTheIslandBeforeItSleeps(t *testing.T) {
+	def := DefaultWorldDef()
+	def.Gravity = Vec2Zero()
+	worldId := CreateWorld(&def)
+	t.Cleanup(func() { DestroyWorld(worldId) })
+
+	idA := addDynamicBox(t, worldId, v2(0, 0))
+	idB := addDynamicBox(t, worldId, v2(10, 0))
+	w := getWorldFromId(worldId)
+
+	// Join the islands, then remove the link so the split is pending.
+	c := startTouching(t, w, idA, idB)
+	mergeAwakeIslands(w)
+	c.flags &^= contactTouchingFlag
+	destroyContact(w, c, false)
+
+	bodyA := getBodyFullId(w, idA)
+	if w.islands[bodyA.islandId].constraintRemoveCount != 1 {
+		t.Fatalf("the island has no pending split")
+	}
+
+	dt := stepDt()
+	for range 31 {
+		Step(worldId, dt, 4)
+	}
+	if w.splitIslandId == nullIndex {
+		t.Fatalf("the finalize did not pick the split candidate")
+	}
+	if bodyA.setIndex != awakeSet {
+		t.Fatalf("the island slept with a pending split")
+	}
+
+	Step(worldId, dt, 4)
+	bodyB := getBodyFullId(w, idB)
+	if bodyA.islandId == bodyB.islandId {
+		t.Errorf("the bodies still share island %d", bodyA.islandId)
+	}
+	if bodyA.setIndex < firstSleepingSet || bodyB.setIndex < firstSleepingSet {
+		t.Errorf("the split islands are in sets %d and %d, want sleeping sets", bodyA.setIndex, bodyB.setIndex)
+	}
+	if w.splitIslandId != nullIndex {
+		t.Errorf("the split candidate is still set")
+	}
+	validateSolverSets(w)
+}

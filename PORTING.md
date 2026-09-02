@@ -342,6 +342,20 @@ its constraint scratch. See D-004 and D-006.
 - The `Task` family stays T2 until a second executor exists. The stage
   order that calls the overflow family waits for order 23.
 
+**Order 23 is complete for one worker**: `solve` follows `b2Solve`: the
+island merge, the overflow constraints from the arena, the five contact
+stages per sub-step, the restitution and the impulse store, the pending
+island split, the body finalize with the island sleep bookkeeping, and the
+sleep tail in reverse island order. The world gains one `taskContext`.
+
+- The reference runs the island split beside the constraint solve on a
+  task. The port runs it after the impulse store and before the body
+  finalize, which is the only order the reference forbids.
+- The color occupancy count, the contact pointers, the stage blocks and
+  the per-worker contexts serve the parallel executor and wait with it.
+- The hit events, the broad-phase refit and the continuous collision
+  stage wait for their orders.
+
 ## The map
 
 `Order` is the port sequence. A dash means the file waits for a later stage.
@@ -371,7 +385,7 @@ its constraint scratch. See D-004 and D-006.
 | `src/manifold.c` | `manifold.go` | T0/T1 | manifolds | 20 | Nine `FLT_EPSILON` sites become exact zero tests, one T2 entry each. |
 | `src/contact.h`, `src/contact.c` | `contact.go` | T0 | manifolds | 21 | Contact bookkeeping and the collide dispatch table. The island and graph branches landed with orders 25 and 26. |
 | `src/table.h`, `src/table.c` | `table.go` | T0 | manifolds | 22 | Open-addressing set of contact pairs. |
-| `src/solver.h`, `src/solver.c` | `solver.go` | T0/T1/T2 | solver | 23 | Nine ordered stages, from prepare joints to store impulses. `makeSoft` landed with order 24. The integration tasks, the body finalize and the single-worker sub-step order landed with order 16; see D-004 and D-006. The constraint stages wait. |
+| `src/solver.h`, `src/solver.c` | `solver.go` | T0/T1/T2 | solver | 23 | Nine ordered stages, from prepare joints to store impulses. `makeSoft` landed with order 24. The integration tasks and the body finalize landed with order 16; the single-worker stage order with the overflow contact stages, the island split and the sleep tail landed with order 23; see D-004 and D-006. |
 | `src/contact_solver.h`, `src/contact_solver.c` | `contact_solver.go` | T0/T1/T2 | solver | 24 | The `Overflow` family landed; see D-004 and D-006. The `Task` family is T2 until the second executor exists. |
 | `src/island.h`, `src/island.c` | `island.go` | T0 | solver | 25 | Island linking, merging and splitting landed. The joint lists, the wake calls and the sleep path wait for their stages. |
 | `src/constraint_graph.h`, `src/constraint_graph.c` | `constraint_graph.go` | T0 | solver | 26 | Eleven colors plus the overflow color landed. The color schedule is the parallel contract. The joint functions wait. |
