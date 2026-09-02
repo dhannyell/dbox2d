@@ -122,14 +122,14 @@ to D-007. The notes below record what moved and what did not cross.
   deterministic library.
 - `b2GetVersion` becomes `ReferenceVersion`. It names the Box2D release that
   this package ports; the module carries its own version.
-- The tree node flags of `constants.h` wait for `dynamic_tree.go`, order 27.
+- The tree node flags of `constants.h` wait for `dynamic_tree.go`, order 29.
 - `b2Lerp` keeps the upstream weighted form, which returns each end exactly.
   The fixed-point module interpolates by a scaled difference, so the two
   round differently and the port does not delegate.
 - `b2Perimeter` and `b2EnlargeAABB` live in `src/aabb.h`, so they stay
-  unexported. Their consumer is the dynamic tree, order 27.
-- `B2_MAX_WORKERS` and `B2_GRAPH_COLOR_COUNT` wait for the files that read
-  them: the worker pool and the constraint graph. `B2_NULL_INDEX` and
+  unexported. Their consumer is the dynamic tree, order 29.
+- `B2_GRAPH_COLOR_COUNT` landed with the constraint graph, order 26.
+  `B2_MAX_WORKERS` waits for the worker pool. `B2_NULL_INDEX` and
   `B2_MAX_WORLDS` landed with order 10.
 - The module depends on the standard library and on the fixed-point module,
   and on nothing else. `math/bits` and `sync/atomic` arrive with the
@@ -188,9 +188,10 @@ adds no arithmetic divergence.
   blocks marked in comments.
 - `b2ValidateSolverSets` crosses trimmed to the bodies and the sets, and
   only the tests call it. The reference compiles it out of release builds.
-- `b2WakeBody`, `b2ShouldBodiesCollide`, `b2MakeSweep`, the wake, sleep and
-  merge of solver sets and the step, query and cast surface of `world.c`
-  wait for their stages.
+- `b2WakeBody` and the wake, sleep and merge of solver sets landed when
+  order 13 completed. The step surface landed with order 16 and the events
+  with order 28. `b2ShouldBodiesCollide`, `b2MakeSweep` and the query and
+  cast surface of `world.c` wait for their stages.
 
 **Orders 16 and 17 have landed**: `step.go`, the integration skeleton in
 `solver.go` and `checksum.go`. D-011 came with them, D-003 now covers the
@@ -276,10 +277,10 @@ releasing their owners.
   `createContact` skip the pair.
 - The pair set lives on the world for now. The reference hosts it on the
   broadphase; it moves there when the broadphase lands.
-- The end touch event, the pre-solve callback, the wake on destroy, the
-  island and constraint graph branches and the inverse mass copies of the sim
-  wait for their stages. `islandId` and `colorIndex` stay `nullIndex` until
-  then.
+- The island and constraint graph branches and the inverse mass copies of
+  the sim landed with orders 25 and 26; the wake on destroy landed when
+  order 13 completed; the end touch event landed with order 28. The
+  pre-solve callback waits for its stage.
 - The speculative two-point reduction of the reference tests point zero in
   both branches, so only the first branch can fire; the port keeps the live
   branch only.
@@ -300,10 +301,10 @@ from its island first.
   uses `unsafe.Slice` so the arena accounting matches.
 - `validateIsland` exists, but only the tests call it, as with the set
   validation.
-- The joint lists of the island, the wake calls of `linkContact` and the
-  sleep path wait for their stages. The `ctz.h` intrinsics of order 28 are
-  not needed yet: the bit sets only set, clear, test and union in this
-  stage.
+- The wake calls of `linkContact` and the sleep path landed when order 13
+  completed. The joint lists of the island wait for the joints. The `ctz.h`
+  intrinsics of order 28 landed with the collide block; the bit sets only
+  set, clear, test and union in this stage.
 
 **Order 26 has landed**: `constraint_graph.go`. The world gains the graph;
 `getContactSim` and `destroyContact` gain their graph branches; the contact
@@ -324,8 +325,8 @@ set validation now covers contacts, the graph colors and the pair set.
 
 - A body that leaves the awake set drops its state; a body that enters it
   starts from the identity state, as the reference does.
-- The body move event of a body that falls asleep, the end touch event and
-  the joint transfers wait for their stages.
+- The body move event of a body that falls asleep and the end touch event
+  landed with order 28. The joint transfers wait for the joints.
 
 **Order 24 has landed**: `contact_solver.go` ports the scalar contact
 stages: prepare, warm start, solve, restitution and store impulses. Each
@@ -398,7 +399,7 @@ structs.
 | `src/hull.c` | `hull.go` | T0/T2 | foundation | 8 | Recursive quickhull. Its tolerances are multiples of the linear slop, so only the `FLT_MAX` seed diverged. See D-009. |
 | `src/geometry.c` | `geometry.go` | T0/T1/T2 | foundation | 9 | Shape constructors, mass data, AABB per shape, point tests, ray casts. The shape casts and the mover collisions wait for order 19. |
 | `include/box2d/types.h`, `src/types.c` | `types.go` | T1 | foundation | 10 | Definition structs and their defaults. |
-| `src/body.h`, `src/body.c` | `body.go` | T0/T2 | foundation | 11 | `body`, `bodySim`, `bodyState`, unexported: `src/body.h` declares them. Layout preserved. The mass update scales the angular velocity by one turn; see D-004. The island hooks landed with order 25; the body events wait for the solver. |
+| `src/body.h`, `src/body.c` | `body.go` | T0/T2 | foundation | 11 | `body`, `bodySim`, `bodyState`, unexported: `src/body.h` declares them. Layout preserved. The mass update scales the angular velocity by one turn; see D-004. The island hooks landed with order 25; the body events landed with order 28. |
 | `src/shape.h`, `src/shape.c` | `shape.go` | T0 | foundation | 12 | Shape storage and the mass, AABB, centroid and extent dispatchers. The proxies, sensors, chains and cast queries wait for their stages. |
 | `src/solver_set.h`, `src/solver_set.c` | `solver_set.go` | T0 | foundation | 13 | Static, awake, disabled and sleeping sets; body transfer, wake, sleep and set merge. The joint arrays wait. |
 | `src/world.h`, `src/world.c` | `world.go` | T0 | foundation | 14 | Split across stages. The foundation takes the registry, creation, destruction, the validity checks and the trimmed set validation. `b2World_Step` landed with order 16 in `step.go`; the events landed with order 28; the query and cast surface waits. |
@@ -412,7 +413,7 @@ structs.
 | `src/table.h`, `src/table.c` | `table.go` | T0 | manifolds | 22 | Open-addressing set of contact pairs. |
 | `src/solver.h`, `src/solver.c` | `solver.go` | T0/T1/T2 | solver | 23 | Nine ordered stages, from prepare joints to store impulses. `makeSoft` landed with order 24. The integration tasks and the body finalize landed with order 16; the single-worker stage order with the per-color contact stages, the island split and the sleep tail landed with order 23; see D-004 and D-006. |
 | `src/contact_solver.h`, `src/contact_solver.c` | `contact_solver.go` | T0/T1/T2 | solver | 24 | The scalar stages landed and serve every color; see D-004 and D-006. The wide `Task` family is T2 until the second executor exists. |
-| `src/island.h`, `src/island.c` | `island.go` | T0 | solver | 25 | Island linking, merging and splitting landed. The joint lists, the wake calls and the sleep path wait for their stages. |
+| `src/island.h`, `src/island.c` | `island.go` | T0 | solver | 25 | Island linking, merging and splitting landed; the wake calls and the sleep path landed when order 13 completed. The joint lists wait for the joints. |
 | `src/constraint_graph.h`, `src/constraint_graph.c` | `constraint_graph.go` | T0 | solver | 26 | Eleven colors plus the overflow color landed. The color schedule is the parallel contract. The joint functions wait. |
 | `src/bitset.h`, `src/bitset.c` | `bitset.go` | T0 | broadphase | 27 | Set, clear, test, grow and union landed. Backs the constraint graph and the contact state of the step. |
 | `src/ctz.h` | `math/bits` | T2 | broadphase | 28 | The standard library replaces the compiler intrinsics. Landed with the collide block in `step.go`. |
