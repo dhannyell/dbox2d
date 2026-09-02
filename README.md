@@ -63,7 +63,10 @@ in for the floating-point formulation of the reference.
 
 The composite numbers are the honest ones. The pyramid, a settled stack that
 collides and solves every contact on every step, runs about **3.3×** slower
-than its `float64` mirror and allocates nothing after the world is built. The
+than its `float64` mirror and allocates nothing once its contacts are
+active. The first step that activates contacts grows the graph colors, the
+arena and the event buffers once, as the reference does; every step after
+that allocates nothing. The
 free-fall step, with no contacts, pays about 3.4×. The micro pairs explain
 where the cost lives: the velocity integrator alone pays about 7×, because
 each Q division is a 128-by-64-bit hardware divide and the damping factor

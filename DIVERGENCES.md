@@ -203,9 +203,13 @@ Numbering is sequential from `D-001` and never reused.
   swap-remove contract and returns the old index of the moved element, so
   the caller repairs the stored index as the reference does. The growth
   policy is the one of the Go runtime; the capacity never enters a
-  simulation result.
+  simulation result. A step allocates only when a slice, the arena or a
+  graph color grows past its capacity, which happens on the first step that
+  activates a contact and then stays flat; the reference grows its arrays
+  and its arena at the same moments.
 - Test: TestCreateAndDestroyOrdersProduceTheSameWorld and
-  TestSleepingBodyGetsItsOwnSolverSet in world_test.go
+  TestSleepingBodyGetsItsOwnSolverSet in world_test.go,
+  TestStepAllocatesNothing in step_test.go
 
 ### D-011 The determinism witness is port-only
 

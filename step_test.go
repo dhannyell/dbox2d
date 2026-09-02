@@ -251,16 +251,26 @@ func TestStepTracksSleepTime(t *testing.T) {
 	}
 }
 
-// TestStepAllocatesNothing pins the hot-path contract: a step allocates
-// nothing after the world is built.
+// TestStepAllocatesNothing pins the hot-path contract: after the first
+// step that activates a contact, a step allocates nothing. The first step
+// grows the graph colors, the arena and the event buffers once, as the
+// reference does. Sleep stays off so the contact keeps solving.
 func TestStepAllocatesNothing(t *testing.T) {
-	worldId := createTestWorld(t)
+	def := DefaultWorldDef()
+	def.EnableSleep = false
+	worldId := CreateWorld(&def)
+	t.Cleanup(func() { DestroyWorld(worldId) })
+	boxOnGround(t, worldId, fixed.Q32Zero())
 	for i := range 8 {
-		addDynamicBox(t, worldId, v2(i*3, 0))
+		addDynamicBox(t, worldId, v2(10+i*3, 0))
 	}
+	w := getWorldFromId(worldId)
 
 	dt := stepDt()
 	Step(worldId, dt, 4)
+	if len(w.constraintGraph.colors[1].contactSims) != 1 {
+		t.Fatalf("the warm-up step did not activate the contact")
+	}
 
 	allocs := testing.AllocsPerRun(10, func() {
 		Step(worldId, dt, 4)
