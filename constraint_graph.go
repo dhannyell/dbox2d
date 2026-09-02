@@ -20,9 +20,9 @@ type graphColor struct {
 	// contactSims of the touching contacts in this color.
 	contactSims []contactSim
 
-	// overflowConstraints is the scratch of the overflow color. The solver
+	// contactConstraints is the solver scratch of the color. The solver
 	// fills it on each step from the arena.
-	overflowConstraints []contactConstraint
+	contactConstraints []contactConstraint
 
 	// Deferred: the joint sims of the reference.
 }

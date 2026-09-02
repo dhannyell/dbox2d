@@ -135,8 +135,12 @@ func finalizeBodiesTask(startIndex, endIndex int, context *stepContext) {
 	timeStep := context.dt
 	invTimeStep := context.invDt
 
-	// Deferred: the move events, the enlarged and awake island bit sets and
-	// the task contexts of the reference.
+	if endIndex > len(w.bodyMoveEvents) {
+		panic("dbox2d: the move events are not sized for the awake set")
+	}
+	moveEvents := w.bodyMoveEvents
+
+	// Deferred: the enlarged body bit set of the reference.
 
 	if endIndex < startIndex {
 		panic("dbox2d: the task range is inverted")
@@ -183,9 +187,13 @@ func finalizeBodiesTask(startIndex, endIndex int, context *stepContext) {
 
 		sim.transform.P = sim.center.Sub(RotateVector(sim.transform.Q, sim.localCenter))
 
+		// cache miss here, however I need the shape list below
 		b := &w.bodies[sim.bodyId]
 		b.bodyMoveIndex = simIndex
-		// Deferred: the move event of the reference fills here.
+		moveEvents[simIndex].Transform = sim.transform
+		moveEvents[simIndex].BodyId = BodyId{index1: int32(sim.bodyId) + 1, world0: w.worldId, generation: b.generation}
+		moveEvents[simIndex].UserData = b.userData
+		moveEvents[simIndex].FellAsleep = false
 
 		// reset applied force and torque
 		sim.force = Vec2Zero()
@@ -282,27 +290,65 @@ func solve(w *world, context *stepContext) {
 		context.sims = awake.bodySims
 		context.states = awake.bodyStates
 
-		// Deferred: the color occupancy count, the contact pointers, the
-		// joints and the stage blocks serve the parallel executor. Every
-		// contact of the port solves in the overflow color.
-		overflowContactCount := len(colors[overflowIndex].contactSims)
-		overflowContactConstraints, overflowMem := arenaSlice[contactConstraint](&w.arena, overflowContactCount, "overflow contact constraint")
-		colors[overflowIndex].overflowConstraints = overflowContactConstraints
+		w.bodyMoveEvents = resizeMoveEvents(w.bodyMoveEvents, awakeBodyCount)
 
-		// Deferred: the joint stages of the reference run beside each
-		// contact stage below.
-		prepareOverflowContacts(context)
+		// Deferred: the contact pointers, the joints and the stage blocks
+		// serve the parallel executor.
+
+		// One contiguous scratch serves every color, as the SIMD scratch of
+		// the reference does.
+		contactCount := 0
+		for i := range graphColorCount {
+			contactCount += len(colors[i].contactSims)
+		}
+		contactConstraints, constraintMem := arenaSlice[contactConstraint](&w.arena, contactCount, "contact constraint")
+		contactBase := 0
+		for i := range graphColorCount {
+			count := len(colors[i].contactSims)
+			colors[i].contactConstraints = contactConstraints[contactBase : contactBase+count : contactBase+count]
+			contactBase += count
+		}
+
+		// The reference runs the overflow color first in each stage, then
+		// the active colors in order. Joint stages run beside each contact
+		// stage and wait for the joints.
+		prepareContacts(context, overflowIndex)
+		for i := range overflowIndex {
+			prepareContacts(context, i)
+		}
 
 		for range context.subStepCount {
 			integrateVelocitiesTask(0, awakeBodyCount, context)
-			warmStartOverflowContacts(context)
-			solveOverflowContacts(context, true)
+
+			warmStartContacts(context, overflowIndex)
+			for i := range overflowIndex {
+				warmStartContacts(context, i)
+			}
+
+			useBias := true
+			solveContacts(context, overflowIndex, useBias)
+			for i := range overflowIndex {
+				solveContacts(context, i, useBias)
+			}
+
 			integratePositionsTask(0, awakeBodyCount, context)
-			solveOverflowContacts(context, false)
+
+			useBias = false
+			solveContacts(context, overflowIndex, useBias)
+			for i := range overflowIndex {
+				solveContacts(context, i, useBias)
+			}
 		}
 
-		applyOverflowRestitution(context)
-		storeOverflowImpulses(context)
+		applyRestitution(context, overflowIndex)
+		for i := range overflowIndex {
+			applyRestitution(context, i)
+		}
+
+		storeImpulses(context, overflowIndex)
+		for i := range overflowIndex {
+			storeImpulses(context, i)
+		}
 
 		// Split an awake island. This modifies:
 		// - stack allocator
@@ -325,12 +371,59 @@ func solve(w *world, context *stepContext) {
 		// Finalize bodies. Must happen after the constraint solver and after island splitting.
 		finalizeBodiesTask(0, awakeBodyCount, context)
 
-		colors[overflowIndex].overflowConstraints = nil
-		w.arena.freeItem(overflowMem)
+		for i := range graphColorCount {
+			colors[i].contactConstraints = nil
+		}
+		w.arena.freeItem(constraintMem)
 	}
 
-	// Deferred: the hit events, the broad-phase refit and the continuous
-	// collision stage of the reference run here.
+	// Report hit events
+	{
+		if len(w.contactHitEvents) != 0 {
+			panic("dbox2d: the hit events are not clear")
+		}
+
+		threshold := w.hitEventThreshold
+		colors := &w.constraintGraph.colors
+		zero := fixed.Q32Zero()
+		for i := range graphColorCount {
+			color := &colors[i]
+			contactSims := color.contactSims
+			for j := range contactSims {
+				cs := &contactSims[j]
+				if cs.simFlags&simEnableHitEvent == 0 {
+					continue
+				}
+
+				event := ContactHitEvent{}
+				event.ApproachSpeed = threshold
+
+				hit := false
+				pointCount := cs.manifold.PointCount
+				for k := range pointCount {
+					mp := &cs.manifold.Points[k]
+					approachSpeed := mp.NormalVelocity.Neg()
+
+					// Need to check total impulse because the point may be speculative and not colliding
+					if event.ApproachSpeed.Less(approachSpeed) && zero.Less(mp.TotalNormalImpulse) {
+						event.ApproachSpeed = approachSpeed
+						event.Point = mp.Point
+						hit = true
+					}
+				}
+
+				if hit {
+					event.Normal = cs.manifold.Normal
+					event.ShapeIdA = shapeIdOf(w, &w.shapes[cs.shapeIdA])
+					event.ShapeIdB = shapeIdOf(w, &w.shapes[cs.shapeIdB])
+					w.contactHitEvents = append(w.contactHitEvents, event)
+				}
+			}
+		}
+	}
+
+	// Deferred: the broad-phase refit and the continuous collision stage
+	// of the reference run here.
 
 	// Island sleeping
 	// This must be done last because putting islands to sleep invalidates the enlarged body bits.
@@ -361,4 +454,14 @@ func solve(w *world, context *stepContext) {
 			trySleepIsland(w, islandId)
 		}
 	}
+}
+
+// resizeMoveEvents sets the length of the move event array to the awake
+// body count and keeps its capacity, so a step allocates only on growth.
+func resizeMoveEvents(events []BodyMoveEvent, count int) []BodyMoveEvent {
+	if count <= cap(events) {
+		return events[:count]
+	}
+	grown := make([]BodyMoveEvent, count, max(count, 2*cap(events)))
+	return grown
 }

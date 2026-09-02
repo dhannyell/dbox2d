@@ -181,22 +181,17 @@ func TestChecksumMatchesDeterministicWitness(t *testing.T) {
 		getBodyState(w, b).angularVelocity = fixed.Q32MustParse("0.1")
 	}
 
+	// Step updates the manifold itself. A manifold filled by hand before the
+	// first step hides the begin-touch transition and skips the solver.
 	w := getWorldFromId(worldId)
-	shapeA := firstShape(w, bodies[0])
-	shapeB := firstShape(w, bodies[1])
-	createContact(w, shapeA, shapeB)
-	c := &w.contacts[0]
-	cs := getContactSim(w, c)
-	xfA := getBodyTransformQuick(w, getBodyFullId(w, bodies[0]))
-	xfB := getBodyTransformQuick(w, getBodyFullId(w, bodies[1]))
-	updateContact(w, cs, shapeA, xfA, Vec2Zero(), shapeB, xfB, Vec2Zero())
+	createContact(w, firstShape(w, bodies[0]), firstShape(w, bodies[1]))
 
 	dt := stepDt()
 	for range 120 {
 		Step(worldId, dt, 4)
 	}
 
-	const want uint64 = 15399750377841976944
+	const want uint64 = 7276873791857727847
 	if got := Checksum(worldId); got != want {
 		t.Errorf("checksum = %d, want %d", got, want)
 	}

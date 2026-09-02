@@ -47,14 +47,20 @@ type contactConstraint struct {
 // The solver works in radians per second, so each stage scales the
 // velocity by one turn on load and divides by one turn on store.
 
-// prepareOverflowContacts builds the constraints of the overflow color
-// from its contact sims. It corresponds to b2PrepareOverflowContacts in
+// The reference solves the overflow color with the scalar family below and
+// the other colors with a SIMD family over eight contacts at a time. The
+// port has one worker, so the scalar family serves every color. Contacts
+// of one color share no dynamic body, so the order inside a color cannot
+// change the result and the schedule of the reference holds.
+
+// prepareContacts builds the constraints of one color from its contact
+// sims. It corresponds to b2PrepareOverflowContacts in
 // src/contact_solver.c.
-func prepareOverflowContacts(context *stepContext) {
+func prepareContacts(context *stepContext, colorIndex int) {
 	w := context.world
 	graph := &w.constraintGraph
-	color := &graph.colors[overflowIndex]
-	constraints := color.overflowConstraints
+	color := &graph.colors[colorIndex]
+	constraints := color.contactConstraints
 	contacts := color.contactSims
 	awakeStates := context.states
 
@@ -177,9 +183,9 @@ func prepareOverflowContacts(context *stepContext) {
 	}
 }
 
-// overflowStates returns the two body states of a constraint. A static
+// constraintStates returns the two body states of a constraint. A static
 // side gets the dummy state, because static bodies have no solver body.
-func overflowStates(states []bodyState, dummy *bodyState, constraint *contactConstraint) (stateA, stateB *bodyState) {
+func constraintStates(states []bodyState, dummy *bodyState, constraint *contactConstraint) (stateA, stateB *bodyState) {
 	stateA = dummy
 	if constraint.indexA != nullIndex {
 		stateA = &states[constraint.indexA]
@@ -191,13 +197,13 @@ func overflowStates(states []bodyState, dummy *bodyState, constraint *contactCon
 	return stateA, stateB
 }
 
-// warmStartOverflowContacts applies the impulses of the previous step. It
+// warmStartContacts applies the impulses of the previous step. It
 // corresponds to b2WarmStartOverflowContacts in src/contact_solver.c.
-func warmStartOverflowContacts(context *stepContext) {
+func warmStartContacts(context *stepContext, colorIndex int) {
 	w := context.world
 	graph := &w.constraintGraph
-	color := &graph.colors[overflowIndex]
-	constraints := color.overflowConstraints
+	color := &graph.colors[colorIndex]
+	constraints := color.contactConstraints
 	contactCount := len(color.contactSims)
 	awake := &w.solverSets[awakeSet]
 	states := awake.bodyStates
@@ -208,7 +214,7 @@ func warmStartOverflowContacts(context *stepContext) {
 	for i := range contactCount {
 		constraint := &constraints[i]
 
-		stateA, stateB := overflowStates(states, &dummyState, constraint)
+		stateA, stateB := constraintStates(states, &dummyState, constraint)
 
 		vA := stateA.linearVelocity
 		wA := stateA.angularVelocity.Mul(tau)
@@ -249,15 +255,15 @@ func warmStartOverflowContacts(context *stepContext) {
 	}
 }
 
-// solveOverflowContacts runs one iteration of non-penetration, friction
-// and rolling resistance. With useBias the soft constraint pushes the
-// bodies apart; without it the pass only relaxes the velocities. It
-// corresponds to b2SolveOverflowContacts in src/contact_solver.c.
-func solveOverflowContacts(context *stepContext, useBias bool) {
+// solveContacts runs one iteration of non-penetration, friction and
+// rolling resistance. With useBias the soft constraint pushes the bodies
+// apart; without it the pass only relaxes the velocities. It corresponds
+// to b2SolveOverflowContacts in src/contact_solver.c.
+func solveContacts(context *stepContext, colorIndex int, useBias bool) {
 	w := context.world
 	graph := &w.constraintGraph
-	color := &graph.colors[overflowIndex]
-	constraints := color.overflowConstraints
+	color := &graph.colors[colorIndex]
+	constraints := color.contactConstraints
 	contactCount := len(color.contactSims)
 	awake := &w.solverSets[awakeSet]
 	states := awake.bodyStates
@@ -277,7 +283,7 @@ func solveOverflowContacts(context *stepContext, useBias bool) {
 		mB := constraint.invMassB
 		iB := constraint.invIB
 
-		stateA, stateB := overflowStates(states, &dummyState, constraint)
+		stateA, stateB := constraintStates(states, &dummyState, constraint)
 		vA := stateA.linearVelocity
 		wA := stateA.angularVelocity.Mul(tau)
 		dqA := stateA.deltaRotation
@@ -397,15 +403,14 @@ func solveOverflowContacts(context *stepContext, useBias bool) {
 	}
 }
 
-// applyOverflowRestitution adds the bounce after the sub-steps. Only a
-// point that approached faster than the threshold and carried an impulse
-// bounces. It corresponds to b2ApplyOverflowRestitution in
-// src/contact_solver.c.
-func applyOverflowRestitution(context *stepContext) {
+// applyRestitution adds the bounce after the sub-steps. Only a point that
+// approached faster than the threshold and carried an impulse bounces. It
+// corresponds to b2ApplyOverflowRestitution in src/contact_solver.c.
+func applyRestitution(context *stepContext, colorIndex int) {
 	w := context.world
 	graph := &w.constraintGraph
-	color := &graph.colors[overflowIndex]
-	constraints := color.overflowConstraints
+	color := &graph.colors[colorIndex]
+	constraints := color.contactConstraints
 	contactCount := len(color.contactSims)
 	awake := &w.solverSets[awakeSet]
 	states := awake.bodyStates
@@ -429,7 +434,7 @@ func applyOverflowRestitution(context *stepContext) {
 		mB := constraint.invMassB
 		iB := constraint.invIB
 
-		stateA, stateB := overflowStates(states, &dummyState, constraint)
+		stateA, stateB := constraintStates(states, &dummyState, constraint)
 		vA := stateA.linearVelocity
 		wA := stateA.angularVelocity.Mul(tau)
 
@@ -490,13 +495,13 @@ func applyOverflowRestitution(context *stepContext) {
 	}
 }
 
-// storeOverflowImpulses writes the impulses back into the manifolds for
-// the warm start of the next step. It corresponds to
-// b2StoreOverflowImpulses in src/contact_solver.c.
-func storeOverflowImpulses(context *stepContext) {
+// storeImpulses writes the impulses back into the manifolds for the warm
+// start of the next step. It corresponds to b2StoreOverflowImpulses in
+// src/contact_solver.c.
+func storeImpulses(context *stepContext, colorIndex int) {
 	graph := &context.world.constraintGraph
-	color := &graph.colors[overflowIndex]
-	constraints := color.overflowConstraints
+	color := &graph.colors[colorIndex]
+	constraints := color.contactConstraints
 	contacts := color.contactSims
 
 	for i := range contacts {
@@ -516,4 +521,4 @@ func storeOverflowImpulses(context *stepContext) {
 }
 
 // Deferred: the Task family of the reference, which is the SIMD form of the
-// same five stages over the graph colors.
+// same five stages. It arrives with the second executor.

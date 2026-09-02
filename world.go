@@ -59,6 +59,17 @@ type world struct {
 	// one worker.
 	taskContext taskContext
 
+	// The event arrays of the last step. The end events use two buffers,
+	// because a contact destroyed between steps reports into the buffer
+	// that the next step returns.
+	bodyMoveEvents     []BodyMoveEvent
+	contactBeginEvents []ContactBeginTouchEvent
+	contactEndEvents   [2][]ContactEndTouchEvent
+	contactHitEvents   []ContactHitEvent
+	endEventArrayIndex int
+
+	// Deferred: the sensor events of the reference.
+
 	// pairSet answers whether two shapes already have a contact. The
 	// reference hosts the set on the broadphase; it moves there when the
 	// broadphase lands.
@@ -228,8 +239,16 @@ func CreateWorld(def *WorldDef) WorldId {
 
 	w.splitIslandId = nullIndex
 
+	w.taskContext.contactStateBitSet = createBitSet(1024)
 	w.taskContext.awakeIslandBitSet = createBitSet(256)
 	w.taskContext.splitIslandId = nullIndex
+
+	w.bodyMoveEvents = make([]BodyMoveEvent, 0, 16)
+	w.contactBeginEvents = make([]ContactBeginTouchEvent, 0, 16)
+	w.contactEndEvents[0] = make([]ContactEndTouchEvent, 0, 16)
+	w.contactEndEvents[1] = make([]ContactEndTouchEvent, 0, 16)
+	w.contactHitEvents = make([]ContactHitEvent, 0, 16)
+	w.endEventArrayIndex = 0
 
 	w.frictionCallback = defaultFrictionCallback
 	w.restitutionCallback = defaultRestitutionCallback
@@ -560,6 +579,11 @@ func (id WorldId) Gravity() Vec2 {
 // taskContext is the scratch that the body finalize fills for the island
 // sleep. It corresponds to b2TaskContext in src/world.h.
 type taskContext struct {
+	// contactStateBitSet marks the contacts whose touch state changed in
+	// the collide pass, by contact id, because the sims move between the
+	// touching and the non-touching arrays.
+	contactStateBitSet bitSet
+
 	// awakeIslandBitSet marks the awake islands by local index.
 	awakeIslandBitSet bitSet
 
@@ -567,6 +591,34 @@ type taskContext struct {
 	splitIslandId  int
 	splitSleepTime Q
 
-	// Deferred: the contact state and enlarged body bit sets of the
-	// reference serve the collide pass and the broad-phase.
+	// Deferred: the enlarged body bit set of the reference serves the
+	// broad-phase.
+}
+
+// GetBodyEvents returns the move events of the last step. It corresponds
+// to b2World_GetBodyEvents in src/world.c.
+func GetBodyEvents(worldId WorldId) BodyEvents {
+	w := getWorldFromId(worldId)
+	if w.locked {
+		panic("dbox2d: the world is locked")
+	}
+	return BodyEvents{MoveEvents: w.bodyMoveEvents}
+}
+
+// GetContactEvents returns the contact events of the last step. It
+// corresponds to b2World_GetContactEvents in src/world.c.
+func GetContactEvents(worldId WorldId) ContactEvents {
+	w := getWorldFromId(worldId)
+	if w.locked {
+		panic("dbox2d: the world is locked")
+	}
+
+	// Careful to use previous buffer
+	endEventArrayIndex := 1 - w.endEventArrayIndex
+
+	return ContactEvents{
+		BeginEvents: w.contactBeginEvents,
+		EndEvents:   w.contactEndEvents[endEventArrayIndex],
+		HitEvents:   w.contactHitEvents,
+	}
 }

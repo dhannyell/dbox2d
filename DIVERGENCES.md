@@ -132,7 +132,10 @@ Numbering is sequential from `D-001` and never reused.
   `1 + a2` instead of multiplying by its reciprocal. The effective masses
   of a contact point are the exception: they store the reciprocal once,
   as the body inverse mass does, because three stages read them on every
-  sub-step; the guard against a zero denominator is an exact test.
+  sub-step; the guard against a zero denominator is an exact test. The
+  contact speed of the step becomes zero when the static softness has a
+  zero mass scale, because the reference divides by that scale and a Q
+  division by zero panics.
 - Test: TestSolve22SolvesTheSystem, TestNormalizeKeepsAShortVector and
   TestNormalizeRotKeepsAZeroRotation in math_test.go,
   TestAABBRayCastHitsTheNearFace in aabb_test.go,
@@ -140,7 +143,8 @@ Numbering is sequential from `D-001` and never reused.
   TestRayCastCapsuleHitsTheSide in geometry_test.go,
   TestStepAppliesDampingByDivision in step_test.go, and
   TestMakeSoftSplitsTheUnit and TestPrepareOverflowContactsBuildsTheMasses
-  in contact_solver_test.go
+  in contact_solver_test.go, and TestStepKeepsAZeroContactFrequencyFinite
+  in step_test.go
 
 ### D-007 The normalization tolerance is in raw units
 
@@ -220,7 +224,8 @@ Numbering is sequential from `D-001` and never reused.
   to one value; contact points use a wrapping sum as well. Equivalent worlds
   therefore keep one checksum even when bodies, shapes, contacts or manifold
   points were created in another order. The witness contains a real contact
-  and re-baselines in the same commit that grows the fold.
+  that the step itself detects and solves, and re-baselines in the same
+  commit that grows the fold or changes the solved state.
 - Test: TestChecksumIsOrderIndependent,
   TestChecksumContactsIgnoreCreationOrder, TestChecksumSeesContactState,
   TestChecksumSeesAStateChange, TestChecksumSeesFutureBehaviour and

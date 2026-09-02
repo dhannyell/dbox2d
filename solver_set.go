@@ -195,8 +195,15 @@ func trySleepIsland(w *world, islandId int) {
 				panic("dbox2d: a body of the island is not awake in it")
 			}
 
-			// Deferred: the body move event learns that the body fell
-			// asleep here.
+			// Update the body move event to indicate this body fell asleep
+			// It could happen the body is forced asleep before it ever moves.
+			if b.bodyMoveIndex != nullIndex {
+				moveEvent := &w.bodyMoveEvents[b.bodyMoveIndex]
+				if int(moveEvent.BodyId.index1)-1 != bodyId || moveEvent.BodyId.generation != b.generation {
+					panic("dbox2d: the move event does not belong to the body")
+				}
+				moveEvent.FellAsleep = true
+			}
 
 			awakeBodyIndex := b.localIndex
 			awakeSim := &awake.bodySims[awakeBodyIndex]

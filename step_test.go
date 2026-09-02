@@ -380,3 +380,204 @@ func TestStepSplitsTheIslandBeforeItSleeps(t *testing.T) {
 	}
 	validateSolverSets(w)
 }
+
+// The tests below cover the collide block of Step: the touch state changes, the
+// contact events and the move events. The broad-phase has not landed, so
+// each test creates its contact by hand, as the pair update will.
+
+// boxOnGround builds a static ground with its top at y = 0 and a unit box
+// of mass one just above it, with one contact between them. The box sits
+// at the height y, so a small positive height starts a short fall.
+func boxOnGround(t *testing.T, worldId WorldId, height Q) BodyId {
+	t.Helper()
+	w := getWorldFromId(worldId)
+
+	groundDef := DefaultBodyDef()
+	groundDef.Position = Vec2{Y: fixed.Q32Half().Neg()}
+	groundId := CreateBody(worldId, &groundDef)
+	shapeDef := DefaultShapeDef()
+	shapeDef.EnableContactEvents = true
+	ground := MakeBox(fixed.Q32FromInt(5), fixed.Q32Half())
+	CreatePolygonShape(groundId, &shapeDef, &ground)
+
+	boxDef := DefaultBodyDef()
+	boxDef.Type = DynamicBody
+	boxDef.Position = Vec2{Y: fixed.Q32Half().Add(height)}
+	boxId := CreateBody(worldId, &boxDef)
+	unit := MakeBox(fixed.Q32Half(), fixed.Q32Half())
+	CreatePolygonShape(boxId, &shapeDef, &unit)
+
+	createContact(w, firstShape(w, groundId), firstShape(w, boxId))
+	return boxId
+}
+
+// TestStepLandsAFallingBox pins the whole pipeline: the collide pass
+// starts the touch, the solver holds the box on the ground and the sleep
+// tail puts it to sleep.
+func TestStepLandsAFallingBox(t *testing.T) {
+	worldId := createTestWorld(t)
+	w := getWorldFromId(worldId)
+	boxId := boxOnGround(t, worldId, fixed.Q32MustParse("0.05"))
+	box := getBodyFullId(w, boxId)
+
+	dt := stepDt()
+	for range 120 {
+		Step(worldId, dt, 4)
+	}
+
+	sim := getBodySim(w, box)
+	tolerance := fixed.Q32MustParse("0.01")
+	if !withinQ(sim.center.Y, fixed.Q32Half(), tolerance) {
+		t.Errorf("the box rests at y %v, want 0.5", sim.center.Y)
+	}
+	if box.setIndex < firstSleepingSet {
+		t.Errorf("the box is in set %d, want a sleeping set", box.setIndex)
+	}
+	c := &w.contacts[0]
+	if c.flags&contactTouchingFlag == 0 || c.islandId == nullIndex {
+		t.Errorf("the contact is not touching inside an island")
+	}
+	validateSolverSets(w)
+}
+
+// TestStepReportsBeginAndEndTouch pins the contact events: the begin
+// event arrives on the step of the touch with a manifold without
+// impulses, and the end event arrives on the step of the separation.
+func TestStepReportsBeginAndEndTouch(t *testing.T) {
+	worldId := createTestWorld(t)
+	w := getWorldFromId(worldId)
+	boxId := boxOnGround(t, worldId, fixed.Q32Zero())
+	box := getBodyFullId(w, boxId)
+
+	dt := stepDt()
+	Step(worldId, dt, 4)
+
+	events := GetContactEvents(worldId)
+	if len(events.BeginEvents) != 1 || len(events.EndEvents) != 0 || len(events.HitEvents) != 0 {
+		t.Fatalf("the first step reports %d begin, %d end and %d hit events, want 1, 0 and 0", len(events.BeginEvents), len(events.EndEvents), len(events.HitEvents))
+	}
+	begin := events.BeginEvents[0]
+	if begin.ShapeIdB != shapeIdOf(w, firstShape(w, boxId)) {
+		t.Errorf("the begin event names the wrong shape")
+	}
+	if begin.Manifold.PointCount == 0 || !begin.Manifold.Points[0].NormalImpulse.Eq(fixed.Q32Zero()) {
+		t.Errorf("the begin manifold has %d points and impulse %v, want points and zero", begin.Manifold.PointCount, begin.Manifold.Points[0].NormalImpulse)
+	}
+
+	Step(worldId, dt, 4)
+	if len(GetContactEvents(worldId).BeginEvents) != 0 {
+		t.Errorf("the second step repeats the begin event")
+	}
+
+	// Lift the box out of the speculative margin. The bounds refresh on
+	// the next finalize, so the contact survives that step and separates.
+	sim := getBodySim(w, box)
+	lift := fixed.Q32One()
+	sim.center.Y = sim.center.Y.Add(lift)
+	sim.transform.P.Y = sim.transform.P.Y.Add(lift)
+	getBodyState(w, box).linearVelocity = Vec2{Y: fixed.Q32FromInt(5)}
+	Step(worldId, dt, 4)
+
+	events = GetContactEvents(worldId)
+	if len(events.EndEvents) != 1 {
+		t.Fatalf("the lift step reports %d end events, want 1", len(events.EndEvents))
+	}
+	if events.EndEvents[0].ShapeIdB != shapeIdOf(w, firstShape(w, boxId)) {
+		t.Errorf("the end event names the wrong shape")
+	}
+	c := &w.contacts[0]
+	if c.flags&contactTouchingFlag != 0 || c.colorIndex != nullIndex || c.islandId != nullIndex {
+		t.Errorf("the contact still touches after the lift")
+	}
+	validateSolverSets(w)
+}
+
+// TestStepDestroysADisjointContact pins the disjoint branch: once the fat
+// bounds stop overlapping, the collide pass destroys the contact.
+func TestStepDestroysADisjointContact(t *testing.T) {
+	worldId := createTestWorld(t)
+	w := getWorldFromId(worldId)
+	boxId := boxOnGround(t, worldId, fixed.Q32Zero())
+	box := getBodyFullId(w, boxId)
+
+	dt := stepDt()
+	Step(worldId, dt, 4)
+	if w.contactIdPool.idCount() != 1 {
+		t.Fatalf("the contact did not survive the first step")
+	}
+
+	// Carry the box far away. The finalize of this step refreshes the
+	// bounds; the collide of the next step sees no overlap.
+	sim := getBodySim(w, box)
+	far := fixed.Q32FromInt(20)
+	sim.center.Y = sim.center.Y.Add(far)
+	sim.transform.P.Y = sim.transform.P.Y.Add(far)
+	getBodyState(w, box).linearVelocity = Vec2{Y: fixed.Q32FromInt(5)}
+	Step(worldId, dt, 4)
+	Step(worldId, dt, 4)
+
+	if w.contactIdPool.idCount() != 0 || w.pairSet.count != 0 {
+		t.Errorf("the disjoint contact survives: %d contacts and %d pairs", w.contactIdPool.idCount(), w.pairSet.count)
+	}
+	if len(GetContactEvents(worldId).EndEvents) != 0 {
+		t.Errorf("a disjoint contact that never touched reported an end event")
+	}
+	validateSolverSets(w)
+}
+
+// TestStepReportsMoveEvents pins the body events: every awake body reports
+// its transform, and the step that puts it to sleep flags the event.
+func TestStepReportsMoveEvents(t *testing.T) {
+	def := DefaultWorldDef()
+	def.Gravity = Vec2Zero()
+	worldId := CreateWorld(&def)
+	t.Cleanup(func() { DestroyWorld(worldId) })
+	w := getWorldFromId(worldId)
+
+	restingId := addDynamicBox(t, worldId, v2(3, 0))
+	resting := getBodyFullId(w, restingId)
+
+	dt := stepDt()
+	Step(worldId, dt, 4)
+	events := GetBodyEvents(worldId)
+	if len(events.MoveEvents) != 1 {
+		t.Fatalf("the step reports %d move events, want 1", len(events.MoveEvents))
+	}
+	move := events.MoveEvents[0]
+	if move.BodyId != restingId || move.FellAsleep || move.Transform.P != v2(3, 0) {
+		t.Errorf("the move event is %+v", move)
+	}
+
+	for range 30 {
+		Step(worldId, dt, 4)
+	}
+	events = GetBodyEvents(worldId)
+	if len(events.MoveEvents) != 1 || !events.MoveEvents[0].FellAsleep {
+		t.Fatalf("the sleep step reports %+v", events.MoveEvents)
+	}
+	if resting.setIndex < firstSleepingSet {
+		t.Errorf("the body is in set %d, want a sleeping set", resting.setIndex)
+	}
+
+	Step(worldId, dt, 4)
+	if len(GetBodyEvents(worldId).MoveEvents) != 0 {
+		t.Errorf("a sleeping body reports a move event")
+	}
+}
+
+// TestStepKeepsAZeroContactFrequencyFinite pins the D-006 guard: a zero
+// contact frequency gives a rigid constraint and a zero contact speed,
+// where the reference would divide by zero.
+func TestStepKeepsAZeroContactFrequencyFinite(t *testing.T) {
+	def := DefaultWorldDef()
+	def.ContactHertz = fixed.Q32Zero()
+	worldId := CreateWorld(&def)
+	t.Cleanup(func() { DestroyWorld(worldId) })
+	w := getWorldFromId(worldId)
+	boxOnGround(t, worldId, fixed.Q32Zero())
+
+	Step(worldId, stepDt(), 4)
+	if !w.contactSpeed.Eq(fixed.Q32Zero()) {
+		t.Errorf("the contact speed is %v, want zero", w.contactSpeed)
+	}
+}

@@ -325,9 +325,16 @@ func destroyContact(w *world, c *contact, wakeBodies bool) {
 	bodyA := &w.bodies[edgeA.bodyId]
 	bodyB := &w.bodies[edgeB.bodyId]
 
-	touching := c.flags&contactTouchingFlag != 0
+	flags := c.flags
+	touching := flags&contactTouchingFlag != 0
 
-	// Deferred: the end touch event of a touching contact.
+	// End touch event
+	if touching && flags&contactEnableContactEvents != 0 {
+		shapeA := &w.shapes[c.shapeIdA]
+		shapeB := &w.shapes[c.shapeIdB]
+		event := ContactEndTouchEvent{ShapeIdA: shapeIdOf(w, shapeA), ShapeIdB: shapeIdOf(w, shapeB)}
+		w.contactEndEvents[w.endEventArrayIndex] = append(w.contactEndEvents[w.endEventArrayIndex], event)
+	}
 
 	// Remove from body A.
 	if edgeA.prevKey != nullIndex {

@@ -408,3 +408,8 @@ func computeShapeExtent(s *shape, localCenter Vec2) shapeExtent {
 
 	return extent
 }
+
+// shapeIdOf builds the public id of a shape.
+func shapeIdOf(w *world, s *shape) ShapeId {
+	return ShapeId{index1: int32(s.id) + 1, world0: w.worldId, generation: s.generation}
+}
