@@ -11,9 +11,11 @@ const (
 
 // world manages all physics entities and the dynamic simulation.
 type world struct {
-	// Deferred: the broad-phase, the constraint graph, the joint, chain
-	// and sensor storage, the events, the callbacks and the task system
-	// of the reference.
+	// Deferred: the broad-phase, the joint, chain and sensor storage, the
+	// events, the callbacks and the task system of the reference.
+
+	// constraintGraph colors the awake touching contacts.
+	constraintGraph constraintGraph
 
 	// arena is the scratch allocator of one step.
 	arena arenaAllocator
@@ -218,6 +220,8 @@ func CreateWorld(def *WorldDef) WorldId {
 
 	w.arena = createArenaAllocator(2048)
 
+	createGraph(&w.constraintGraph, 16)
+
 	w.splitIslandId = nullIndex
 
 	w.frictionCallback = defaultFrictionCallback
@@ -246,6 +250,8 @@ func CreateWorld(def *WorldDef) WorldId {
 // DestroyWorld destroys a world and every body and shape in it.
 func DestroyWorld(worldId WorldId) {
 	w := getWorldFromId(worldId)
+
+	destroyGraph(&w.constraintGraph)
 
 	// Destroy solver sets
 	for i := range w.solverSets {

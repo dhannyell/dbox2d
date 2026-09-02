@@ -2,6 +2,11 @@ package dbox2d
 
 import "github.com/dhannyell/fixed"
 
+// graphColorCount is the number of constraint graph colors, including the
+// overflow color at the end. It corresponds to B2_GRAPH_COLOR_COUNT in
+// src/constants.h.
+const graphColorCount = 12
+
 // A length is a meter. The reference lets an application rescale its
 // tolerances; this package does not, because a world that rescales them
 // stops matching a world that does not. See DIVERGENCES.md.

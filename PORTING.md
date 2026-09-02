@@ -305,6 +305,17 @@ from its island first.
   not needed yet: the bit sets only set, clear, test and union in this
   stage.
 
+**Order 26 has landed**: `constraint_graph.go`. The world gains the graph;
+`getContactSim` and `destroyContact` gain their graph branches; the contact
+sim gains the inverse mass copies that the graph fills.
+
+- The color rule follows the reference: a dynamic pair scans colors 0 to
+  10, a pair with a static body scans 1 to 10, and the rest go to the
+  overflow color 11, which keeps no body set. The force-overflow switch of
+  the reference stays a constant set to false.
+- The joint color assignment and the joint graph functions wait for the
+  joints.
+
 ## The map
 
 `Order` is the port sequence. A dash means the file waits for a later stage.
@@ -332,12 +343,12 @@ from its island first.
 | `src/arena_allocator.h`, `src/arena_allocator.c` | `arena.go` | T1 | foundation | 18 | Per-step scratch. It is how the step allocates nothing. |
 | `src/distance.c` (segment distance, proxies) | `distance.go` | T0 | manifolds | 19 | Closed-form part only. |
 | `src/manifold.c` | `manifold.go` | T0/T1 | manifolds | 20 | Nine `FLT_EPSILON` sites become exact zero tests, one T2 entry each. |
-| `src/contact.h`, `src/contact.c` | `contact.go` | T0 | manifolds | 21 | Contact bookkeeping and the collide dispatch table. |
+| `src/contact.h`, `src/contact.c` | `contact.go` | T0 | manifolds | 21 | Contact bookkeeping and the collide dispatch table. The island and graph branches landed with orders 25 and 26. |
 | `src/table.h`, `src/table.c` | `table.go` | T0 | manifolds | 22 | Open-addressing set of contact pairs. |
 | `src/solver.h`, `src/solver.c` | `solver.go` | T0/T1/T2 | solver | 23 | Nine ordered stages, from prepare joints to store impulses. `MakeSoft` is pure arithmetic. The integration tasks, the body finalize and the single-worker sub-step order landed with order 16; see D-004 and D-006. The constraint stages wait. |
 | `src/contact_solver.h`, `src/contact_solver.c` | `contact_solver.go` | T0/T1 | solver | 24 | Port the `Overflow` family. The `Task` family is T2 until the second executor exists. |
 | `src/island.h`, `src/island.c` | `island.go` | T0 | solver | 25 | Island linking, merging and splitting landed. The joint lists, the wake calls and the sleep path wait for their stages. |
-| `src/constraint_graph.h`, `src/constraint_graph.c` | `constraint_graph.go` | T0 | solver | 26 | Twelve colors plus the overflow set. The color schedule is the parallel contract. |
+| `src/constraint_graph.h`, `src/constraint_graph.c` | `constraint_graph.go` | T0 | solver | 26 | Eleven colors plus the overflow color landed. The color schedule is the parallel contract. The joint functions wait. |
 | `src/bitset.h`, `src/bitset.c` | `bitset.go` | T0 | broadphase | 27 | Set, clear, test, grow and union landed. Backs the constraint graph and the contact state of the step. |
 | `src/ctz.h` | `math/bits` | T2 | broadphase | 28 | The standard library replaces the compiler intrinsics. |
 | `src/dynamic_tree.c` | `dynamic_tree.go` | T0 | broadphase | 29 | Fattened AABBs, surface-area heuristic, rotation rebalance. |

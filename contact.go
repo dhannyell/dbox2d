@@ -78,8 +78,12 @@ type contactSim struct {
 	shapeIdA int
 	shapeIdB int
 
-	// Deferred: the inverse mass and inertia copies of the reference. The
-	// contact solver prepare stage fills them.
+	// Inverse mass and inertia copies, filled when the contact enters the
+	// constraint graph.
+	invMassA Q
+	invIA    Q
+	invMassB Q
+	invIB    Q
 
 	manifold Manifold
 
@@ -351,16 +355,22 @@ func destroyContact(w *world, c *contact, wakeBodies bool) {
 		unlinkContact(w, c)
 	}
 
-	// The constraint graph removal waits for the graph; colorIndex stays
-	// nullIndex until then. The contact is non-touching or sleeping, so
-	// its sim lives in a solver set.
-	set := &w.solverSets[c.setIndex]
-	var movedIndex int
-	set.contactSims, movedIndex = removeSwap(set.contactSims, c.localIndex)
-	if movedIndex != nullIndex {
-		movedContactSim := &set.contactSims[c.localIndex]
-		movedContact := &w.contacts[movedContactSim.contactId]
-		movedContact.localIndex = c.localIndex
+	if c.colorIndex != nullIndex {
+		// contact is an active constraint
+		if c.setIndex != awakeSet {
+			panic("dbox2d: a graph contact lives in the awake set")
+		}
+		removeContactFromGraph(w, edgeA.bodyId, edgeB.bodyId, c.colorIndex, c.localIndex)
+	} else {
+		// contact is non-touching or is sleeping
+		set := &w.solverSets[c.setIndex]
+		var movedIndex int
+		set.contactSims, movedIndex = removeSwap(set.contactSims, c.localIndex)
+		if movedIndex != nullIndex {
+			movedContactSim := &set.contactSims[c.localIndex]
+			movedContact := &w.contacts[movedContactSim.contactId]
+			movedContact.localIndex = c.localIndex
+		}
 	}
 
 	c.contactId = nullIndex
@@ -372,9 +382,17 @@ func destroyContact(w *world, c *contact, wakeBodies bool) {
 }
 
 // getContactSim returns the warm data of a contact. It corresponds to
-// b2GetContactSim in src/contact.c. The constraint graph branch waits for
-// the graph; colorIndex stays nullIndex until then.
+// b2GetContactSim in src/contact.c.
 func getContactSim(w *world, c *contact) *contactSim {
+	if c.setIndex == awakeSet && c.colorIndex != nullIndex {
+		// contact lives in constraint graph
+		if c.colorIndex < 0 || c.colorIndex >= graphColorCount {
+			panic("dbox2d: the color index is out of range")
+		}
+		color := &w.constraintGraph.colors[c.colorIndex]
+		return &color.contactSims[c.localIndex]
+	}
+
 	set := &w.solverSets[c.setIndex]
 	return &set.contactSims[c.localIndex]
 }
