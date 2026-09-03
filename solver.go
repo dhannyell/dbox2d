@@ -599,7 +599,7 @@ func solve(w *world, context *stepContext) {
 
 		w.bodyMoveEvents = resizeMoveEvents(w.bodyMoveEvents, awakeBodyCount)
 
-		// Deferred: the contact pointers, the joint pointers and the stage
+		// Deferred: the constraint pointers per color and the stage
 		// blocks serve the parallel executor.
 
 		// One contiguous scratch serves every color, as the SIMD scratch of
