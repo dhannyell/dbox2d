@@ -216,9 +216,9 @@ func TestShouldShapesCollideAppliesTheGroupRule(t *testing.T) {
 // at least one body of a pair must be dynamic.
 func TestShouldBodiesCollideRejectsTwoNonDynamicBodies(t *testing.T) {
 	w := &world{}
-	static := &body{bodyType: StaticBody}
-	kinematic := &body{bodyType: KinematicBody}
-	dynamic := &body{bodyType: DynamicBody}
+	static := &body{bodyType: StaticBody, headJointKey: nullIndex}
+	kinematic := &body{bodyType: KinematicBody, headJointKey: nullIndex}
+	dynamic := &body{bodyType: DynamicBody, headJointKey: nullIndex}
 
 	if shouldBodiesCollide(w, static, kinematic) || shouldBodiesCollide(w, static, static) {
 		t.Errorf("two non-dynamic bodies collide")

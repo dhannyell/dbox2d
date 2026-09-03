@@ -280,6 +280,7 @@ func createJointInGraph(w *world, j *joint) *jointSim {
 
 // addJointToGraph copies a joint sim into the graph. It corresponds to
 // b2AddJointToGraph in src/constraint_graph.c.
+//
 //nolint:unused // The set transfer reads this in a later stage.
 func addJointToGraph(w *world, js *jointSim, j *joint) {
 	jointDst := createJointInGraph(w, j)
