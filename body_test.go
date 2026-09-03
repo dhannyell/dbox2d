@@ -101,6 +101,160 @@ func TestSetTransformMovesBodyAndProxy(t *testing.T) {
 	}
 }
 
+type setTypeScenario struct {
+	worldId     WorldId
+	w           *world
+	groundShape ShapeId
+	bodyA       BodyId
+	bodyB       BodyId
+}
+
+func newSetTypeScenario(t *testing.T) setTypeScenario {
+	t.Helper()
+	worldId := createTestWorld(t)
+
+	groundDef := DefaultBodyDef()
+	groundDef.Position = v2(0, -1)
+	ground := CreateBody(worldId, &groundDef)
+	shapeDef := DefaultShapeDef()
+	groundBox := MakeBox(fixed.Q32FromInt(5), fixed.Q32Half())
+	groundShape := CreatePolygonShape(ground, &shapeDef, &groundBox)
+
+	bodyDef := DefaultBodyDef()
+	bodyDef.Type = DynamicBody
+	bodyDef.Position = v2(-1, 0)
+	bodyA := CreateBody(worldId, &bodyDef)
+	bodyBox := MakeSquare(fixed.Q32Half())
+	CreatePolygonShape(bodyA, &shapeDef, &bodyBox)
+
+	bodyDef.Position = v2(1, 0)
+	bodyB := CreateBody(worldId, &bodyDef)
+	CreatePolygonShape(bodyB, &shapeDef, &bodyBox)
+
+	jointDef := DefaultRevoluteJointDef()
+	jointDef.BodyIdA = bodyA
+	jointDef.BodyIdB = bodyB
+	jointDef.LocalAnchorA = v2(1, 0)
+	jointDef.LocalAnchorB = v2(-1, 0)
+	CreateRevoluteJoint(worldId, &jointDef)
+
+	for range 5 {
+		worldId.Step(stepDt(), 4)
+	}
+
+	return setTypeScenario{
+		worldId:     worldId,
+		w:           getWorldFromId(worldId),
+		groundShape: groundShape,
+		bodyA:       bodyA,
+		bodyB:       bodyB,
+	}
+}
+
+// TestSetTypeDynamicToStaticHolds verifies that a static conversion stops
+// integration without stopping an attached dynamic body.
+func TestSetTypeDynamicToStaticHolds(t *testing.T) {
+	scenario := newSetTypeScenario(t)
+	scenario.bodyA.SetType(StaticBody)
+	validateWorld(scenario.w)
+	validateSolverSets(scenario.w)
+
+	positionA := scenario.bodyA.GetPosition()
+	positionB := scenario.bodyB.GetPosition()
+	scenario.bodyB.SetLinearVelocity(v2(0, 2))
+	for range 60 {
+		scenario.worldId.Step(stepDt(), 4)
+	}
+
+	if got := scenario.bodyA.GetPosition(); got != positionA {
+		t.Fatalf("body A position = %v, want %v", got, positionA)
+	}
+	if got := scenario.bodyB.GetPosition(); got == positionB {
+		t.Fatalf("body B position = %v, want movement from %v", got, positionB)
+	}
+	validateWorld(scenario.w)
+	validateSolverSets(scenario.w)
+}
+
+// TestSetTypeStaticToDynamicFalls verifies that the new dynamic body gets
+// mass, an awake state, and gravity integration.
+func TestSetTypeStaticToDynamicFalls(t *testing.T) {
+	worldId := createTestWorld(t)
+	bodyDef := DefaultBodyDef()
+	bodyDef.Position = v2(0, 5)
+	body := CreateBody(worldId, &bodyDef)
+	shapeDef := DefaultShapeDef()
+	box := MakeSquare(fixed.Q32Half())
+	CreatePolygonShape(body, &shapeDef, &box)
+
+	body.SetType(DynamicBody)
+	w := getWorldFromId(worldId)
+	validateWorld(w)
+	validateSolverSets(w)
+	startY := body.GetPosition().Y
+	for range 30 {
+		worldId.Step(stepDt(), 4)
+	}
+	if got := body.GetPosition().Y; !got.Less(startY) {
+		t.Fatalf("body y = %v, want less than %v", got, startY)
+	}
+	validateWorld(w)
+	validateSolverSets(w)
+}
+
+// TestSetTypeKinematicFollowsVelocity verifies that a converted kinematic
+// body follows its prescribed velocity.
+func TestSetTypeKinematicFollowsVelocity(t *testing.T) {
+	worldDef := DefaultWorldDef()
+	worldDef.Gravity = Vec2Zero()
+	worldId := CreateWorld(&worldDef)
+	t.Cleanup(func() { DestroyWorld(worldId) })
+	body := addDynamicBox(t, worldId, Vec2Zero())
+	body.SetType(KinematicBody)
+	body.SetLinearVelocity(v2(1, 0))
+	w := getWorldFromId(worldId)
+	validateWorld(w)
+	validateSolverSets(w)
+
+	for range 60 {
+		worldId.Step(stepDt(), 4)
+	}
+	wantX := fixed.Q32One()
+	if got := body.GetPosition().X; !withinQ(got, wantX, fixed.Q32FromRaw(64)) {
+		t.Fatalf("body x = %v, want %v", got, wantX)
+	}
+	validateWorld(w)
+	validateSolverSets(w)
+}
+
+// TestSetTypeKeepsJointAndContacts verifies that the joint survives and the
+// broad phase recreates the other body's ground contact.
+func TestSetTypeKeepsJointAndContacts(t *testing.T) {
+	scenario := newSetTypeScenario(t)
+	scenario.bodyA.SetType(StaticBody)
+	for range 5 {
+		scenario.worldId.Step(stepDt(), 4)
+	}
+
+	if got := scenario.bodyA.GetJointCount(); got != 1 {
+		t.Fatalf("body A joint count = %d, want 1", got)
+	}
+	data := make([]ContactData, scenario.bodyB.GetContactCapacity())
+	count := scenario.bodyB.GetContactData(data)
+	foundGround := false
+	for i := range count {
+		if data[i].ShapeIdA == scenario.groundShape || data[i].ShapeIdB == scenario.groundShape {
+			foundGround = true
+			break
+		}
+	}
+	if !foundGround {
+		t.Fatalf("body B contacts = %+v, want a ground contact", data[:count])
+	}
+	validateWorld(scenario.w)
+	validateSolverSets(scenario.w)
+}
+
 // TestSetTargetTransformDerivesVelocity verifies target position and rotation
 // become the corresponding linear and turn-rate velocities.
 func TestSetTargetTransformDerivesVelocity(t *testing.T) {

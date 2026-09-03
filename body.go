@@ -497,6 +497,168 @@ func (bodyId BodyId) GetType() BodyType {
 	return b.bodyType
 }
 
+// SetType changes the body type. It corresponds to b2Body_SetType.
+func (bodyId BodyId) SetType(bodyType BodyType) {
+	w := getWorld(bodyId.world0)
+	if w.locked {
+		panic("dbox2d: the world is locked")
+	}
+	b := getBodyFullId(w, bodyId)
+
+	originalType := b.bodyType
+	if originalType == bodyType {
+		return
+	}
+
+	if b.setIndex == disabledSet {
+		b.bodyType = bodyType
+		updateBodyMassData(w, b)
+		return
+	}
+
+	destroyBodyContacts(w, b, false)
+	wakeBody(w, b)
+
+	for jointKey := b.headJointKey; jointKey != nullIndex; {
+		jointId := jointKey >> 1
+		edgeIndex := jointKey & 1
+		j := &w.joints[jointId]
+		if j.islandId != nullIndex {
+			unlinkJoint(w, j)
+		}
+
+		bodyA := &w.bodies[j.edges[0].bodyId]
+		bodyB := &w.bodies[j.edges[1].bodyId]
+		wakeBody(w, bodyA)
+		wakeBody(w, bodyB)
+
+		jointKey = j.edges[edgeIndex].nextKey
+	}
+
+	b.bodyType = bodyType
+
+	if originalType == StaticBody {
+		if b.setIndex != staticSet {
+			panic("dbox2d: a static body is not in the static set")
+		}
+
+		staticSolverSet := &w.solverSets[staticSet]
+		awakeSolverSet := &w.solverSets[awakeSet]
+		transferBody(w, awakeSolverSet, staticSolverSet, b)
+		createIslandForBody(w, awakeSet, b)
+
+		for jointKey := b.headJointKey; jointKey != nullIndex; {
+			jointId := jointKey >> 1
+			edgeIndex := jointKey & 1
+			j := &w.joints[jointId]
+
+			if j.setIndex == staticSet {
+				transferJoint(w, awakeSolverSet, staticSolverSet, j)
+			} else if j.setIndex == awakeSet {
+				transferJoint(w, staticSolverSet, awakeSolverSet, j)
+				transferJoint(w, awakeSolverSet, staticSolverSet, j)
+			} else if j.setIndex != disabledSet {
+				panic("dbox2d: a joint of a static body is in an unexpected set")
+			}
+
+			jointKey = j.edges[edgeIndex].nextKey
+		}
+
+		transform := getBodyTransformQuick(w, b)
+		for shapeId := b.headShapeId; shapeId != nullIndex; {
+			s := &w.shapes[shapeId]
+			shapeId = s.nextShapeId
+			destroyShapeProxy(s, &w.broadPhase)
+			createShapeProxy(s, &w.broadPhase, bodyType, transform, true)
+		}
+	} else if bodyType == StaticBody {
+		if b.setIndex != awakeSet {
+			panic("dbox2d: a moving body is not in the awake set")
+		}
+
+		staticSolverSet := &w.solverSets[staticSet]
+		awakeSolverSet := &w.solverSets[awakeSet]
+		transferBody(w, staticSolverSet, awakeSolverSet, b)
+		removeBodyFromIsland(w, b)
+
+		sim := &staticSolverSet.bodySims[b.localIndex]
+		sim.isFast = false
+
+		for jointKey := b.headJointKey; jointKey != nullIndex; {
+			jointId := jointKey >> 1
+			edgeIndex := jointKey & 1
+			j := &w.joints[jointId]
+			jointKey = j.edges[edgeIndex].nextKey
+
+			otherBody := &w.bodies[j.edges[edgeIndex^1].bodyId]
+			if j.setIndex == disabledSet {
+				if otherBody.setIndex != disabledSet {
+					panic("dbox2d: a disabled joint is not connected to a disabled body")
+				}
+				continue
+			}
+			if j.setIndex != awakeSet {
+				panic("dbox2d: a joint of a moving body is not awake")
+			}
+
+			if otherBody.setIndex == staticSet {
+				transferJoint(w, staticSolverSet, awakeSolverSet, j)
+			} else {
+				if otherBody.setIndex != awakeSet {
+					panic("dbox2d: the other joint body is not awake")
+				}
+				if j.colorIndex < 0 || j.colorIndex >= graphColorCount {
+					panic("dbox2d: the joint color index is out of range")
+				}
+				transferJoint(w, staticSolverSet, awakeSolverSet, j)
+				transferJoint(w, awakeSolverSet, staticSolverSet, j)
+			}
+		}
+
+		transform := getBodyTransformQuick(w, b)
+		for shapeId := b.headShapeId; shapeId != nullIndex; {
+			s := &w.shapes[shapeId]
+			shapeId = s.nextShapeId
+			destroyShapeProxy(s, &w.broadPhase)
+			createShapeProxy(s, &w.broadPhase, StaticBody, transform, true)
+		}
+	} else {
+		if originalType != DynamicBody && originalType != KinematicBody {
+			panic("dbox2d: the original body type is not movable")
+		}
+		if bodyType != DynamicBody && bodyType != KinematicBody {
+			panic("dbox2d: the new body type is not movable")
+		}
+
+		transform := getBodyTransformQuick(w, b)
+		for shapeId := b.headShapeId; shapeId != nullIndex; {
+			s := &w.shapes[shapeId]
+			shapeId = s.nextShapeId
+			destroyShapeProxy(s, &w.broadPhase)
+			createShapeProxy(s, &w.broadPhase, bodyType, transform, true)
+		}
+	}
+
+	for jointKey := b.headJointKey; jointKey != nullIndex; {
+		jointId := jointKey >> 1
+		edgeIndex := jointKey & 1
+		j := &w.joints[jointId]
+		jointKey = j.edges[edgeIndex].nextKey
+
+		otherBody := &w.bodies[j.edges[edgeIndex^1].bodyId]
+		if otherBody.setIndex == disabledSet {
+			continue
+		}
+		if b.bodyType == StaticBody && otherBody.bodyType == StaticBody {
+			continue
+		}
+		linkJoint(w, j, false)
+	}
+	mergeAwakeIslands(w)
+
+	updateBodyMassData(w, b)
+}
+
 // GetPosition returns the world position of the body origin. It corresponds
 // to b2Body_GetPosition.
 func (bodyId BodyId) GetPosition() Vec2 {
