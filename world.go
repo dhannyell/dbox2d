@@ -70,10 +70,8 @@ type world struct {
 
 	// Deferred: the sensor events of the reference.
 
-	// pairSet answers whether two shapes already have a contact. The
-	// reference hosts the set on the broadphase; it moves there when the
-	// broadphase lands.
-	pairSet hashSet
+	// broadPhase holds the trees, the move buffer and the pair set.
+	broadPhase broadPhase
 
 	// stepIndex advances once per step.
 	stepIndex uint64
@@ -228,7 +226,7 @@ func CreateWorld(def *WorldDef) WorldId {
 
 	w.contactIdPool = createIdPool()
 	w.contacts = make([]contact, 0, 16)
-	w.pairSet = createSet(16)
+	createBroadPhase(&w.broadPhase)
 
 	w.islandIdPool = createIdPool()
 	w.islands = make([]island, 0, 8)
@@ -292,6 +290,7 @@ func DestroyWorld(worldId WorldId) {
 	w.islandIdPool.destroy()
 	w.solverSetIdPool.destroy()
 
+	destroyBroadPhase(&w.broadPhase)
 	destroyArenaAllocator(&w.arena)
 
 	// Wipe world but preserve generation
@@ -565,7 +564,7 @@ func validateSolverSets(w *world) {
 	if totalContactCount != w.contactIdPool.idCount() {
 		panic("dbox2d: the contact count and the contact pool disagree")
 	}
-	if totalContactCount != w.pairSet.count {
+	if totalContactCount != w.broadPhase.pairSet.count {
 		panic("dbox2d: the contact count and the pair set disagree")
 	}
 }

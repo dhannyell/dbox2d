@@ -410,6 +410,28 @@ box query, the ray cast and the rebuild.
 - The validators exist, but only the tests call them. The reference
   compiles them into validation builds only.
 
+**Order 30 has landed**: `broad_phase.go` gains the three trees, the
+move set and array, the pair query with its rules, the pair results from
+the arena, the contact creation in move order, the overlap test, the
+rebuild of the dynamic and the kinematic trees and the validators. The
+pair set moves from the world to the broadphase. `shape.go` gains
+`shouldShapesCollide` and `shouldQueryCollide`; `body.go` gains
+`shouldBodiesCollide` without its joint loop.
+
+- The pair query runs inline for one worker. The atomic pair index of the
+  reference is the length of the pair slice.
+- The pairs of one moved proxy link by index into the pair slice, not by
+  pointer. When the sixteen pairs per moved proxy run out the slice grows
+  by append instead of taking single pairs from the heap (D-010).
+- The reference prepends each pair, so the contact order of one moved
+  proxy follows the tree walk. The port keeps the list sorted by shape
+  pair, so any tree with the same leaves creates the same contacts in the
+  same order (D-013).
+- The sensor rule stays, because the shape carries its sensor index. The
+  custom filter callback and the joint loop of `b2ShouldBodiesCollide`
+  wait for their orders.
+- The shapes do not own a proxy yet; the world wiring follows.
+
 ## The map
 
 `Order` is the port sequence. A dash means the file waits for a later stage.
@@ -445,9 +467,9 @@ box query, the ray cast and the rebuild.
 | `src/constraint_graph.h`, `src/constraint_graph.c` | `constraint_graph.go` | T0 | solver | 26 | Eleven colors plus the overflow color landed. The color schedule is the parallel contract. The joint functions wait. |
 | `src/bitset.h`, `src/bitset.c` | `bitset.go` | T0 | broadphase | 27 | Set, clear, test, grow and union landed. Backs the constraint graph and the contact state of the step. |
 | `src/ctz.h` | `math/bits` | T2 | broadphase | 28 | The standard library replaces the compiler intrinsics. Landed with the collide block in `step.go`. |
-| `src/dynamic_tree.c` | `dynamic_tree.go` | T0 | broadphase | 29 | Fattened AABBs, surface-area heuristic, rotation rebalance. |
-| `src/broad_phase.h`, `src/broad_phase.c` | `broad_phase.go` | T0 | broadphase | 30 | Pair output is sorted by integer id, so any equivalent tree gives the same world. |
-| `src/atomic.h` | `sync/atomic` | T2 | broadphase | 31 | Needed only when a second executor exists. |
+| `src/dynamic_tree.c` | `dynamic_tree.go` | T0/T2 | broadphase | 29 | Landed. Fattened AABBs, surface-area heuristic, rotation rebalance, box query, ray cast, partial rebuild. The shape cast waits for order 19. See D-009 and D-014. |
+| `src/broad_phase.h`, `src/broad_phase.c` | `broad_phase.go` | T0/T2 | broadphase | 30 | Landed. Three trees, the move buffer, the pair query and the pair set. The pair list of each moved proxy is sorted by shape id, so any equivalent tree gives the same world. See D-010 and D-013. |
+| `src/atomic.h` | `sync/atomic` | T2 | broadphase | 31 | Needed only when a second executor exists. The pair index of the broadphase is the length of the pair slice for one worker. |
 | `include/box2d/box2d.h` | public API | T0 | all stages | — | The public surface arrives file by file with its owner. |
 | `src/joint.h`, `src/joint.c` | `joint.go` | T3 | later | — | Eight joint types follow it. |
 | `src/distance_joint.c`, `src/motor_joint.c`, `src/mouse_joint.c`, `src/prismatic_joint.c`, `src/revolute_joint.c`, `src/weld_joint.c`, `src/wheel_joint.c` | one file each | T3 | later | — | Ports after the solver is proven. |

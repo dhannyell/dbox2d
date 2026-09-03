@@ -413,3 +413,20 @@ func computeShapeExtent(s *shape, localCenter Vec2) shapeExtent {
 func shapeIdOf(w *world, s *shape) ShapeId {
 	return ShapeId{index1: int32(s.id) + 1, world0: w.worldId, generation: s.generation}
 }
+
+// shouldShapesCollide applies the filter rule of the reference: a shared
+// nonzero group decides by its sign, else the masks decide. It corresponds
+// to b2ShouldShapesCollide in src/shape.h.
+func shouldShapesCollide(filterA, filterB Filter) bool {
+	if filterA.GroupIndex == filterB.GroupIndex && filterA.GroupIndex != 0 {
+		return filterA.GroupIndex > 0
+	}
+
+	return filterA.MaskBits&filterB.CategoryBits != 0 && filterA.CategoryBits&filterB.MaskBits != 0
+}
+
+// shouldQueryCollide applies the query filter to a shape filter. It
+// corresponds to b2ShouldQueryCollide in src/shape.h.
+func shouldQueryCollide(shapeFilter Filter, queryFilter QueryFilter) bool {
+	return shapeFilter.CategoryBits&queryFilter.MaskBits != 0 && shapeFilter.MaskBits&queryFilter.CategoryBits != 0
+}

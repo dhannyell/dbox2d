@@ -586,3 +586,17 @@ func removeBodyFromIsland(w *world, b *body) {
 	b.islandPrev = nullIndex
 	b.islandNext = nullIndex
 }
+
+// shouldBodiesCollide rejects a pair of non-dynamic bodies. It corresponds
+// to b2ShouldBodiesCollide in src/body.c.
+func shouldBodiesCollide(w *world, bodyA, bodyB *body) bool {
+	if bodyA.bodyType != DynamicBody && bodyB.bodyType != DynamicBody {
+		return false
+	}
+
+	// Deferred: the joints of the reference; a joint with collideConnected
+	// false rejects the pair.
+	_ = w
+
+	return true
+}

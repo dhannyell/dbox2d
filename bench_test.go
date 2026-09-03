@@ -768,7 +768,7 @@ func createBruteForcePairs(w *world) {
 			if !AABBOverlaps(shapeA.fatAABB, shapeB.fatAABB) {
 				continue
 			}
-			if w.pairSet.containsKey(shapePairKey(i, j)) {
+			if w.broadPhase.pairSet.containsKey(shapePairKey(i, j)) {
 				continue
 			}
 			createContact(w, shapeA, shapeB)

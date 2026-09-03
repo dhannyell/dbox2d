@@ -55,7 +55,7 @@ func TestCreateContactLinksBothBodies(t *testing.T) {
 		t.Errorf("head keys %d and %d, want 0 and 1", bodyA.headContactKey, bodyB.headContactKey)
 	}
 
-	if !w.pairSet.containsKey(shapePairKey(shapeA.id, shapeB.id)) {
+	if !w.broadPhase.pairSet.containsKey(shapePairKey(shapeA.id, shapeB.id)) {
 		t.Errorf("the pair set does not have the shape pair")
 	}
 
@@ -176,7 +176,7 @@ func TestDestroyContactRepairsTheMovedSim(t *testing.T) {
 
 	destroyContact(w, &w.contacts[0], false)
 
-	if w.pairSet.containsKey(shapePairKey(shapeA.id, shapeB.id)) {
+	if w.broadPhase.pairSet.containsKey(shapePairKey(shapeA.id, shapeB.id)) {
 		t.Errorf("the destroyed pair is still in the pair set")
 	}
 
@@ -221,8 +221,8 @@ func TestDestroyBodyDestroysItsContacts(t *testing.T) {
 	if bodyC.contactCount != 0 || bodyC.headContactKey != nullIndex {
 		t.Errorf("body C still holds a contact of the destroyed body")
 	}
-	if w.pairSet.count != 0 {
-		t.Errorf("the pair set still holds %d pairs", w.pairSet.count)
+	if w.broadPhase.pairSet.count != 0 {
+		t.Errorf("the pair set still holds %d pairs", w.broadPhase.pairSet.count)
 	}
 	if len(w.solverSets[awakeSet].contactSims) != 0 {
 		t.Errorf("the awake set still holds contact sims")
@@ -261,7 +261,7 @@ func TestDestroyShapeDestroysItsContacts(t *testing.T) {
 			t.Fatal("a body still holds the destroyed shape contact")
 		}
 	}
-	if w.pairSet.containsKey(pairKey) || len(w.solverSets[awakeSet].contactSims) != 0 {
+	if w.broadPhase.pairSet.containsKey(pairKey) || len(w.solverSets[awakeSet].contactSims) != 0 {
 		t.Fatal("the destroyed shape contact remains in contact storage")
 	}
 }

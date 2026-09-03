@@ -196,7 +196,8 @@ Numbering is sequential from `D-001` and never reused.
 ### D-010 A generated array becomes a slice
 
 - Files: array.go and every file that stores a sim array (upstream
-  src/array.h, src/array.c)
+  src/array.h, src/array.c), broad_phase.go (upstream src/broad_phase.c
+  `b2PairQueryCallback` heap pairs)
 - Tier: T2
 - Reason: the reference generates one array type per element type with
   macros. Go has no macros, and the slice already carries the length and the
@@ -208,7 +209,9 @@ Numbering is sequential from `D-001` and never reused.
   simulation result. A step allocates only when a slice, the arena or a
   graph color grows past its capacity, which happens on the first step that
   activates a contact and then stays flat; the reference grows its arrays
-  and its arena at the same moments.
+  and its arena at the same moments. The pair slice of the broadphase
+  grows by append when the sixteen pairs per moved proxy run out; the
+  reference takes single pairs from the heap at the same moment.
 - Test: TestCreateAndDestroyOrdersProduceTheSameWorld and
   TestSleepingBodyGetsItsOwnSolverSet in world_test.go,
   TestStepAllocatesNothing in step_test.go
@@ -270,11 +273,23 @@ Numbering is sequential from `D-001` and never reused.
   TestCollideSegmentAndPolygonRejectsADegenerateSegment in manifold_test.go,
   and the clipSegments tests in manifold_internal_test.go
 
-### D-013 reserved
+### D-013 The pairs of a moved proxy are sorted by shape id
 
-- File: broad_phase.go
+- File: broad_phase.go (upstream src/broad_phase.c `b2PairQueryCallback`)
 - Tier: T2
-- Reason: recorded with the broadphase.
+- Reason: the reference prepends each new pair to the list of the moved
+  proxy, so the contact creation order follows the walk of the tree. Two
+  trees with the same leaves and a different topology, as a rebuild or a
+  different insertion history produces, would create the contacts in a
+  different order, and the contact ids, the graph colors and the solver
+  order would follow. The port promises the same world for any equivalent
+  tree.
+- Behaviour: the callback inserts each pair in ascending `(shapeIdA,
+  shapeIdB)` order in the list of its moved proxy. The order across moved
+  proxies stays the order of the move array, as upstream. The shape ids
+  come from the pair itself: the shape of the smaller proxy key is A, as
+  upstream.
+- Test: TestBroadPhasePairsAreSortedByShapeId in broad_phase_test.go
 
 ### D-014 A callback with a context becomes a closure
 

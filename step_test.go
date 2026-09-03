@@ -527,8 +527,8 @@ func TestStepDestroysADisjointContact(t *testing.T) {
 	Step(worldId, dt, 4)
 	Step(worldId, dt, 4)
 
-	if w.contactIdPool.idCount() != 0 || w.pairSet.count != 0 {
-		t.Errorf("the disjoint contact survives: %d contacts and %d pairs", w.contactIdPool.idCount(), w.pairSet.count)
+	if w.contactIdPool.idCount() != 0 || w.broadPhase.pairSet.count != 0 {
+		t.Errorf("the disjoint contact survives: %d contacts and %d pairs", w.contactIdPool.idCount(), w.broadPhase.pairSet.count)
 	}
 	if len(GetContactEvents(worldId).EndEvents) != 0 {
 		t.Errorf("a disjoint contact that never touched reported an end event")

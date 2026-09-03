@@ -290,7 +290,7 @@ func createContact(w *world, shapeA, shapeB *shape) {
 
 	// Add to the pair set for fast lookup. The reference hosts the set on
 	// the broadphase; it moves there when the broadphase lands.
-	w.pairSet.addKey(shapePairKey(shapeIdA, shapeIdB))
+	w.broadPhase.pairSet.addKey(shapePairKey(shapeIdA, shapeIdB))
 
 	// Contacts start non-touching. A touching contact later links islands
 	// and moves into the constraint graph.
@@ -317,7 +317,7 @@ func createContact(w *world, shapeA, shapeB *shape) {
 // src/contact.c.
 func destroyContact(w *world, c *contact, wakeBodies bool) {
 	// Remove the pair from the set.
-	w.pairSet.removeKey(shapePairKey(c.shapeIdA, c.shapeIdB))
+	w.broadPhase.pairSet.removeKey(shapePairKey(c.shapeIdA, c.shapeIdB))
 
 	edgeA := &c.edges[0]
 	edgeB := &c.edges[1]
