@@ -729,3 +729,44 @@ func TestSmallPyramidStaysStable(t *testing.T) {
 		t.Errorf("the pyramid is in set %d, want a sleeping set", setIndex)
 	}
 }
+
+// TestStepLandsABoxOnAChainSegment runs the chain segment against polygon
+// pair through the whole pipeline: the box falls on a chain floor, rests
+// on it and the world stays valid.
+func TestStepLandsABoxOnAChainSegment(t *testing.T) {
+	worldId := createTestWorld(t)
+	w := getWorldFromId(worldId)
+
+	// The chain normal points to the right of p1->p2, so the floor runs
+	// from right to left to face up.
+	groundDef := DefaultBodyDef()
+	groundId := CreateBody(worldId, &groundDef)
+	ground := getBodyFullId(w, groundId)
+	shapeDef := DefaultShapeDef()
+	floor := ChainSegment{
+		Ghost1:  Vec2{X: fixed.Q32FromInt(6)},
+		Segment: Segment{Point1: Vec2{X: fixed.Q32FromInt(5)}, Point2: Vec2{X: fixed.Q32FromInt(-5)}},
+		Ghost2:  Vec2{X: fixed.Q32FromInt(-6)},
+	}
+	createShapeInternal(w, ground, getBodyTransformQuick(w, ground), &shapeDef, &floor, ChainSegmentShape)
+
+	boxId := addDynamicBox(t, worldId, Vec2{Y: fixed.Q32FromInt(2)})
+	box := getBodyFullId(w, boxId)
+
+	dt := stepDt()
+	for range 120 {
+		Step(worldId, dt, 4)
+		validateWorld(w)
+	}
+
+	// The helper box has a half extent of one, so it rests with its
+	// center one unit above the floor.
+	sim := getBodySim(w, box)
+	tolerance := fixed.Q32MustParse("0.01")
+	if !sim.center.Y.Sub(fixed.Q32One()).Abs().Less(tolerance) {
+		t.Fatalf("box center %v, want y near 1", sim.center)
+	}
+	if box.contactCount != 1 {
+		t.Fatalf("contact count %d, want 1", box.contactCount)
+	}
+}
