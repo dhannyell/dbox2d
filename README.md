@@ -14,12 +14,46 @@ contact manifolds for every shape pair, the distance solver, the shape
 casts and the time of impact, the contact bookkeeping, the islands with
 sleep and wake, the constraint graph, the soft-step contact solver, the
 body and contact events, the dynamic trees, the broadphase and the AABB,
-ray, shape and mover queries of the world. `Step` finds the new pairs,
-updates the contacts, solves the joints and the contacts, sweeps the fast
-bodies and the bullets against the world so they stop at their first time
-of impact, and puts resting islands to sleep. Sensors and the character
-mover wait.
+ray, shape and mover queries of the world, the seven joints and the filter
+joint, the chains, the sensors and the character mover. `Step` finds the
+new pairs, updates the contacts, solves the joints and the contacts,
+sweeps the fast bodies and the bullets against the world so they stop at
+their first time of impact, and puts resting islands to sleep.
 [PORTING.md](PORTING.md) tracks what has landed.
+
+### Naming
+
+A reference function `b2<Type>_<Name>(id, ...)` becomes the method
+`<Type>Id.<Name>(...)`: the underscore turns into the receiver dot and the
+name stays whole, `Get` and `Set` included:
+
+```go
+b2Body_GetPosition(bodyId)              → bodyId.GetPosition()
+b2RevoluteJoint_EnableLimit(jointId, x) → jointId.EnableLimit(true)
+b2World_GetGravity(worldId)             → worldId.GetGravity()
+```
+
+`Create*`, `Destroy*`, `Default*Def`, `Make*` and the geometry functions
+stay free functions: they carry no handle in the reference name.
+
+### Not ported
+
+A few pieces of the reference surface do not cross, by design:
+
+- `b2World_Draw` and `b2DebugDraw`: rendering belongs to the host
+  application, not the solver.
+- `b2World_GetProfile` and `b2Profile`: the port carries no timers to
+  report.
+- `b2World_DumpMemoryStats`: the port has no allocation hooks to walk.
+- The `byteCount` and `taskCount` fields of `b2Counters`, and the task
+  fields of `b2WorldDef`: they serve a task system this port does not
+  have.
+- The `void* context` parameter of every callback function type: a Go
+  closure already carries its own state.
+
+See [PORTING.md](PORTING.md) for the full map and
+[DIVERGENCES.md](DIVERGENCES.md) for what changed shape to survive fixed
+point.
 
 ## Fidelity contract
 

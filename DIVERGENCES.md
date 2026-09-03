@@ -48,7 +48,7 @@ Numbering is sequential from `D-001` and never reused.
 
 - Files: id_pool.go, aabb.go, math.go, hull.go, geometry.go, step.go,
   solver.go, manifold.go, table.go, contact.go, distance.go, world.go,
-  joint.go and the seven joint files (upstream `B2_ASSERT`)
+  joint.go, shape.go and the seven joint files (upstream `B2_ASSERT`)
 - Tier: T2
 - Reason: `B2_ASSERT` compiles out in a release build. Go has no such switch,
   and a silent corruption costs more than a stop.
@@ -62,20 +62,25 @@ Numbering is sequential from `D-001` and never reused.
   TestStepRejectsInvalidInput in step_test.go,
   TestCollideCapsulesRejectsADegenerateCapsule and
   TestCollideSegmentAndPolygonRejectsADegenerateSegment in manifold_test.go,
-  TestIterativeGeometryRejectsInvalidInput in distance_test.go, and
-  TestRevoluteRejectsAFullTurnLimit in joint_test.go
+  TestIterativeGeometryRejectsInvalidInput in distance_test.go,
+  TestRevoluteRejectsAFullTurnLimit in joint_test.go, and
+  TestCreateChainPanicsBelowFourPoints in shape_test.go
 
 ### D-004 An angle is a turn
 
-- Files: math.go, body.go, solver.go, contact_solver.go, joint.go and the
-  seven joint files (upstream
-  include/box2d/math_functions.h; src/body.c `b2UpdateBodyMassData`;
+- Files: math.go, body.go, world.go, solver.go, contact_solver.go, joint.go,
+  motor_joint.go and the other six joint files (upstream
+  include/box2d/math_functions.h; src/body.c `b2UpdateBodyMassData`,
+  `b2Body_ApplyTorque`, `b2Body_ApplyAngularImpulse`,
+  `b2Body_SetTargetTransform`; src/world.c `b2World_Explode`;
   src/solver.c `b2IntegrateVelocitiesTask`, `b2FinalizeBodiesTask`;
   src/solver.h `b2MakeSoft`; src/contact_solver.c the `Overflow` family;
-  src/joint.c `b2CreateRevoluteJoint` limit check; the prepare, warm start
-  and solve of src/revolute_joint.c, src/prismatic_joint.c,
-  src/wheel_joint.c, src/weld_joint.c, src/motor_joint.c,
-  src/mouse_joint.c and src/distance_joint.c)
+  src/joint.c `b2CreateRevoluteJoint` limit check and the angle accessors;
+  the prepare, warm start and solve of src/revolute_joint.c,
+  src/prismatic_joint.c, src/wheel_joint.c, src/weld_joint.c,
+  src/motor_joint.c `b2MotorJoint_SetAngularOffset` and
+  `b2MotorJoint_GetAngularOffset`, src/mouse_joint.c and
+  src/distance_joint.c)
 - Tier: T2
 - Reason: a turn reduces to its range by an exact subtraction. A radian needs
   a rounded pi, and the rounding enters every reduction.
@@ -97,7 +102,18 @@ Numbering is sequential from `D-001` and never reused.
   angular offset are turns, and each enters a constraint error or a bias
   multiplied by one turn; a motor speed is turns per second and multiplies
   by one turn before the motor row. The revolute limit check bounds the
-  angles at 0.495 turns, the `0.99 * pi` of the reference.
+  angles at 0.495 turns, the `0.99 * pi` of the reference. Every joint angle
+  accessor, including `GetAngularSeparation`, reports turns; the motor
+  joint's `SetAngularOffset` and `GetAngularOffset` keep the same unit.
+  `BodyId.ApplyTorque` accumulates the torque as given, because the turn
+  conversion happens where the solver consumes it, but
+  `BodyId.ApplyAngularImpulse` divides by `tau` on the spot to turn the
+  reference's radian impulse into turns per second, and
+  `BodyId.SetTargetTransform` scales its angular velocity target the same
+  way through `RelativeAngle`, which already returns turns.
+  `WorldId.Explode` divides by `tau` as well, converting the angular
+  impulse of each struck body from the reference's radians to turns per
+  second.
 - Test: TestIntegrateRotationCompletesATurn,
   TestComputeAngularVelocityInvertsIntegration and
   TestUnwindAngleReducesToHalfTurn in math_test.go,
@@ -105,9 +121,13 @@ Numbering is sequential from `D-001` and never reused.
   TestStepConvertsTorqueAndArcSpeedToTurns in step_test.go,
   TestFrictionSaturatesAtTheNormalImpulse in contact_solver_test.go,
   TestRevoluteRejectsAFullTurnLimit in joint_test.go,
-  TestMotorTurnsTowardTheAngularOffset in motor_joint_test.go, and
+  TestMotorTurnsTowardTheAngularOffset and
+  TestMotorJointAngularOffsetClampsToHalfTurn in motor_joint_test.go,
   TestSolveRevoluteJointTracksTheFloat64Mirror in
-  revolute_joint_internal_test.go
+  revolute_joint_internal_test.go,
+  TestSetTargetTransformDerivesVelocity and
+  TestApplyAngularImpulseInTurns in body_test.go, and
+  TestExplodeImpulseByDistance in world_test.go
 
 ### D-005 Validity is a range check
 
@@ -121,12 +141,16 @@ Numbering is sequential from `D-001` and never reused.
 
 ### D-006 A reciprocal becomes a division
 
-- Files: math.go, aabb.go, geometry.go, solver.go, manifold.go,
-  contact_solver.go, joint.go and the seven joint files (upstream
+- Files: math.go, aabb.go, geometry.go, body.go, world.go, solver.go,
+  manifold.go, contact_solver.go, joint.go and the seven joint files
+  (upstream
   include/box2d/math_functions.h `b2GetInverse22`, `b2Solve22`,
   `b2Normalize`, `b2NormalizeRot`; src/aabb.c `b2AABB_RayCast` `inv_d`;
   src/geometry.c `b2ComputePolygonCentroid` and `b2ComputePolygonMass`
   `inv3` and `invArea`, `b2RayCastCapsule` `invDen`;
+  src/body.c `b2Body_SetTargetTransform` `invH` and
+  `b2Body_SetMassData` `invMass` and `invI`;
+  src/world.c `b2World_Explode` falloff `scale`;
   src/solver.c `b2IntegrateVelocitiesTask` damping factors;
   src/manifold.c `b2CollideChainSegmentAndCircle` `1/ee` and
   `b2CollidePolygons` vertex-vertex `1.0f / distance`;
@@ -171,6 +195,11 @@ Numbering is sequential from `D-001` and never reused.
   frequency clamp. The effective masses of a joint follow the contact
   point: the prepare divides one by the denominator once, guarded by an
   exact test against zero, and the stages read the stored mass.
+  `BodyId.SetTargetTransform` divides by the caller's time step instead of
+  multiplying by its reciprocal. `BodyId.SetMassData` divides by the mass
+  and by the rotational inertia to store their inverses, guarded by the
+  same exact zero test as the shape-driven mass update. `WorldId.Explode`
+  divides the falloff band by its length to build the fade-out scale.
 - Test: TestSolve22SolvesTheSystem, TestNormalizeKeepsAShortVector and
   TestNormalizeRotKeepsAZeroRotation in math_test.go,
   TestAABBRayCastHitsTheNearFace in aabb_test.go,
@@ -215,14 +244,17 @@ Numbering is sequential from `D-001` and never reused.
 
 ### D-009 An infinite sentinel becomes the largest representable value
 
-- Files: aabb.go, hull.go, manifold.go, dynamic_tree.go, types.go (upstream
+- Files: aabb.go, hull.go, manifold.go, dynamic_tree.go, types.go, world.go,
+  mover.go (upstream
   src/aabb.c `b2AABB_RayCast`, src/hull.c `b2ComputeHull`, src/manifold.c
   `b2CollidePolygonAndCircle`, `b2FindMaxSeparation` and `b2CollidePolygons`
   search seeds, `b2CollideChainSegmentAndPolygon` SAT seeds
   `edgeSeparation`, `s0`, `s2` (`FLT_MAX` at lines 1525, 1540, 1563) and
   `polygonSeparation` (`-FLT_MAX` at line 1585), src/dynamic_tree.c `b2FindBestSibling` lower bounds and
   `b2PartitionSAH` bin bounds and cost seed; src/types.c
-  `b2DefaultDistanceJointDef` `maxLength`)
+  `b2DefaultDistanceJointDef` `maxLength`; src/world.c
+  `b2World_SetContactTuning` clamp upper bound; src/mover.c
+  `b2SolvePlanes` rigid `pushLimit`)
 - Tier: T2
 - Reason: the reference seeds a search with `FLT_MAX`, which no coordinate
   reaches. Q32.32 has no infinity and it saturates instead.
@@ -231,10 +263,16 @@ Numbering is sequential from `D-001` and never reused.
   coordinate that equals either seed. The default `MaxLength` of a distance
   joint is `huge`, the `B2_HUGE` of the reference: a length that no world
   reaches and that the range checks accept, so the rope stays slack until
-  a definition lowers it.
+  a definition lowers it. `SetContactTuning` clamps its hertz, damping
+  ratio and push speed against `Q32MaxValue` rather than `FLT_MAX`, so a
+  caller cannot saturate the tuning past what a Q32.32 value can hold.
+  `SolvePlanes` takes its rigid push limit as a plain `PushLimit` field;
+  the mover callers pass `huge`, the same `B2_HUGE` sentinel, in place of
+  the reference's `FLT_MAX`.
 - Test: TestAABBRayCastHitsTheNearFace in aabb_test.go,
-  TestComputeHullDropsAnInteriorPoint in hull_test.go, and
-  TestTreeSeedNeverWins in dynamic_tree_test.go
+  TestComputeHullDropsAnInteriorPoint in hull_test.go,
+  TestTreeSeedNeverWins in dynamic_tree_test.go, and
+  TestSolvePlanesSinglePlaneProjects in mover_test.go
 
 ### D-010 A generated array becomes a slice
 
@@ -242,7 +280,12 @@ Numbering is sequential from `D-001` and never reused.
   src/array.h, src/array.c), broad_phase.go (upstream src/broad_phase.c
   `b2PairQueryCallback` heap pairs), distance.go (upstream src/distance.c
   `b2MakeOffsetProxy` points and `b2ShapeDistance` simplex output),
-  step.go (upstream src/solver.h `bulletBodies` and `bulletBodyCount`)
+  step.go (upstream src/solver.h `bulletBodies` and `bulletBodyCount`),
+  shape.go and body.go (upstream src/types.h `b2ChainDef.points` and
+  `.materials`, src/shape.h `b2ChainShape.shapeIndices`, and the
+  `count`-plus-buffer accessors `b2Body_GetShapes`, `b2Body_GetJoints`,
+  `b2Body_GetContactData`, `b2Shape_GetContactData`,
+  `b2Chain_GetSegments` and `b2Shape_GetSensorOverlaps`)
 - Tier: T2
 - Reason: the reference generates one array type per element type with
   macros. Go has no macros, and the slice already carries the length and the
@@ -260,12 +303,22 @@ Numbering is sequential from `D-001` and never reused.
   offset proxy takes a point slice, and the distance solver writes its
   simplex trace into a slice whose length is the capacity of the
   reference. The bullet buffer of the step is a slice over one arena item,
-  sized to the awake body count, with the count beside it.
+  sized to the awake body count, with the count beside it. `ChainDef`
+  takes `Points` and `Materials` as slices in place of a pointer and a
+  count; a chain keeps its segment shape ids in a `shapeIndices` slice.
+  Every reference function that fills a caller array and returns the
+  written count keeps that shape: `BodyId.GetShapes`, `BodyId.GetJoints`,
+  `BodyId.GetContactData`, `ShapeId.GetContactData`,
+  `ChainId.GetSegments` and `ShapeId.GetSensorOverlaps` each take a
+  caller-owned slice and return how many entries they wrote, stopping
+  early when the slice is shorter than the available data.
 - Test: TestCreateAndDestroyOrdersProduceTheSameWorld and
   TestSleepingBodyGetsItsOwnSolverSet in world_test.go,
   TestStepAllocatesNothing and TestStepBulletStopsAtADynamicPlate in
-  step_test.go, and TestShapeDistanceWarmStartsFromTheCache in
-  distance_test.go
+  step_test.go, TestShapeDistanceWarmStartsFromTheCache in
+  distance_test.go, TestCreateChainOpenBuildsSegmentsWithGhosts and
+  TestChainSetFrictionReachesEverySegment in shape_test.go, and
+  TestGetContactDataReturnsTouchingManifold in body_test.go
 
 ### D-011 The determinism witness is port-only
 
@@ -307,7 +360,9 @@ Numbering is sequential from `D-001` and never reused.
   :520 GJK search direction), manifold.go (upstream
   src/manifold.c:24 capsule polygon length assert; 186, 209 vertex-region
   guards; 284 capsule length assert; 495 single-point normal fallback;
-  602, 612 and 1206, 1216 clip lerp spans)
+  602, 612 and 1206, 1216 clip lerp spans), sensor.go (upstream
+  src/sensor.c `b2SensorQueryCallback` overlap distance), world.go
+  (upstream src/world.c `b2World_Explode` direction-vector guard)
 - Tier: T2
 - Reason: `FLT_EPSILON` guards absorb float rounding noise. Q32.32 has no
   such noise, and its smallest magnitude is one raw unit, which already
@@ -325,14 +380,21 @@ Numbering is sequential from `D-001` and never reused.
   structure. In `ShapeDistance` the overlap exit on a short search
   direction fires only when the direction is exactly zero; every nonzero
   direction adds a support point, so the duplicate test and the iteration
-  bound end the loop, as they do in float.
+  bound end the loop, as they do in float. The sensor overlap test in
+  `sensorQueryCallback` requires an exactly zero shape distance rather
+  than an epsilon band, so two shapes that are merely close, but not
+  touching, produce no overlap. `WorldId.Explode` guards the direction
+  from an explosion center to a struck shape's closest point the same
+  way: only an exactly zero-length vector falls back to `(1, 0)`.
 - Test: TestSegmentDistanceHandlesDegenerateSegments and
   TestShapeDistanceReportsOverlap in distance_test.go,
   TestCollidePolygonAndCircleRegions,
   TestCollideCapsulesFallsBackOnCoincidentClosestPoints,
   TestCollidePolygonsClipsThePartialOverlap and
   TestCollideSegmentAndPolygonRejectsADegenerateSegment in manifold_test.go,
-  and the clipSegments tests in manifold_internal_test.go
+  the clipSegments tests in manifold_internal_test.go,
+  TestSensorTouchingEdgeIsNotOverlap in sensor_test.go, and
+  TestExplodeImpulseByDistance in world_test.go
 
 ### D-013 The pairs of a moved proxy are sorted by shape id
 
@@ -361,7 +423,10 @@ Numbering is sequential from `D-001` and never reused.
   `b2TreeRayCastCallbackFcn` and `b2TreeShapeCastCallbackFcn`), world.go
   (upstream src/world.c `WorldQueryContext`, `WorldRayCastContext`,
   `WorldMoverCastContext` and `b2RayCastClosestFcn`), solver.go (upstream
-  src/solver.c `b2ContinuousContext` and `b2ContinuousQueryCallback`)
+  src/solver.c `b2ContinuousContext` and `b2ContinuousQueryCallback`),
+  types.go (upstream include/box2d/types.h `b2FrictionCallback`,
+  `b2RestitutionCallback`, `b2CustomFilterFcn`, `b2PreSolveFcn` and
+  `b2PlaneResultFcn`)
 - Tier: T2
 - Reason: the reference passes a function pointer and a `void*` context.
   Go closes over the context instead, and a typed closure keeps the call
@@ -373,8 +438,17 @@ Numbering is sequential from `D-001` and never reused.
   their result as well. The continuous stage passes a method value of its
   context to the tree walks. A closure that does not escape allocates
   nothing; the step and bullet benchmarks pin zero allocations.
+  `FrictionCallback`, `RestitutionCallback`, `CustomFilterFcn` and
+  `PreSolveFcn` drop the reference's `void* context` the same way: a
+  caller that needs state closes over it. `WorldId.CollideMover` takes a
+  `PlaneResultFcn` closure in place of a callback and context pair, so the
+  mover's plane collection loop can build its `[]CollisionPlane` directly
+  in the closure.
 - Test: TestTreeQueryReportsTheOverlaps, TestTreeRayCastClipsTheRay and
   TestTreeShapeCastMatchesBruteForce in dynamic_tree_test.go;
   TestOverlapAABBReportsTheFatBounds, TestCastRayClipsAcrossTheTrees,
   TestShapeQueriesMatchBruteForce and TestCastMoverStopsAtTheWall in
-  world_test.go; TestStepBulletStopsAtADynamicPlate in step_test.go
+  world_test.go; TestStepBulletStopsAtADynamicPlate,
+  TestPreSolveFalseLetsTheBoxThrough and TestMoverStopsOnTheGround in
+  step_test.go; TestSetFrictionCallbackAffectsNextContact and
+  TestCustomFilterRejectsPair in world_test.go
