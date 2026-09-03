@@ -2,7 +2,7 @@ package dbox2d
 
 import (
 	"math/bits"
-	"sort"
+	"slices"
 
 	"github.com/dhannyell/fixed"
 )
@@ -87,6 +87,17 @@ func compareShapeRefs(a, b shapeRef) bool {
 	return a.shapeId < b.shapeId || a.shapeId == b.shapeId && a.generation < b.generation
 }
 
+// cmpShapeRefs is compareShapeRefs in the three-way form slices.SortFunc needs.
+func cmpShapeRefs(a, b shapeRef) int {
+	switch {
+	case compareShapeRefs(a, b):
+		return -1
+	case compareShapeRefs(b, a):
+		return 1
+	}
+	return 0
+}
+
 // sensorTask queries every sensor and marks changed overlap sets. It
 // corresponds to b2SensorTask in src/sensor.c; the port runs serially.
 func sensorTask(w *world) {
@@ -125,9 +136,9 @@ func sensorTask(w *world) {
 			w.broadPhase.trees[DynamicBody].query(sensorShape.fatAABB, maskBits, callback)
 		}
 
-		sort.Slice(s.overlaps2, func(i, j int) bool {
-			return compareShapeRefs(s.overlaps2[i], s.overlaps2[j])
-		})
+		// slices.SortFunc keeps the step free of allocations; sort.Slice
+		// allocates its swapper on every call.
+		slices.SortFunc(s.overlaps2, cmpShapeRefs)
 
 		index1, index2 := 0, 0
 		changed := false
