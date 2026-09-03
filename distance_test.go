@@ -328,3 +328,83 @@ func TestGetSweepTransformInterpolatesTheCenter(t *testing.T) {
 		t.Fatalf("origins %v %v %v, want x = 0, 2, 4", start.P, mid.P, end.P)
 	}
 }
+
+// TestShapeCastMatchesHandCases pins the conservative advancement on
+// boxes whose hit fraction is known: the sweep stops once the gap falls
+// under the target, so the fraction lands just short of the exact value.
+func TestShapeCastMatchesHandCases(t *testing.T) {
+	one := fixed.Q32One()
+	a := boxProxy(1, 1, vec(0, 0))
+	b := boxProxy(1, 1, vec(0, 0))
+	pair := func(positionB, translation dbox2d.Vec2) dbox2d.ShapeCastPairInput {
+		return dbox2d.ShapeCastPairInput{
+			ProxyA:       a,
+			ProxyB:       b,
+			TransformA:   dbox2d.TransformIdentity(),
+			TransformB:   dbox2d.Transform{P: positionB, Q: dbox2d.RotIdentity()},
+			TranslationB: translation,
+			MaxFraction:  one,
+		}
+	}
+
+	t.Run("hit", func(t *testing.T) {
+		input := pair(vec(5, 0), vec(-10, 0))
+		out := dbox2d.ShapeCast(&input)
+		if !out.Hit {
+			t.Fatal("the sweep missed")
+		}
+		// The faces meet at a fraction of 0.3; the sweep stops a target
+		// short, within a quarter of a slop.
+		exact := fixed.Q32MustParse("0.3")
+		if !out.Fraction.Less(exact) || exact.Sub(out.Fraction).Less(fixed.Q32Zero()) || !exact.Sub(out.Fraction).Less(fixed.Q32MustParse("0.001")) {
+			t.Fatalf("fraction %v, want just under 0.3", out.Fraction)
+		}
+		if out.Normal != vec(1, 0) || !out.Point.X.Eq(one) {
+			t.Fatalf("normal %v point %v, want (1, 0) on the face x = 1", out.Normal, out.Point)
+		}
+		if out.Iterations == 0 || out.Iterations > 20 {
+			t.Fatalf("iterations %d", out.Iterations)
+		}
+	})
+
+	t.Run("miss", func(t *testing.T) {
+		input := pair(vec(5, 0), vec(0, 10))
+		if out := dbox2d.ShapeCast(&input); out.Hit {
+			t.Fatalf("a parallel sweep hit at %v", out.Fraction)
+		}
+	})
+
+	t.Run("out of range", func(t *testing.T) {
+		input := pair(vec(5, 0), vec(-1, 0))
+		if out := dbox2d.ShapeCast(&input); out.Hit {
+			t.Fatalf("a short sweep hit at %v", out.Fraction)
+		}
+	})
+
+	t.Run("initial overlap", func(t *testing.T) {
+		input := pair(vec(1, 0), vec(-10, 0))
+		out := dbox2d.ShapeCast(&input)
+		if !out.Hit || !out.Fraction.Eq(fixed.Q32Zero()) || out.Normal != vec(0, 0) {
+			t.Fatalf("overlap reported %+v, want a hit at zero with no normal", out)
+		}
+	})
+
+	t.Run("encroach", func(t *testing.T) {
+		// Two circles whose surfaces overlap by more than two slops may
+		// move a little closer: the sweep hits, but not at zero.
+		half := fixed.Q32Half()
+		input := dbox2d.ShapeCastPairInput{
+			ProxyA:       dbox2d.MakeProxy([]dbox2d.Vec2{vec(0, 0)}, half),
+			ProxyB:       dbox2d.MakeProxy([]dbox2d.Vec2{vec(0, 0)}, half),
+			TransformA:   dbox2d.TransformIdentity(),
+			TransformB:   dbox2d.Transform{P: vecQ("0.9", "0"), Q: dbox2d.RotIdentity()},
+			TranslationB: vec(-1, 0),
+			MaxFraction:  one,
+			CanEncroach:  true,
+		}
+		out := dbox2d.ShapeCast(&input)
+		if !out.Hit || !fixed.Q32Zero().Less(out.Fraction) || !out.Fraction.Less(fixed.Q32MustParse("0.01")) {
+			t.Fatalf("encroach reported %+v, want a small positive fraction", out)
+		}
+	})
+}

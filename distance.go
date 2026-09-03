@@ -573,3 +573,96 @@ func ShapeDistance(input *DistanceInput, cache *SimplexCache, simplexes []Simple
 
 	return output
 }
+
+// ShapeCast casts shape B against a fixed shape A by conservative
+// advancement and reports the hit point, the normal and the fraction of
+// the translation. Shapes that start in contact report a hit at a zero
+// fraction unless the input allows an encroach. It corresponds to
+// b2ShapeCast in src/distance.c.
+func ShapeCast(input *ShapeCastPairInput) CastOutput {
+	zero := fixed.Q32Zero()
+
+	// Compute tolerance
+	totalRadius := input.ProxyA.Radius.Add(input.ProxyB.Radius)
+	target := linearSlop.Max(totalRadius.Sub(linearSlop))
+	tolerance := linearSlop.Div(fixed.Q32FromInt(4))
+
+	if !tolerance.Less(target) {
+		panic("dbox2d: the shape cast target is inside the tolerance")
+	}
+
+	// Prepare input for distance query
+	var cache SimplexCache
+
+	fraction := zero
+
+	var distanceInput DistanceInput
+	distanceInput.ProxyA = input.ProxyA
+	distanceInput.ProxyB = input.ProxyB
+	distanceInput.TransformA = input.TransformA
+	distanceInput.TransformB = input.TransformB
+	distanceInput.UseRadii = false
+
+	delta2 := input.TranslationB
+	var output CastOutput
+
+	const maxIterations = 20
+	for iteration := 0; iteration < maxIterations; iteration++ {
+		output.Iterations++
+
+		distanceOutput := ShapeDistance(&distanceInput, &cache, nil)
+
+		if distanceOutput.Distance.Less(target.Add(tolerance)) {
+			if iteration == 0 {
+				if input.CanEncroach && linearSlop.Mul(fixed.Q32FromInt(2)).Less(distanceOutput.Distance) {
+					target = distanceOutput.Distance.Sub(linearSlop)
+				} else {
+					// Initial overlap
+					output.Hit = true
+
+					// Compute a common point
+					c1 := MulAdd(distanceOutput.PointA, input.ProxyA.Radius, distanceOutput.Normal)
+					c2 := MulAdd(distanceOutput.PointB, input.ProxyB.Radius.Neg(), distanceOutput.Normal)
+					output.Point = Lerp(c1, c2, fixed.Q32Half())
+					return output
+				}
+			} else {
+				// Regular hit
+				if !zero.Less(distanceOutput.Distance) || !IsNormalized(distanceOutput.Normal) {
+					panic("dbox2d: the shape cast hit has no valid normal")
+				}
+				output.Fraction = fraction
+				output.Point = MulAdd(distanceOutput.PointA, input.ProxyA.Radius, distanceOutput.Normal)
+				output.Normal = distanceOutput.Normal
+				output.Hit = true
+				return output
+			}
+		}
+
+		if !zero.Less(distanceOutput.Distance) {
+			panic("dbox2d: the shape cast advanced into an overlap")
+		}
+		if !IsNormalized(distanceOutput.Normal) {
+			panic("dbox2d: the shape cast normal is not unit")
+		}
+
+		// Check if shapes are approaching each other
+		denominator := delta2.Dot(distanceOutput.Normal)
+		if !denominator.Less(zero) {
+			// Miss
+			return output
+		}
+
+		// Advance sweep
+		fraction = fraction.Add(target.Sub(distanceOutput.Distance).Div(denominator))
+		if !fraction.Less(input.MaxFraction) {
+			// Miss
+			return output
+		}
+
+		distanceInput.TransformB.P = MulAdd(input.TransformB.P, fraction, delta2)
+	}
+
+	// Failure!
+	return output
+}

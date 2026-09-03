@@ -1215,8 +1215,124 @@ func (tree *dynamicTree) rayCast(input *RayCastInput, maskBits uint64, callback 
 	return result
 }
 
-// b2DynamicTree_ShapeCast waits for the shape cast of the collision
-// module.
+// treeShapeCastCallback receives each leaf whose box the swept proxy
+// reaches. It returns zero to stop the cast, a fraction in (0, maxFraction)
+// to clip the sweep, or any other value to continue unchanged. D-014
+// applies.
+type treeShapeCastCallback func(input *ShapeCastInput, proxyId int, userData uint64) Q
+
+// shapeCast calls back every leaf that the swept proxy may reach, nearest
+// first. It corresponds to b2DynamicTree_ShapeCast in src/dynamic_tree.c.
+func (tree *dynamicTree) shapeCast(input *ShapeCastInput, maskBits uint64, callback treeShapeCastCallback) treeStats {
+	stats := treeStats{}
+
+	if tree.nodeCount == 0 || input.Proxy.Count == 0 {
+		return stats
+	}
+
+	originAABB := AABB{LowerBound: input.Proxy.Points[0], UpperBound: input.Proxy.Points[0]}
+	for i := 1; i < input.Proxy.Count; i++ {
+		originAABB.LowerBound = Min(originAABB.LowerBound, input.Proxy.Points[i])
+		originAABB.UpperBound = Max(originAABB.UpperBound, input.Proxy.Points[i])
+	}
+
+	radius := Vec2{X: input.Proxy.Radius, Y: input.Proxy.Radius}
+
+	originAABB.LowerBound = originAABB.LowerBound.Sub(radius)
+	originAABB.UpperBound = originAABB.UpperBound.Add(radius)
+
+	p1 := AABBCenter(originAABB)
+	extension := AABBExtents(originAABB)
+
+	// v is perpendicular to the segment.
+	r := input.Translation
+	v := CrossSV(fixed.Q32One(), r)
+	absV := Abs(v)
+
+	// Separating axis for segment (Gino, p80).
+	// |dot(v, p1 - c)| > dot(|v|, h)
+
+	maxFraction := input.MaxFraction
+
+	// Build total box for the shape cast
+	t := input.Translation.Mul(maxFraction)
+	totalAABB := AABB{
+		LowerBound: Min(originAABB.LowerBound, originAABB.LowerBound.Add(t)),
+		UpperBound: Max(originAABB.UpperBound, originAABB.UpperBound.Add(t)),
+	}
+
+	subInput := *input
+	nodes := tree.nodes
+
+	var stack [treeStackSize]int
+	stackCount := 0
+	stack[stackCount] = tree.root
+	stackCount++
+
+	zero := fixed.Q32Zero()
+
+	for stackCount > 0 {
+		stackCount--
+		nodeId := stack[stackCount]
+		if nodeId == nullIndex {
+			panic("dbox2d: the tree shape cast popped the null node")
+		}
+
+		node := &nodes[nodeId]
+		stats.nodeVisits += 1
+
+		if node.categoryBits&maskBits == 0 || !AABBOverlaps(node.aabb, totalAABB) {
+			continue
+		}
+
+		// Separating axis for segment (Gino, p80).
+		// |dot(v, p1 - c)| > dot(|v|, h)
+		// radius extension is added to the node in this case
+		c := AABBCenter(node.aabb)
+		h := AABBExtents(node.aabb).Add(extension)
+		term1 := v.Dot(p1.Sub(c)).Abs()
+		term2 := absV.Dot(h)
+		if term2.Less(term1) {
+			continue
+		}
+
+		if node.isLeaf() {
+			subInput.MaxFraction = maxFraction
+
+			value := callback(&subInput, nodeId, node.userData)
+			stats.leafVisits += 1
+
+			if value.Eq(zero) {
+				// The client has terminated the ray cast.
+				return stats
+			}
+
+			if zero.Less(value) && value.Less(maxFraction) {
+				// Update segment bounding box.
+				maxFraction = value
+				t = input.Translation.Mul(maxFraction)
+				totalAABB.LowerBound = Min(originAABB.LowerBound, originAABB.LowerBound.Add(t))
+				totalAABB.UpperBound = Max(originAABB.UpperBound, originAABB.UpperBound.Add(t))
+			}
+		} else {
+			if stackCount >= treeStackSize-1 {
+				panic("dbox2d: the tree shape cast stack is full")
+			}
+			c1 := AABBCenter(nodes[node.child1].aabb)
+			c2 := AABBCenter(nodes[node.child2].aabb)
+			if c1.DistanceSq(p1).Less(c2.DistanceSq(p1)) {
+				stack[stackCount] = int(node.child2)
+				stack[stackCount+1] = int(node.child1)
+			} else {
+				stack[stackCount] = int(node.child1)
+				stack[stackCount+1] = int(node.child2)
+			}
+			stackCount += 2
+		}
+	}
+
+	return stats
+}
 
 // treeHeuristic selects the rebuild partition, as B2_TREE_HEURISTIC in
 // src/dynamic_tree.c: zero is the median split, one is the surface area

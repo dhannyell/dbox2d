@@ -485,3 +485,54 @@ func rayCastShape(input *RayCastInput, s *shape, transform Transform) CastOutput
 	output.Normal = RotateVector(transform.Q, output.Normal)
 	return output
 }
+
+// shapeCastShape casts a proxy in world space against a shape at a
+// transform. It corresponds to b2ShapeCastShape in src/shape.c.
+func shapeCastShape(input *ShapeCastInput, s *shape, transform Transform) CastOutput {
+	localInput := *input
+
+	for i := range localInput.Proxy.Count {
+		localInput.Proxy.Points[i] = InvTransformPoint(transform, input.Proxy.Points[i])
+	}
+
+	localInput.Translation = InvRotateVector(transform.Q, input.Translation)
+
+	var output CastOutput
+	switch s.shapeType {
+	case CapsuleShape:
+		output = ShapeCastCapsule(&localInput, &s.capsule)
+	case CircleShape:
+		output = ShapeCastCircle(&localInput, &s.circle)
+	case PolygonShape:
+		output = ShapeCastPolygon(&localInput, &s.polygon)
+	case SegmentShape:
+		output = ShapeCastSegment(&localInput, &s.segment)
+	case ChainSegmentShape:
+		output = ShapeCastSegment(&localInput, &s.chainSegment.Segment)
+	default:
+		return output
+	}
+
+	output.Point = TransformPoint(transform, output.Point)
+	output.Normal = RotateVector(transform.Q, output.Normal)
+	return output
+}
+
+// makeShapeDistanceProxy builds the distance proxy of a shape in its body
+// frame. It corresponds to b2MakeShapeDistanceProxy in src/shape.c.
+func makeShapeDistanceProxy(s *shape) ShapeProxy {
+	switch s.shapeType {
+	case CapsuleShape:
+		return MakeProxy([]Vec2{s.capsule.Center1, s.capsule.Center2}, s.capsule.Radius)
+	case CircleShape:
+		return MakeProxy([]Vec2{s.circle.Center}, s.circle.Radius)
+	case PolygonShape:
+		return MakeProxy(s.polygon.Vertices[:s.polygon.Count], s.polygon.Radius)
+	case SegmentShape:
+		return MakeProxy([]Vec2{s.segment.Point1, s.segment.Point2}, fixed.Q32Zero())
+	case ChainSegmentShape:
+		return MakeProxy([]Vec2{s.chainSegment.Segment.Point1, s.chainSegment.Segment.Point2}, fixed.Q32Zero())
+	default:
+		panic("dbox2d: unknown shape type")
+	}
+}

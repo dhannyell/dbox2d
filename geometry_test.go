@@ -492,3 +492,46 @@ func TestShapeAABBsMatchTheReference(t *testing.T) {
 		}
 	}
 }
+
+// TestShapeCastsReachTheNearSurface sweeps a point proxy from the left
+// against each shape and expects the fraction within a slop of the exact
+// value: the advancement stops a slop short of a sharp surface and a slop
+// inside a rounded one. The rounded polygon ray cast goes through the
+// same sweep.
+func TestShapeCastsReachTheNearSurface(t *testing.T) {
+	one := fixed.Q32One()
+	point := dbox2d.MakeProxy([]dbox2d.Vec2{pt("-3", "0")}, fixed.Q32Zero())
+	input := dbox2d.ShapeCastInput{Proxy: point, Translation: pt("10", "0"), MaxFraction: one}
+
+	circle := dbox2d.Circle{Radius: one}
+	capsule := dbox2d.Capsule{Center1: pt("-1", "-1"), Center2: pt("-1", "1"), Radius: fixed.Q32Half()}
+	segment := dbox2d.Segment{Point1: pt("-1", "1"), Point2: pt("-1", "-1")}
+	box := dbox2d.MakeBox(one, one)
+	rounded := dbox2d.MakeBox(fixed.Q32Half(), fixed.Q32Half())
+	rounded.Radius = fixed.Q32Half()
+
+	cases := []struct {
+		name  string
+		got   dbox2d.CastOutput
+		exact string
+	}{
+		{"circle", dbox2d.ShapeCastCircle(&input, &circle), "0.2"},
+		{"capsule", dbox2d.ShapeCastCapsule(&input, &capsule), "0.15"},
+		{"segment", dbox2d.ShapeCastSegment(&input, &segment), "0.2"},
+		{"polygon", dbox2d.ShapeCastPolygon(&input, &box), "0.2"},
+		{"rounded polygon ray", dbox2d.RayCastPolygon(&dbox2d.RayCastInput{Origin: pt("-3", "0"), Translation: pt("10", "0"), MaxFraction: one}, &rounded), "0.2"},
+	}
+
+	for _, c := range cases {
+		exact := fixed.Q32MustParse(c.exact)
+		if !c.got.Hit {
+			t.Fatalf("%s: the sweep missed", c.name)
+		}
+		if !near(c.got.Fraction, exact, fixed.Q32MustParse("0.001")) {
+			t.Fatalf("%s: fraction %v, want near %s", c.name, c.got.Fraction, c.exact)
+		}
+		if !nearVec(c.got.Normal, pt("-1", "0"), sqrtTol()) {
+			t.Fatalf("%s: normal %v, want (-1, 0)", c.name, c.got.Normal)
+		}
+	}
+}

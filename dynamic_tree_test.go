@@ -474,3 +474,94 @@ func TestTreeQueryMatchesBruteForce(t *testing.T) {
 	}
 	destroyTree(&tree)
 }
+
+// TestTreeShapeCastMatchesBruteForce sweeps a small box through a hundred
+// random boxes. The tree prunes by the swept bounds and by the separating
+// axis of the sweep, so it may report a leaf the sweep only nears, but it
+// must report every leaf the swept box touches, and every reported leaf
+// must overlap the swept bounds and pass the mask. The oracle grows each
+// leaf by the box and casts the center through it.
+func TestTreeShapeCastMatchesBruteForce(t *testing.T) {
+	rng := rand.New(rand.NewSource(1))
+	const count = 100
+	tree := createTree()
+	boxes := make([]AABB, count)
+	categories := make([]uint64, count)
+	for i := range count {
+		x, y := rng.Intn(60), rng.Intn(60)
+		boxes[i] = box(x, y, x+1+rng.Intn(6), y+1+rng.Intn(6))
+		categories[i] = 1 << uint(rng.Intn(3))
+		tree.createProxy(boxes[i], categories[i], uint64(i))
+	}
+	tree.validate()
+
+	for range 50 {
+		x, y := rng.Intn(60), rng.Intn(60)
+		unit := MakeBox(fixed.Q32One(), fixed.Q32One())
+		proxy := MakeOffsetProxy(unit.Vertices[:unit.Count], fixed.Q32Zero(), v2(x, y), RotIdentity())
+		translation := v2(rng.Intn(41)-20, rng.Intn(41)-20)
+		mask := uint64(rng.Intn(8))
+		input := ShapeCastInput{Proxy: proxy, Translation: translation, MaxFraction: fixed.Q32One()}
+
+		start := box(x-1, y-1, x+1, y+1)
+		swept := AABBUnion(start, AABB{LowerBound: start.LowerBound.Add(translation), UpperBound: start.UpperBound.Add(translation)})
+
+		want := map[uint64]bool{}
+		for i := range count {
+			grown := AABB{LowerBound: boxes[i].LowerBound.Sub(v2(1, 1)), UpperBound: boxes[i].UpperBound.Add(v2(1, 1))}
+			touches := AABBOverlaps(start, boxes[i]) || aabbRayCast(grown, v2(x, y), v2(x, y).Add(translation)).Hit
+			if touches && categories[i]&mask != 0 {
+				want[uint64(i)] = true
+			}
+		}
+		got := map[uint64]bool{}
+		tree.shapeCast(&input, mask, func(sub *ShapeCastInput, _ int, userData uint64) Q {
+			if got[userData] {
+				t.Fatalf("the cast reported leaf %d twice", userData)
+			}
+			got[userData] = true
+			if !AABBOverlaps(boxes[userData], swept) || categories[userData]&mask == 0 {
+				t.Fatalf("the cast reported leaf %d outside the swept bounds or the mask", userData)
+			}
+			return sub.MaxFraction
+		})
+		for id := range want {
+			if !got[id] {
+				t.Fatalf("the cast from %v by %v with mask %d missed leaf %d", v2(x, y), translation, mask, id)
+			}
+		}
+	}
+	destroyTree(&tree)
+}
+
+// TestTreeShapeCastClipsTheSweep checks that a callback that returns the
+// hit fraction shortens the sweep so later leaves stay unvisited.
+func TestTreeShapeCastClipsTheSweep(t *testing.T) {
+	tree := createTree()
+	for i := range 5 {
+		tree.createProxy(box(i*10, 0, i*10+2, 2), DefaultCategoryBits, uint64(i))
+	}
+
+	unit := MakeBox(fixed.Q32Half(), fixed.Q32Half())
+	proxy := MakeOffsetProxy(unit.Vertices[:unit.Count], fixed.Q32Zero(), v2(-5, 1), RotIdentity())
+	input := ShapeCastInput{Proxy: proxy, Translation: v2(100, 0), MaxFraction: fixed.Q32One()}
+
+	var order []uint64
+	stats := tree.shapeCast(&input, DefaultMaskBits, func(sub *ShapeCastInput, proxyId int, userData uint64) Q {
+		order = append(order, userData)
+		leaf := MakeOffsetBox(fixed.Q32One(), fixed.Q32One(), AABBCenter(tree.getAABB(proxyId)), RotIdentity())
+		out := ShapeCastPolygon(&ShapeCastInput{
+			Proxy:       sub.Proxy,
+			Translation: sub.Translation,
+			MaxFraction: sub.MaxFraction,
+		}, &leaf)
+		if !out.Hit {
+			t.Fatalf("the sweep reached leaf %d without a hit", userData)
+		}
+		return out.Fraction
+	})
+	if len(order) != 1 || order[0] != 0 || stats.leafVisits != 1 {
+		t.Errorf("the clipped sweep visited %v, want only the first leaf", order)
+	}
+	destroyTree(&tree)
+}

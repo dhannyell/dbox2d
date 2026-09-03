@@ -304,6 +304,33 @@ type Simplex struct {
 	Count int
 }
 
+// ShapeCastPairInput is the input of ShapeCast. It corresponds to
+// b2ShapeCastPairInput in include/box2d/collision.h.
+type ShapeCastPairInput struct {
+	// ProxyA is the proxy of shape A.
+	ProxyA ShapeProxy
+
+	// ProxyB is the proxy of shape B.
+	ProxyB ShapeProxy
+
+	// TransformA is the world transform of shape A.
+	TransformA Transform
+
+	// TransformB is the world transform of shape B.
+	TransformB Transform
+
+	// TranslationB is the translation of shape B.
+	TranslationB Vec2
+
+	// MaxFraction is the fraction of the translation to consider. It is
+	// usually one.
+	MaxFraction Q
+
+	// CanEncroach lets shapes with a radius move a little closer when
+	// they already touch.
+	CanEncroach bool
+}
+
 // Sweep describes the motion of a body for the time of impact. Shapes are
 // defined about the body origin, which may differ from the center of mass,
 // so the sweep interpolates the center of mass. It corresponds to b2Sweep
