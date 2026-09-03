@@ -1057,3 +1057,42 @@ func TestStepPullsTheRopeTight(t *testing.T) {
 	}
 	validateWorld(w)
 }
+
+// TestStepSlidesToTheStop pins the prismatic joint inside Step: a box on
+// the x axis of a static ground, limited to [0, 1], slides under a lateral
+// gravity and stops at one, still on the axis, and no operation saturates.
+func TestStepSlidesToTheStop(t *testing.T) {
+	worldDef := DefaultWorldDef()
+	worldDef.Gravity = Vec2{X: fixed.Q32FromInt(10)}
+	worldId := CreateWorld(&worldDef)
+	t.Cleanup(func() { DestroyWorld(worldId) })
+	w := getWorldFromId(worldId)
+
+	groundDef := DefaultBodyDef()
+	groundId := CreateBody(worldId, &groundDef)
+	boxId := addDynamicCircle(t, worldId, v2(0, 0))
+
+	def := DefaultPrismaticJointDef()
+	def.BodyIdA = groundId
+	def.BodyIdB = boxId
+	def.EnableLimit = true
+	def.LowerTranslation = fixed.Q32Zero()
+	def.UpperTranslation = fixed.Q32One()
+	CreatePrismaticJoint(worldId, &def)
+
+	fixed.ResetSaturationCount()
+	body := getBodyFullId(w, boxId)
+	slack := linearSlop.Add(linearSlop)
+	dt := stepDt()
+	for range 120 {
+		Step(worldId, dt, 4)
+	}
+	center := getBodySim(w, body).center
+	if !withinQ(center.X, fixed.Q32One(), slack) || !withinQ(center.Y, fixed.Q32Zero(), slack) {
+		t.Errorf("the box rests at %v, want (1, 0)", center)
+	}
+	if n := fixed.SaturationCount(); n != 0 {
+		t.Errorf("%d operations saturated", n)
+	}
+	validateWorld(w)
+}

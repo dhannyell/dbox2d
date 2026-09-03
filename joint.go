@@ -948,6 +948,8 @@ func prepareJoint(js *jointSim, context *stepContext) {
 	case FilterJoint:
 	case DistanceJoint:
 		prepareDistanceJoint(js, context)
+	case PrismaticJoint:
+		preparePrismaticJoint(js, context)
 	case RevoluteJoint:
 		prepareRevoluteJoint(js, context)
 	default:
@@ -961,6 +963,8 @@ func warmStartJoint(js *jointSim, context *stepContext) {
 	case FilterJoint:
 	case DistanceJoint:
 		warmStartDistanceJoint(js, context)
+	case PrismaticJoint:
+		warmStartPrismaticJoint(js, context)
 	case RevoluteJoint:
 		warmStartRevoluteJoint(js, context)
 	default:
@@ -974,6 +978,8 @@ func solveJoint(js *jointSim, context *stepContext, useBias bool) {
 	case FilterJoint:
 	case DistanceJoint:
 		solveDistanceJoint(js, context, useBias)
+	case PrismaticJoint:
+		solvePrismaticJoint(js, context, useBias)
 	case RevoluteJoint:
 		solveRevoluteJoint(js, context, useBias)
 	default:
