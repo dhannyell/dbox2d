@@ -394,8 +394,6 @@ func updateBroadPhasePairs(w *world) {
 	alloc.freeItem(bp.moveResultMem)
 	bp.moveResults = nil
 	bp.moveResultMem = nil
-
-	validateSolverSets(w)
 }
 
 // testOverlap reports whether the boxes of two proxies overlap.
