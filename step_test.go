@@ -1262,6 +1262,58 @@ func TestStepDragsToTheTarget(t *testing.T) {
 	validateWorld(w)
 }
 
+// TestMoverStopsOnTheGround drives a mover capsule down onto a static
+// ground box through CollideMover and SolvePlanes, without Step. The
+// solver targets separation linearSlop (b2SolvePlanes adds linearSlop to
+// the measured separation before pushing), so the capsule's rounded
+// bottom settles at linearSlop above the ground surface.
+func TestMoverStopsOnTheGround(t *testing.T) {
+	worldId := createTestWorld(t)
+
+	groundDef := DefaultBodyDef()
+	groundDef.Position = Vec2{Y: fixed.Q32Half().Neg()}
+	groundId := CreateBody(worldId, &groundDef)
+	shapeDef := DefaultShapeDef()
+	ground := MakeBox(fixed.Q32FromInt(5), fixed.Q32Half())
+	CreatePolygonShape(groundId, &shapeDef, &ground)
+
+	radius := fixed.Q32MustParse("0.3")
+	mover := Capsule{
+		Center1: Vec2{Y: radius},
+		Center2: Vec2{Y: radius.Add(fixed.Q32Half())},
+		Radius:  radius,
+	}
+	// Bottom of the capsule starts a unit above the ground top (y = 0).
+	start := fixed.Q32One()
+	mover.Center1.Y = mover.Center1.Y.Add(start)
+	mover.Center2.Y = mover.Center2.Y.Add(start)
+
+	targetDelta := Vec2{Y: fixed.Q32MustParse("-0.05")}
+	var lastNormal Vec2
+
+	for range 60 {
+		var planes []CollisionPlane
+		worldId.CollideMover(&mover, DefaultQueryFilter(), func(_ ShapeId, result *PlaneResult) bool {
+			planes = append(planes, CollisionPlane{Plane: result.Plane, PushLimit: huge, ClipVelocity: true})
+			lastNormal = result.Plane.Normal
+			return true
+		})
+
+		res := SolvePlanes(targetDelta, planes)
+		mover.Center1 = mover.Center1.Add(res.Translation)
+		mover.Center2 = mover.Center2.Add(res.Translation)
+	}
+
+	bottom := mover.Center1.Y.Sub(radius)
+	slack := linearSlop.Add(linearSlop)
+	if !withinQ(bottom, linearSlop, slack) {
+		t.Errorf("the mover bottom rests at %v, want near linearSlop above the ground", bottom)
+	}
+	if !fixed.Q32MustParse("0.9").Less(lastNormal.Y) {
+		t.Errorf("the collected plane normal is %v, want to point up", lastNormal)
+	}
+}
+
 // preSolveScene builds a static plate at y=0, half-height one, under a
 // dynamic box falling from y=5, with pre-solve events enabled on the box.
 func preSolveScene(t *testing.T, worldId WorldId) BodyId {

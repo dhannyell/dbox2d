@@ -708,6 +708,41 @@ func shapeCastShape(input *ShapeCastInput, s *shape, transform Transform) CastOu
 	return output
 }
 
+// collideMover finds the plane where a mover capsule pushes against a
+// shape at a transform. It corresponds to b2CollideMover in
+// src/shape.c.
+func collideMover(mover *Capsule, s *shape, transform Transform) PlaneResult {
+	localMover := Capsule{
+		Center1: InvTransformPoint(transform, mover.Center1),
+		Center2: InvTransformPoint(transform, mover.Center2),
+		Radius:  mover.Radius,
+	}
+
+	var result PlaneResult
+	switch s.shapeType {
+	case CapsuleShape:
+		result = CollideMoverAndCapsule(&localMover, &s.capsule)
+	case CircleShape:
+		result = CollideMoverAndCircle(&localMover, &s.circle)
+	case PolygonShape:
+		result = CollideMoverAndPolygon(&localMover, &s.polygon)
+	case SegmentShape:
+		result = CollideMoverAndSegment(&localMover, &s.segment)
+	case ChainSegmentShape:
+		result = CollideMoverAndSegment(&localMover, &s.chainSegment.Segment)
+	default:
+		return result
+	}
+
+	if !result.Hit {
+		return result
+	}
+
+	result.Plane.Normal = RotateVector(transform.Q, result.Plane.Normal)
+	result.Point = TransformPoint(transform, result.Point)
+	return result
+}
+
 // makeShapeDistanceProxy builds the distance proxy of a shape in its body
 // frame. It corresponds to b2MakeShapeDistanceProxy in src/shape.c.
 func makeShapeDistanceProxy(s *shape) ShapeProxy {

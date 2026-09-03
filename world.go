@@ -1420,3 +1420,41 @@ func (worldId WorldId) CastMover(mover *Capsule, translation Vec2, filter QueryF
 
 	return fraction
 }
+
+// CollideMover reports the collision plane of every shape the mover
+// capsule touches, tree by tree. The callback returns false to stop the
+// walk. A locked world panics. It corresponds to b2World_CollideMover in
+// src/world.c.
+func (worldId WorldId) CollideMover(mover *Capsule, filter QueryFilter, fcn PlaneResultFcn) {
+	w := getWorldFromId(worldId)
+	if w.locked {
+		panic("dbox2d: the world is locked")
+	}
+
+	lower := Min(mover.Center1, mover.Center2)
+	upper := Max(mover.Center1, mover.Center2)
+	aabb := AABB{
+		LowerBound: Vec2{X: lower.X.Sub(mover.Radius), Y: lower.Y.Sub(mover.Radius)},
+		UpperBound: Vec2{X: upper.X.Add(mover.Radius), Y: upper.Y.Add(mover.Radius)},
+	}
+
+	callback := func(_ int, userData uint64) bool {
+		s := &w.shapes[int(userData)]
+		if !shouldQueryCollide(s.filter, filter) {
+			return true
+		}
+
+		transform := getBodyTransformQuick(w, &w.bodies[s.bodyId])
+		result := collideMover(mover, s, transform)
+
+		if result.Hit && IsNormalized(result.Plane.Normal) {
+			return fcn(shapeIdOf(w, s), &result)
+		}
+
+		return true
+	}
+
+	for i := range w.broadPhase.trees {
+		w.broadPhase.trees[i].query(aabb, filter.MaskBits, callback)
+	}
+}

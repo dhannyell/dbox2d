@@ -498,6 +498,12 @@ type OverlapResultFcn func(shapeId ShapeId) bool
 // include/box2d/types.h; the closure carries the context.
 type CastResultFcn func(shapeId ShapeId, point, normal Vec2, fraction Q) Q
 
+// PlaneResultFcn receives each collision plane a mover query finds.
+// Return true to keep gathering planes. It corresponds to
+// b2PlaneResultFcn in include/box2d/types.h; the closure carries the
+// context.
+type PlaneResultFcn func(shapeId ShapeId, result *PlaneResult) bool
+
 // RayResult is the answer of CastRayClosest. On an initial overlap the
 // fraction and the normal are zero and the point is an arbitrary point of
 // the overlap region. It corresponds to b2RayResult in
