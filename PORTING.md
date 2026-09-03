@@ -442,8 +442,11 @@ pair set moves from the world to the broadphase. `shape.go` gains
 - The determinism witness kept its value: the broadphase pairs the same
   two boxes that the tests paired by hand. The tests that stood in for
   the broadphase went away.
+- The set validation of the world runs only from the tests, as the
+  validators of the trees. The reference compiles it empty outside its
+  validation builds.
 
-**Order 31 has landed**: `world.go` gains `OverlapAABB` and `CastRay`
+**The public queries have landed**: `world.go` gains `OverlapAABB` and `CastRay`
 over the three trees, `shape.go` gains the ray cast dispatcher, and the
 public callbacks are closures per D-014. A zero fraction ends the cast
 before the next tree; a locked world panics per D-003. The shape casts
@@ -468,9 +471,9 @@ foundation.
 | `src/geometry.c` | `geometry.go` | T0/T1/T2 | foundation | 9 | Shape constructors, mass data, AABB per shape, point tests, ray casts. The shape casts and the mover collisions wait for order 19. |
 | `include/box2d/types.h`, `src/types.c` | `types.go` | T1 | foundation | 10 | Definition structs and their defaults. |
 | `src/body.h`, `src/body.c` | `body.go` | T0/T2 | foundation | 11 | `body`, `bodySim`, `bodyState`, unexported: `src/body.h` declares them. Layout preserved. The mass update scales the angular velocity by one turn; see D-004. The island hooks landed with order 25; the body events landed with order 28; the proxy destroy and the body collision rule landed with order 30. |
-| `src/shape.h`, `src/shape.c` | `shape.go` | T0 | foundation | 12 | Shape storage and the mass, AABB, centroid and extent dispatchers. The proxies and the filter rules landed with order 30; the ray cast dispatcher landed with order 31. The sensors, chains and shape casts wait for their stages. |
+| `src/shape.h`, `src/shape.c` | `shape.go` | T0 | foundation | 12 | Shape storage and the mass, AABB, centroid and extent dispatchers. The proxies and the filter rules landed with order 30; the ray cast dispatcher landed with the public queries. The sensors, chains and shape casts wait for their stages. |
 | `src/solver_set.h`, `src/solver_set.c` | `solver_set.go` | T0 | foundation | 13 | Static, awake, disabled and sleeping sets; body transfer, wake, sleep and set merge. The joint arrays wait. |
-| `src/world.h`, `src/world.c` | `world.go` | T0 | foundation | 14 | Split across stages. The foundation takes the registry, creation, destruction, the validity checks and the trimmed set validation. `b2World_Step` landed with order 16 in `step.go`; the events landed with order 28; the broadphase and the enlarged body bit set landed with order 30; `OverlapAABB` and `CastRay` landed with order 31. The shape casts and the closest-hit helpers wait for the shape cast. |
+| `src/world.h`, `src/world.c` | `world.go` | T0 | foundation | 14 | Split across stages. The foundation takes the registry, creation, destruction, the validity checks and the trimmed set validation. `b2World_Step` landed with order 16 in `step.go`; the events landed with order 28; the broadphase and the enlarged body bit set landed with order 30; `OverlapAABB` and `CastRay` landed with the public queries. The shape casts and the closest-hit helpers wait for the shape cast. |
 | `src/array.h`, `src/array.c` | `array.go` | T2 | foundation | 15 | The macro-generated array template becomes a Go slice; `removeSwap` keeps the swap-remove contract. Capacity follows the Go runtime and never enters a result. See D-010. |
 | `src/world.c` (`b2World_Step`), `src/solver.h` (`b2StepContext`) | `step.go` | T1/T2 | foundation | 16 | The step surface: validation, the context, the sub-step split, the locked flag. Assertions become panics per D-003. The softness setup landed with order 24; the collide block and the events landed with order 28; the pair update and the tree rebuild landed with order 30. The continuous stage waits. |
 | — | `checksum.go` | T2 | foundation | 17 | Port-only determinism witness over the complete canonical world state, commutative over bodies and shapes. See D-011. |
