@@ -244,9 +244,143 @@ func checksumContact(w *world, c *contact) uint64 {
 	return min(forward, reverse)
 }
 
+func checksumSoftness(h uint64, s softness) uint64 {
+	h = checksumQ(h, s.biasRate)
+	h = checksumQ(h, s.massScale)
+	return checksumQ(h, s.impulseScale)
+}
+
+// checksumJointData folds the configuration and the accumulated impulses
+// of the live joint type. The scratch of the prepare stage stays out.
+func checksumJointData(h uint64, js *jointSim) uint64 {
+	switch js.jointType {
+	case DistanceJoint:
+		d := &js.distanceJoint
+		h = checksumQ(h, d.length)
+		h = checksumQ(h, d.hertz)
+		h = checksumQ(h, d.dampingRatio)
+		h = checksumQ(h, d.minLength)
+		h = checksumQ(h, d.maxLength)
+		h = checksumQ(h, d.maxMotorForce)
+		h = checksumQ(h, d.motorSpeed)
+		h = checksumQ(h, d.impulse)
+		h = checksumQ(h, d.lowerImpulse)
+		h = checksumQ(h, d.upperImpulse)
+		h = checksumQ(h, d.motorImpulse)
+		h = checksumBool(h, d.enableSpring)
+		h = checksumBool(h, d.enableLimit)
+		return checksumBool(h, d.enableMotor)
+	case FilterJoint:
+		return h
+	case MotorJoint:
+		m := &js.motorJoint
+		h = checksumVec2(h, m.linearOffset)
+		h = checksumQ(h, m.angularOffset)
+		h = checksumVec2(h, m.linearImpulse)
+		h = checksumQ(h, m.angularImpulse)
+		h = checksumQ(h, m.maxForce)
+		h = checksumQ(h, m.maxTorque)
+		return checksumQ(h, m.correctionFactor)
+	case MouseJoint:
+		m := &js.mouseJoint
+		h = checksumVec2(h, m.targetA)
+		h = checksumQ(h, m.hertz)
+		h = checksumQ(h, m.dampingRatio)
+		h = checksumQ(h, m.maxForce)
+		h = checksumVec2(h, m.linearImpulse)
+		return checksumQ(h, m.angularImpulse)
+	case PrismaticJoint:
+		p := &js.prismaticJoint
+		h = checksumVec2(h, p.localAxisA)
+		h = checksumVec2(h, p.impulse)
+		h = checksumQ(h, p.springImpulse)
+		h = checksumQ(h, p.motorImpulse)
+		h = checksumQ(h, p.lowerImpulse)
+		h = checksumQ(h, p.upperImpulse)
+		h = checksumQ(h, p.hertz)
+		h = checksumQ(h, p.dampingRatio)
+		h = checksumQ(h, p.targetTranslation)
+		h = checksumQ(h, p.maxMotorForce)
+		h = checksumQ(h, p.motorSpeed)
+		h = checksumQ(h, p.referenceAngle)
+		h = checksumQ(h, p.lowerTranslation)
+		h = checksumQ(h, p.upperTranslation)
+		h = checksumBool(h, p.enableSpring)
+		h = checksumBool(h, p.enableLimit)
+		return checksumBool(h, p.enableMotor)
+	case RevoluteJoint:
+		r := &js.revoluteJoint
+		h = checksumVec2(h, r.linearImpulse)
+		h = checksumQ(h, r.springImpulse)
+		h = checksumQ(h, r.motorImpulse)
+		h = checksumQ(h, r.lowerImpulse)
+		h = checksumQ(h, r.upperImpulse)
+		h = checksumQ(h, r.hertz)
+		h = checksumQ(h, r.dampingRatio)
+		h = checksumQ(h, r.targetAngle)
+		h = checksumQ(h, r.maxMotorTorque)
+		h = checksumQ(h, r.motorSpeed)
+		h = checksumQ(h, r.referenceAngle)
+		h = checksumQ(h, r.lowerAngle)
+		h = checksumQ(h, r.upperAngle)
+		h = checksumBool(h, r.enableSpring)
+		h = checksumBool(h, r.enableMotor)
+		return checksumBool(h, r.enableLimit)
+	case WeldJoint:
+		wj := &js.weldJoint
+		h = checksumQ(h, wj.referenceAngle)
+		h = checksumQ(h, wj.linearHertz)
+		h = checksumQ(h, wj.linearDampingRatio)
+		h = checksumQ(h, wj.angularHertz)
+		h = checksumQ(h, wj.angularDampingRatio)
+		h = checksumVec2(h, wj.linearImpulse)
+		return checksumQ(h, wj.angularImpulse)
+	case WheelJoint:
+		wh := &js.wheelJoint
+		h = checksumVec2(h, wh.localAxisA)
+		h = checksumQ(h, wh.perpImpulse)
+		h = checksumQ(h, wh.motorImpulse)
+		h = checksumQ(h, wh.springImpulse)
+		h = checksumQ(h, wh.lowerImpulse)
+		h = checksumQ(h, wh.upperImpulse)
+		h = checksumQ(h, wh.maxMotorTorque)
+		h = checksumQ(h, wh.motorSpeed)
+		h = checksumQ(h, wh.lowerTranslation)
+		h = checksumQ(h, wh.upperTranslation)
+		h = checksumQ(h, wh.hertz)
+		h = checksumQ(h, wh.dampingRatio)
+		h = checksumBool(h, wh.enableSpring)
+		h = checksumBool(h, wh.enableMotor)
+		return checksumBool(h, wh.enableLimit)
+	default:
+		panic("dbox2d: unknown joint type")
+	}
+}
+
+// checksumJoint identifies each body by its canonical state, as a
+// contact does. A joint is directed, so the two bodies keep their order.
+func checksumJoint(w *world, j *joint) uint64 {
+	js := getJointSim(w, j)
+	bodyA := &w.bodies[j.edges[0].bodyId]
+	bodyB := &w.bodies[j.edges[1].bodyId]
+
+	h := fnvOffsetBasis
+	h = fnvFold(h, checksumSetKind(j.setIndex))
+	h = fnvFold(h, uint64(j.jointType))
+	h = checksumBool(h, j.collideConnected)
+	h = fnvFold(h, checksumBody(w, bodyA))
+	h = fnvFold(h, checksumBody(w, bodyB))
+	h = checksumVec2(h, js.localOriginAnchorA)
+	h = checksumVec2(h, js.localOriginAnchorB)
+	h = checksumQ(h, js.constraintHertz)
+	h = checksumQ(h, js.constraintDampingRatio)
+	h = checksumSoftness(h, js.constraintSoftness)
+	return checksumJointData(h, js)
+}
+
 // Checksum folds the complete deterministic state of a world into one
 // integer. Application data and internal ids are excluded because they do not
-// affect simulation. Bodies, shapes and contacts use commutative folds, so
+// affect simulation. Bodies, shapes, contacts and joints use commutative folds, so
 // equivalent worlds do not depend on creation order.
 func Checksum(worldId WorldId) uint64 {
 	w := getWorldFromId(worldId)
@@ -291,5 +425,18 @@ func Checksum(worldId WorldId) uint64 {
 		contactCount++
 	}
 	h = fnvFold(h, uint64(contactCount))
-	return fnvFold(h, contactSum)
+	h = fnvFold(h, contactSum)
+
+	var jointSum uint64
+	jointCount := 0
+	for i := range w.joints {
+		j := &w.joints[i]
+		if j.jointId == nullIndex {
+			continue
+		}
+		jointSum += checksumJoint(w, j)
+		jointCount++
+	}
+	h = fnvFold(h, uint64(jointCount))
+	return fnvFold(h, jointSum)
 }

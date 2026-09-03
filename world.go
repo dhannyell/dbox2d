@@ -13,8 +13,8 @@ const (
 
 // world manages all physics entities and the dynamic simulation.
 type world struct {
-	// Deferred: the broad-phase, the joint, chain and sensor storage, the
-	// events, the callbacks and the task system of the reference.
+	// Deferred: the chain and sensor storage, the callbacks and the task
+	// system of the reference.
 
 	// constraintGraph colors the awake touching contacts.
 	constraintGraph constraintGraph
@@ -46,6 +46,12 @@ type world struct {
 	// contacts maps a contact id to the cold contact data. The sims live in
 	// the solver sets.
 	contacts []contact
+
+	jointIdPool idPool
+
+	// joints maps a joint id to the cold joint data. The sims live in the
+	// solver sets and in the graph colors.
+	joints []joint
 
 	islandIdPool idPool
 
@@ -228,6 +234,8 @@ func CreateWorld(def *WorldDef) WorldId {
 
 	w.contactIdPool = createIdPool()
 	w.contacts = make([]contact, 0, 16)
+	w.jointIdPool = createIdPool()
+	w.joints = make([]joint, 0, 16)
 	createBroadPhase(&w.broadPhase)
 
 	w.islandIdPool = createIdPool()
@@ -290,6 +298,7 @@ func DestroyWorld(worldId WorldId) {
 	w.bodyIdPool.destroy()
 	w.shapeIdPool.destroy()
 	w.contactIdPool.destroy()
+	w.jointIdPool.destroy()
 	w.islandIdPool.destroy()
 	w.solverSetIdPool.destroy()
 

@@ -219,7 +219,8 @@ func TestChecksumMatchesDeterministicWitness(t *testing.T) {
 		Step(worldId, dt, 4)
 	}
 
-	const want uint64 = 7856699544564466143
+	// Rebased when the joint count and sum entered the hash.
+	const want uint64 = 4734897736241209759
 	if got := Checksum(worldId); got != want {
 		t.Errorf("checksum = %d, want %d", got, want)
 	}

@@ -14,7 +14,9 @@ type solverSet struct {
 	// contact of the awake set lives in the constraint graph instead.
 	contactSims []contactSim
 
-	// Deferred: the joint sim array of the reference.
+	// jointSims of the joints in this set. A joint of the awake set lives
+	// in the constraint graph instead.
+	jointSims []jointSim
 
 	// islandSims of the islands in this set. The static and disabled sets
 	// have none.

@@ -24,7 +24,8 @@ type graphColor struct {
 	// fills it on each step from the arena.
 	contactConstraints []contactConstraint
 
-	// Deferred: the joint sims of the reference.
+	// jointSims of the joints in this color.
+	jointSims []jointSim
 }
 
 // constraintGraph colors the awake constraints so that each color can
