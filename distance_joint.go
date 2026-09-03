@@ -24,7 +24,7 @@ func getDistanceJointForce(w *world, base *jointSim) Vec2 {
 func (jointId JointId) SetLength(length Q) {
 	w := getWorld(jointId.world0)
 	joint := getJointSimCheckType(w, jointId, DistanceJoint)
-	length = length.Clamp(linearSlop, huge)
+	length = length.Clamp(linearSlop, Huge)
 	joint.distanceJoint.length = length
 	joint.distanceJoint.impulse = fixed.Q32Zero()
 	joint.distanceJoint.lowerImpulse = fixed.Q32Zero()
@@ -224,8 +224,8 @@ func (jointId JointId) IsLimitEnabled() bool {
 func (jointId JointId) SetLengthRange(minLength, maxLength Q) {
 	w := getWorld(jointId.world0)
 	joint := getJointSimCheckType(w, jointId, DistanceJoint)
-	minLength = minLength.Clamp(linearSlop, huge)
-	maxLength = maxLength.Clamp(linearSlop, huge)
+	minLength = minLength.Clamp(linearSlop, Huge)
+	maxLength = maxLength.Clamp(linearSlop, Huge)
 	joint.distanceJoint.minLength = minLength.Min(maxLength)
 	joint.distanceJoint.maxLength = minLength.Max(maxLength)
 	joint.distanceJoint.impulse = fixed.Q32Zero()

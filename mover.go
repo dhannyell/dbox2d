@@ -23,7 +23,7 @@ type PlaneSolverResult struct {
 	IterationCount int
 }
 
-// SolvePlanes ports b2SolvePlanes. Pass huge as PushLimit for a rigid plane.
+// SolvePlanes ports b2SolvePlanes. Pass Huge as PushLimit for a rigid plane.
 func SolvePlanes(targetDelta Vec2, planes []CollisionPlane) PlaneSolverResult {
 	zero := fixed.Q32Zero()
 	for i := range planes {

@@ -254,6 +254,52 @@ func TestDisableStaticBody(t *testing.T) {
 	validateSolverSets(w)
 }
 
+// TestDisableStaticBodyWakesTheSleeper fixes a divergence where Disable
+// called wakeBody on the disabled body instead of waking the bodies it
+// touches: the reference wakes the box resting on the disabled ground
+// through destroyBodyContacts(wakeBodies=true), so the box falls.
+func TestDisableStaticBodyWakesTheSleeper(t *testing.T) {
+	worldId := createTestWorld(t)
+	groundDef := DefaultBodyDef()
+	groundDef.Position = v2(0, -1)
+	ground := CreateBody(worldId, &groundDef)
+	shapeDef := DefaultShapeDef()
+	groundBox := MakeBox(fixed.Q32FromInt(5), fixed.Q32Half())
+	CreatePolygonShape(ground, &shapeDef, &groundBox)
+
+	bodyDef := DefaultBodyDef()
+	bodyDef.Type = DynamicBody
+	bodyDef.Position = v2(0, 0)
+	box := CreateBody(worldId, &bodyDef)
+	boxShape := MakeSquare(fixed.Q32Half())
+	CreatePolygonShape(box, &shapeDef, &boxShape)
+
+	asleep := false
+	for range 300 {
+		worldId.Step(stepDt(), 4)
+		if !box.IsAwake() {
+			asleep = true
+			break
+		}
+	}
+	if !asleep {
+		t.Fatal("the box never fell asleep on the ground")
+	}
+
+	restingY := box.GetPosition().Y
+	ground.Disable()
+	if !box.IsAwake() {
+		t.Fatal("disabling the ground did not wake the box resting on it")
+	}
+
+	for range 10 {
+		worldId.Step(stepDt(), 4)
+	}
+	if got := box.GetPosition().Y; !got.Less(restingY) {
+		t.Fatalf("box y = %v, want a fall below %v", got, restingY)
+	}
+}
+
 // TestSetTypeDynamicToStaticHolds verifies that a static conversion stops
 // integration without stopping an attached dynamic body.
 func TestSetTypeDynamicToStaticHolds(t *testing.T) {

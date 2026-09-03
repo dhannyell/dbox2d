@@ -717,7 +717,7 @@ func (worldId WorldId) IsSleepingEnabled() bool { return getWorldFromId(worldId)
 func (worldId WorldId) EnableContinuous(flag bool) {
 	w := getWorldFromId(worldId)
 	if w.locked {
-		return
+		panic("dbox2d: the world is locked")
 	}
 	w.enableContinuous = flag
 }
@@ -731,7 +731,7 @@ func (worldId WorldId) IsContinuousEnabled() bool { return getWorldFromId(worldI
 func (worldId WorldId) SetRestitutionThreshold(value Q) {
 	w := getWorldFromId(worldId)
 	if w.locked {
-		return
+		panic("dbox2d: the world is locked")
 	}
 	w.restitutionThreshold = value.Max(fixed.Q32Zero()).Min(fixed.Q32MaxValue())
 }
@@ -747,7 +747,7 @@ func (worldId WorldId) GetRestitutionThreshold() Q {
 func (worldId WorldId) SetHitEventThreshold(value Q) {
 	w := getWorldFromId(worldId)
 	if w.locked {
-		return
+		panic("dbox2d: the world is locked")
 	}
 	w.hitEventThreshold = value.Max(fixed.Q32Zero()).Min(fixed.Q32MaxValue())
 }
@@ -765,7 +765,7 @@ func (worldId WorldId) SetGravity(gravity Vec2) { getWorldFromId(worldId).gravit
 func (worldId WorldId) SetContactTuning(hertz, dampingRatio, pushSpeed Q) {
 	w := getWorldFromId(worldId)
 	if w.locked {
-		return
+		panic("dbox2d: the world is locked")
 	}
 	zero, maxValue := fixed.Q32Zero(), fixed.Q32MaxValue()
 	w.contactHertz = hertz.Max(zero).Min(maxValue)
@@ -778,7 +778,7 @@ func (worldId WorldId) SetContactTuning(hertz, dampingRatio, pushSpeed Q) {
 func (worldId WorldId) SetMaximumLinearSpeed(maximumLinearSpeed Q) {
 	w := getWorldFromId(worldId)
 	if w.locked {
-		return
+		panic("dbox2d: the world is locked")
 	}
 	w.maxLinearSpeed = maximumLinearSpeed
 }
@@ -792,7 +792,7 @@ func (worldId WorldId) GetMaximumLinearSpeed() Q { return getWorldFromId(worldId
 func (worldId WorldId) EnableWarmStarting(flag bool) {
 	w := getWorldFromId(worldId)
 	if w.locked {
-		return
+		panic("dbox2d: the world is locked")
 	}
 	w.enableWarmStarting = flag
 }
@@ -839,7 +839,7 @@ func (worldId WorldId) GetUserData() any { return getWorldFromId(worldId).userDa
 func (worldId WorldId) SetFrictionCallback(callback FrictionCallback) {
 	w := getWorldFromId(worldId)
 	if w.locked {
-		return
+		panic("dbox2d: the world is locked")
 	}
 	if callback == nil {
 		callback = defaultFrictionCallback
@@ -852,7 +852,7 @@ func (worldId WorldId) SetFrictionCallback(callback FrictionCallback) {
 func (worldId WorldId) SetRestitutionCallback(callback RestitutionCallback) {
 	w := getWorldFromId(worldId)
 	if w.locked {
-		return
+		panic("dbox2d: the world is locked")
 	}
 	if callback == nil {
 		callback = defaultRestitutionCallback
@@ -879,7 +879,7 @@ func (worldId WorldId) SetPreSolveCallback(fcn PreSolveFcn) {
 func (worldId WorldId) RebuildStaticTree() {
 	w := getWorldFromId(worldId)
 	if w.locked {
-		return
+		panic("dbox2d: the world is locked")
 	}
 	w.broadPhase.trees[StaticBody].rebuild(true)
 }
@@ -1542,7 +1542,7 @@ func (ctx *explosionContext) explosionCallback(_ int, userData uint64) bool {
 func (worldId WorldId) Explode(def *ExplosionDef) {
 	w := getWorldFromId(worldId)
 	if w.locked {
-		return
+		panic("dbox2d: the world is locked")
 	}
 
 	ctx := explosionContext{

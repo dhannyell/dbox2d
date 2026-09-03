@@ -1294,7 +1294,7 @@ func TestMoverStopsOnTheGround(t *testing.T) {
 	for range 60 {
 		var planes []CollisionPlane
 		worldId.CollideMover(&mover, DefaultQueryFilter(), func(_ ShapeId, result *PlaneResult) bool {
-			planes = append(planes, CollisionPlane{Plane: result.Plane, PushLimit: huge, ClipVelocity: true})
+			planes = append(planes, CollisionPlane{Plane: result.Plane, PushLimit: Huge, ClipVelocity: true})
 			lastNormal = result.Plane.Normal
 			return true
 		})

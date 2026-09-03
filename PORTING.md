@@ -543,7 +543,7 @@ D-014 grew entries.
   test is an exact zero distance, per D-012.
 - The mover lands in `mover.go`: `SolvePlanes`, `ClipVector`, the four
   `CollideMoverAnd*` functions and `WorldId.CollideMover`, which takes a
-  `PlaneResultFcn` closure per D-014. The rigid push limit is `huge`, not
+  `PlaneResultFcn` closure per D-014. The rigid push limit is `Huge`, not
   `FLT_MAX`, per D-009.
 - The custom filter and pre-solve callbacks land on `WorldId`:
   `SetCustomFilterCallback` and `SetPreSolveCallback` take closures per
@@ -608,7 +608,7 @@ D-014 grew entries.
 | `src/distance_joint.c`, `src/motor_joint.c`, `src/mouse_joint.c`, `src/prismatic_joint.c`, `src/revolute_joint.c`, `src/weld_joint.c`, `src/wheel_joint.c` | one file each | T0/T2 | joints | 33 | Landed. Force and torque reports, prepare, warm start and solve of each type; the filter joint has no solver. Accessors landed with order 34; debug draw and dump do not cross. See D-004, D-006 and D-009. |
 | `src/distance.c` (simplex solver, shape cast, time of impact), `src/solver.c` (continuous stage) | `distance.go`, `solver.go` | T0/T2 | manifolds | 32 | Landed. The only iterative geometry in the library. Each stopping criterion keeps its form; the tests pin the iteration bounds, a float64 mirror and a bit witness. |
 | `src/sensor.h`, `src/sensor.c` | `sensor.go` | T0/T2 | surface | 34 | Landed. Double-buffered overlap sets, begin and end touch events, `WorldId.GetSensorEvents`. The overlap test is an exact zero distance; see D-012. |
-| `src/mover.c` | `mover.go` | T0/T2 | surface | 34 | Landed. `SolvePlanes`, `ClipVector`, the four `CollideMoverAnd*` functions and `WorldId.CollideMover`. The rigid push limit is `huge`, not `FLT_MAX`; see D-009 and D-014. |
+| `src/mover.c` | `mover.go` | T0/T2 | surface | 34 | Landed. `SolvePlanes`, `ClipVector`, the four `CollideMoverAnd*` functions and `WorldId.CollideMover`. The rigid push limit is `Huge`, not `FLT_MAX`; see D-009 and D-014. |
 | `src/timer.c` | dropped | T2 | — | — | Platform timers serve profiling. Timing never enters a deterministic result. |
 | `src/CMakeLists.txt`, `src/box2d.natvis` | none | — | — | — | Build system and debugger visualizers do not apply. |
 

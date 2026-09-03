@@ -2276,10 +2276,10 @@ func BenchmarkSolveRevoluteJointF64(b *testing.B) {
 // four rigid planes boxing in the target translation.
 func BenchmarkSolvePlanes(b *testing.B) {
 	planes := []CollisionPlane{
-		{Plane: Plane{Normal: Vec2{Y: fixed.Q32One()}, Offset: fixed.Q32FromInt(-5)}, PushLimit: huge},
-		{Plane: Plane{Normal: Vec2{X: fixed.Q32One()}, Offset: fixed.Q32FromInt(-5)}, PushLimit: huge},
-		{Plane: Plane{Normal: Vec2{X: fixed.Q32One().Neg()}, Offset: fixed.Q32FromInt(-5)}, PushLimit: huge},
-		{Plane: Plane{Normal: Vec2{Y: fixed.Q32One().Neg()}, Offset: fixed.Q32FromInt(-5)}, PushLimit: huge},
+		{Plane: Plane{Normal: Vec2{Y: fixed.Q32One()}, Offset: fixed.Q32FromInt(-5)}, PushLimit: Huge},
+		{Plane: Plane{Normal: Vec2{X: fixed.Q32One()}, Offset: fixed.Q32FromInt(-5)}, PushLimit: Huge},
+		{Plane: Plane{Normal: Vec2{X: fixed.Q32One().Neg()}, Offset: fixed.Q32FromInt(-5)}, PushLimit: Huge},
+		{Plane: Plane{Normal: Vec2{Y: fixed.Q32One().Neg()}, Offset: fixed.Q32FromInt(-5)}, PushLimit: Huge},
 	}
 	target := Vec2{X: fixed.Q32FromInt(1), Y: fixed.Q32FromInt(-8)}
 

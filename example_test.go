@@ -146,14 +146,13 @@ func ExampleWorldId_GetSensorEvents() {
 }
 
 func ExampleSolvePlanes() {
-	// A push limit of huge (the engine's rigid-contact bound) makes the
-	// plane act as an unyielding wall: the tangential component of the
+	// A push limit of dbox2d.Huge (the engine's rigid-contact bound) makes
+	// the plane act as an unyielding wall: the tangential component of the
 	// move survives untouched, and the normal component is pushed back
 	// to just outside the plane, leaving a linear-slop margin.
-	huge := fixed.Q32FromInt(100000)
 	planes := []dbox2d.CollisionPlane{{
 		Plane:     dbox2d.Plane{Normal: dbox2d.Vec2{Y: fixed.Q32One()}},
-		PushLimit: huge,
+		PushLimit: dbox2d.Huge,
 	}}
 
 	result := dbox2d.SolvePlanes(dbox2d.Vec2{X: fixed.Q32One(), Y: fixed.Q32One().Neg()}, planes)

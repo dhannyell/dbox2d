@@ -250,7 +250,7 @@ func CreateBody(worldId WorldId, def *BodyDef) BodyId {
 		center:            def.Position,
 		rotation0:         def.Rotation,
 		center0:           def.Position,
-		minExtent:         huge,
+		minExtent:         Huge,
 		maxExtent:         fixed.Q32Zero(),
 		linearDamping:     def.LinearDamping,
 		angularDamping:    def.AngularDamping,
@@ -338,30 +338,35 @@ func DestroyBody(bodyId BodyId) {
 	// Destroy all contacts attached to this body.
 	destroyBodyContacts(w, b, wakeBodies)
 
-	// Destroy the attached shapes. Chain segments are destroyed with their
-	// owning chain below.
+	// Destroy the attached shapes and their broad-phase proxies.
 	shapeId := b.headShapeId
 	for shapeId != nullIndex {
 		s := &w.shapes[shapeId]
 
-		if s.chainId == nullIndex {
-			destroyShapeProxy(s, &w.broadPhase)
-			if s.sensorIndex != nullIndex {
-				destroySensor(w, s)
-			}
-
-			// Return shape to free list.
-			w.shapeIdPool.freeId(shapeId)
-			s.id = nullIndex
+		if s.sensorIndex != nullIndex {
+			destroySensor(w, s)
 		}
+
+		destroyShapeProxy(s, &w.broadPhase)
+
+		// Return shape to free list.
+		w.shapeIdPool.freeId(shapeId)
+		s.id = nullIndex
 
 		shapeId = s.nextShapeId
 	}
 
+	// Destroy the attached chains. The associated shapes have already been destroyed above.
 	for chainID := b.headChainId; chainID != nullIndex; {
 		chain := &w.chainShapes[chainID]
 		nextChainID := chain.nextChainId
-		DestroyChain(ChainId{index1: int32(chainID) + 1, world0: w.worldId, generation: chain.generation})
+
+		freeChainData(chain)
+
+		// Return chain to free list.
+		w.chainIdPool.freeId(chainID)
+		chain.id = nullIndex
+
 		chainID = nextChainID
 	}
 
@@ -414,7 +419,7 @@ func updateBodyMassData(w *world, b *body) {
 	sim.invMass = zero
 	sim.invInertia = zero
 	sim.localCenter = Vec2Zero()
-	sim.minExtent = huge
+	sim.minExtent = Huge
 	sim.maxExtent = zero
 
 	// Static and kinematic sims have zero mass.
@@ -1027,10 +1032,7 @@ func (bodyId BodyId) GetMassData() MassData {
 // SetMassData overrides the body's mass, center and rotational inertia. It
 // corresponds to b2Body_SetMassData.
 func (bodyId BodyId) SetMassData(massData MassData) {
-	w := getWorld(bodyId.world0)
-	if w.locked {
-		return
-	}
+	w := getWorldLocked(bodyId.world0)
 	zero := fixed.Q32Zero()
 	if !IsValidQ(massData.Mass) || massData.Mass.Less(zero) {
 		panic("dbox2d: mass data has an invalid mass")
@@ -1067,10 +1069,7 @@ func (bodyId BodyId) SetMassData(massData MassData) {
 // ApplyMassFromShapes recomputes mass data from the body's shapes. It
 // corresponds to b2Body_ApplyMassFromShapes.
 func (bodyId BodyId) ApplyMassFromShapes() {
-	w := getWorld(bodyId.world0)
-	if w.locked {
-		return
-	}
+	w := getWorldLocked(bodyId.world0)
 	b := getBodyFullId(w, bodyId)
 	updateBodyMassData(w, b)
 }
@@ -1078,10 +1077,7 @@ func (bodyId BodyId) ApplyMassFromShapes() {
 // SetLinearDamping changes linear damping. It corresponds to
 // b2Body_SetLinearDamping.
 func (bodyId BodyId) SetLinearDamping(linearDamping Q) {
-	w := getWorld(bodyId.world0)
-	if w.locked {
-		return
-	}
+	w := getWorldLocked(bodyId.world0)
 	b := getBodyFullId(w, bodyId)
 	getBodySim(w, b).linearDamping = linearDamping
 }
@@ -1097,10 +1093,7 @@ func (bodyId BodyId) GetLinearDamping() Q {
 // SetAngularDamping changes angular damping. It corresponds to
 // b2Body_SetAngularDamping.
 func (bodyId BodyId) SetAngularDamping(angularDamping Q) {
-	w := getWorld(bodyId.world0)
-	if w.locked {
-		return
-	}
+	w := getWorldLocked(bodyId.world0)
 	b := getBodyFullId(w, bodyId)
 	getBodySim(w, b).angularDamping = angularDamping
 }
@@ -1116,10 +1109,7 @@ func (bodyId BodyId) GetAngularDamping() Q {
 // SetGravityScale changes the body's gravity scale. It corresponds to
 // b2Body_SetGravityScale.
 func (bodyId BodyId) SetGravityScale(gravityScale Q) {
-	w := getWorld(bodyId.world0)
-	if w.locked {
-		return
-	}
+	w := getWorldLocked(bodyId.world0)
 	b := getBodyFullId(w, bodyId)
 	getBodySim(w, b).gravityScale = gravityScale
 }
@@ -1143,10 +1133,7 @@ func (bodyId BodyId) IsAwake() bool {
 // SetAwake wakes or sleeps the body's island. It corresponds to
 // b2Body_SetAwake.
 func (bodyId BodyId) SetAwake(awake bool) {
-	w := getWorld(bodyId.world0)
-	if w.locked {
-		return
-	}
+	w := getWorldLocked(bodyId.world0)
 	b := getBodyFullId(w, bodyId)
 	if awake && b.setIndex >= firstSleepingSet {
 		wakeBody(w, b)
@@ -1162,10 +1149,7 @@ func (bodyId BodyId) SetAwake(awake bool) {
 // EnableSleep enables or disables sleeping. It corresponds to
 // b2Body_EnableSleep.
 func (bodyId BodyId) EnableSleep(enableSleep bool) {
-	w := getWorld(bodyId.world0)
-	if w.locked {
-		return
-	}
+	w := getWorldLocked(bodyId.world0)
 	b := getBodyFullId(w, bodyId)
 	b.enableSleep = enableSleep
 	if !enableSleep {
@@ -1216,8 +1200,9 @@ func (bodyId BodyId) Disable() {
 		return
 	}
 
-	wakeBody(w, b)
-	destroyBodyContacts(w, b, false)
+	// Destroy contacts and wake bodies touching this body. This avoid floating bodies.
+	// This is necessary even for static bodies.
+	destroyBodyContacts(w, b, true)
 	removeBodyFromIsland(w, b)
 
 	for shapeId := b.headShapeId; shapeId != nullIndex; {
@@ -1324,10 +1309,7 @@ func (bodyId BodyId) Enable() {
 // SetFixedRotation enables or disables body rotation. It corresponds to
 // b2Body_SetFixedRotation.
 func (bodyId BodyId) SetFixedRotation(flag bool) {
-	w := getWorld(bodyId.world0)
-	if w.locked {
-		return
-	}
+	w := getWorldLocked(bodyId.world0)
 	b := getBodyFullId(w, bodyId)
 	if b.fixedRotation != flag {
 		b.fixedRotation = flag
@@ -1349,10 +1331,7 @@ func (bodyId BodyId) IsFixedRotation() bool {
 // SetBullet changes whether the body is treated as a bullet. It corresponds
 // to b2Body_SetBullet.
 func (bodyId BodyId) SetBullet(flag bool) {
-	w := getWorld(bodyId.world0)
-	if w.locked {
-		return
-	}
+	w := getWorldLocked(bodyId.world0)
 	b := getBodyFullId(w, bodyId)
 	getBodySim(w, b).isBullet = flag
 }

@@ -616,7 +616,7 @@ type DistanceJointDef struct {
 func DefaultDistanceJointDef() DistanceJointDef {
 	return DistanceJointDef{
 		Length:        fixed.Q32One(),
-		MaxLength:     huge,
+		MaxLength:     Huge,
 		internalValue: secretCookie,
 	}
 }

@@ -5,7 +5,7 @@ import "github.com/dhannyell/fixed"
 // IsValidRay reports whether a ray cast input is usable.
 func IsValidRay(input *RayCastInput) bool {
 	isValid := IsValidVec2(input.Origin) && IsValidVec2(input.Translation) &&
-		IsValidQ(input.MaxFraction) && !input.MaxFraction.Less(fixed.Q32Zero()) && input.MaxFraction.Less(huge)
+		IsValidQ(input.MaxFraction) && !input.MaxFraction.Less(fixed.Q32Zero()) && input.MaxFraction.Less(Huge)
 	return isValid
 }
 

@@ -53,7 +53,10 @@ Numbering is sequential from `D-001` and never reused.
 - Reason: `B2_ASSERT` compiles out in a release build. Go has no such switch,
   and a silent corruption costs more than a stop.
 - Behaviour: a failed precondition panics in every build. Functions whose
-  upstream contract is a validation query still return a bool.
+  upstream contract is a validation query still return a bool. Every setter
+  that the reference guards with `b2GetWorldLocked` or the equivalent
+  `B2_ASSERT(world->locked == false)` panics on a locked world instead of
+  silently returning.
 - Test: TestIdPoolRejectsAnUnknownIndex in id_pool_test.go,
   TestMakeAABBRejectsEmptyPoints in aabb_test.go,
   TestComputeRotationBetweenUnitVectors in math_test.go,
@@ -195,8 +198,9 @@ Numbering is sequential from `D-001` and never reused.
   frequency clamp. The effective masses of a joint follow the contact
   point: the prepare divides one by the denominator once, guarded by an
   exact test against zero, and the stages read the stored mass.
-  `BodyId.SetTargetTransform` divides by the caller's time step instead of
-  multiplying by its reciprocal. `BodyId.SetMassData` divides by the mass
+  `BodyId.SetTargetTransform` computes the reciprocal of the caller's time
+  step with one division and multiplies by it twice, matching the
+  reference. `BodyId.SetMassData` divides by the mass
   and by the rotational inertia to store their inverses, guarded by the
   same exact zero test as the shape-driven mass update. `WorldId.Explode`
   divides the falloff band by its length to build the fade-out scale.
@@ -261,13 +265,13 @@ Numbering is sequential from `D-001` and never reused.
 - Behaviour: the seeds are the largest and the smallest representable values.
   Those values sit outside the valid input range: `IsValidQ` rejects a
   coordinate that equals either seed. The default `MaxLength` of a distance
-  joint is `huge`, the `B2_HUGE` of the reference: a length that no world
+  joint is `Huge`, the `B2_HUGE` of the reference: a length that no world
   reaches and that the range checks accept, so the rope stays slack until
   a definition lowers it. `SetContactTuning` clamps its hertz, damping
   ratio and push speed against `Q32MaxValue` rather than `FLT_MAX`, so a
   caller cannot saturate the tuning past what a Q32.32 value can hold.
   `SolvePlanes` takes its rigid push limit as a plain `PushLimit` field;
-  the mover callers pass `huge`, the same `B2_HUGE` sentinel, in place of
+  the mover callers pass `Huge`, the same `B2_HUGE` sentinel, in place of
   the reference's `FLT_MAX`.
 - Test: TestAABBRayCastHitsTheNearFace in aabb_test.go,
   TestComputeHullDropsAnInteriorPoint in hull_test.go,

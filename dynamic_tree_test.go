@@ -163,7 +163,7 @@ func TestTreeEnlargeProxyStopsAtTheContainingAncestor(t *testing.T) {
 // internal children contain the new box, the seed cost is unbounded and the
 // centroid distance decides, so the search descends toward the near cluster.
 func TestTreeSeedNeverWins(t *testing.T) {
-	if !perimeter(box(-huge.Int(), -huge.Int(), huge.Int(), huge.Int())).Less(fixed.Q32MaxValue()) {
+	if !perimeter(box(-Huge.Int(), -Huge.Int(), Huge.Int(), Huge.Int())).Less(fixed.Q32MaxValue()) {
 		t.Fatalf("the widest proxy box reaches the seed")
 	}
 

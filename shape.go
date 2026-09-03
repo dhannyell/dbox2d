@@ -596,7 +596,7 @@ func computeShapeExtent(s *shape, localCenter Vec2) shapeExtent {
 
 	case PolygonShape:
 		poly := &s.polygon
-		minExtent := huge
+		minExtent := Huge
 		maxExtentSqr := fixed.Q32Zero()
 		for i := range poly.Count {
 			v := poly.Vertices[i]
