@@ -297,8 +297,6 @@ type ShapeDef struct {
 	Filter Filter
 
 	// A sensor generates overlap events and never a collision response.
-	// Warning: sensors are not ported yet. Creating a shape with IsSensor set
-	// panics.
 	IsSensor bool
 
 	// Enable sensor events for this shape. False by default, even for
@@ -440,6 +438,26 @@ type ContactEvents struct {
 	BeginEvents []ContactBeginTouchEvent
 	EndEvents   []ContactEndTouchEvent
 	HitEvents   []ContactHitEvent
+}
+
+// SensorBeginTouchEvent reports that a shape started to overlap a sensor.
+// It corresponds to b2SensorBeginTouchEvent in include/box2d/types.h.
+type SensorBeginTouchEvent struct {
+	SensorShapeId, VisitorShapeId ShapeId
+}
+
+// SensorEndTouchEvent reports that a shape stopped overlapping a sensor.
+// It corresponds to b2SensorEndTouchEvent in include/box2d/types.h.
+type SensorEndTouchEvent struct {
+	SensorShapeId, VisitorShapeId ShapeId
+}
+
+// SensorEvents holds the sensor events of the last step. The slices stay
+// valid until the next step. It corresponds to b2SensorEvents in
+// include/box2d/types.h.
+type SensorEvents struct {
+	BeginEvents []SensorBeginTouchEvent
+	EndEvents   []SensorEndTouchEvent
 }
 
 // BodyMoveEvent reports a body that the simulation moved. A body that the

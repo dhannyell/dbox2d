@@ -72,12 +72,13 @@ func (worldId WorldId) Step(timeStep Q, subStepCount int) {
 	w.bodyMoveEvents = w.bodyMoveEvents[:0]
 	w.contactBeginEvents = w.contactBeginEvents[:0]
 	w.contactHitEvents = w.contactHitEvents[:0]
-	// Deferred: the sensor events of the reference.
+	w.sensorBeginEvents = w.sensorBeginEvents[:0]
 
 	zero := fixed.Q32Zero()
 	if timeStep.Eq(zero) {
 		// Swap end event array buffers
 		w.endEventArrayIndex = 1 - w.endEventArrayIndex
+		w.sensorEndEvents[w.endEventArrayIndex] = w.sensorEndEvents[w.endEventArrayIndex][:0]
 		w.contactEndEvents[w.endEventArrayIndex] = w.contactEndEvents[w.endEventArrayIndex][:0]
 		return
 	}
@@ -126,7 +127,7 @@ func (worldId WorldId) Step(timeStep Q, subStepCount int) {
 		solve(w, &context)
 	}
 
-	// Deferred: the sensor overlap update of the reference runs here.
+	overlapSensors(w)
 
 	if getArenaAllocation(&w.arena) != 0 {
 		panic("dbox2d: the arena is not empty after the step")
@@ -137,6 +138,7 @@ func (worldId WorldId) Step(timeStep Q, subStepCount int) {
 
 	// Swap end event array buffers
 	w.endEventArrayIndex = 1 - w.endEventArrayIndex
+	w.sensorEndEvents[w.endEventArrayIndex] = w.sensorEndEvents[w.endEventArrayIndex][:0]
 	w.contactEndEvents[w.endEventArrayIndex] = w.contactEndEvents[w.endEventArrayIndex][:0]
 	w.locked = false
 }

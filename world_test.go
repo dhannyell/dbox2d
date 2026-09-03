@@ -182,42 +182,6 @@ func TestIdReuseInvalidatesTheOldHandle(t *testing.T) {
 	})
 }
 
-// TestSensorRejectionLeavesBodyUnchanged guards the unsupported sensor path.
-// A recovered panic must not leave an unreachable shape attached to the body.
-func TestSensorRejectionLeavesBodyUnchanged(t *testing.T) {
-	worldId := createTestWorld(t)
-
-	bodyDef := DefaultBodyDef()
-	bodyId := CreateBody(worldId, &bodyDef)
-	w := getWorldFromId(worldId)
-
-	shapeDef := DefaultShapeDef()
-	shapeDef.IsSensor = true
-	circle := Circle{Radius: fixed.Q32One()}
-
-	panicked := false
-	func() {
-		defer func() {
-			panicked = recover() != nil
-		}()
-		CreateCircleShape(bodyId, &shapeDef, &circle)
-	}()
-
-	if !panicked {
-		t.Fatal("creating a sensor shape did not panic")
-	}
-	if got := bodyId.GetShapeCount(); got != 0 {
-		t.Errorf("shape count after the panic = %d, want 0", got)
-	}
-	if got := w.shapeIdPool.idCount(); got != 0 {
-		t.Errorf("allocated shape ids after the panic = %d, want 0", got)
-	}
-	if got := len(w.shapes); got != 0 {
-		t.Errorf("shape slots after the panic = %d, want 0", got)
-	}
-	validateSolverSets(w)
-}
-
 // TestCreateAndDestroyOrdersProduceTheSameWorld builds the same survivors
 // through two different creation and destruction orders. Every observable of
 // each survivor must match, and both worlds must pass validation.

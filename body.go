@@ -346,6 +346,9 @@ func DestroyBody(bodyId BodyId) {
 
 		if s.chainId == nullIndex {
 			destroyShapeProxy(s, &w.broadPhase)
+			if s.sensorIndex != nullIndex {
+				destroySensor(w, s)
+			}
 
 			// Return shape to free list.
 			w.shapeIdPool.freeId(shapeId)

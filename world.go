@@ -13,7 +13,9 @@ const (
 
 // world manages all physics entities and the dynamic simulation.
 type world struct {
-	// Deferred: the sensor storage and the task system of the reference.
+	// Deferred: the task system of the reference.
+	sensors            []sensor
+	sensorTaskContexts [1]sensorTaskContext
 
 	// constraintGraph colors the awake touching contacts.
 	constraintGraph constraintGraph
@@ -79,8 +81,8 @@ type world struct {
 	contactEndEvents   [2][]ContactEndTouchEvent
 	contactHitEvents   []ContactHitEvent
 	endEventArrayIndex int
-
-	// Deferred: the sensor events of the reference.
+	sensorBeginEvents  []SensorBeginTouchEvent
+	sensorEndEvents    [2][]SensorEndTouchEvent
 
 	// broadPhase holds the trees, the move buffer and the pair set.
 	broadPhase broadPhase
@@ -259,6 +261,9 @@ func CreateWorld(def *WorldDef) WorldId {
 	w.contactEndEvents[0] = make([]ContactEndTouchEvent, 0, 16)
 	w.contactEndEvents[1] = make([]ContactEndTouchEvent, 0, 16)
 	w.contactHitEvents = make([]ContactHitEvent, 0, 16)
+	w.sensorBeginEvents = make([]SensorBeginTouchEvent, 0, 16)
+	w.sensorEndEvents[0] = make([]SensorEndTouchEvent, 0, 16)
+	w.sensorEndEvents[1] = make([]SensorEndTouchEvent, 0, 16)
 	w.endEventArrayIndex = 0
 
 	w.frictionCallback = def.FrictionCallback
@@ -912,6 +917,23 @@ func (worldId WorldId) GetContactEvents() ContactEvents {
 		BeginEvents: w.contactBeginEvents,
 		EndEvents:   w.contactEndEvents[endEventArrayIndex],
 		HitEvents:   w.contactHitEvents,
+	}
+}
+
+// GetSensorEvents returns the sensor events of the last step. It
+// corresponds to b2World_GetSensorEvents in src/world.c.
+func (worldId WorldId) GetSensorEvents() SensorEvents {
+	w := getWorldFromId(worldId)
+	if w.locked {
+		panic("dbox2d: the world is locked")
+	}
+
+	// Careful to use previous buffer
+	endEventArrayIndex := 1 - w.endEventArrayIndex
+
+	return SensorEvents{
+		BeginEvents: w.sensorBeginEvents,
+		EndEvents:   w.sensorEndEvents[endEventArrayIndex],
 	}
 }
 

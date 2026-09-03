@@ -160,8 +160,11 @@ func createShapeInternal(w *world, b *body, transform Transform, def *ShapeDef, 
 	b.headShapeId = shapeId
 	b.shapeCount += 1
 
-	// Deferred: the sensor record of the reference sits here.
 	s.sensorIndex = nullIndex
+	if def.IsSensor {
+		s.sensorIndex = len(w.sensors)
+		w.sensors = append(w.sensors, sensor{shapeId: s.id})
+	}
 
 	return s
 }
@@ -184,12 +187,6 @@ func createShape(bodyId BodyId, def *ShapeDef, geometry any, shapeType ShapeType
 	}
 	if !IsValidQ(def.Material.TangentSpeed) {
 		panic("dbox2d: ShapeDef.Material.TangentSpeed is not valid")
-	}
-
-	// Deferred: the sensor module. The rejection comes before the first
-	// mutation, so a recovered panic leaves no orphan shape.
-	if def.IsSensor {
-		panic("dbox2d: a sensor shape is not supported yet")
 	}
 
 	w := getWorldLocked(bodyId.world0)
@@ -450,7 +447,9 @@ func destroyShapeInternal(w *world, s *shape, b *body) {
 	// Remove from broad-phase
 	destroyShapeProxy(s, &w.broadPhase)
 
-	// Deferred: the sensor record of the reference goes away here.
+	if s.sensorIndex != nullIndex {
+		destroySensor(w, s)
+	}
 
 	// Destroy contacts before releasing the shape id. The next key is read
 	// first because destroyContact unlinks the current edge from this body.
@@ -896,6 +895,53 @@ func (shapeId ShapeId) GetUserData() any {
 func (shapeId ShapeId) IsSensor() bool {
 	w := getWorld(shapeId.world0)
 	return getShape(w, shapeId).sensorIndex != nullIndex
+}
+
+// GetSensorCapacity returns the number of current sensor overlaps. It
+// corresponds to b2Shape_GetSensorCapacity in src/shape.c.
+func (shapeId ShapeId) GetSensorCapacity() int {
+	if !shapeId.IsValid() {
+		return 0
+	}
+
+	w := getWorldLocked(shapeId.world0)
+	s := getShape(w, shapeId)
+	if s.sensorIndex == nullIndex {
+		return 0
+	}
+
+	return len(w.sensors[s.sensorIndex].overlaps1)
+}
+
+// GetSensorOverlaps fills overlaps with current sensor overlaps. It
+// corresponds to b2Shape_GetSensorOverlaps in src/shape.c.
+func (shapeId ShapeId) GetSensorOverlaps(overlaps []ShapeId) int {
+	if !shapeId.IsValid() {
+		return 0
+	}
+
+	w := getWorldLocked(shapeId.world0)
+	s := getShape(w, shapeId)
+	if s.sensorIndex == nullIndex {
+		return 0
+	}
+
+	count := 0
+	for _, ref := range w.sensors[s.sensorIndex].overlaps1 {
+		if count == len(overlaps) {
+			break
+		}
+
+		visitorShape := &w.shapes[ref.shapeId]
+		if visitorShape.id != ref.shapeId || visitorShape.generation != ref.generation {
+			continue
+		}
+
+		overlaps[count] = ShapeId{index1: int32(ref.shapeId) + 1, world0: w.worldId, generation: ref.generation}
+		count++
+	}
+
+	return count
 }
 
 // TestPoint reports whether a world point lies within the shape. It
