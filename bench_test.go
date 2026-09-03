@@ -1977,3 +1977,171 @@ func BenchmarkUpdateBroadPhasePairsF64(b *testing.B) {
 	destroySet(&bp.moveSet)
 	destroySet(&bp.pairSet)
 }
+
+// The distance and the time of impact pairs measure the iterative
+// narrowphase on two rotated unit boxes. The mirrors live in
+// distance_internal_test.go.
+
+func benchDistanceInput() DistanceInput {
+	box := MakeSquare(fixed.Q32One())
+	proxy := MakeProxy(box.Vertices[:box.Count], fixed.Q32Zero())
+	return DistanceInput{
+		ProxyA:     proxy,
+		ProxyB:     proxy,
+		TransformA: TransformIdentity(),
+		TransformB: Transform{P: Vec2{X: fixed.Q32FromInt(3), Y: fixed.Q32Half()}, Q: MakeRot(fixed.Q32FromRatio(1, 8))},
+		UseRadii:   true,
+	}
+}
+
+// BenchmarkShapeDistanceQ runs the GJK solver from a cold cache.
+func BenchmarkShapeDistanceQ(b *testing.B) {
+	input := benchDistanceInput()
+
+	var result DistanceOutput
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		var cache SimplexCache
+		result = ShapeDistance(&input, &cache, nil)
+	}
+	runtime.KeepAlive(result)
+	if !fixed.Q32Half().Less(result.Distance) {
+		b.Fatal("the boxes are not apart")
+	}
+}
+
+// BenchmarkShapeDistanceF64 runs the float64 mirror over the same boxes.
+func BenchmarkShapeDistanceF64(b *testing.B) {
+	input := benchDistanceInput()
+	pa, pb := proxyToF64(&input.ProxyA), proxyToF64(&input.ProxyB)
+	xfA, xfB := transformToF64(input.TransformA), transformToF64(input.TransformB)
+
+	var result f64DistanceOutput
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		var cache f64SimplexCache
+		result = shapeDistanceF64(&pa, &pb, xfA, xfB, true, &cache)
+	}
+	runtime.KeepAlive(result)
+	if result.distance <= 0.5 {
+		b.Fatal("the boxes are not apart")
+	}
+}
+
+func benchTOIInput() TOIInput {
+	input := benchDistanceInput()
+	return TOIInput{
+		ProxyA: input.ProxyA,
+		ProxyB: input.ProxyB,
+		SweepA: Sweep{Q1: RotIdentity(), Q2: RotIdentity()},
+		SweepB: Sweep{
+			C1: Vec2{X: fixed.Q32FromInt(5), Y: fixed.Q32Half()},
+			C2: Vec2{X: fixed.Q32FromInt(-5), Y: fixed.Q32Half()},
+			Q1: MakeRot(fixed.Q32FromRatio(1, 8)),
+			Q2: MakeRot(fixed.Q32FromRatio(3, 8)),
+		},
+		MaxFraction: fixed.Q32One(),
+	}
+}
+
+// BenchmarkTimeOfImpactQ runs one sweep that turns and hits.
+func BenchmarkTimeOfImpactQ(b *testing.B) {
+	input := benchTOIInput()
+
+	var result TOIOutput
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		result = TimeOfImpact(&input)
+	}
+	runtime.KeepAlive(result)
+	if result.State != TOIStateHit {
+		b.Fatal("the sweep did not hit")
+	}
+}
+
+// BenchmarkTimeOfImpactF64 runs the float64 mirror over the same sweep.
+func BenchmarkTimeOfImpactF64(b *testing.B) {
+	input := benchTOIInput()
+	pa, pb := proxyToF64(&input.ProxyA), proxyToF64(&input.ProxyB)
+	sa, sb := sweepToF64(&input.SweepA), sweepToF64(&input.SweepB)
+
+	var result f64TOIOutput
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		result = timeOfImpactF64(&pa, &pb, sa, sb, 1)
+	}
+	runtime.KeepAlive(result)
+	if result.state != TOIStateHit {
+		b.Fatal("the sweep did not hit")
+	}
+}
+
+// The bullet composite keeps fast bodies fast: small boxes bounce between
+// two static walls at two hundred metres per second, so every step runs
+// the continuous stage for every one of them. Half are bullets and sweep
+// all three trees; the other half sweep the static tree only.
+
+const bulletLaneCount = 64
+
+func buildBulletRange(worldId WorldId) {
+	wallDef := DefaultBodyDef()
+	wallShape := DefaultShapeDef()
+	wall := MakeBox(fixed.Q32Half(), fixed.Q32FromInt(bulletLaneCount))
+	for _, x := range [2]int{-30, 30} {
+		wallDef.Position = Vec2{X: fixed.Q32FromInt(x)}
+		CreatePolygonShape(CreateBody(worldId, &wallDef), &wallShape, &wall)
+	}
+
+	boxDef := DefaultBodyDef()
+	boxDef.Type = DynamicBody
+	boxDef.LinearVelocity = Vec2{X: fixed.Q32FromInt(200)}
+	boxDef.EnableSleep = false
+	boxShape := DefaultShapeDef()
+	boxShape.Material.Restitution = fixed.Q32One()
+	boxShape.Material.Friction = fixed.Q32Zero()
+	box := MakeSquare(fixed.Q32FromRatio(1, 10))
+	for i := range bulletLaneCount {
+		boxDef.Position = Vec2{Y: fixed.Q32FromInt(i - bulletLaneCount/2)}
+		boxDef.IsBullet = i%2 == 0
+		CreatePolygonShape(CreateBody(worldId, &boxDef), &boxShape, &box)
+	}
+}
+
+func BenchmarkStepBullets(b *testing.B) {
+	def := DefaultWorldDef()
+	def.Gravity = Vec2Zero()
+	worldId := CreateWorld(&def)
+	defer DestroyWorld(worldId)
+	buildBulletRange(worldId)
+	w := getWorldFromId(worldId)
+
+	dt := fixed.Q32One().Div(fixed.Q32FromInt(60))
+
+	// Warm up through several bounces so every buffer has grown.
+	for range 120 {
+		Step(worldId, dt, 4)
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		Step(worldId, dt, 4)
+	}
+	b.StopTimer()
+
+	fast := 0
+	for i := range w.solverSets[awakeSet].bodySims {
+		if w.solverSets[awakeSet].bodySims[i].isFast {
+			fast++
+		}
+	}
+	// A corner hit now and then bleeds speed, so a long run may slow a
+	// few boxes; the stage must still run for most of them.
+	if fast < 3*bulletLaneCount/4 {
+		b.Fatalf("%d fast bodies, want at least %d", fast, 3*bulletLaneCount/4)
+	}
+}
