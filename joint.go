@@ -952,6 +952,8 @@ func prepareJoint(js *jointSim, context *stepContext) {
 		preparePrismaticJoint(js, context)
 	case WheelJoint:
 		prepareWheelJoint(js, context)
+	case WeldJoint:
+		prepareWeldJoint(js, context)
 	case RevoluteJoint:
 		prepareRevoluteJoint(js, context)
 	default:
@@ -969,6 +971,8 @@ func warmStartJoint(js *jointSim, context *stepContext) {
 		warmStartPrismaticJoint(js, context)
 	case WheelJoint:
 		warmStartWheelJoint(js, context)
+	case WeldJoint:
+		warmStartWeldJoint(js, context)
 	case RevoluteJoint:
 		warmStartRevoluteJoint(js, context)
 	default:
@@ -986,6 +990,8 @@ func solveJoint(js *jointSim, context *stepContext, useBias bool) {
 		solvePrismaticJoint(js, context, useBias)
 	case WheelJoint:
 		solveWheelJoint(js, context, useBias)
+	case WeldJoint:
+		solveWeldJoint(js, context, useBias)
 	case RevoluteJoint:
 		solveRevoluteJoint(js, context, useBias)
 	default:

@@ -1134,3 +1134,56 @@ func TestStepSettlesTheSuspension(t *testing.T) {
 	}
 	validateWorld(w)
 }
+
+// TestStepWeldsTwoBoxes pins the weld joint inside Step: two small boxes
+// welded side by side fall together while the second one starts with a
+// spin. After 60 steps the relative angle is below 1e-4 turn, the centers
+// stay one unit apart within two linear slops, and no operation saturates.
+func TestStepWeldsTwoBoxes(t *testing.T) {
+	worldId := createTestWorld(t)
+	w := getWorldFromId(worldId)
+
+	makeBox := func(position Vec2) BodyId {
+		def := DefaultBodyDef()
+		def.Type = DynamicBody
+		def.Position = position
+		id := CreateBody(worldId, &def)
+		shapeDef := DefaultShapeDef()
+		box := MakeSquare(fixed.Q32MustParse("0.25"))
+		CreatePolygonShape(id, &shapeDef, &box)
+		return id
+	}
+	idA := makeBox(v2(0, 0))
+	idB := makeBox(v2(1, 0))
+
+	def := DefaultWeldJointDef()
+	def.BodyIdA = idA
+	def.BodyIdB = idB
+	def.LocalAnchorA = Vec2{X: fixed.Q32Half()}
+	def.LocalAnchorB = Vec2{X: fixed.Q32Half().Neg()}
+	CreateWeldJoint(worldId, &def)
+
+	bodyA := getBodyFullId(w, idA)
+	bodyB := getBodyFullId(w, idB)
+	getBodyState(w, bodyB).angularVelocity = fixed.Q32Half()
+
+	fixed.ResetSaturationCount()
+	dt := stepDt()
+	for range 60 {
+		Step(worldId, dt, 4)
+	}
+	simA := getBodySim(w, bodyA)
+	simB := getBodySim(w, bodyB)
+	angle := RelativeAngle(simB.transform.Q, simA.transform.Q).Abs()
+	if !angle.Less(fixed.Q32MustParse("0.0001")) {
+		t.Errorf("the relative angle is %v turn, want below 1e-4", angle)
+	}
+	gap := simB.center.Sub(simA.center).Len()
+	if !withinQ(gap, fixed.Q32One(), linearSlop.Add(linearSlop)) {
+		t.Errorf("the centers are %v apart, want 1", gap)
+	}
+	if n := fixed.SaturationCount(); n != 0 {
+		t.Errorf("%d operations saturated", n)
+	}
+	validateWorld(w)
+}
