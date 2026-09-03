@@ -536,3 +536,477 @@ func makeShapeDistanceProxy(s *shape) ShapeProxy {
 		panic("dbox2d: unknown shape type")
 	}
 }
+
+// GetBody returns the body that owns the shape. It corresponds to
+// b2Shape_GetBody.
+func (shapeId ShapeId) GetBody() BodyId {
+	w := getWorld(shapeId.world0)
+	s := getShape(w, shapeId)
+	return makeBodyId(w, s.bodyId)
+}
+
+// GetWorld returns the world containing the shape. It corresponds to
+// b2Shape_GetWorld.
+func (shapeId ShapeId) GetWorld() WorldId {
+	w := getWorld(shapeId.world0)
+	return WorldId{index1: shapeId.world0 + 1, generation: w.generation}
+}
+
+// SetUserData attaches application data to the shape. It corresponds to
+// b2Shape_SetUserData.
+func (shapeId ShapeId) SetUserData(userData any) {
+	w := getWorld(shapeId.world0)
+	getShape(w, shapeId).userData = userData
+}
+
+// GetUserData returns the data attached to the shape. It corresponds to
+// b2Shape_GetUserData.
+func (shapeId ShapeId) GetUserData() any {
+	w := getWorld(shapeId.world0)
+	return getShape(w, shapeId).userData
+}
+
+// IsSensor reports whether the shape is a sensor. It corresponds to
+// b2Shape_IsSensor.
+func (shapeId ShapeId) IsSensor() bool {
+	w := getWorld(shapeId.world0)
+	return getShape(w, shapeId).sensorIndex != nullIndex
+}
+
+// TestPoint reports whether a world point lies within the shape. It
+// corresponds to b2Shape_TestPoint.
+func (shapeId ShapeId) TestPoint(point Vec2) bool {
+	w := getWorld(shapeId.world0)
+	s := getShape(w, shapeId)
+	transform := getBodyTransform(w, s.bodyId)
+	localPoint := InvTransformPoint(transform, point)
+
+	switch s.shapeType {
+	case CapsuleShape:
+		return PointInCapsule(localPoint, &s.capsule)
+	case CircleShape:
+		return PointInCircle(localPoint, &s.circle)
+	case PolygonShape:
+		zero := fixed.Q32Zero()
+		input := DistanceInput{
+			ProxyA:     MakeProxy(s.polygon.Vertices[:s.polygon.Count], zero),
+			ProxyB:     MakeProxy([]Vec2{localPoint}, zero),
+			TransformA: TransformIdentity(),
+			TransformB: TransformIdentity(),
+			UseRadii:   false,
+		}
+		cache := SimplexCache{}
+		output := ShapeDistance(&input, &cache, nil)
+		return !s.polygon.Radius.Less(output.Distance)
+	default:
+		return false
+	}
+}
+
+// RayCast casts a world-space ray against the shape. It corresponds to
+// b2Shape_RayCast.
+func (shapeId ShapeId) RayCast(input *RayCastInput) CastOutput {
+	w := getWorld(shapeId.world0)
+	s := getShape(w, shapeId)
+	transform := getBodyTransform(w, s.bodyId)
+	return rayCastShape(input, s, transform)
+}
+
+// SetDensity changes the shape density and optionally updates body mass. It
+// corresponds to b2Shape_SetDensity.
+func (shapeId ShapeId) SetDensity(density Q, updateBodyMass bool) {
+	zero := fixed.Q32Zero()
+	if !IsValidQ(density) || density.Less(zero) {
+		panic("dbox2d: SetDensity density is not valid")
+	}
+
+	w := getWorldLocked(shapeId.world0)
+	s := getShape(w, shapeId)
+	if density.Eq(s.density) {
+		return
+	}
+
+	s.density = density
+	if updateBodyMass {
+		updateBodyMassData(w, &w.bodies[s.bodyId])
+	}
+}
+
+// GetDensity returns the shape density. It corresponds to
+// b2Shape_GetDensity.
+func (shapeId ShapeId) GetDensity() Q {
+	w := getWorld(shapeId.world0)
+	return getShape(w, shapeId).density
+}
+
+// SetFriction changes the shape friction. It corresponds to
+// b2Shape_SetFriction.
+func (shapeId ShapeId) SetFriction(friction Q) {
+	zero := fixed.Q32Zero()
+	if !IsValidQ(friction) || friction.Less(zero) {
+		panic("dbox2d: SetFriction friction is not valid")
+	}
+
+	w := getWorldLocked(shapeId.world0)
+	getShape(w, shapeId).friction = friction
+}
+
+// GetFriction returns the shape friction. It corresponds to
+// b2Shape_GetFriction.
+func (shapeId ShapeId) GetFriction() Q {
+	w := getWorld(shapeId.world0)
+	return getShape(w, shapeId).friction
+}
+
+// SetRestitution changes the shape restitution. It corresponds to
+// b2Shape_SetRestitution.
+func (shapeId ShapeId) SetRestitution(restitution Q) {
+	zero := fixed.Q32Zero()
+	if !IsValidQ(restitution) || restitution.Less(zero) {
+		panic("dbox2d: SetRestitution restitution is not valid")
+	}
+
+	w := getWorldLocked(shapeId.world0)
+	getShape(w, shapeId).restitution = restitution
+}
+
+// GetRestitution returns the shape restitution. It corresponds to
+// b2Shape_GetRestitution.
+func (shapeId ShapeId) GetRestitution() Q {
+	w := getWorld(shapeId.world0)
+	return getShape(w, shapeId).restitution
+}
+
+// SetMaterial sets the shape user material id. It corresponds to
+// b2Shape_SetMaterial.
+func (shapeId ShapeId) SetMaterial(material int) {
+	w := getWorldLocked(shapeId.world0)
+	getShape(w, shapeId).userMaterialId = material
+}
+
+// GetMaterial returns the shape user material id. It corresponds to
+// b2Shape_GetMaterial.
+func (shapeId ShapeId) GetMaterial() int {
+	w := getWorld(shapeId.world0)
+	return getShape(w, shapeId).userMaterialId
+}
+
+// GetSurfaceMaterial returns the shape surface material. It corresponds to
+// b2Shape_GetSurfaceMaterial.
+func (shapeId ShapeId) GetSurfaceMaterial() SurfaceMaterial {
+	w := getWorld(shapeId.world0)
+	s := getShape(w, shapeId)
+	return SurfaceMaterial{
+		Friction:          s.friction,
+		Restitution:       s.restitution,
+		RollingResistance: s.rollingResistance,
+		TangentSpeed:      s.tangentSpeed,
+		UserMaterialId:    s.userMaterialId,
+		CustomColor:       s.customColor,
+	}
+}
+
+// SetSurfaceMaterial changes the shape surface material. It corresponds to
+// b2Shape_SetSurfaceMaterial.
+func (shapeId ShapeId) SetSurfaceMaterial(material SurfaceMaterial) {
+	w := getWorld(shapeId.world0)
+	s := getShape(w, shapeId)
+	s.friction = material.Friction
+	s.restitution = material.Restitution
+	s.rollingResistance = material.RollingResistance
+	s.tangentSpeed = material.TangentSpeed
+	s.userMaterialId = material.UserMaterialId
+	s.customColor = material.CustomColor
+}
+
+// GetFilter returns the shape collision filter. It corresponds to
+// b2Shape_GetFilter.
+func (shapeId ShapeId) GetFilter() Filter {
+	w := getWorld(shapeId.world0)
+	return getShape(w, shapeId).filter
+}
+
+// resetProxy destroys contacts and refreshes a shape proxy after a shape
+// change. It corresponds to b2ResetProxy.
+func resetProxy(w *world, s *shape, wakeBodies, destroyProxy bool) {
+	b := &w.bodies[s.bodyId]
+
+	contactKey := b.headContactKey
+	for contactKey != nullIndex {
+		contactId := contactKey >> 1
+		edgeIndex := contactKey & 1
+		c := &w.contacts[contactId]
+		contactKey = c.edges[edgeIndex].nextKey
+
+		if c.shapeIdA == s.id || c.shapeIdB == s.id {
+			destroyContact(w, c, wakeBodies)
+		}
+	}
+
+	transform := getBodyTransformQuick(w, b)
+	if s.proxyKey != nullIndex {
+		proxyType := proxyTypeOf(s.proxyKey)
+		updateShapeAABBs(s, transform, proxyType)
+
+		if destroyProxy {
+			w.broadPhase.destroyProxy(s.proxyKey)
+			s.proxyKey = w.broadPhase.createProxy(proxyType, s.fatAABB, s.filter.CategoryBits, s.id, true)
+		} else {
+			w.broadPhase.moveProxy(s.proxyKey, s.fatAABB)
+		}
+	} else {
+		updateShapeAABBs(s, transform, b.bodyType)
+	}
+
+	validateSolverSets(w)
+}
+
+// SetFilter changes the shape collision filter. It corresponds to
+// b2Shape_SetFilter.
+func (shapeId ShapeId) SetFilter(filter Filter) {
+	w := getWorldLocked(shapeId.world0)
+	s := getShape(w, shapeId)
+	if filter.MaskBits == s.filter.MaskBits &&
+		filter.CategoryBits == s.filter.CategoryBits &&
+		filter.GroupIndex == s.filter.GroupIndex {
+		return
+	}
+
+	destroyProxy := filter.CategoryBits != s.filter.CategoryBits
+	s.filter = filter
+	resetProxy(w, s, true, destroyProxy)
+}
+
+// EnableSensorEvents enables sensor events on the shape. It corresponds to
+// b2Shape_EnableSensorEvents.
+func (shapeId ShapeId) EnableSensorEvents(flag bool) {
+	w := getWorldLocked(shapeId.world0)
+	getShape(w, shapeId).enableSensorEvents = flag
+}
+
+// AreSensorEventsEnabled reports whether sensor events are enabled. It
+// corresponds to b2Shape_AreSensorEventsEnabled.
+func (shapeId ShapeId) AreSensorEventsEnabled() bool {
+	w := getWorld(shapeId.world0)
+	return getShape(w, shapeId).enableSensorEvents
+}
+
+// EnableContactEvents enables contact events on the shape. It corresponds to
+// b2Shape_EnableContactEvents.
+func (shapeId ShapeId) EnableContactEvents(flag bool) {
+	w := getWorldLocked(shapeId.world0)
+	getShape(w, shapeId).enableContactEvents = flag
+}
+
+// AreContactEventsEnabled reports whether contact events are enabled. It
+// corresponds to b2Shape_AreContactEventsEnabled.
+func (shapeId ShapeId) AreContactEventsEnabled() bool {
+	w := getWorld(shapeId.world0)
+	return getShape(w, shapeId).enableContactEvents
+}
+
+// EnablePreSolveEvents enables pre-solve events on the shape. It corresponds
+// to b2Shape_EnablePreSolveEvents.
+func (shapeId ShapeId) EnablePreSolveEvents(flag bool) {
+	w := getWorldLocked(shapeId.world0)
+	getShape(w, shapeId).enablePreSolveEvents = flag
+}
+
+// ArePreSolveEventsEnabled reports whether pre-solve events are enabled. It
+// corresponds to b2Shape_ArePreSolveEventsEnabled.
+func (shapeId ShapeId) ArePreSolveEventsEnabled() bool {
+	w := getWorld(shapeId.world0)
+	return getShape(w, shapeId).enablePreSolveEvents
+}
+
+// EnableHitEvents enables hit events on the shape. It corresponds to
+// b2Shape_EnableHitEvents.
+func (shapeId ShapeId) EnableHitEvents(flag bool) {
+	w := getWorldLocked(shapeId.world0)
+	getShape(w, shapeId).enableHitEvents = flag
+}
+
+// AreHitEventsEnabled reports whether hit events are enabled. It corresponds
+// to b2Shape_AreHitEventsEnabled.
+func (shapeId ShapeId) AreHitEventsEnabled() bool {
+	w := getWorld(shapeId.world0)
+	return getShape(w, shapeId).enableHitEvents
+}
+
+// GetType returns the shape geometry type. It corresponds to
+// b2Shape_GetType.
+func (shapeId ShapeId) GetType() ShapeType {
+	w := getWorld(shapeId.world0)
+	return getShape(w, shapeId).shapeType
+}
+
+// GetCircle returns the circle geometry. It corresponds to
+// b2Shape_GetCircle.
+func (shapeId ShapeId) GetCircle() Circle {
+	w := getWorld(shapeId.world0)
+	s := getShape(w, shapeId)
+	if s.shapeType != CircleShape {
+		panic("dbox2d: shape is not a circle")
+	}
+	return s.circle
+}
+
+// GetSegment returns the segment geometry. It corresponds to
+// b2Shape_GetSegment.
+func (shapeId ShapeId) GetSegment() Segment {
+	w := getWorld(shapeId.world0)
+	s := getShape(w, shapeId)
+	if s.shapeType != SegmentShape {
+		panic("dbox2d: shape is not a segment")
+	}
+	return s.segment
+}
+
+// GetChainSegment returns the chain segment geometry. It corresponds to
+// b2Shape_GetChainSegment.
+func (shapeId ShapeId) GetChainSegment() ChainSegment {
+	w := getWorld(shapeId.world0)
+	s := getShape(w, shapeId)
+	if s.shapeType != ChainSegmentShape {
+		panic("dbox2d: shape is not a chain segment")
+	}
+	return s.chainSegment
+}
+
+// GetCapsule returns the capsule geometry. It corresponds to
+// b2Shape_GetCapsule.
+func (shapeId ShapeId) GetCapsule() Capsule {
+	w := getWorld(shapeId.world0)
+	s := getShape(w, shapeId)
+	if s.shapeType != CapsuleShape {
+		panic("dbox2d: shape is not a capsule")
+	}
+	return s.capsule
+}
+
+// GetPolygon returns the polygon geometry. It corresponds to
+// b2Shape_GetPolygon.
+func (shapeId ShapeId) GetPolygon() Polygon {
+	w := getWorld(shapeId.world0)
+	s := getShape(w, shapeId)
+	if s.shapeType != PolygonShape {
+		panic("dbox2d: shape is not a polygon")
+	}
+	return s.polygon
+}
+
+// SetCircle replaces the shape geometry with a circle. It corresponds to
+// b2Shape_SetCircle.
+func (shapeId ShapeId) SetCircle(circle *Circle) {
+	w := getWorldLocked(shapeId.world0)
+	s := getShape(w, shapeId)
+	s.circle = *circle
+	s.shapeType = CircleShape
+	resetProxy(w, s, true, true)
+}
+
+// SetCapsule replaces the shape geometry with a capsule. It corresponds to
+// b2Shape_SetCapsule.
+func (shapeId ShapeId) SetCapsule(capsule *Capsule) {
+	w := getWorldLocked(shapeId.world0)
+	s := getShape(w, shapeId)
+	s.capsule = *capsule
+	s.shapeType = CapsuleShape
+	resetProxy(w, s, true, true)
+}
+
+// SetSegment replaces the shape geometry with a segment. It corresponds to
+// b2Shape_SetSegment.
+func (shapeId ShapeId) SetSegment(segment *Segment) {
+	w := getWorldLocked(shapeId.world0)
+	s := getShape(w, shapeId)
+	s.segment = *segment
+	s.shapeType = SegmentShape
+	resetProxy(w, s, true, true)
+}
+
+// SetPolygon replaces the shape geometry with a polygon. It corresponds to
+// b2Shape_SetPolygon.
+func (shapeId ShapeId) SetPolygon(polygon *Polygon) {
+	w := getWorldLocked(shapeId.world0)
+	s := getShape(w, shapeId)
+	s.polygon = *polygon
+	s.shapeType = PolygonShape
+	resetProxy(w, s, true, true)
+}
+
+// GetContactCapacity returns the shape's conservative contact capacity. It
+// corresponds to b2Shape_GetContactCapacity.
+func (shapeId ShapeId) GetContactCapacity() int {
+	w := getWorldLocked(shapeId.world0)
+	s := getShape(w, shapeId)
+	if s.sensorIndex != nullIndex {
+		return 0
+	}
+	return w.bodies[s.bodyId].contactCount
+}
+
+// GetContactData fills touching contact data in body-list order. It
+// corresponds to b2Shape_GetContactData.
+func (shapeId ShapeId) GetContactData(data []ContactData) int {
+	w := getWorldLocked(shapeId.world0)
+	s := getShape(w, shapeId)
+	if s.sensorIndex != nullIndex {
+		return 0
+	}
+
+	b := &w.bodies[s.bodyId]
+	contactKey := b.headContactKey
+	count := 0
+	for contactKey != nullIndex && count < len(data) {
+		contactId := contactKey >> 1
+		edgeIndex := contactKey & 1
+		c := &w.contacts[contactId]
+
+		if (c.shapeIdA == s.id || c.shapeIdB == s.id) && c.flags&contactTouchingFlag != 0 {
+			sA := &w.shapes[c.shapeIdA]
+			sB := &w.shapes[c.shapeIdB]
+			data[count].ShapeIdA = ShapeId{index1: int32(sA.id) + 1, world0: shapeId.world0, generation: sA.generation}
+			data[count].ShapeIdB = ShapeId{index1: int32(sB.id) + 1, world0: shapeId.world0, generation: sB.generation}
+			data[count].Manifold = getContactSim(w, c).manifold
+			count++
+		}
+
+		contactKey = c.edges[edgeIndex].nextKey
+	}
+	return count
+}
+
+// GetAABB returns the shape's current axis-aligned bounds. It corresponds to
+// b2Shape_GetAABB.
+func (shapeId ShapeId) GetAABB() AABB {
+	w := getWorld(shapeId.world0)
+	return getShape(w, shapeId).aabb
+}
+
+// GetMassData returns the shape mass, centroid and rotational inertia. It
+// corresponds to b2Shape_GetMassData.
+func (shapeId ShapeId) GetMassData() MassData {
+	w := getWorld(shapeId.world0)
+	return computeShapeMass(getShape(w, shapeId))
+}
+
+// GetClosestPoint returns the closest point on the shape to a world target.
+// It corresponds to b2Shape_GetClosestPoint.
+func (shapeId ShapeId) GetClosestPoint(target Vec2) Vec2 {
+	w := getWorld(shapeId.world0)
+	s := getShape(w, shapeId)
+	b := &w.bodies[s.bodyId]
+	transform := getBodyTransformQuick(w, b)
+
+	zero := fixed.Q32Zero()
+	input := DistanceInput{
+		ProxyA:     makeShapeDistanceProxy(s),
+		ProxyB:     MakeProxy([]Vec2{target}, zero),
+		TransformA: transform,
+		TransformB: TransformIdentity(),
+		UseRadii:   true,
+	}
+	cache := SimplexCache{}
+	return ShapeDistance(&input, &cache, nil).PointA
+}
