@@ -614,3 +614,28 @@ func TestTimeOfImpactConvergesOnRandomSweeps(t *testing.T) {
 		t.Fatalf("witness %d, want %d", got, witness)
 	}
 }
+
+// TestIterativeGeometryRejectsInvalidInput covers the assertions of the
+// distance solver and the time of impact retained as panics per D-003.
+func TestIterativeGeometryRejectsInvalidInput(t *testing.T) {
+	expectPanic := func(t *testing.T, f func()) {
+		t.Helper()
+		defer func() {
+			if recover() == nil {
+				t.Fatal("no panic")
+			}
+		}()
+		f()
+	}
+
+	t.Run("empty proxy", func(t *testing.T) {
+		input := identityDistanceInput(boxProxy(1, 1, vec(0, 0)), dbox2d.ShapeProxy{}, false)
+		var cache dbox2d.SimplexCache
+		expectPanic(t, func() { dbox2d.ShapeDistance(&input, &cache, nil) })
+	})
+
+	t.Run("non-unit rotation", func(t *testing.T) {
+		input := toiPair(boxProxy(1, 1, vec(0, 0)), boxProxy(1, 1, vec(0, 0)), vec(5, 0), vec(-5, 0), dbox2d.RotIdentity(), dbox2d.Rot{})
+		expectPanic(t, func() { dbox2d.TimeOfImpact(&input) })
+	})
+}
