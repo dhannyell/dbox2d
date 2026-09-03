@@ -299,3 +299,162 @@ func TestRevoluteRejectsAFullTurnLimit(t *testing.T) {
 	def.UpperAngle = fixed.Q32MustParse("0.495")
 	CreateRevoluteJoint(worldId, &def)
 }
+
+// TestJointAccessorsRoundTrip checks mutable revolute-joint state through its accessors.
+func TestJointAccessorsRoundTrip(t *testing.T) {
+	worldId := createTestWorld(t)
+	idA := addDynamicCircle(t, worldId, v2(0, 0))
+	idB := addDynamicCircle(t, worldId, v2(3, 0))
+
+	def := DefaultRevoluteJointDef()
+	def.BodyIdA, def.BodyIdB = idA, idB
+	jointId := CreateRevoluteJoint(worldId, &def)
+
+	anchorA := Vec2{X: fixed.Q32MustParse("0.25"), Y: fixed.Q32MustParse("-0.5")}
+	anchorB := Vec2{X: fixed.Q32MustParse("-0.75"), Y: fixed.Q32MustParse("0.125")}
+	referenceAngle := fixed.Q32MustParse("0.125")
+	hertz := fixed.Q32FromInt(30)
+	dampingRatio := fixed.Q32MustParse("0.75")
+	userData := "joint data"
+
+	jointId.SetLocalAnchorA(anchorA)
+	jointId.SetLocalAnchorB(anchorB)
+	jointId.SetReferenceAngle(referenceAngle)
+	jointId.SetUserData(userData)
+	jointId.SetCollideConnected(true)
+	jointId.SetConstraintTuning(hertz, dampingRatio)
+
+	checks := []struct {
+		name string
+		got  any
+		want any
+	}{
+		{"local anchor A", jointId.GetLocalAnchorA(), anchorA},
+		{"local anchor B", jointId.GetLocalAnchorB(), anchorB},
+		{"reference angle", jointId.GetReferenceAngle(), referenceAngle},
+		{"user data", jointId.GetUserData(), userData},
+		{"collide connected", jointId.GetCollideConnected(), true},
+	}
+	for _, check := range checks {
+		if check.got != check.want {
+			t.Errorf("%s = %v, want %v", check.name, check.got, check.want)
+		}
+	}
+	gotHertz, gotDampingRatio := jointId.GetConstraintTuning()
+	if !gotHertz.Eq(hertz) || !gotDampingRatio.Eq(dampingRatio) {
+		t.Errorf("constraint tuning = (%v, %v), want (%v, %v)", gotHertz, gotDampingRatio, hertz, dampingRatio)
+	}
+}
+
+// TestSetCollideConnectedTogglesContact checks contact events across filter changes.
+func TestSetCollideConnectedTogglesContact(t *testing.T) {
+	worldId := createTestWorld(t)
+	bodyDef := DefaultBodyDef()
+	bodyDef.Type = DynamicBody
+	bodyA := CreateBody(worldId, &bodyDef)
+	bodyB := CreateBody(worldId, &bodyDef)
+	shapeDef := DefaultShapeDef()
+	// Contact events must be enabled on both shapes for the transition assertions.
+	shapeDef.EnableContactEvents = true
+	box := MakeSquare(fixed.Q32Half())
+	shapeA := CreatePolygonShape(bodyA, &shapeDef, &box)
+	shapeB := CreatePolygonShape(bodyB, &shapeDef, &box)
+	w := getWorldFromId(worldId)
+
+	def := DefaultRevoluteJointDef()
+	def.BodyIdA, def.BodyIdB = bodyA, bodyB
+	jointId := CreateRevoluteJoint(worldId, &def)
+
+	dt := stepDt()
+	worldId.Step(dt, 4)
+	if w.contactIdPool.idCount() != 0 {
+		t.Fatalf("the filtered boxes have %d contacts, want 0", w.contactIdPool.idCount())
+	}
+	if events := worldId.GetContactEvents(); len(events.BeginEvents) != 0 {
+		t.Fatalf("the filtered step reports %d begin events, want 0", len(events.BeginEvents))
+	}
+
+	jointId.SetCollideConnected(true)
+	worldId.Step(dt, 4)
+	events := worldId.GetContactEvents()
+	if len(events.BeginEvents) != 1 {
+		t.Fatalf("the enabled step reports %d begin events, want 1", len(events.BeginEvents))
+	}
+	begin := events.BeginEvents[0]
+	if !((begin.ShapeIdA == shapeA && begin.ShapeIdB == shapeB) || (begin.ShapeIdA == shapeB && begin.ShapeIdB == shapeA)) {
+		t.Fatalf("begin event shapes = %v/%v, want the two boxes", begin.ShapeIdA, begin.ShapeIdB)
+	}
+
+	jointId.SetCollideConnected(false)
+	worldId.Step(dt, 4)
+	events = worldId.GetContactEvents()
+	if len(events.EndEvents) != 1 {
+		t.Fatalf("the disabled step reports %d end events, want 1", len(events.EndEvents))
+	}
+	end := events.EndEvents[0]
+	if !((end.ShapeIdA == shapeA && end.ShapeIdB == shapeB) || (end.ShapeIdA == shapeB && end.ShapeIdB == shapeA)) {
+		t.Fatalf("end event shapes = %v/%v, want the two boxes", end.ShapeIdA, end.ShapeIdB)
+	}
+}
+
+// TestGetConstraintForceMatchesWeight checks the settled support force under gravity.
+func TestGetConstraintForceMatchesWeight(t *testing.T) {
+	worldId := createTestWorld(t)
+	g := fixed.Q32FromInt(10)
+	worldId.SetGravity(Vec2{Y: g.Neg()})
+
+	staticDef := DefaultBodyDef()
+	staticId := CreateBody(worldId, &staticDef)
+	dynamicDef := DefaultBodyDef()
+	dynamicDef.Type = DynamicBody
+	dynamicDef.Position = Vec2{Y: fixed.Q32FromInt(-1)}
+	dynamicDef.EnableSleep = false
+	dynamicId := CreateBody(worldId, &dynamicDef)
+	shapeDef := DefaultShapeDef()
+	box := MakeSquare(fixed.Q32Half())
+	CreatePolygonShape(dynamicId, &shapeDef, &box)
+
+	def := DefaultRevoluteJointDef()
+	def.BodyIdA, def.BodyIdB = staticId, dynamicId
+	def.LocalAnchorB = Vec2{Y: fixed.Q32One()}
+	jointId := CreateRevoluteJoint(worldId, &def)
+
+	for range 60 {
+		worldId.Step(stepDt(), 4)
+	}
+
+	mass := dynamicId.GetMass()
+	expected := mass.Mul(g)
+	tolerance := fixed.Q32MustParse("0.01")
+	if got := jointId.GetConstraintForce().Len(); !withinQ(got, expected, tolerance) {
+		t.Errorf("constraint force = %v, want mass * g = %v", got, expected)
+	}
+}
+
+// TestGetLinearAndAngularSeparation uses a zero limit to expose a quarter-turn.
+func TestGetLinearAndAngularSeparation(t *testing.T) {
+	worldId := createTestWorld(t)
+	staticDef := DefaultBodyDef()
+	bodyA := CreateBody(worldId, &staticDef)
+	bodyB := CreateBody(worldId, &staticDef)
+
+	def := DefaultRevoluteJointDef()
+	def.BodyIdA, def.BodyIdB = bodyA, bodyB
+	def.EnableLimit = true
+	def.LowerAngle = fixed.Q32Zero()
+	def.UpperAngle = fixed.Q32Zero()
+	jointId := CreateRevoluteJoint(worldId, &def)
+
+	separation := fixed.Q32MustParse("0.1")
+	bodyB.SetTransform(Vec2{X: separation}, MakeRot(fixed.Q32Zero()))
+	tolerance := fixed.Q32MustParse("0.0001")
+	if got := jointId.GetLinearSeparation(); !withinQ(got, separation, tolerance) {
+		t.Errorf("linear separation = %v, want %v", got, separation)
+	}
+
+	quarterTurn := fixed.Q32MustParse("0.25")
+	bodyB.SetTransform(Vec2{X: separation}, MakeRot(quarterTurn))
+	if got := jointId.GetAngularSeparation(); !withinQ(got, quarterTurn, tolerance) {
+		t.Errorf("angular separation = %v, want %v turns", got, quarterTurn)
+	}
+}
