@@ -12,7 +12,7 @@ import (
 // invariants with b2ValidateSolverSets in its validation builds.
 
 // createTestWorld returns a world and destroys it on cleanup.
-func createTestWorld(t *testing.T) WorldId {
+func createTestWorld(t testing.TB) WorldId {
 	t.Helper()
 	def := DefaultWorldDef()
 	worldId := CreateWorld(&def)

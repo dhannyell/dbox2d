@@ -198,12 +198,20 @@ func stateToF64(s *bodyState) f64State {
 	}
 }
 
-// TestSolveRevoluteJointTracksTheFloat64Mirror runs one biased solve on a
-// joint with the spring, the motor and both limits armed, on two rotated
-// and displaced states. The fixed atan2 is exact to 2^-20 turn, which
-// the spring and limit biases amplify to a few 1e-6, so the bound is 1e-5.
-func TestSolveRevoluteJointTracksTheFloat64Mirror(t *testing.T) {
-	worldId := createTestWorld(t)
+// revoluteMirrorCase builds the mirror pair: a joint with the spring, the
+// motor and both limits armed, on two rotated and displaced states. The
+// bench shares it with the mirror test.
+type revoluteMirrorCase struct {
+	js             *jointSim
+	context        *stepContext
+	stateA, stateB *bodyState
+	mirror         *f64RevoluteJoint
+	fA, fB         f64State
+}
+
+func makeRevoluteMirrorCase(tb testing.TB) revoluteMirrorCase {
+	tb.Helper()
+	worldId := createTestWorld(tb)
 	w := getWorldFromId(worldId)
 
 	makeBody := func(position Vec2, turns string) BodyId {
@@ -280,9 +288,19 @@ func TestSolveRevoluteJointTracksTheFloat64Mirror(t *testing.T) {
 	mirror.springSoftness = makeSoftF64(mirror.hertz, mirror.dampingRatio, h)
 	fA := stateToF64(stateA)
 	fB := stateToF64(stateB)
+	return revoluteMirrorCase{js, context, stateA, stateB, mirror, fA, fB}
+}
+
+// TestSolveRevoluteJointTracksTheFloat64Mirror runs one biased solve on
+// the mirror case. The fixed atan2 is exact to 2^-20 turn, which the
+// spring and limit biases amplify to a few 1e-6, so the bound is 1e-5.
+func TestSolveRevoluteJointTracksTheFloat64Mirror(t *testing.T) {
+	c := makeRevoluteMirrorCase(t)
+	js, context, stateA, stateB, mirror, fA, fB := c.js, c.context, c.stateA, c.stateB, c.mirror, c.fA, c.fB
+	r := &js.revoluteJoint
 
 	solveRevoluteJoint(js, context, true)
-	f64SolveRevoluteJoint(mirror, &fA, &fB, h, invH, true)
+	f64SolveRevoluteJoint(mirror, &fA, &fB, qToF64(context.h), qToF64(context.invH), true)
 
 	const limit = 1e-5
 	check := func(name string, got Q, want float64) {
