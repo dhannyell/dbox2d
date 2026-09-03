@@ -20,7 +20,9 @@ type island struct {
 	tailContact  int
 	contactCount int
 
-	// Deferred: the joint list of the reference.
+	headJoint  int
+	tailJoint  int
+	jointCount int
 
 	// parentIsland links the island to its union-find parent.
 	parentIsland int
@@ -63,6 +65,9 @@ func createIsland(w *world, setIndex int) *island {
 	isl.headContact = nullIndex
 	isl.tailContact = nullIndex
 	isl.contactCount = 0
+	isl.headJoint = nullIndex
+	isl.tailJoint = nullIndex
+	isl.jointCount = 0
 	isl.parentIsland = nullIndex
 	isl.constraintRemoveCount = 0
 
@@ -673,5 +678,39 @@ func validateIsland(w *world, islandId int) {
 		panic("dbox2d: an island without contacts has a tail or a count")
 	}
 
-	// Deferred: the joint list check.
+	if isl.headJoint != nullIndex {
+		if isl.tailJoint == nullIndex {
+			panic("dbox2d: an island with a head joint has no tail joint")
+		}
+		if isl.jointCount <= 0 {
+			panic("dbox2d: an island with joints has a zero count")
+		}
+		if isl.jointCount > 1 && isl.tailJoint == isl.headJoint {
+			panic("dbox2d: an island with several joints has one end")
+		}
+		if isl.jointCount > w.jointIdPool.idCount() {
+			panic("dbox2d: the island joint count exceeds the pool")
+		}
+
+		count := 0
+		jointId := isl.headJoint
+		for jointId != nullIndex {
+			j := &w.joints[jointId]
+			if j.setIndex != isl.setIndex {
+				panic("dbox2d: a joint and its island differ in set")
+			}
+			count += 1
+
+			if count == isl.jointCount && jointId != isl.tailJoint {
+				panic("dbox2d: the island tail joint is wrong")
+			}
+
+			jointId = j.islandNext
+		}
+		if count != isl.jointCount {
+			panic("dbox2d: the island joint count is wrong")
+		}
+	} else if isl.tailJoint != nullIndex || isl.jointCount != 0 {
+		panic("dbox2d: an island without joints has a tail or a count")
+	}
 }
