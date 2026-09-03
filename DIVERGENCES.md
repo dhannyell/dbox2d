@@ -178,23 +178,26 @@ Numbering is sequential from `D-001` and never reused.
 
 ### D-009 An infinite sentinel becomes the largest representable value
 
-- Files: aabb.go, hull.go, manifold.go (upstream src/aabb.c
-  `b2AABB_RayCast`, src/hull.c `b2ComputeHull`, src/manifold.c
+- Files: aabb.go, hull.go, manifold.go, dynamic_tree.go (upstream
+  src/aabb.c `b2AABB_RayCast`, src/hull.c `b2ComputeHull`, src/manifold.c
   `b2CollidePolygonAndCircle`, `b2FindMaxSeparation` and `b2CollidePolygons`
-  search seeds)
+  search seeds, src/dynamic_tree.c `b2FindBestSibling` lower bounds and
+  `b2PartitionSAH` bin bounds and cost seed)
 - Tier: T2
 - Reason: the reference seeds a search with `FLT_MAX`, which no coordinate
   reaches. Q32.32 has no infinity and it saturates instead.
 - Behaviour: the seeds are the largest and the smallest representable values.
   Those values sit outside the valid input range: `IsValidQ` rejects a
   coordinate that equals either seed.
-- Test: TestAABBRayCastHitsTheNearFace in aabb_test.go and
-  TestComputeHullDropsAnInteriorPoint in hull_test.go
+- Test: TestAABBRayCastHitsTheNearFace in aabb_test.go,
+  TestComputeHullDropsAnInteriorPoint in hull_test.go, and
+  TestTreeSeedNeverWins in dynamic_tree_test.go
 
 ### D-010 A generated array becomes a slice
 
 - Files: array.go and every file that stores a sim array (upstream
-  src/array.h, src/array.c)
+  src/array.h, src/array.c), broad_phase.go (upstream src/broad_phase.c
+  `b2PairQueryCallback` heap pairs)
 - Tier: T2
 - Reason: the reference generates one array type per element type with
   macros. Go has no macros, and the slice already carries the length and the
@@ -206,7 +209,9 @@ Numbering is sequential from `D-001` and never reused.
   simulation result. A step allocates only when a slice, the arena or a
   graph color grows past its capacity, which happens on the first step that
   activates a contact and then stays flat; the reference grows its arrays
-  and its arena at the same moments.
+  and its arena at the same moments. The pair slice of the broadphase
+  grows by append when the sixteen pairs per moved proxy run out; the
+  reference takes single pairs from the heap at the same moment.
 - Test: TestCreateAndDestroyOrdersProduceTheSameWorld and
   TestSleepingBodyGetsItsOwnSolverSet in world_test.go,
   TestStepAllocatesNothing in step_test.go
@@ -267,3 +272,40 @@ Numbering is sequential from `D-001` and never reused.
   TestCollidePolygonsClipsThePartialOverlap and
   TestCollideSegmentAndPolygonRejectsADegenerateSegment in manifold_test.go,
   and the clipSegments tests in manifold_internal_test.go
+
+### D-013 The pairs of a moved proxy are sorted by shape id
+
+- File: broad_phase.go (upstream src/broad_phase.c `b2PairQueryCallback`)
+- Tier: T2
+- Reason: the reference prepends each new pair to the list of the moved
+  proxy, so the contact creation order follows the walk of the tree. Two
+  trees with the same leaves and a different topology, as a rebuild or a
+  different insertion history produces, would create the contacts in a
+  different order, and the contact ids, the graph colors and the solver
+  order would follow. The port promises the same world for any equivalent
+  tree.
+- Behaviour: the callback inserts each pair in ascending `(shapeIdA,
+  shapeIdB)` order in the list of its moved proxy. The order across moved
+  proxies stays the order of the move array, as upstream. The shape ids
+  come from the pair itself: the shape of the smaller proxy key is A, as
+  upstream.
+- Test: TestBroadPhasePairsAreSortedByShapeId in broad_phase_test.go and
+  TestChecksumIgnoresTheTreeTopology in checksum_test.go
+
+### D-014 A callback with a context becomes a closure
+
+- Files: dynamic_tree.go (upstream src/dynamic_tree.c `b2DynamicTree_Query`
+  and `b2DynamicTree_RayCast`, include/box2d/collision.h
+  `b2TreeQueryCallbackFcn` and `b2TreeRayCastCallbackFcn`)
+- Tier: T2
+- Reason: the reference passes a function pointer and a `void*` context.
+  Go closes over the context instead, and a typed closure keeps the call
+  site legible.
+- Behaviour: the tree walks take a closure with the proxy id and the user
+  data. The public `OverlapResultFcn` and `CastResultFcn` drop the
+  `void*` context of the reference as well; the caller closes over its
+  state. A closure that does not escape allocates nothing; the step test
+  pins zero allocations.
+- Test: TestTreeQueryReportsTheOverlaps and TestTreeRayCastClipsTheRay in
+  dynamic_tree_test.go; TestOverlapAABBReportsTheFatBounds and
+  TestCastRayClipsAcrossTheTrees in world_test.go

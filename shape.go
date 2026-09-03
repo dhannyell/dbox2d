@@ -135,9 +135,8 @@ func createShapeInternal(w *world, b *body, transform Transform, def *ShapeDef, 
 	s.generation += 1
 
 	if b.setIndex != disabledSet {
-		// Deferred: the reference creates the broad-phase proxy here. The
-		// proxy refreshes the bounds first, so the bounds stay faithful.
-		updateShapeAABBs(s, transform, b.bodyType)
+		proxyType := b.bodyType
+		createShapeProxy(s, &w.broadPhase, proxyType, transform, def.InvokeContactCreation || def.IsSensor)
 	}
 
 	// Add to shape doubly linked list
@@ -257,7 +256,10 @@ func destroyShapeInternal(w *world, s *shape, b *body) {
 
 	b.shapeCount -= 1
 
-	// Deferred: the broad-phase proxy and the sensor record go away here.
+	// Remove from broad-phase
+	destroyShapeProxy(s, &w.broadPhase)
+
+	// Deferred: the sensor record of the reference goes away here.
 
 	// Destroy contacts before releasing the shape id. The next key is read
 	// first because destroyContact unlinks the current edge from this body.
@@ -290,6 +292,31 @@ func DestroyShape(shapeId ShapeId, updateBodyMass bool) {
 
 	if updateBodyMass {
 		updateBodyMassData(w, b)
+	}
+}
+
+// createShapeProxy refreshes the bounds of a shape and inserts it in the
+// broadphase. It corresponds to b2CreateShapeProxy in src/shape.c.
+func createShapeProxy(s *shape, bp *broadPhase, proxyType BodyType, transform Transform, forcePairCreation bool) {
+	if s.proxyKey != nullIndex {
+		panic("dbox2d: the shape already has a proxy")
+	}
+
+	updateShapeAABBs(s, transform, proxyType)
+
+	// Create proxies in the broad-phase.
+	s.proxyKey = bp.createProxy(proxyType, s.fatAABB, s.filter.CategoryBits, s.id, forcePairCreation)
+	if proxyTypeOf(s.proxyKey) >= BodyTypeCount {
+		panic("dbox2d: the proxy key carries a bad type")
+	}
+}
+
+// destroyShapeProxy removes a shape from the broadphase, if it has a
+// proxy. It corresponds to b2DestroyShapeProxy in src/shape.c.
+func destroyShapeProxy(s *shape, bp *broadPhase) {
+	if s.proxyKey != nullIndex {
+		bp.destroyProxy(s.proxyKey)
+		s.proxyKey = nullIndex
 	}
 }
 
@@ -412,4 +439,49 @@ func computeShapeExtent(s *shape, localCenter Vec2) shapeExtent {
 // shapeIdOf builds the public id of a shape.
 func shapeIdOf(w *world, s *shape) ShapeId {
 	return ShapeId{index1: int32(s.id) + 1, world0: w.worldId, generation: s.generation}
+}
+
+// shouldShapesCollide applies the filter rule of the reference: a shared
+// nonzero group decides by its sign, else the masks decide. It corresponds
+// to b2ShouldShapesCollide in src/shape.h.
+func shouldShapesCollide(filterA, filterB Filter) bool {
+	if filterA.GroupIndex == filterB.GroupIndex && filterA.GroupIndex != 0 {
+		return filterA.GroupIndex > 0
+	}
+
+	return filterA.MaskBits&filterB.CategoryBits != 0 && filterA.CategoryBits&filterB.MaskBits != 0
+}
+
+// shouldQueryCollide applies the query filter to a shape filter. It
+// corresponds to b2ShouldQueryCollide in src/shape.h.
+func shouldQueryCollide(shapeFilter Filter, queryFilter QueryFilter) bool {
+	return shapeFilter.CategoryBits&queryFilter.MaskBits != 0 && shapeFilter.MaskBits&queryFilter.CategoryBits != 0
+}
+
+// rayCastShape casts a world-space ray against a shape. It corresponds
+// to b2RayCastShape in src/shape.c.
+func rayCastShape(input *RayCastInput, s *shape, transform Transform) CastOutput {
+	localInput := *input
+	localInput.Origin = InvTransformPoint(transform, input.Origin)
+	localInput.Translation = InvRotateVector(transform.Q, input.Translation)
+
+	var output CastOutput
+	switch s.shapeType {
+	case CapsuleShape:
+		output = RayCastCapsule(&localInput, &s.capsule)
+	case CircleShape:
+		output = RayCastCircle(&localInput, &s.circle)
+	case PolygonShape:
+		output = RayCastPolygon(&localInput, &s.polygon)
+	case SegmentShape:
+		output = RayCastSegment(&localInput, &s.segment, false)
+	case ChainSegmentShape:
+		output = RayCastSegment(&localInput, &s.chainSegment.Segment, true)
+	default:
+		return output
+	}
+
+	output.Point = TransformPoint(transform, output.Point)
+	output.Normal = RotateVector(transform.Q, output.Normal)
+	return output
 }

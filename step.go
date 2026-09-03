@@ -78,7 +78,8 @@ func Step(worldId WorldId, timeStep Q, subStepCount int) {
 
 	w.locked = true
 
-	// Deferred: the broad-phase pair update of the reference runs here.
+	// Update collision pairs and create contacts
+	updateBroadPhasePairs(w)
 
 	context := stepContext{}
 	context.world = w
@@ -240,7 +241,9 @@ func removeNonTouchingContact(w *world, setIndex, localIndex int) {
 func collide(context *stepContext) {
 	w := context.world
 
-	// Deferred: the broad-phase tree rebuild of the reference starts here.
+	// The reference rebuilds the trees on a task beside the collide pass
+	// and finishes it before the refit. One worker rebuilds them first.
+	w.broadPhase.rebuildTrees()
 
 	graphColors := &w.constraintGraph.colors
 	contactCount := 0

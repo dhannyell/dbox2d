@@ -122,12 +122,12 @@ to D-007. The notes below record what moved and what did not cross.
   deterministic library.
 - `b2GetVersion` becomes `ReferenceVersion`. It names the Box2D release that
   this package ports; the module carries its own version.
-- The tree node flags of `constants.h` wait for `dynamic_tree.go`, order 29.
+- The tree node flags of `constants.h` landed with `dynamic_tree.go`, order 29.
 - `b2Lerp` keeps the upstream weighted form, which returns each end exactly.
   The fixed-point module interpolates by a scaled difference, so the two
   round differently and the port does not delegate.
 - `b2Perimeter` and `b2EnlargeAABB` live in `src/aabb.h`, so they stay
-  unexported. Their consumer is the dynamic tree, order 29.
+  unexported. Their consumer is the dynamic tree, order 29, which landed.
 - `B2_GRAPH_COLOR_COUNT` landed with the constraint graph, order 26.
   `B2_MAX_WORKERS` waits for the worker pool. `B2_NULL_INDEX` and
   `B2_MAX_WORLDS` landed with order 10.
@@ -384,6 +384,77 @@ structs.
 - The shape id of an event comes from the shape and its generation; the
   sensor events and the pre-solve callback wait for their orders.
 
+**Order 29 has landed**: `dynamic_tree.go` gains the node pool, the
+sibling search, the rotations, the leaf insert and remove, the proxy
+create, destroy, move and enlarge, the category bits, the validators, the
+box query, the ray cast and the rebuild.
+
+- The tree node flags of `constants.h` cross with the tree.
+- The reference overlays the children with the user data, and the parent
+  with the free list link, in unions. Go has no union, so the node keeps
+  each pair as two fields.
+- The sibling search seeds each lower bound with the largest fixed-point
+  value, which no perimeter reaches (D-009). The exact tie between two
+  internal children falls back to the centroid distance, as upstream.
+- The query and the ray cast take a closure instead of a callback and a
+  context pointer (D-014). The stack of each walk is a fixed array, as
+  upstream.
+- The rebuild keeps the heuristic switch of the reference. The median
+  split is live; the surface area split crosses under the same constant
+  and its bin seeds are the largest values (D-009). The reciprocal of the
+  centroid extent is a fixed-point division, and zero when the extent is
+  zero.
+- `b2DynamicTree_ShapeCast` waits for the shape cast of the collision
+  module. `b2DynamicTree_GetAreaRatio` and `b2DynamicTree_GetByteCount`
+  do not cross. They serve profiling views, not the simulation.
+- The validators exist, but only the tests call them. The reference
+  compiles them into validation builds only.
+
+**Order 30 has landed**: `broad_phase.go` gains the three trees, the
+move set and array, the pair query with its rules, the pair results from
+the arena, the contact creation in move order, the overlap test, the
+rebuild of the dynamic and the kinematic trees and the validators. The
+pair set moves from the world to the broadphase. `shape.go` gains
+`shouldShapesCollide` and `shouldQueryCollide`; `body.go` gains
+`shouldBodiesCollide` without its joint loop.
+
+- The pair query runs inline for one worker. The atomic pair index of the
+  reference is the length of the pair slice.
+- The pairs of one moved proxy link by index into the pair slice, not by
+  pointer. When the sixteen pairs per moved proxy run out the slice grows
+  by append instead of taking single pairs from the heap (D-010).
+- The reference prepends each pair, so the contact order of one moved
+  proxy follows the tree walk. The port keeps the list sorted by shape
+  pair, so any tree with the same leaves creates the same contacts in the
+  same order (D-013).
+- The sensor rule stays, because the shape carries its sensor index. The
+  custom filter callback and the joint loop of `b2ShouldBodiesCollide`
+  wait for their orders.
+- The world wiring landed with the broadphase: a shape creates its
+  proxy on creation and destroys it on destruction, `Step` updates the
+  pairs once the world locks, `collide` rebuilds the dynamic and the
+  kinematic trees first, the finalize marks the enlarged shapes and the
+  sims, and the refit after the hit events enlarges the proxies in sim
+  order. The reference runs the rebuild on a task beside the collide
+  pass; one worker runs it before.
+- The default shape definition invokes contact creation, so a static
+  shape joins the move buffer on creation, as upstream.
+- The determinism witness kept its value: the broadphase pairs the same
+  two boxes that the tests paired by hand. The tests that stood in for
+  the broadphase went away.
+- The set validation of the world runs only from the tests, as the
+  validators of the trees. The reference compiles it empty outside its
+  validation builds.
+
+**The public queries have landed**: `world.go` gains `OverlapAABB` and `CastRay`
+over the three trees, `shape.go` gains the ray cast dispatcher, and the
+public callbacks are closures per D-014. A zero fraction ends the cast
+before the next tree; a false overlap result ends only the current tree,
+because the reference loop does not check it; a locked world panics per
+D-003. The shape casts
+and the closest-hit helpers wait for the shape cast of the collision
+foundation.
+
 ## The map
 
 `Order` is the port sequence. A dash means the file waits for a later stage.
@@ -401,27 +472,27 @@ structs.
 | `src/hull.c` | `hull.go` | T0/T2 | foundation | 8 | Recursive quickhull. Its tolerances are multiples of the linear slop, so only the `FLT_MAX` seed diverged. See D-009. |
 | `src/geometry.c` | `geometry.go` | T0/T1/T2 | foundation | 9 | Shape constructors, mass data, AABB per shape, point tests, ray casts. The shape casts and the mover collisions wait for order 19. |
 | `include/box2d/types.h`, `src/types.c` | `types.go` | T1 | foundation | 10 | Definition structs and their defaults. |
-| `src/body.h`, `src/body.c` | `body.go` | T0/T2 | foundation | 11 | `body`, `bodySim`, `bodyState`, unexported: `src/body.h` declares them. Layout preserved. The mass update scales the angular velocity by one turn; see D-004. The island hooks landed with order 25; the body events landed with order 28. |
-| `src/shape.h`, `src/shape.c` | `shape.go` | T0 | foundation | 12 | Shape storage and the mass, AABB, centroid and extent dispatchers. The proxies, sensors, chains and cast queries wait for their stages. |
+| `src/body.h`, `src/body.c` | `body.go` | T0/T2 | foundation | 11 | `body`, `bodySim`, `bodyState`, unexported: `src/body.h` declares them. Layout preserved. The mass update scales the angular velocity by one turn; see D-004. The island hooks landed with order 25; the body events landed with order 28; the proxy destroy and the body collision rule landed with order 30. |
+| `src/shape.h`, `src/shape.c` | `shape.go` | T0 | foundation | 12 | Shape storage and the mass, AABB, centroid and extent dispatchers. The proxies and the filter rules landed with order 30; the ray cast dispatcher landed with the public queries. The sensors, chains and shape casts wait for their stages. |
 | `src/solver_set.h`, `src/solver_set.c` | `solver_set.go` | T0 | foundation | 13 | Static, awake, disabled and sleeping sets; body transfer, wake, sleep and set merge. The joint arrays wait. |
-| `src/world.h`, `src/world.c` | `world.go` | T0 | foundation | 14 | Split across stages. The foundation takes the registry, creation, destruction, the validity checks and the trimmed set validation. `b2World_Step` landed with order 16 in `step.go`; the events landed with order 28; the query and cast surface waits. |
+| `src/world.h`, `src/world.c` | `world.go` | T0 | foundation | 14 | Split across stages. The foundation takes the registry, creation, destruction, the validity checks and the trimmed set validation. `b2World_Step` landed with order 16 in `step.go`; the events landed with order 28; the broadphase and the enlarged body bit set landed with order 30; `OverlapAABB` and `CastRay` landed with the public queries. The shape casts and the closest-hit helpers wait for the shape cast. |
 | `src/array.h`, `src/array.c` | `array.go` | T2 | foundation | 15 | The macro-generated array template becomes a Go slice; `removeSwap` keeps the swap-remove contract. Capacity follows the Go runtime and never enters a result. See D-010. |
-| `src/world.c` (`b2World_Step`), `src/solver.h` (`b2StepContext`) | `step.go` | T1/T2 | foundation | 16 | The step surface: validation, the context, the sub-step split, the locked flag. Assertions become panics per D-003. The softness setup landed with order 24; the collide block and the events landed with order 28. The broad-phase update and the continuous stage wait. |
+| `src/world.c` (`b2World_Step`), `src/solver.h` (`b2StepContext`) | `step.go` | T1/T2 | foundation | 16 | The step surface: validation, the context, the sub-step split, the locked flag. Assertions become panics per D-003. The softness setup landed with order 24; the collide block and the events landed with order 28; the pair update and the tree rebuild landed with order 30. The continuous stage waits. |
 | — | `checksum.go` | T2 | foundation | 17 | Port-only determinism witness over the complete canonical world state, commutative over bodies and shapes. See D-011. |
 | `src/arena_allocator.h`, `src/arena_allocator.c` | `arena.go` | T1 | foundation | 18 | Per-step scratch. It is how the step allocates nothing. |
 | `src/distance.c` (segment distance, proxies) | `distance.go` | T0 | manifolds | 19 | Closed-form part only. |
 | `src/manifold.c` | `manifold.go` | T0/T1 | manifolds | 20 | Nine `FLT_EPSILON` sites become exact zero tests, one T2 entry each. |
 | `src/contact.h`, `src/contact.c` | `contact.go` | T0 | manifolds | 21 | Contact bookkeeping and the collide dispatch table. The island and graph branches landed with orders 25 and 26. |
 | `src/table.h`, `src/table.c` | `table.go` | T0 | manifolds | 22 | Open-addressing set of contact pairs. |
-| `src/solver.h`, `src/solver.c` | `solver.go` | T0/T1/T2 | solver | 23 | Nine ordered stages, from prepare joints to store impulses. `makeSoft` landed with order 24. The integration tasks and the body finalize landed with order 16; the single-worker stage order with the per-color contact stages, the island split and the sleep tail landed with order 23; see D-004 and D-006. |
+| `src/solver.h`, `src/solver.c` | `solver.go` | T0/T1/T2 | solver | 23 | Nine ordered stages, from prepare joints to store impulses. `makeSoft` landed with order 24. The integration tasks and the body finalize landed with order 16; the single-worker stage order with the per-color contact stages, the island split and the sleep tail landed with order 23; the enlarged body bits and the broadphase refit landed with order 30; see D-004 and D-006. |
 | `src/contact_solver.h`, `src/contact_solver.c` | `contact_solver.go` | T0/T1/T2 | solver | 24 | The scalar stages landed and serve every color; see D-004 and D-006. The wide `Task` family is T2 until the second executor exists. |
 | `src/island.h`, `src/island.c` | `island.go` | T0 | solver | 25 | Island linking, merging and splitting landed; the wake calls and the sleep path landed when order 13 completed. The joint lists wait for the joints. |
 | `src/constraint_graph.h`, `src/constraint_graph.c` | `constraint_graph.go` | T0 | solver | 26 | Eleven colors plus the overflow color landed. The color schedule is the parallel contract. The joint functions wait. |
 | `src/bitset.h`, `src/bitset.c` | `bitset.go` | T0 | broadphase | 27 | Set, clear, test, grow and union landed. Backs the constraint graph and the contact state of the step. |
 | `src/ctz.h` | `math/bits` | T2 | broadphase | 28 | The standard library replaces the compiler intrinsics. Landed with the collide block in `step.go`. |
-| `src/dynamic_tree.c` | `dynamic_tree.go` | T0 | broadphase | 29 | Fattened AABBs, surface-area heuristic, rotation rebalance. |
-| `src/broad_phase.h`, `src/broad_phase.c` | `broad_phase.go` | T0 | broadphase | 30 | Pair output is sorted by integer id, so any equivalent tree gives the same world. |
-| `src/atomic.h` | `sync/atomic` | T2 | broadphase | 31 | Needed only when a second executor exists. |
+| `src/dynamic_tree.c` | `dynamic_tree.go` | T0/T2 | broadphase | 29 | Landed. Fattened AABBs, surface-area heuristic, rotation rebalance, box query, ray cast, partial rebuild. The shape cast waits for order 19. See D-009 and D-014. |
+| `src/broad_phase.h`, `src/broad_phase.c` | `broad_phase.go` | T0/T2 | broadphase | 30 | Landed. Three trees, the move buffer, the pair query and the pair set. The pair list of each moved proxy is sorted by shape id, so any equivalent tree gives the same world. See D-010 and D-013. |
+| `src/atomic.h` | `sync/atomic` | T2 | broadphase | 31 | Needed only when a second executor exists. The pair index of the broadphase is the length of the pair slice for one worker. |
 | `include/box2d/box2d.h` | public API | T0 | all stages | — | The public surface arrives file by file with its owner. |
 | `src/joint.h`, `src/joint.c` | `joint.go` | T3 | later | — | Eight joint types follow it. |
 | `src/distance_joint.c`, `src/motor_joint.c`, `src/mouse_joint.c`, `src/prismatic_joint.c`, `src/revolute_joint.c`, `src/weld_joint.c`, `src/wheel_joint.c` | one file each | T3 | later | — | Ports after the solver is proven. |

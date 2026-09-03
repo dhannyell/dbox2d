@@ -12,11 +12,12 @@ The port covers its foundation, the closed-form part of the narrowphase and
 the scalar contact solver: worlds, bodies, shapes, mass computation, a
 determinism checksum, contact manifolds for the supported shape pairs, the
 contact bookkeeping, the islands with sleep and wake, the constraint graph,
-the soft-step contact solver and the body and contact events. `Step` updates
-the contacts it has, solves them and puts resting islands to sleep. The
-broadphase is not ported yet, so the library creates no contact pair on its
-own. Chain segments against capsules or polygons still wait for the iterative
-distance solver; joints and continuous collision wait as well.
+the soft-step contact solver, the body and contact events, the dynamic
+trees, the broadphase and the AABB and ray queries of the world. `Step`
+finds the new pairs, updates the contacts, solves them and puts resting
+islands to sleep. Chain segments against capsules or polygons still wait
+for the iterative distance solver; the shape queries, joints, sensors and
+continuous collision wait as well.
 [PORTING.md](PORTING.md) tracks what has landed.
 
 ## Fidelity contract
@@ -46,7 +47,7 @@ go get github.com/dhannyell/dbox2d
 ## Performance
 
 Fixed point buys determinism and pays in speed. The repository measures that
-price with four benchmark pairs in `bench_test.go`. Each pair runs the Q32.32
+price with six benchmark pairs in `bench_test.go`. Each pair runs the Q32.32
 code against a line-by-line `float64` mirror of the same code, which stands
 in for the floating-point formulation of the reference.
 
@@ -60,6 +61,15 @@ in for the floating-point formulation of the reference.
 | Velocity integration only, 1024 bodies, `float64` mirror | ~4.4 µs | 0 |
 | One `CollidePolygons`, two boxes, Q32.32 | ~0.40 µs | 0 |
 | One `CollidePolygons`, two boxes, `float64` mirror | ~0.091 µs | 0 |
+| Broadphase pair update, pyramid, every proxy moved, Q32.32 | ~75 µs | 0 |
+| Broadphase pair update, pyramid, every proxy moved, `float64` mirror | ~79 µs | 0 |
+| One tree query, 100 boxes, four hits, Q32.32 | ~0.14 µs | 0 |
+| One tree query, 100 boxes, four hits, `float64` mirror | ~0.14 µs | 0 |
+| Pyramid step, solver probe on a Q16.16 grid with Q48.16 sums, test only | ~1.7 ms | 0 |
+| Pyramid step, solver probe on a Q20.12 grid with 64-bit sums, test only | ~1.4 ms | 0 |
+| Pyramid step, solver probe with the state in Q32.32 and each contact in Q16.16 lanes, test only | ~2.5 ms | 0 |
+| Pyramid step, the same probe with the contacts colored and solved through the Q16 batch functions, scalar kernels, test only | ~1.9 ms | 0 |
+| Pyramid step, the same probe on the AVX2 kernels (`GOEXPERIMENT=simd`, Go 1.27), test only | ~1.6 ms | 0 |
 
 The composite numbers are the honest ones. The pyramid, a settled stack that
 collides and solves every contact on every step, runs about **3.3×** slower
@@ -74,7 +84,20 @@ takes three of them per body, and the polygon collider pays about 4.4×. The
 rest of the pipeline, with its bookkeeping, square roots and bounds work,
 dilutes those hot spots. The pyramid mirror keeps one constraint list instead
 of the graph colors and skips the island and event bookkeeping, so its ratio
-is an upper bound.
+is an upper bound. The broadphase pays nothing: the tree walks compare
+bounds and sum perimeters, which cost the same in both formats, so the
+pair update and the tree query run at parity. The pyramid mirror takes
+its pairs from a `float64` mirror of the tree.
+
+The probe lines run the contact solver of the pyramid on narrower grids
+inside `probe_q16_test.go` and `probe_wide_test.go`. The first two keep
+the state on the narrow grid. The third keeps the state and the impulse
+sums in Q32.32, reads them into Q16.16 lanes for each contact, and writes
+back only the delta. The last two color the contacts so that no two in
+one color share a dynamic body, and run each color as slices through the
+`Batch*16` functions of `fixed`; the scalar and the AVX2 kernels give the
+same bits. The probe measures the behaviour and the throughput of those
+grids only; the library keeps Q32.32.
 
 The `fixed` v0.3.0 release moved these numbers: its `Q32.Mul` now inlines,
 and its `Normalize` skips two divisions when the length is already one. The

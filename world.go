@@ -1,5 +1,7 @@
 package dbox2d
 
+import "github.com/dhannyell/fixed"
+
 // The solver set positions of src/world.h. The first sets have fixed
 // indices; every later index is a sleeping island set.
 const (
@@ -70,10 +72,8 @@ type world struct {
 
 	// Deferred: the sensor events of the reference.
 
-	// pairSet answers whether two shapes already have a contact. The
-	// reference hosts the set on the broadphase; it moves there when the
-	// broadphase lands.
-	pairSet hashSet
+	// broadPhase holds the trees, the move buffer and the pair set.
+	broadPhase broadPhase
 
 	// stepIndex advances once per step.
 	stepIndex uint64
@@ -228,7 +228,7 @@ func CreateWorld(def *WorldDef) WorldId {
 
 	w.contactIdPool = createIdPool()
 	w.contacts = make([]contact, 0, 16)
-	w.pairSet = createSet(16)
+	createBroadPhase(&w.broadPhase)
 
 	w.islandIdPool = createIdPool()
 	w.islands = make([]island, 0, 8)
@@ -240,6 +240,7 @@ func CreateWorld(def *WorldDef) WorldId {
 	w.splitIslandId = nullIndex
 
 	w.taskContext.contactStateBitSet = createBitSet(1024)
+	w.taskContext.enlargedSimBitSet = createBitSet(256)
 	w.taskContext.awakeIslandBitSet = createBitSet(256)
 	w.taskContext.splitIslandId = nullIndex
 
@@ -292,6 +293,7 @@ func DestroyWorld(worldId WorldId) {
 	w.islandIdPool.destroy()
 	w.solverSetIdPool.destroy()
 
+	destroyBroadPhase(&w.broadPhase)
 	destroyArenaAllocator(&w.arena)
 
 	// Wipe world but preserve generation
@@ -565,7 +567,7 @@ func validateSolverSets(w *world) {
 	if totalContactCount != w.contactIdPool.idCount() {
 		panic("dbox2d: the contact count and the contact pool disagree")
 	}
-	if totalContactCount != w.pairSet.count {
+	if totalContactCount != w.broadPhase.pairSet.count {
 		panic("dbox2d: the contact count and the pair set disagree")
 	}
 }
@@ -583,6 +585,10 @@ type taskContext struct {
 	// the collide pass, by contact id, because the sims move between the
 	// touching and the non-touching arrays.
 	contactStateBitSet bitSet
+
+	// enlargedSimBitSet marks the awake body sims whose shapes grew their
+	// fat bounds in the finalize, so the refit walks them in order.
+	enlargedSimBitSet bitSet
 
 	// awakeIslandBitSet marks the awake islands by local index.
 	awakeIslandBitSet bitSet
@@ -738,4 +744,87 @@ func validateContacts(w *world) {
 	if allocatedContactCount != w.contactIdPool.idCount() {
 		panic("dbox2d: the live contact count and the id pool differ")
 	}
+}
+
+// OverlapAABB reports every shape whose fat bounds overlap the box and
+// whose filter accepts the query. It walks the static, the kinematic and
+// the dynamic tree in that order; a false result ends only the current
+// tree, as in the reference. A locked world panics. It corresponds to
+// b2World_OverlapAABB in src/world.c.
+func OverlapAABB(worldId WorldId, aabb AABB, filter QueryFilter, fcn OverlapResultFcn) TreeStats {
+	w := getWorldFromId(worldId)
+	if w.locked {
+		panic("dbox2d: the world is locked")
+	}
+	if !IsValidAABB(aabb) {
+		panic("dbox2d: OverlapAABB needs a valid box")
+	}
+
+	callback := func(_ int, userData uint64) bool {
+		s := &w.shapes[int(userData)]
+		if !shouldQueryCollide(s.filter, filter) {
+			return true
+		}
+		return fcn(shapeIdOf(w, s))
+	}
+
+	var stats TreeStats
+	for i := range w.broadPhase.trees {
+		result := w.broadPhase.trees[i].query(aabb, filter.MaskBits, callback)
+		stats.NodeVisits += result.nodeVisits
+		stats.LeafVisits += result.leafVisits
+	}
+	return stats
+}
+
+// CastRay reports the shapes a ray hits, tree by tree. The callback
+// clips the ray for the next tree; a zero return stops the cast. A
+// locked world panics. It corresponds to b2World_CastRay in src/world.c.
+func CastRay(worldId WorldId, origin, translation Vec2, filter QueryFilter, fcn CastResultFcn) TreeStats {
+	w := getWorldFromId(worldId)
+	if w.locked {
+		panic("dbox2d: the world is locked")
+	}
+	if !IsValidVec2(origin) || !IsValidVec2(translation) {
+		panic("dbox2d: CastRay needs a valid ray")
+	}
+
+	zero := fixed.Q32Zero()
+	one := fixed.Q32One()
+	input := RayCastInput{Origin: origin, Translation: translation, MaxFraction: one}
+	fraction := one
+
+	callback := func(input *RayCastInput, _ int, userData uint64) Q {
+		s := &w.shapes[int(userData)]
+		if !shouldQueryCollide(s.filter, filter) {
+			return input.MaxFraction
+		}
+
+		transform := getBodyTransformQuick(w, &w.bodies[s.bodyId])
+		output := rayCastShape(input, s, transform)
+		if !output.Hit {
+			return input.MaxFraction
+		}
+
+		value := fcn(shapeIdOf(w, s), output.Point, output.Normal, output.Fraction)
+
+		// A negative value skips the shape and keeps the clip.
+		if !value.Less(zero) && !one.Less(value) {
+			fraction = value
+		}
+		return value
+	}
+
+	var stats TreeStats
+	for i := range w.broadPhase.trees {
+		result := w.broadPhase.trees[i].rayCast(&input, filter.MaskBits, callback)
+		stats.NodeVisits += result.nodeVisits
+		stats.LeafVisits += result.leafVisits
+
+		if fraction.Eq(zero) {
+			return stats
+		}
+		input.MaxFraction = fraction
+	}
+	return stats
 }

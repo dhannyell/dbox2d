@@ -231,3 +231,13 @@ type SimplexCache struct {
 	// IndexB holds the vertices of shape B on the simplex.
 	IndexB [3]uint8
 }
+
+// TreeStats counts the nodes a world query visited. It corresponds to
+// b2TreeStats in include/box2d/collision.h.
+type TreeStats struct {
+	// NodeVisits counts every node the walk touched.
+	NodeVisits int
+
+	// LeafVisits counts the leaves the walk tested.
+	LeafVisits int
+}

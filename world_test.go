@@ -334,3 +334,139 @@ func TestSleepingBodyGetsItsOwnSolverSet(t *testing.T) {
 	}
 	validateSolverSets(w)
 }
+
+// TestOverlapAABBReportsTheFatBounds pins OverlapAABB: the query reports
+// exactly the shapes whose fat bounds cross the box, across the three
+// trees, a false return stops the walk of one tree, an empty mask hides every shape, and a
+// locked world panics.
+func TestOverlapAABBReportsTheFatBounds(t *testing.T) {
+	worldId := createTestWorld(t)
+	w := getWorldFromId(worldId)
+
+	addStaticCircle(t, worldId, v2(0, 0))
+	kinematicDef := DefaultBodyDef()
+	kinematicDef.Type = KinematicBody
+	kinematicDef.Position = v2(5, 0)
+	kinematic := CreateBody(worldId, &kinematicDef)
+	shapeDef := DefaultShapeDef()
+	circle := Circle{Radius: fixed.Q32Half()}
+	CreateCircleShape(kinematic, &shapeDef, &circle)
+	addDynamicBox(t, worldId, v2(10, 0))
+	addDynamicBox(t, worldId, v2(10, 0))
+
+	query := box(-1, -1, 11, 1)
+	expected := map[ShapeId]bool{}
+	for i := range w.shapes {
+		s := &w.shapes[i]
+		if s.id != nullIndex && AABBOverlaps(s.fatAABB, query) {
+			expected[shapeIdOf(w, s)] = true
+		}
+	}
+	if len(expected) != 4 {
+		t.Fatalf("the fixture has %d shapes in the box, want 4", len(expected))
+	}
+
+	got := map[ShapeId]bool{}
+	stats := OverlapAABB(worldId, query, DefaultQueryFilter(), func(id ShapeId) bool {
+		got[id] = true
+		return true
+	})
+	if len(got) != len(expected) || stats.LeafVisits < 3 {
+		t.Fatalf("the query reported %d shapes with %d leaf visits", len(got), stats.LeafVisits)
+	}
+	for id := range expected {
+		if !got[id] {
+			t.Errorf("the query missed a shape in the box")
+		}
+	}
+
+	// A false return ends the current tree; the next tree still runs, so
+	// the two dynamic boxes yield one call and the trees three in total.
+	calls := 0
+	OverlapAABB(worldId, query, DefaultQueryFilter(), func(ShapeId) bool {
+		calls++
+		return false
+	})
+	if calls != 3 {
+		t.Errorf("a false return did not stop the tree walk: %d calls", calls)
+	}
+
+	filter := DefaultQueryFilter()
+	filter.MaskBits = 0
+	OverlapAABB(worldId, query, filter, func(ShapeId) bool {
+		t.Errorf("an empty mask reported a shape")
+		return true
+	})
+
+	w.locked = true
+	requirePanic(t, func() { OverlapAABB(worldId, query, DefaultQueryFilter(), func(ShapeId) bool { return true }) })
+	w.locked = false
+}
+
+// TestCastRayClipsAcrossTheTrees pins CastRay: the static hit clips the
+// ray before the dynamic tree, the closest hit wins, a -1 return skips
+// the shape, an empty mask hides every shape, an origin inside a shape
+// reports a zero fraction and stops, and a locked world panics.
+func TestCastRayClipsAcrossTheTrees(t *testing.T) {
+	worldId := createTestWorld(t)
+	w := getWorldFromId(worldId)
+
+	near := shapeIdOf(w, firstShape(w, addDynamicBox(t, worldId, v2(0, 0))))
+	far := shapeIdOf(w, firstShape(w, addDynamicBox(t, worldId, v2(4, 0))))
+	static := shapeIdOf(w, firstShape(w, addStaticCircle(t, worldId, v2(8, 0))))
+
+	origin := v2(-10, 0)
+	translation := v2(30, 0)
+	filter := DefaultQueryFilter()
+
+	var hit ShapeId
+	var point Vec2
+	closest := func(id ShapeId, p, _ Vec2, fraction Q) Q {
+		hit, point = id, p
+		return fraction
+	}
+	stats := CastRay(worldId, origin, translation, filter, closest)
+	if hit != near || stats.LeafVisits < 2 {
+		t.Fatalf("the closest hit is not the near box (%d leaf visits)", stats.LeafVisits)
+	}
+	// The near box spans [-1, 1]; the hit sits on its left face.
+	eps := fixed.Q32One().Div(fixed.Q32FromInt(1024))
+	diff := point.X.Add(fixed.Q32One())
+	if diff.Less(eps.Neg()) || eps.Less(diff) {
+		t.Errorf("the hit point x is %v, want -1", point.X)
+	}
+
+	hit = ShapeId{}
+	CastRay(worldId, origin, translation, filter, func(id ShapeId, p, n Vec2, fraction Q) Q {
+		if id == near {
+			return fixed.Q32One().Neg()
+		}
+		return closest(id, p, n, fraction)
+	})
+	if hit != far {
+		t.Errorf("the skip did not fall through to the far box")
+	}
+
+	masked := DefaultQueryFilter()
+	masked.MaskBits = 0
+	CastRay(worldId, origin, translation, masked, func(ShapeId, Vec2, Vec2, Q) Q {
+		t.Errorf("an empty mask reported a hit")
+		return fixed.Q32One()
+	})
+
+	calls := 0
+	CastRay(worldId, v2(8, 0), translation, filter, func(id ShapeId, _, _ Vec2, fraction Q) Q {
+		calls++
+		if id != static || !fraction.Eq(fixed.Q32Zero()) {
+			t.Errorf("the inside origin did not report the static circle at fraction zero")
+		}
+		return fraction
+	})
+	if calls != 1 {
+		t.Errorf("the zero fraction did not stop the cast: %d calls", calls)
+	}
+
+	w.locked = true
+	requirePanic(t, func() { CastRay(worldId, origin, translation, filter, closest) })
+	w.locked = false
+}

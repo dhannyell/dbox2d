@@ -394,3 +394,16 @@ type BodyMoveEvent struct {
 type BodyEvents struct {
 	MoveEvents []BodyMoveEvent
 }
+
+// OverlapResultFcn receives each shape that an overlap query finds.
+// Return false to stop the walk of the current tree; the query goes on
+// with the next body type, as the reference does. It corresponds to
+// b2OverlapResultFcn in include/box2d/types.h; the closure carries the
+// context.
+type OverlapResultFcn func(shapeId ShapeId) bool
+
+// CastResultFcn receives each hit of a ray cast. Return -1 to skip the
+// shape, 0 to stop, the fraction to clip the ray for the closest hit, or
+// 1 to continue. It corresponds to b2CastResultFcn in
+// include/box2d/types.h; the closure carries the context.
+type CastResultFcn func(shapeId ShapeId, point, normal Vec2, fraction Q) Q

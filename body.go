@@ -310,11 +310,12 @@ func DestroyBody(bodyId BodyId) {
 
 	destroyBodyContacts(w, b, wakeBodies)
 
-	// Destroy the attached shapes. Deferred: their broad-phase proxies and
-	// their sensor records.
+	// Destroy the attached shapes. Deferred: their sensor records.
 	shapeId := b.headShapeId
 	for shapeId != nullIndex {
 		s := &w.shapes[shapeId]
+
+		destroyShapeProxy(s, &w.broadPhase)
 
 		// Return shape to free list.
 		w.shapeIdPool.freeId(shapeId)
@@ -585,4 +586,18 @@ func removeBodyFromIsland(w *world, b *body) {
 	b.islandId = nullIndex
 	b.islandPrev = nullIndex
 	b.islandNext = nullIndex
+}
+
+// shouldBodiesCollide rejects a pair of non-dynamic bodies. It corresponds
+// to b2ShouldBodiesCollide in src/body.c.
+func shouldBodiesCollide(w *world, bodyA, bodyB *body) bool {
+	if bodyA.bodyType != DynamicBody && bodyB.bodyType != DynamicBody {
+		return false
+	}
+
+	// Deferred: the joints of the reference; a joint with collideConnected
+	// false rejects the pair.
+	_ = w
+
+	return true
 }
