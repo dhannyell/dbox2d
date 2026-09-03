@@ -9,7 +9,7 @@ import (
 
 // pt returns the point with the given decimal coordinates.
 func pt(x, y string) dbox2d.Vec2 {
-	return dbox2d.Vec2{X: fixed.MustParse(x), Y: fixed.MustParse(y)}
+	return dbox2d.Vec2{X: fixed.Q32MustParse(x), Y: fixed.Q32MustParse(y)}
 }
 
 // TestComputeHullDropsAnInteriorPoint checks the quickhull on the smallest

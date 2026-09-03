@@ -18,31 +18,31 @@ const benchBodyCount = 1024
 // makeBenchContext builds the integration inputs directly, without a world,
 // so the benchmark isolates the arithmetic.
 func makeBenchContext() *stepContext {
-	w := &world{gravity: Vec2{Y: fixed.FromInt(-10)}}
+	w := &world{gravity: Vec2{Y: fixed.Q32FromInt(-10)}}
 
-	dt := fixed.One().Div(fixed.FromInt(60))
+	dt := fixed.Q32One().Div(fixed.Q32FromInt(60))
 	context := &stepContext{
 		world:             w,
 		dt:                dt,
-		invDt:             fixed.FromInt(60),
-		h:                 dt.Div(fixed.FromInt(4)),
+		invDt:             fixed.Q32FromInt(60),
+		h:                 dt.Div(fixed.Q32FromInt(4)),
 		subStepCount:      4,
-		maxLinearVelocity: fixed.FromInt(400),
+		maxLinearVelocity: fixed.Q32FromInt(400),
 	}
 
-	damping := fixed.MustParse("0.1")
+	damping := fixed.Q32MustParse("0.1")
 	context.sims = make([]bodySim, benchBodyCount)
 	context.states = make([]bodyState, benchBodyCount)
 	for i := range benchBodyCount {
 		sim := &context.sims[i]
-		sim.invMass = fixed.One()
-		sim.invInertia = fixed.FromInt(6)
+		sim.invMass = fixed.Q32One()
+		sim.invInertia = fixed.Q32FromInt(6)
 		sim.linearDamping = damping
 		sim.angularDamping = damping
-		sim.gravityScale = fixed.One()
+		sim.gravityScale = fixed.Q32One()
 		state := &context.states[i]
-		state.linearVelocity = Vec2{X: fixed.FromInt(i % 7), Y: fixed.FromInt(i % 5)}
-		state.angularVelocity = fixed.MustParse("0.25")
+		state.linearVelocity = Vec2{X: fixed.Q32FromInt(i % 7), Y: fixed.Q32FromInt(i % 5)}
+		state.angularVelocity = fixed.Q32MustParse("0.25")
 	}
 	return context
 }
@@ -281,14 +281,14 @@ func BenchmarkStep(b *testing.B) {
 	bodyDef := DefaultBodyDef()
 	bodyDef.Type = DynamicBody
 	shapeDef := DefaultShapeDef()
-	box := MakeSquare(fixed.One())
+	box := MakeSquare(fixed.Q32One())
 	for i := range benchBodyCount {
-		bodyDef.Position = Vec2{X: fixed.FromInt(i * 3), Y: fixed.FromInt(i % 16)}
+		bodyDef.Position = Vec2{X: fixed.Q32FromInt(i * 3), Y: fixed.Q32FromInt(i % 16)}
 		bodyId := CreateBody(worldId, &bodyDef)
 		CreatePolygonShape(bodyId, &shapeDef, &box)
 	}
 
-	dt := fixed.One().Div(fixed.FromInt(60))
+	dt := fixed.Q32One().Div(fixed.Q32FromInt(60))
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
@@ -345,6 +345,10 @@ type f64Manifold struct {
 	sep     [2]float64
 	ids     [2]uint16
 	count   int
+
+	nimp, timp, tnimp, nvel [2]float64
+	persisted               [2]bool
+	rolling                 float64
 }
 
 func makeBoxF64(h float64) f64Polygon {
@@ -691,10 +695,10 @@ func collidePolygonsF64(polygonA *f64Polygon, aPx, aPy, aQc, aQs float64, polygo
 // BenchmarkCollidePolygonsQ measures the dominant contact pattern: two unit
 // boxes on the overlap branch of the clip path.
 func BenchmarkCollidePolygonsQ(b *testing.B) {
-	boxA := MakeSquare(fixed.One())
-	boxB := MakeSquare(fixed.One())
+	boxA := MakeSquare(fixed.Q32One())
+	boxB := MakeSquare(fixed.Q32One())
 	xfA := TransformIdentity()
-	xfB := Transform{P: Vec2{Y: fixed.MustParse("1.5")}, Q: RotIdentity()}
+	xfB := Transform{P: Vec2{Y: fixed.Q32MustParse("1.5")}, Q: RotIdentity()}
 
 	var result Manifold
 	b.ResetTimer()
@@ -720,5 +724,688 @@ func BenchmarkCollidePolygonsF64(b *testing.B) {
 	runtime.KeepAlive(result)
 	if result.count == 0 {
 		b.Fatal("the boxes did not collide")
+	}
+}
+
+// The pyramid composite exercises the collide block and the contact stages
+// over a settled stack of unit boxes on a static ground. The pairs come
+// from one brute-force pass in test code, because the broad phase waits
+// for a later stage. Sleep stays off so the stack keeps solving.
+
+const pyramidRows = 20
+
+// pyramidCenters lists the box centers of a pyramid in half units. Row r
+// holds rows-r boxes centered on x = 0, and the ground surface is y = 0.
+func pyramidCenters(rows int) [][2]int {
+	var centers [][2]int
+	for r := range rows {
+		count := rows - r
+		for col := range count {
+			centers = append(centers, [2]int{2*col - (count - 1), 2*r + 1})
+		}
+	}
+	return centers
+}
+
+// createBruteForcePairs creates a contact for every pair of live shapes
+// whose fat bounds overlap. It stands in for the broad phase.
+func createBruteForcePairs(w *world) {
+	for i := range w.shapes {
+		shapeA := &w.shapes[i]
+		if shapeA.id != i {
+			continue
+		}
+		for j := i + 1; j < len(w.shapes); j++ {
+			shapeB := &w.shapes[j]
+			if shapeB.id != j || shapeA.bodyId == shapeB.bodyId {
+				continue
+			}
+			bodyA := &w.bodies[shapeA.bodyId]
+			bodyB := &w.bodies[shapeB.bodyId]
+			if bodyA.setIndex == staticSet && bodyB.setIndex == staticSet {
+				continue
+			}
+			if !AABBOverlaps(shapeA.fatAABB, shapeB.fatAABB) {
+				continue
+			}
+			if w.pairSet.containsKey(shapePairKey(i, j)) {
+				continue
+			}
+			createContact(w, shapeA, shapeB)
+		}
+	}
+}
+
+// buildPyramid creates the ground and the boxes of a pyramid and returns
+// the top box.
+func buildPyramid(worldId WorldId, rows int) BodyId {
+	half := fixed.Q32Half()
+	groundDef := DefaultBodyDef()
+	groundDef.Position = Vec2{Y: half.Neg()}
+	groundId := CreateBody(worldId, &groundDef)
+	shapeDef := DefaultShapeDef()
+	ground := MakeBox(fixed.Q32FromInt(rows), half)
+	CreatePolygonShape(groundId, &shapeDef, &ground)
+
+	bodyDef := DefaultBodyDef()
+	bodyDef.Type = DynamicBody
+	box := MakeSquare(half)
+	var bodyId BodyId
+	for _, c := range pyramidCenters(rows) {
+		bodyDef.Position = Vec2{X: half.Mul(fixed.Q32FromInt(c[0])), Y: half.Mul(fixed.Q32FromInt(c[1]))}
+		bodyId = CreateBody(worldId, &bodyDef)
+		CreatePolygonShape(bodyId, &shapeDef, &box)
+	}
+	return bodyId
+}
+
+func BenchmarkStepPyramid(b *testing.B) {
+	def := DefaultWorldDef()
+	def.EnableSleep = false
+	worldId := CreateWorld(&def)
+	defer DestroyWorld(worldId)
+	buildPyramid(worldId, pyramidRows)
+
+	w := getWorldFromId(worldId)
+	createBruteForcePairs(w)
+
+	dt := fixed.Q32One().Div(fixed.Q32FromInt(60))
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		Step(worldId, dt, 4)
+	}
+	b.StopTimer()
+	if len(w.contacts) == 0 || len(w.constraintGraph.colors[0].contactSims) == 0 {
+		b.Fatal("the pyramid lost its contacts")
+	}
+}
+
+// f64Softness mirrors softness.
+type f64Softness struct {
+	biasRate, massScale, impulseScale float64
+}
+
+// makeSoftF64 mirrors makeSoft line by line, with the same divisions.
+func makeSoftF64(hertz, zeta, h float64) f64Softness {
+	if hertz == 0 {
+		return f64Softness{}
+	}
+	omega := 2 * math.Pi * hertz
+	a1 := 2*zeta + h*omega
+	a2 := h * omega * a1
+	return f64Softness{
+		biasRate:     omega / a1,
+		massScale:    a2 / (1 + a2),
+		impulseScale: 1 / (1 + a2),
+	}
+}
+
+// f64Contact mirrors the contact sim fields that the collide block and the
+// solver read. A static side keeps the index -1.
+type f64Contact struct {
+	indexA, indexB int
+	shapeA, shapeB *f64Shape
+	polyA, polyB   *f64Polygon
+	manifold       f64Manifold
+	friction       float64
+	restitution    float64
+	touching       bool
+}
+
+// f64ConstraintPoint mirrors contactConstraintPoint.
+type f64ConstraintPoint struct {
+	rax, ray, rbx, rby float64
+	baseSeparation     float64
+	relativeVelocity   float64
+	normalImpulse      float64
+	tangentImpulse     float64
+	totalNormalImpulse float64
+	normalMass         float64
+	tangentMass        float64
+}
+
+// f64Constraint mirrors contactConstraint.
+type f64Constraint struct {
+	indexA, indexB     int
+	points             [2]f64ConstraintPoint
+	nx, ny             float64
+	invMassA, invMassB float64
+	invIA, invIB       float64
+	friction           float64
+	restitution        float64
+	rollingMass        float64
+	rollingImpulse     float64
+	softness           f64Softness
+	pointCount         int
+}
+
+// f64Pyramid holds the mirror world: the dynamic boxes, the ground shape and
+// the contact list. The mirror keeps one constraint list instead of the
+// graph colors; the order inside a step does not change the arithmetic.
+type f64Pyramid struct {
+	sims        []f64BodySim
+	states      []f64BodyState
+	shapes      []f64Shape
+	groundShape f64Shape
+	groundPoly  f64Polygon
+	boxPoly     f64Polygon
+	contacts    []f64Contact
+	constraints []f64Constraint
+	dummyState  f64BodyState
+}
+
+// makeBoxWHF64 mirrors MakeBox.
+func makeBoxWHF64(hw, hh float64) f64Polygon {
+	return f64Polygon{
+		verts: [8][2]float64{{-hw, -hh}, {hw, -hh}, {hw, hh}, {-hw, hh}},
+		norms: [8][2]float64{{0, -1}, {1, 0}, {0, 1}, {-1, 0}},
+		count: 4,
+	}
+}
+
+// pose returns the transform and the center offset of a body. The static
+// side is the ground at the origin with the identity rotation.
+func (p *f64Pyramid) pose(index int) (px, py, qc, qs, ox, oy float64) {
+	if index < 0 {
+		return 0, -0.5, 1, 0, 0, 0
+	}
+	sim := &p.sims[index]
+	ox = sim.qc*sim.lcx - sim.qs*sim.lcy
+	oy = sim.qs*sim.lcx + sim.qc*sim.lcy
+	return sim.px, sim.py, sim.qc, sim.qs, ox, oy
+}
+
+// updateContactF64 mirrors updateContact: the new manifold, the material
+// mix, the anchor shift and the warm-start match by id.
+func (p *f64Pyramid) updateContactF64(c *f64Contact) bool {
+	oldManifold := c.manifold
+
+	aPx, aPy, aQc, aQs, aOx, aOy := p.pose(c.indexA)
+	bPx, bPy, bQc, bQs, bOx, bOy := p.pose(c.indexB)
+	c.manifold = collidePolygonsF64(c.polyA, aPx, aPy, aQc, aQs, c.polyB, bPx, bPy, bQc, bQs)
+
+	c.friction = math.Sqrt(0.6 * 0.6)
+	c.restitution = math.Max(0, 0)
+
+	pointCount := c.manifold.count
+	touching := pointCount > 0
+
+	if pointCount > 0 {
+		c.manifold.rolling = oldManifold.rolling
+	}
+
+	for i := range pointCount {
+		c.manifold.anchorA[i][0] -= aOx
+		c.manifold.anchorA[i][1] -= aOy
+		c.manifold.anchorB[i][0] -= bOx
+		c.manifold.anchorB[i][1] -= bOy
+
+		c.manifold.nimp[i] = 0
+		c.manifold.timp[i] = 0
+		c.manifold.tnimp[i] = 0
+		c.manifold.nvel[i] = 0
+		c.manifold.persisted[i] = false
+
+		for j := range oldManifold.count {
+			if oldManifold.ids[j] == c.manifold.ids[i] {
+				c.manifold.nimp[i] = oldManifold.nimp[j]
+				c.manifold.timp[i] = oldManifold.timp[j]
+				c.manifold.persisted[i] = true
+
+				oldManifold.nimp[j] = 0
+				oldManifold.timp[j] = 0
+				break
+			}
+		}
+	}
+
+	c.touching = touching
+	return touching
+}
+
+// collideF64 mirrors collide for one worker: the fat bounds test, the
+// manifold update and the removal of a disjoint pair. The island and graph
+// moves of a touch transition are integer bookkeeping and stay out.
+func (p *f64Pyramid) collideF64() {
+	contacts := p.contacts
+	for i := 0; i < len(contacts); {
+		c := &contacts[i]
+		fa := c.shapeA.fat
+		fb := c.shapeB.fat
+		overlap := !(fb[0] > fa[2] || fb[1] > fa[3] || fa[0] > fb[2] || fa[1] > fb[3])
+		if !overlap {
+			contacts[i] = contacts[len(contacts)-1]
+			contacts = contacts[:len(contacts)-1]
+			continue
+		}
+		p.updateContactF64(c)
+		i++
+	}
+	p.contacts = contacts
+}
+
+func (p *f64Pyramid) stateOf(index int) *f64BodyState {
+	if index < 0 {
+		return &p.dummyState
+	}
+	return &p.states[index]
+}
+
+// prepareContactsF64 mirrors prepareContacts over the touching contacts and
+// returns the constraint count.
+func (p *f64Pyramid) prepareContactsF64(contactSoftness, staticSoftness f64Softness) int {
+	const tauF64 = 2 * math.Pi
+	n := 0
+	for i := range p.contacts {
+		cs := &p.contacts[i]
+		if !cs.touching {
+			continue
+		}
+		manifold := &cs.manifold
+		pointCount := manifold.count
+
+		constraint := &p.constraints[n]
+		n++
+		constraint.indexA = cs.indexA
+		constraint.indexB = cs.indexB
+		constraint.nx, constraint.ny = manifold.nx, manifold.ny
+		constraint.friction = cs.friction
+		constraint.restitution = cs.restitution
+		constraint.rollingImpulse = manifold.rolling
+		constraint.pointCount = pointCount
+
+		vAx, vAy, wA := 0.0, 0.0, 0.0
+		mA, iA := 0.0, 0.0
+		if cs.indexA >= 0 {
+			stateA := &p.states[cs.indexA]
+			vAx, vAy = stateA.vx, stateA.vy
+			wA = stateA.w * tauF64
+			mA, iA = p.sims[cs.indexA].invMass, p.sims[cs.indexA].invInertia
+		}
+		vBx, vBy, wB := 0.0, 0.0, 0.0
+		mB, iB := 0.0, 0.0
+		if cs.indexB >= 0 {
+			stateB := &p.states[cs.indexB]
+			vBx, vBy = stateB.vx, stateB.vy
+			wB = stateB.w * tauF64
+			mB, iB = p.sims[cs.indexB].invMass, p.sims[cs.indexB].invInertia
+		}
+
+		if cs.indexA < 0 || cs.indexB < 0 {
+			constraint.softness = staticSoftness
+		} else {
+			constraint.softness = contactSoftness
+		}
+
+		constraint.invMassA, constraint.invIA = mA, iA
+		constraint.invMassB, constraint.invIB = mB, iB
+
+		k := iA + iB
+		constraint.rollingMass = 0
+		if k > 0 {
+			constraint.rollingMass = 1 / k
+		}
+
+		nx, ny := constraint.nx, constraint.ny
+		tx, ty := ny, -nx
+
+		for j := range pointCount {
+			cp := &constraint.points[j]
+
+			cp.normalImpulse = manifold.nimp[j]
+			cp.tangentImpulse = manifold.timp[j]
+			cp.totalNormalImpulse = 0
+
+			rax, ray := manifold.anchorA[j][0], manifold.anchorA[j][1]
+			rbx, rby := manifold.anchorB[j][0], manifold.anchorB[j][1]
+			cp.rax, cp.ray = rax, ray
+			cp.rbx, cp.rby = rbx, rby
+			cp.baseSeparation = manifold.sep[j] - ((rbx-rax)*nx + (rby-ray)*ny)
+
+			rnA := rax*ny - ray*nx
+			rnB := rbx*ny - rby*nx
+			kNormal := mA + mB + iA*rnA*rnA + iB*rnB*rnB
+			cp.normalMass = 0
+			if kNormal > 0 {
+				cp.normalMass = 1 / kNormal
+			}
+
+			rtA := rax*ty - ray*tx
+			rtB := rbx*ty - rby*tx
+			kTangent := mA + mB + iA*rtA*rtA + iB*rtB*rtB
+			cp.tangentMass = 0
+			if kTangent > 0 {
+				cp.tangentMass = 1 / kTangent
+			}
+
+			vrAx, vrAy := vAx-wA*ray, vAy+wA*rax
+			vrBx, vrBy := vBx-wB*rby, vBy+wB*rbx
+			cp.relativeVelocity = nx*(vrBx-vrAx) + ny*(vrBy-vrAy)
+		}
+	}
+	return n
+}
+
+// warmStartContactsF64 mirrors warmStartContacts.
+func (p *f64Pyramid) warmStartContactsF64(count int) {
+	const tauF64 = 2 * math.Pi
+	for i := range count {
+		constraint := &p.constraints[i]
+		stateA := p.stateOf(constraint.indexA)
+		stateB := p.stateOf(constraint.indexB)
+
+		vAx, vAy := stateA.vx, stateA.vy
+		wA := stateA.w * tauF64
+		vBx, vBy := stateB.vx, stateB.vy
+		wB := stateB.w * tauF64
+
+		mA, iA := constraint.invMassA, constraint.invIA
+		mB, iB := constraint.invMassB, constraint.invIB
+
+		nx, ny := constraint.nx, constraint.ny
+		tx, ty := ny, -nx
+
+		for j := range constraint.pointCount {
+			cp := &constraint.points[j]
+			rax, ray := cp.rax, cp.ray
+			rbx, rby := cp.rbx, cp.rby
+
+			Px := nx*cp.normalImpulse + tx*cp.tangentImpulse
+			Py := ny*cp.normalImpulse + ty*cp.tangentImpulse
+			wA -= iA * (rax*Py - ray*Px)
+			vAx, vAy = vAx-mA*Px, vAy-mA*Py
+			wB += iB * (rbx*Py - rby*Px)
+			vBx, vBy = vBx+mB*Px, vBy+mB*Py
+		}
+
+		wA -= iA * constraint.rollingImpulse
+		wB += iB * constraint.rollingImpulse
+
+		stateA.vx, stateA.vy = vAx, vAy
+		stateA.w = wA / tauF64
+		stateB.vx, stateB.vy = vBx, vBy
+		stateB.w = wB / tauF64
+	}
+}
+
+// solveContactsF64 mirrors solveContacts.
+func (p *f64Pyramid) solveContactsF64(count int, invH, pushout float64, useBias bool) {
+	const tauF64 = 2 * math.Pi
+	for i := range count {
+		constraint := &p.constraints[i]
+		mA, iA := constraint.invMassA, constraint.invIA
+		mB, iB := constraint.invMassB, constraint.invIB
+
+		stateA := p.stateOf(constraint.indexA)
+		stateB := p.stateOf(constraint.indexB)
+		vAx, vAy := stateA.vx, stateA.vy
+		wA := stateA.w * tauF64
+		dqAc, dqAs := stateA.dqc, stateA.dqs
+
+		vBx, vBy := stateB.vx, stateB.vy
+		wB := stateB.w * tauF64
+		dqBc, dqBs := stateB.dqc, stateB.dqs
+
+		dpx, dpy := stateB.dpx-stateA.dpx, stateB.dpy-stateA.dpy
+
+		nx, ny := constraint.nx, constraint.ny
+		tx, ty := ny, -nx
+		friction := constraint.friction
+		soft := constraint.softness
+
+		pointCount := constraint.pointCount
+		totalNormalImpulse := 0.0
+
+		for j := range pointCount {
+			cp := &constraint.points[j]
+			rax, ray := cp.rax, cp.ray
+			rbx, rby := cp.rbx, cp.rby
+
+			prBx := dqBc*rbx - dqBs*rby
+			prBy := dqBs*rbx + dqBc*rby
+			prAx := dqAc*rax - dqAs*ray
+			prAy := dqAs*rax + dqAc*ray
+			dsx, dsy := dpx+prBx-prAx, dpy+prBy-prAy
+			s := cp.baseSeparation + dsx*nx + dsy*ny
+
+			velocityBias := 0.0
+			massScale := 1.0
+			impulseScale := 0.0
+			if s > 0 {
+				velocityBias = s * invH
+			} else if useBias {
+				velocityBias = math.Max(soft.biasRate*s, -pushout)
+				massScale = soft.massScale
+				impulseScale = soft.impulseScale
+			}
+
+			vrAx, vrAy := vAx-wA*ray, vAy+wA*rax
+			vrBx, vrBy := vBx-wB*rby, vBy+wB*rbx
+			vn := (vrBx-vrAx)*nx + (vrBy-vrAy)*ny
+
+			impulse := -cp.normalMass*massScale*(vn+velocityBias) - impulseScale*cp.normalImpulse
+
+			newImpulse := math.Max(cp.normalImpulse+impulse, 0)
+			impulse = newImpulse - cp.normalImpulse
+			cp.normalImpulse = newImpulse
+			cp.totalNormalImpulse += newImpulse
+			totalNormalImpulse += newImpulse
+
+			Px, Py := nx*impulse, ny*impulse
+			vAx, vAy = vAx-mA*Px, vAy-mA*Py
+			wA -= iA * (rax*Py - ray*Px)
+			vBx, vBy = vBx+mB*Px, vBy+mB*Py
+			wB += iB * (rbx*Py - rby*Px)
+		}
+
+		for j := range pointCount {
+			cp := &constraint.points[j]
+			rax, ray := cp.rax, cp.ray
+			rbx, rby := cp.rbx, cp.rby
+
+			vrBx, vrBy := vBx-wB*rby, vBy+wB*rbx
+			vrAx, vrAy := vAx-wA*ray, vAy+wA*rax
+
+			vt := (vrBx-vrAx)*tx + (vrBy-vrAy)*ty
+
+			impulse := cp.tangentMass * -vt
+
+			maxFriction := friction * cp.normalImpulse
+			newImpulse := math.Max(-maxFriction, math.Min(cp.tangentImpulse+impulse, maxFriction))
+			impulse = newImpulse - cp.tangentImpulse
+			cp.tangentImpulse = newImpulse
+
+			Px, Py := tx*impulse, ty*impulse
+			vAx, vAy = vAx-mA*Px, vAy-mA*Py
+			wA -= iA * (rax*Py - ray*Px)
+			vBx, vBy = vBx+mB*Px, vBy+mB*Py
+			wB += iB * (rbx*Py - rby*Px)
+		}
+
+		{
+			deltaLambda := -constraint.rollingMass * (wB - wA)
+			lambda := constraint.rollingImpulse
+			maxLambda := 0 * totalNormalImpulse
+			constraint.rollingImpulse = math.Max(-maxLambda, math.Min(lambda+deltaLambda, maxLambda))
+			deltaLambda = constraint.rollingImpulse - lambda
+
+			wA -= iA * deltaLambda
+			wB += iB * deltaLambda
+		}
+
+		stateA.vx, stateA.vy = vAx, vAy
+		stateA.w = wA / tauF64
+		stateB.vx, stateB.vy = vBx, vBy
+		stateB.w = wB / tauF64
+	}
+}
+
+// applyRestitutionF64 mirrors applyRestitution. The pyramid has no
+// restitution, so the stage returns at the first test as the Q stage does.
+func (p *f64Pyramid) applyRestitutionF64(count int, threshold float64) {
+	const tauF64 = 2 * math.Pi
+	for i := range count {
+		constraint := &p.constraints[i]
+		restitution := constraint.restitution
+		if restitution == 0 {
+			continue
+		}
+
+		mA, iA := constraint.invMassA, constraint.invIA
+		mB, iB := constraint.invMassB, constraint.invIB
+
+		stateA := p.stateOf(constraint.indexA)
+		stateB := p.stateOf(constraint.indexB)
+		vAx, vAy := stateA.vx, stateA.vy
+		wA := stateA.w * tauF64
+		vBx, vBy := stateB.vx, stateB.vy
+		wB := stateB.w * tauF64
+
+		nx, ny := constraint.nx, constraint.ny
+
+		for j := range constraint.pointCount {
+			cp := &constraint.points[j]
+			if cp.relativeVelocity > -threshold || cp.totalNormalImpulse == 0 {
+				continue
+			}
+			rax, ray := cp.rax, cp.ray
+			rbx, rby := cp.rbx, cp.rby
+
+			vrBx, vrBy := vBx-wB*rby, vBy+wB*rbx
+			vrAx, vrAy := vAx-wA*ray, vAy+wA*rax
+			vn := (vrBx-vrAx)*nx + (vrBy-vrAy)*ny
+
+			impulse := -cp.normalMass * (vn + restitution*cp.relativeVelocity)
+
+			newImpulse := math.Max(cp.normalImpulse+impulse, 0)
+			impulse = newImpulse - cp.normalImpulse
+			cp.normalImpulse = newImpulse
+			cp.totalNormalImpulse += impulse
+
+			Px, Py := nx*impulse, ny*impulse
+			vAx, vAy = vAx-mA*Px, vAy-mA*Py
+			wA -= iA * (rax*Py - ray*Px)
+			vBx, vBy = vBx+mB*Px, vBy+mB*Py
+			wB += iB * (rbx*Py - rby*Px)
+		}
+
+		stateA.vx, stateA.vy = vAx, vAy
+		stateA.w = wA / tauF64
+		stateB.vx, stateB.vy = vBx, vBy
+		stateB.w = wB / tauF64
+	}
+}
+
+// storeImpulsesF64 mirrors storeImpulses.
+func (p *f64Pyramid) storeImpulsesF64() {
+	n := 0
+	for i := range p.contacts {
+		cs := &p.contacts[i]
+		if !cs.touching {
+			continue
+		}
+		constraint := &p.constraints[n]
+		n++
+		manifold := &cs.manifold
+		for j := range manifold.count {
+			manifold.nimp[j] = constraint.points[j].normalImpulse
+			manifold.timp[j] = constraint.points[j].tangentImpulse
+			manifold.tnimp[j] = constraint.points[j].totalNormalImpulse
+			manifold.nvel[j] = constraint.points[j].relativeVelocity
+		}
+		manifold.rolling = constraint.rollingImpulse
+	}
+}
+
+// stepPyramidF64 mirrors Step over the pyramid: the softness setup, the
+// collide block, the sub-step loop with warm start and relax, the
+// restitution, the impulse store and the finalize.
+func (p *f64Pyramid) stepPyramidF64(dt float64, subStepCount int) {
+	h := dt / float64(subStepCount)
+	invDt := 1 / dt
+	invH := 1 / h
+
+	contactHertz := math.Min(30, 0.125*invH)
+	contactSoftness := makeSoftF64(contactHertz, 10, h)
+	staticSoftness := makeSoftF64(2*contactHertz, 10, h)
+
+	p.collideF64()
+	count := p.prepareContactsF64(contactSoftness, staticSoftness)
+
+	for range subStepCount {
+		integrateVelocitiesF64(p.sims, p.states, 0, -10, h, invDt, 400)
+		p.warmStartContactsF64(count)
+		p.solveContactsF64(count, invH, 3, true)
+		integratePositionsF64(p.states, h)
+		p.solveContactsF64(count, invH, 3, false)
+	}
+	p.applyRestitutionF64(count, 1)
+	p.storeImpulsesF64()
+	finalizeF64(p.sims, p.states, p.shapes, dt, invDt)
+}
+
+// BenchmarkStepPyramidF64 runs the float64 mirror over the same pyramid as
+// BenchmarkStepPyramid, with the same brute-force pair pass before the timer.
+func BenchmarkStepPyramidF64(b *testing.B) {
+	centers := pyramidCenters(pyramidRows)
+	p := &f64Pyramid{
+		sims:       make([]f64BodySim, len(centers)),
+		states:     make([]f64BodyState, len(centers)),
+		shapes:     make([]f64Shape, len(centers)),
+		groundPoly: makeBoxWHF64(pyramidRows, 0.5),
+		boxPoly:    makeBoxWHF64(0.5, 0.5),
+		dummyState: f64BodyState{dqc: 1},
+	}
+	const speculative = 4 * 0.005
+	const margin = 0.05
+	p.groundShape.verts = [4][2]float64{{-pyramidRows, -0.5}, {pyramidRows, -0.5}, {pyramidRows, 0.5}, {-pyramidRows, 0.5}}
+	p.groundShape.aabb = [4]float64{-pyramidRows - speculative, -1 - speculative, pyramidRows + speculative, speculative}
+	p.groundShape.fat = [4]float64{-pyramidRows - speculative - margin, -1 - speculative - margin, pyramidRows + speculative + margin, speculative + margin}
+
+	for i, c := range centers {
+		sim := &p.sims[i]
+		// A unit box with density 1: mass 1, inertia 1/6.
+		sim.invMass = 1
+		sim.invInertia = 6
+		sim.gravityScale = 1
+		sim.qc = 1
+		sim.px = 0.5 * float64(c[0])
+		sim.py = 0.5 * float64(c[1])
+		sim.cx, sim.cy = sim.px, sim.py
+		sim.maxExtent = math.Sqrt2 / 2
+		sim.sleepThreshold = 0.05
+		p.states[i].dqc = 1
+
+		shape := &p.shapes[i]
+		shape.verts = [4][2]float64{{-0.5, -0.5}, {0.5, -0.5}, {0.5, 0.5}, {-0.5, 0.5}}
+		shape.aabb = [4]float64{sim.px - 0.5 - speculative, sim.py - 0.5 - speculative, sim.px + 0.5 + speculative, sim.py + 0.5 + speculative}
+		shape.fat = [4]float64{shape.aabb[0] - margin, shape.aabb[1] - margin, shape.aabb[2] + margin, shape.aabb[3] + margin}
+	}
+
+	overlaps := func(a, b [4]float64) bool {
+		return !(b[0] > a[2] || b[1] > a[3] || a[0] > b[2] || a[1] > b[3])
+	}
+	for i := range p.shapes {
+		if overlaps(p.groundShape.fat, p.shapes[i].fat) {
+			p.contacts = append(p.contacts, f64Contact{indexA: -1, indexB: i, shapeA: &p.groundShape, shapeB: &p.shapes[i], polyA: &p.groundPoly, polyB: &p.boxPoly})
+		}
+		for j := i + 1; j < len(p.shapes); j++ {
+			if overlaps(p.shapes[i].fat, p.shapes[j].fat) {
+				p.contacts = append(p.contacts, f64Contact{indexA: i, indexB: j, shapeA: &p.shapes[i], shapeB: &p.shapes[j], polyA: &p.boxPoly, polyB: &p.boxPoly})
+			}
+		}
+	}
+	p.constraints = make([]f64Constraint, len(p.contacts))
+
+	dt := 1.0 / 60.0
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		p.stepPyramidF64(dt, 4)
+	}
+	b.StopTimer()
+	if len(p.contacts) == 0 {
+		b.Fatal("the pyramid lost its contacts")
 	}
 }

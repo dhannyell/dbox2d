@@ -8,7 +8,7 @@ import (
 )
 
 func vec(x, y int) dbox2d.Vec2 {
-	return dbox2d.Vec2{X: fixed.FromInt(x), Y: fixed.FromInt(y)}
+	return dbox2d.Vec2{X: fixed.Q32FromInt(x), Y: fixed.Q32FromInt(y)}
 }
 
 // segmentDistanceCase carries exact expected values from the reference
@@ -24,9 +24,9 @@ type segmentDistanceCase struct {
 // closed-form algorithm: intersection, the do-over clamps of segment 2
 // and parallel segments.
 func TestSegmentDistanceMatchesTheReference(t *testing.T) {
-	half := fixed.MustParse("0.5")
-	one := fixed.One()
-	zero := fixed.Zero()
+	half := fixed.Q32MustParse("0.5")
+	one := fixed.Q32One()
+	zero := fixed.Q32Zero()
 
 	cases := []segmentDistanceCase{
 		{
@@ -47,7 +47,7 @@ func TestSegmentDistanceMatchesTheReference(t *testing.T) {
 			// segment 1 gets the do over.
 			name: "do over after f2 clamps high",
 			p1:   vec(0, 0), q1: vec(4, 0), p2: vec(5, -3), q2: vec(5, -1),
-			f1: one, f2: one, distSq: fixed.FromInt(2),
+			f1: one, f2: one, distSq: fixed.Q32FromInt(2),
 		},
 		{
 			// Parallel segments: the denominator is zero and f1 stays
@@ -76,8 +76,8 @@ func TestSegmentDistanceMatchesTheReference(t *testing.T) {
 // the FLT_EPSILON guard of the reference protected. In Q an exactly zero
 // squared length selects it. See D-012.
 func TestSegmentDistanceHandlesDegenerateSegments(t *testing.T) {
-	zero := fixed.Zero()
-	one := fixed.One()
+	zero := fixed.Q32Zero()
+	one := fixed.Q32One()
 
 	// Segment 2 is a point past the end of segment 1: f1 clamps to one.
 	point := vec(3, 4)
@@ -85,7 +85,7 @@ func TestSegmentDistanceHandlesDegenerateSegments(t *testing.T) {
 	if !result.Fraction1.Eq(one) || !result.Fraction2.Eq(zero) {
 		t.Fatalf("fractions (%v, %v), want (1, 0)", result.Fraction1, result.Fraction2)
 	}
-	if !result.DistanceSquared.Eq(fixed.FromInt(17)) {
+	if !result.DistanceSquared.Eq(fixed.Q32FromInt(17)) {
 		t.Fatalf("distanceSquared %v, want 17", result.DistanceSquared)
 	}
 
@@ -94,7 +94,7 @@ func TestSegmentDistanceHandlesDegenerateSegments(t *testing.T) {
 	if !result.Fraction1.Eq(zero) || !result.Fraction2.Eq(zero) {
 		t.Fatalf("fractions (%v, %v), want (0, 0)", result.Fraction1, result.Fraction2)
 	}
-	if !result.DistanceSquared.Eq(fixed.FromInt(25)) {
+	if !result.DistanceSquared.Eq(fixed.Q32FromInt(25)) {
 		t.Fatalf("distanceSquared %v, want 25", result.DistanceSquared)
 	}
 }
@@ -107,7 +107,7 @@ func TestMakeProxyTruncatesToThePolygonLimit(t *testing.T) {
 		points[i] = vec(i, -i)
 	}
 
-	radius := fixed.MustParse("0.25")
+	radius := fixed.Q32MustParse("0.25")
 	proxy := dbox2d.MakeProxy(points, radius)
 	if proxy.Count != dbox2d.MaxPolygonVertices {
 		t.Fatalf("count %d, want %d", proxy.Count, dbox2d.MaxPolygonVertices)
@@ -116,7 +116,7 @@ func TestMakeProxyTruncatesToThePolygonLimit(t *testing.T) {
 		t.Fatalf("radius %v, want %v", proxy.Radius, radius)
 	}
 	last := proxy.Points[dbox2d.MaxPolygonVertices-1]
-	if !last.X.Eq(fixed.FromInt(dbox2d.MaxPolygonVertices - 1)) {
+	if !last.X.Eq(fixed.Q32FromInt(dbox2d.MaxPolygonVertices - 1)) {
 		t.Fatalf("last point %v, want x=%d", last, dbox2d.MaxPolygonVertices-1)
 	}
 }

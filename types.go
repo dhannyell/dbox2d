@@ -59,14 +59,14 @@ type WorldDef struct {
 // DefaultWorldDef returns the default world definition.
 func DefaultWorldDef() WorldDef {
 	return WorldDef{
-		Gravity:              Vec2{Y: fixed.FromInt(-10)},
-		RestitutionThreshold: fixed.One(),
-		HitEventThreshold:    fixed.One(),
-		ContactHertz:         fixed.FromInt(30),
-		ContactDampingRatio:  fixed.FromInt(10),
-		MaxContactPushSpeed:  fixed.FromInt(3),
+		Gravity:              Vec2{Y: fixed.Q32FromInt(-10)},
+		RestitutionThreshold: fixed.Q32One(),
+		HitEventThreshold:    fixed.Q32One(),
+		ContactHertz:         fixed.Q32FromInt(30),
+		ContactDampingRatio:  fixed.Q32FromInt(10),
+		MaxContactPushSpeed:  fixed.Q32FromInt(3),
 		// 400 meters per second, faster than the speed of sound
-		MaximumLinearSpeed: fixed.FromInt(400),
+		MaximumLinearSpeed: fixed.Q32FromInt(400),
 		EnableSleep:        true,
 		EnableContinuous:   true,
 		internalValue:      secretCookie,
@@ -167,8 +167,8 @@ func DefaultBodyDef() BodyDef {
 	return BodyDef{
 		Type:           StaticBody,
 		Rotation:       fixed.RotIdentity(),
-		SleepThreshold: fixed.MustParse("0.05"),
-		GravityScale:   fixed.One(),
+		SleepThreshold: fixed.Q32MustParse("0.05"),
+		GravityScale:   fixed.Q32One(),
 		EnableSleep:    true,
 		IsAwake:        true,
 		IsEnabled:      true,
@@ -259,7 +259,7 @@ type SurfaceMaterial struct {
 
 // DefaultSurfaceMaterial returns the default material: friction 0.6.
 func DefaultSurfaceMaterial() SurfaceMaterial {
-	return SurfaceMaterial{Friction: fixed.MustParse("0.6")}
+	return SurfaceMaterial{Friction: fixed.Q32MustParse("0.6")}
 }
 
 // ShapeDef holds the data to create a shape. It is a temporary bundle of
@@ -316,10 +316,81 @@ type ShapeDef struct {
 func DefaultShapeDef() ShapeDef {
 	return ShapeDef{
 		Material:              DefaultSurfaceMaterial(),
-		Density:               fixed.One(),
+		Density:               fixed.Q32One(),
 		Filter:                DefaultFilter(),
 		InvokeContactCreation: true,
 		UpdateBodyMass:        true,
 		internalValue:         secretCookie,
 	}
+}
+
+// ContactBeginTouchEvent reports that two shapes started to touch.
+type ContactBeginTouchEvent struct {
+	// ShapeIdA is the first shape.
+	ShapeIdA ShapeId
+
+	// ShapeIdB is the second shape.
+	ShapeIdB ShapeId
+
+	// Manifold is the initial contact manifold. The world records it
+	// before the solver runs, so every impulse is zero.
+	Manifold Manifold
+}
+
+// ContactEndTouchEvent reports that two shapes stopped touching. Any
+// action that destroys a contact between steps also reports one, such as
+// a transform change, a body or shape destroy, or a body type change.
+type ContactEndTouchEvent struct {
+	// ShapeIdA is the first shape. It may be destroyed; see IsValid.
+	ShapeIdA ShapeId
+
+	// ShapeIdB is the second shape. It may be destroyed; see IsValid.
+	ShapeIdB ShapeId
+}
+
+// ContactHitEvent reports that two shapes collided faster than the hit
+// event threshold. A speculative contact with a confirmed impulse also
+// reports one.
+type ContactHitEvent struct {
+	// ShapeIdA is the first shape.
+	ShapeIdA ShapeId
+
+	// ShapeIdB is the second shape.
+	ShapeIdB ShapeId
+
+	// Point is where the shapes hit at the start of the step. It is the
+	// mid-point between the two surfaces.
+	Point Vec2
+
+	// Normal points from shape A to shape B.
+	Normal Vec2
+
+	// ApproachSpeed is the closing speed of the shapes. It is positive.
+	ApproachSpeed Q
+}
+
+// ContactEvents holds the contact events of the last step. The slices
+// stay valid until the next step; a body or shape destroy may make an
+// id in them stale.
+type ContactEvents struct {
+	BeginEvents []ContactBeginTouchEvent
+	EndEvents   []ContactEndTouchEvent
+	HitEvents   []ContactHitEvent
+}
+
+// BodyMoveEvent reports a body that the simulation moved. A body that the
+// user moves does not report one. FellAsleep tells the application that
+// it can sleep the object of the body. With sleep disabled, every dynamic
+// and kinematic body reports on every step.
+type BodyMoveEvent struct {
+	Transform  Transform
+	BodyId     BodyId
+	UserData   any
+	FellAsleep bool
+}
+
+// BodyEvents holds the body events of the last step. The slice stays
+// valid until the next step; a body destroy makes its entry stale.
+type BodyEvents struct {
+	MoveEvents []BodyMoveEvent
 }

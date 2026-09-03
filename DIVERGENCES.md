@@ -64,9 +64,10 @@ Numbering is sequential from `D-001` and never reused.
 
 ### D-004 An angle is a turn
 
-- Files: math.go, body.go, solver.go (upstream
+- Files: math.go, body.go, solver.go, contact_solver.go (upstream
   include/box2d/math_functions.h; src/body.c `b2UpdateBodyMassData`;
-  src/solver.c `b2IntegrateVelocitiesTask`, `b2FinalizeBodiesTask`)
+  src/solver.c `b2IntegrateVelocitiesTask`, `b2FinalizeBodiesTask`;
+  src/solver.h `b2MakeSoft`; src/contact_solver.c the `Overflow` family)
 - Tier: T2
 - Reason: a turn reduces to its range by an exact subtraction. A radian needs
   a rounded pi, and the rounding enters every reduction.
@@ -80,11 +81,16 @@ Numbering is sequential from `D-001` and never reused.
   product that corrects the linear velocity of a moved center of mass.
   `integrateVelocitiesTask` divides the torque delta by one turn, and
   `finalizeBodiesTask` scales the arc speed of the sleep test by one turn.
+  `makeSoft` multiplies the frequency by one turn where the reference
+  multiplies by two pi. Each stage of the contact solver scales the
+  angular velocity by one turn on load and divides it by one turn on
+  store, so the cross products with the anchors stay in radians.
 - Test: TestIntegrateRotationCompletesATurn,
   TestComputeAngularVelocityInvertsIntegration and
   TestUnwindAngleReducesToHalfTurn in math_test.go,
-  TestBodyMassComesFromItsShapes in world_test.go, and
-  TestStepConvertsTorqueAndArcSpeedToTurns in step_test.go
+  TestBodyMassComesFromItsShapes in world_test.go,
+  TestStepConvertsTorqueAndArcSpeedToTurns in step_test.go, and
+  TestFrictionSaturatesAtTheNormalImpulse in contact_solver_test.go
 
 ### D-005 Validity is a range check
 
@@ -98,14 +104,17 @@ Numbering is sequential from `D-001` and never reused.
 
 ### D-006 A reciprocal becomes a division
 
-- Files: math.go, aabb.go, geometry.go, solver.go, manifold.go (upstream
+- Files: math.go, aabb.go, geometry.go, solver.go, manifold.go,
+  contact_solver.go (upstream
   include/box2d/math_functions.h `b2GetInverse22`, `b2Solve22`,
   `b2Normalize`, `b2NormalizeRot`; src/aabb.c `b2AABB_RayCast` `inv_d`;
   src/geometry.c `b2ComputePolygonCentroid` and `b2ComputePolygonMass`
   `inv3` and `invArea`, `b2RayCastCapsule` `invDen`;
   src/solver.c `b2IntegrateVelocitiesTask` damping factors;
   src/manifold.c `b2CollideChainSegmentAndCircle` `1/ee` and
-  `b2CollidePolygons` vertex-vertex `1.0f / distance`)
+  `b2CollidePolygons` vertex-vertex `1.0f / distance`;
+  src/solver.h `b2MakeSoft` `a3`;
+  src/contact_solver.c `b2PrepareOverflowContacts` effective masses)
 - Tier: T2
 - Reason: a Q32.32 reciprocal keeps only the leading bits of a large value.
   Multiplying by it discards the precision that a division keeps.
@@ -119,13 +128,23 @@ Numbering is sequential from `D-001` and never reused.
   centroid, the polygon mass and the capsule side hit divide by the area or
   by the determinant at each use. The velocity integration divides each
   damped velocity by the damping denominator `1 + h*c` instead of
-  multiplying by the reciprocal factor.
+  multiplying by the reciprocal factor. `makeSoft` divides each scale by
+  `1 + a2` instead of multiplying by its reciprocal. The effective masses
+  of a contact point are the exception: they store the reciprocal once,
+  as the body inverse mass does, because three stages read them on every
+  sub-step; the guard against a zero denominator is an exact test. The
+  contact speed of the step becomes zero when the static softness has a
+  zero mass scale, because the reference divides by that scale and a Q
+  division by zero panics.
 - Test: TestSolve22SolvesTheSystem, TestNormalizeKeepsAShortVector and
   TestNormalizeRotKeepsAZeroRotation in math_test.go,
   TestAABBRayCastHitsTheNearFace in aabb_test.go,
   TestPolygonCentroidOfATriangle, TestTriangleMassMatchesTheReference and
-  TestRayCastCapsuleHitsTheSide in geometry_test.go, and
-  TestStepAppliesDampingByDivision in step_test.go
+  TestRayCastCapsuleHitsTheSide in geometry_test.go,
+  TestStepAppliesDampingByDivision in step_test.go, and
+  TestMakeSoftSplitsTheUnit and TestPrepareOverflowContactsBuildsTheMasses
+  in contact_solver_test.go, and TestStepKeepsAZeroContactFrequencyFinite
+  in step_test.go
 
 ### D-007 The normalization tolerance is in raw units
 
@@ -184,9 +203,13 @@ Numbering is sequential from `D-001` and never reused.
   swap-remove contract and returns the old index of the moved element, so
   the caller repairs the stored index as the reference does. The growth
   policy is the one of the Go runtime; the capacity never enters a
-  simulation result.
+  simulation result. A step allocates only when a slice, the arena or a
+  graph color grows past its capacity, which happens on the first step that
+  activates a contact and then stays flat; the reference grows its arrays
+  and its arena at the same moments.
 - Test: TestCreateAndDestroyOrdersProduceTheSameWorld and
-  TestSleepingBodyGetsItsOwnSolverSet in world_test.go
+  TestSleepingBodyGetsItsOwnSolverSet in world_test.go,
+  TestStepAllocatesNothing in step_test.go
 
 ### D-011 The determinism witness is port-only
 
@@ -204,11 +227,16 @@ Numbering is sequential from `D-001` and never reused.
   state instead of storage ids or linked-list keys. Its two orientations fold
   to one value; contact points use a wrapping sum as well. Equivalent worlds
   therefore keep one checksum even when bodies, shapes, contacts or manifold
-  points were created in another order. The witness contains a real contact
-  and re-baselines in the same commit that grows the fold.
+  points were created in another order. Each body folds whether its island
+  has a pending split, because that flag blocks sleep and picks the island
+  to split on the next step while no body or contact field shows it; the
+  island id itself stays out. The witness contains a real contact that the
+  step itself detects and solves, and re-baselines in the same commit that
+  grows the fold or changes the solved state.
 - Test: TestChecksumIsOrderIndependent,
   TestChecksumContactsIgnoreCreationOrder, TestChecksumSeesContactState,
-  TestChecksumSeesAStateChange, TestChecksumSeesFutureBehaviour and
+  TestChecksumSeesAStateChange, TestChecksumSeesFutureBehaviour,
+  TestChecksumSeesAPendingSplit and
   TestChecksumMatchesDeterministicWitness in checksum_test.go,
   TestStepIsReproducibleBitForBit in step_test.go
 

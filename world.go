@@ -11,9 +11,14 @@ const (
 
 // world manages all physics entities and the dynamic simulation.
 type world struct {
-	// Deferred: the arena, the broad-phase, the constraint graph, the
-	// joint, contact, island, chain and sensor storage, the events, the
-	// callbacks and the task system of the reference.
+	// Deferred: the broad-phase, the joint, chain and sensor storage, the
+	// events, the callbacks and the task system of the reference.
+
+	// constraintGraph colors the awake touching contacts.
+	constraintGraph constraintGraph
+
+	// arena is the scratch allocator of one step.
+	arena arenaAllocator
 
 	// bodyIdPool allocates and recycles body ids. An id gives the
 	// application a stable identifier; the sim data moves between sets.
@@ -39,6 +44,31 @@ type world struct {
 	// contacts maps a contact id to the cold contact data. The sims live in
 	// the solver sets.
 	contacts []contact
+
+	islandIdPool idPool
+
+	// islands maps an island id to the island data. The sims live in the
+	// solver sets.
+	islands []island
+
+	// splitIslandId is the island chosen for a split on the next step, or
+	// nullIndex.
+	splitIslandId int
+
+	// taskContext is the per-worker scratch of the reference. The port has
+	// one worker.
+	taskContext taskContext
+
+	// The event arrays of the last step. The end events use two buffers,
+	// because a contact destroyed between steps reports into the buffer
+	// that the next step returns.
+	bodyMoveEvents     []BodyMoveEvent
+	contactBeginEvents []ContactBeginTouchEvent
+	contactEndEvents   [2][]ContactEndTouchEvent
+	contactHitEvents   []ContactHitEvent
+	endEventArrayIndex int
+
+	// Deferred: the sensor events of the reference.
 
 	// pairSet answers whether two shapes already have a contact. The
 	// reference hosts the set on the broadphase; it moves there when the
@@ -200,6 +230,26 @@ func CreateWorld(def *WorldDef) WorldId {
 	w.contacts = make([]contact, 0, 16)
 	w.pairSet = createSet(16)
 
+	w.islandIdPool = createIdPool()
+	w.islands = make([]island, 0, 8)
+
+	w.arena = createArenaAllocator(2048)
+
+	createGraph(&w.constraintGraph, 16)
+
+	w.splitIslandId = nullIndex
+
+	w.taskContext.contactStateBitSet = createBitSet(1024)
+	w.taskContext.awakeIslandBitSet = createBitSet(256)
+	w.taskContext.splitIslandId = nullIndex
+
+	w.bodyMoveEvents = make([]BodyMoveEvent, 0, 16)
+	w.contactBeginEvents = make([]ContactBeginTouchEvent, 0, 16)
+	w.contactEndEvents[0] = make([]ContactEndTouchEvent, 0, 16)
+	w.contactEndEvents[1] = make([]ContactEndTouchEvent, 0, 16)
+	w.contactHitEvents = make([]ContactHitEvent, 0, 16)
+	w.endEventArrayIndex = 0
+
 	w.frictionCallback = defaultFrictionCallback
 	w.restitutionCallback = defaultRestitutionCallback
 
@@ -227,6 +277,8 @@ func CreateWorld(def *WorldDef) WorldId {
 func DestroyWorld(worldId WorldId) {
 	w := getWorldFromId(worldId)
 
+	destroyGraph(&w.constraintGraph)
+
 	// Destroy solver sets
 	for i := range w.solverSets {
 		if w.solverSets[i].setIndex != nullIndex {
@@ -237,7 +289,10 @@ func DestroyWorld(worldId WorldId) {
 	w.bodyIdPool.destroy()
 	w.shapeIdPool.destroy()
 	w.contactIdPool.destroy()
+	w.islandIdPool.destroy()
 	w.solverSetIdPool.destroy()
+
+	destroyArenaAllocator(&w.arena)
 
 	// Wipe world but preserve generation
 	generation := w.generation
@@ -339,9 +394,18 @@ func validateSolverSets(w *world) {
 	if w.solverSetIdPool.idCapacity() != len(w.solverSets) {
 		panic("dbox2d: the set pool and the set array disagree")
 	}
+	if w.islandIdPool.idCapacity() != len(w.islands) {
+		panic("dbox2d: the island pool and the island array disagree")
+	}
+
+	if w.contactIdPool.idCapacity() != len(w.contacts) {
+		panic("dbox2d: the contact pool and the contact array disagree")
+	}
 
 	activeSetCount := 0
 	totalBodyCount := 0
+	totalContactCount := 0
+	totalIslandCount := 0
 
 	// Validate all solver sets
 	for setIndex := range w.solverSets {
@@ -349,12 +413,23 @@ func validateSolverSets(w *world) {
 		if set.setIndex != nullIndex {
 			activeSetCount += 1
 
-			if setIndex == awakeSet {
+			switch setIndex {
+			case staticSet:
+				if len(set.contactSims) != 0 || len(set.islandSims) != 0 || len(set.bodyStates) != 0 {
+					panic("dbox2d: the static set holds contacts, islands or states")
+				}
+			case awakeSet:
 				if len(set.bodySims) != len(set.bodyStates) {
 					panic("dbox2d: the awake sims and states differ in length")
 				}
-			} else if len(set.bodyStates) != 0 {
-				panic("dbox2d: only the awake set holds body states")
+			case disabledSet:
+				if len(set.islandSims) != 0 || len(set.bodyStates) != 0 {
+					panic("dbox2d: the disabled set holds islands or states")
+				}
+			default:
+				if len(set.bodyStates) != 0 {
+					panic("dbox2d: only the awake set holds body states")
+				}
 			}
 
 			// Validate bodies
@@ -369,6 +444,10 @@ func validateSolverSets(w *world) {
 				b := &w.bodies[bodyId]
 				if b.setIndex != setIndex || b.localIndex != i {
 					panic("dbox2d: a body does not point back at its sim")
+				}
+
+				if setIndex == disabledSet && b.headContactKey != nullIndex {
+					panic("dbox2d: a disabled body has contacts")
 				}
 
 				// Validate body shapes
@@ -386,9 +465,55 @@ func validateSolverSets(w *world) {
 					prevShapeId = shapeId
 					shapeId = s.nextShapeId
 				}
+
+				// Validate body contacts
+				contactKey := b.headContactKey
+				for contactKey != nullIndex {
+					contactId := contactKey >> 1
+					edgeIndex := contactKey & 1
+
+					c := &w.contacts[contactId]
+					if c.setIndex == staticSet {
+						panic("dbox2d: a contact is in the static set")
+					}
+					if c.edges[0].bodyId != bodyId && c.edges[1].bodyId != bodyId {
+						panic("dbox2d: a contact on the body list does not touch the body")
+					}
+					contactKey = c.edges[edgeIndex].nextKey
+				}
+			}
+
+			// Validate contacts
+			totalContactCount += len(set.contactSims)
+			for i := range set.contactSims {
+				cs := &set.contactSims[i]
+				c := &w.contacts[cs.contactId]
+				if setIndex == awakeSet {
+					// contact should be non-touching if awake
+					// or it could be this contact hasn't been transferred yet
+					if cs.manifold.PointCount != 0 && cs.simFlags&simStartedTouching == 0 {
+						panic("dbox2d: a touching contact is outside the graph")
+					}
+				}
+				if c.setIndex != setIndex || c.colorIndex != nullIndex || c.localIndex != i {
+					panic("dbox2d: a contact does not point back at its sim")
+				}
+			}
+
+			// Validate islands
+			totalIslandCount += len(set.islandSims)
+			for i := range set.islandSims {
+				islandId := set.islandSims[i].islandId
+				if islandId < 0 || islandId >= len(w.islands) {
+					panic("dbox2d: an island sim points outside the island array")
+				}
+				isl := &w.islands[islandId]
+				if isl.setIndex != setIndex || isl.localIndex != i {
+					panic("dbox2d: an island does not point back at its sim")
+				}
 			}
 		} else {
-			if len(set.bodySims) != 0 || len(set.bodyStates) != 0 {
+			if len(set.bodySims) != 0 || len(set.contactSims) != 0 || len(set.islandSims) != 0 || len(set.bodyStates) != 0 {
 				panic("dbox2d: an unused set is not empty")
 			}
 		}
@@ -401,10 +526,216 @@ func validateSolverSets(w *world) {
 	if totalBodyCount != w.bodyIdPool.idCount() {
 		panic("dbox2d: the body count and the body pool disagree")
 	}
+
+	if totalIslandCount != w.islandIdPool.idCount() {
+		panic("dbox2d: the island count and the island pool disagree")
+	}
+
+	// Validate constraint graph
+	for colorIndex := range graphColorCount {
+		color := &w.constraintGraph.colors[colorIndex]
+		totalContactCount += len(color.contactSims)
+		for i := range color.contactSims {
+			cs := &color.contactSims[i]
+			c := &w.contacts[cs.contactId]
+			// contact should be touching in the constraint graph or awaiting transfer to non-touching
+			if cs.manifold.PointCount <= 0 && cs.simFlags&(simStoppedTouching|simDisjoint) == 0 {
+				panic("dbox2d: a non-touching contact is in the graph")
+			}
+			if c.setIndex != awakeSet || c.colorIndex != colorIndex || c.localIndex != i {
+				panic("dbox2d: a graph contact does not point back at its sim")
+			}
+
+			bodyIdA := c.edges[0].bodyId
+			bodyIdB := c.edges[1].bodyId
+
+			if colorIndex < overflowIndex {
+				bodyA := &w.bodies[bodyIdA]
+				bodyB := &w.bodies[bodyIdB]
+				if color.bodySet.getBit(bodyIdA) != (bodyA.bodyType != StaticBody) {
+					panic("dbox2d: the color bit of body A is wrong")
+				}
+				if color.bodySet.getBit(bodyIdB) != (bodyB.bodyType != StaticBody) {
+					panic("dbox2d: the color bit of body B is wrong")
+				}
+			}
+		}
+	}
+
+	if totalContactCount != w.contactIdPool.idCount() {
+		panic("dbox2d: the contact count and the contact pool disagree")
+	}
+	if totalContactCount != w.pairSet.count {
+		panic("dbox2d: the contact count and the pair set disagree")
+	}
 }
 
 // Gravity returns the gravity vector of the world.
 func (id WorldId) Gravity() Vec2 {
 	w := getWorldFromId(id)
 	return w.gravity
+}
+
+// taskContext is the scratch that the body finalize fills for the island
+// sleep. It corresponds to b2TaskContext in src/world.h.
+type taskContext struct {
+	// contactStateBitSet marks the contacts whose touch state changed in
+	// the collide pass, by contact id, because the sims move between the
+	// touching and the non-touching arrays.
+	contactStateBitSet bitSet
+
+	// awakeIslandBitSet marks the awake islands by local index.
+	awakeIslandBitSet bitSet
+
+	// splitIslandId is the sleepiest island with a pending split.
+	splitIslandId  int
+	splitSleepTime Q
+
+	// Deferred: the enlarged body bit set of the reference serves the
+	// broad-phase.
+}
+
+// GetBodyEvents returns the move events of the last step. It corresponds
+// to b2World_GetBodyEvents in src/world.c.
+func GetBodyEvents(worldId WorldId) BodyEvents {
+	w := getWorldFromId(worldId)
+	if w.locked {
+		panic("dbox2d: the world is locked")
+	}
+	return BodyEvents{MoveEvents: w.bodyMoveEvents}
+}
+
+// GetContactEvents returns the contact events of the last step. It
+// corresponds to b2World_GetContactEvents in src/world.c.
+func GetContactEvents(worldId WorldId) ContactEvents {
+	w := getWorldFromId(worldId)
+	if w.locked {
+		panic("dbox2d: the world is locked")
+	}
+
+	// Careful to use previous buffer
+	endEventArrayIndex := 1 - w.endEventArrayIndex
+
+	return ContactEvents{
+		BeginEvents: w.contactBeginEvents,
+		EndEvents:   w.contactEndEvents[endEventArrayIndex],
+		HitEvents:   w.contactHitEvents,
+	}
+}
+
+// validateConnectivity checks that every touching contact of a body sits
+// in the root island of that body, and that a non-touching contact has no
+// island. Only the tests call it. It corresponds to b2ValidateConnectivity
+// in src/world.c.
+func validateConnectivity(w *world) {
+	for bodyIndex := range w.bodies {
+		b := &w.bodies[bodyIndex]
+		if b.id == nullIndex {
+			if !w.bodyIdPool.isFreeId(bodyIndex) {
+				panic("dbox2d: a free body slot holds a used id")
+			}
+			continue
+		}
+		if !w.bodyIdPool.isUsedId(bodyIndex) {
+			panic("dbox2d: a live body holds a free id")
+		}
+		if bodyIndex != b.id {
+			panic("dbox2d: the body id does not match its slot")
+		}
+
+		// Islands merge on the next step, so compare the roots.
+		bodyIslandId := nullIndex
+		if b.islandId != nullIndex {
+			_, bodyIslandId = findRootIsland(w, b.islandId)
+		}
+		bodySetIndex := b.setIndex
+
+		contactKey := b.headContactKey
+		for contactKey != nullIndex {
+			contactId := contactKey >> 1
+			edgeIndex := contactKey & 1
+			c := &w.contacts[contactId]
+
+			touching := c.flags&contactTouchingFlag != 0
+			if touching {
+				if bodySetIndex != staticSet {
+					_, contactIslandId := findRootIsland(w, c.islandId)
+					if contactIslandId != bodyIslandId {
+						panic("dbox2d: a touching contact and its body are in different islands")
+					}
+				}
+			} else if c.islandId != nullIndex {
+				panic("dbox2d: a non-touching contact has an island")
+			}
+
+			contactKey = c.edges[edgeIndex].nextKey
+		}
+
+		// Deferred: the joint edges of the reference.
+	}
+}
+
+// validateContacts checks the set, color and sim of every live contact.
+// Only the tests call it. It corresponds to b2ValidateContacts in
+// src/world.c.
+func validateContacts(w *world) {
+	if len(w.contacts) != w.contactIdPool.idCapacity() {
+		panic("dbox2d: the contact array and the id pool differ in capacity")
+	}
+	allocatedContactCount := 0
+
+	for contactIndex := range w.contacts {
+		c := &w.contacts[contactIndex]
+		if c.contactId == nullIndex {
+			continue
+		}
+		if c.contactId != contactIndex {
+			panic("dbox2d: the contact id does not match its slot")
+		}
+		allocatedContactCount += 1
+
+		touching := c.flags&contactTouchingFlag != 0
+		setId := c.setIndex
+
+		switch {
+		case setId == awakeSet:
+			if touching {
+				if c.colorIndex < 0 || c.colorIndex >= graphColorCount {
+					panic("dbox2d: an awake touching contact has no color")
+				}
+			} else if c.colorIndex != nullIndex {
+				panic("dbox2d: an awake non-touching contact has a color")
+			}
+		case setId >= firstSleepingSet:
+			// Only touching contacts sleep.
+			if !touching {
+				panic("dbox2d: a sleeping set holds a non-touching contact")
+			}
+		default:
+			// Sleeping and non-touching contacts belong in the disabled set.
+			if touching || setId != disabledSet {
+				panic("dbox2d: a non-touching contact is outside the disabled set")
+			}
+		}
+
+		cs := getContactSim(w, c)
+		if cs.contactId != contactIndex {
+			panic("dbox2d: the contact sim id does not match")
+		}
+		if cs.shapeIdA != c.shapeIdA || cs.shapeIdB != c.shapeIdB {
+			panic("dbox2d: the contact sim shapes do not match")
+		}
+
+		simTouching := cs.simFlags&simTouchingFlag != 0
+		if touching != simTouching {
+			panic("dbox2d: the contact and its sim disagree on touching")
+		}
+		if cs.manifold.PointCount < 0 || cs.manifold.PointCount > 2 {
+			panic("dbox2d: the manifold point count is out of range")
+		}
+	}
+
+	if allocatedContactCount != w.contactIdPool.idCount() {
+		panic("dbox2d: the live contact count and the id pool differ")
+	}
 }

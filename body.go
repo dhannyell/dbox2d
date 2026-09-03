@@ -179,7 +179,7 @@ func CreateBody(worldId WorldId, def *BodyDef) BodyId {
 	if !IsValidQ(def.AngularVelocity) {
 		panic("dbox2d: BodyDef.AngularVelocity is not valid")
 	}
-	zero := fixed.Zero()
+	zero := fixed.Q32Zero()
 	if !IsValidQ(def.LinearDamping) || def.LinearDamping.Less(zero) {
 		panic("dbox2d: BodyDef.LinearDamping is not valid")
 	}
@@ -235,7 +235,7 @@ func CreateBody(worldId WorldId, def *BodyDef) BodyId {
 		rotation0:         def.Rotation,
 		center0:           def.Position,
 		minExtent:         huge,
-		maxExtent:         fixed.Zero(),
+		maxExtent:         fixed.Q32Zero(),
 		linearDamping:     def.LinearDamping,
 		angularDamping:    def.AngularDamping,
 		gravityScale:      def.GravityScale,
@@ -279,17 +279,20 @@ func CreateBody(worldId WorldId, def *BodyDef) BodyId {
 	b.islandNext = nullIndex
 	b.bodyMoveIndex = nullIndex
 	b.id = bodyId
-	b.mass = fixed.Zero()
-	b.inertia = fixed.Zero()
+	b.mass = fixed.Q32Zero()
+	b.inertia = fixed.Q32Zero()
 	b.sleepThreshold = def.SleepThreshold
-	b.sleepTime = fixed.Zero()
+	b.sleepTime = fixed.Q32Zero()
 	b.bodyType = def.Type
 	b.enableSleep = def.EnableSleep
 	b.fixedRotation = def.FixedRotation
 	b.isSpeedCapped = false
 	b.isMarked = false
 
-	// Deferred: an enabled dynamic or kinematic body joins an island here.
+	// dynamic and kinematic bodies that are enabled need a island
+	if setId >= awakeSet {
+		createIslandForBody(w, setId, b)
+	}
 
 	return BodyId{index1: int32(bodyId) + 1, world0: w.worldId, generation: b.generation}
 }
@@ -300,18 +303,12 @@ func DestroyBody(bodyId BodyId) {
 
 	b := getBodyFullId(w, bodyId)
 
+	// Wake bodies attached to this body, even if this body is static.
+	wakeBodies := true
+
 	// Deferred: the joints attached to the body go away here.
 
-	// Destroy the attached contacts.
-	edgeKey := b.headContactKey
-	for edgeKey != nullIndex {
-		contactId := edgeKey >> 1
-		edgeIndex := edgeKey & 1
-
-		c := &w.contacts[contactId]
-		edgeKey = c.edges[edgeIndex].nextKey
-		destroyContact(w, c, false)
-	}
+	destroyBodyContacts(w, b, wakeBodies)
 
 	// Destroy the attached shapes. Deferred: their broad-phase proxies and
 	// their sensor records.
@@ -328,7 +325,7 @@ func DestroyBody(bodyId BodyId) {
 
 	// Deferred: the attached chains go away here, after their shapes.
 
-	// Deferred: the body leaves its island here.
+	removeBodyFromIsland(w, b)
 
 	// Remove body sim from solver set that owns it
 	set := &w.solverSets[b.setIndex]
@@ -370,7 +367,7 @@ func updateBodyMassData(w *world, b *body) {
 	sim := getBodySim(w, b)
 
 	// Compute mass data from shapes. Each shape has its own density.
-	zero := fixed.Zero()
+	zero := fixed.Q32Zero()
 	b.mass = zero
 	b.inertia = zero
 
@@ -420,7 +417,7 @@ func updateBodyMassData(w *world, b *body) {
 
 	// Compute center of mass.
 	if zero.Less(b.mass) {
-		sim.invMass = fixed.One().Div(b.mass)
+		sim.invMass = fixed.Q32One().Div(b.mass)
 		localCenter = localCenter.Mul(sim.invMass)
 	}
 
@@ -430,7 +427,7 @@ func updateBodyMassData(w *world, b *body) {
 		if !zero.Less(b.inertia) {
 			panic("dbox2d: the centered inertia is not positive")
 		}
-		sim.invInertia = fixed.One().Div(b.inertia)
+		sim.invInertia = fixed.Q32One().Div(b.inertia)
 	} else {
 		b.inertia = zero
 		sim.invInertia = zero
@@ -490,4 +487,102 @@ func (bodyId BodyId) ShapeCount() int {
 	w := getWorld(bodyId.world0)
 	b := getBodyFullId(w, bodyId)
 	return b.shapeCount
+}
+
+// wakeBody wakes the sleeping set of a body. It reports whether a set
+// woke. It corresponds to b2WakeBody in src/body.c.
+func wakeBody(w *world, b *body) bool {
+	if b.setIndex >= firstSleepingSet {
+		wakeSolverSet(w, b.setIndex)
+		return true
+	}
+
+	return false
+}
+
+// destroyBodyContacts destroys every contact of a body. It corresponds to
+// b2DestroyBodyContacts in src/body.c.
+func destroyBodyContacts(w *world, b *body, wakeBodies bool) {
+	// Destroy the attached contacts
+	edgeKey := b.headContactKey
+	for edgeKey != nullIndex {
+		contactId := edgeKey >> 1
+		edgeIndex := edgeKey & 1
+
+		c := &w.contacts[contactId]
+		edgeKey = c.edges[edgeIndex].nextKey
+		destroyContact(w, c, wakeBodies)
+	}
+}
+
+// createIslandForBody gives an enabled body its own island. It corresponds
+// to b2CreateIslandForBody in src/body.c.
+func createIslandForBody(w *world, setIndex int, b *body) {
+	if b.islandId != nullIndex || b.islandPrev != nullIndex || b.islandNext != nullIndex {
+		panic("dbox2d: the body is already in an island")
+	}
+	if setIndex == disabledSet {
+		panic("dbox2d: a disabled body has no island")
+	}
+
+	isl := createIsland(w, setIndex)
+
+	b.islandId = isl.islandId
+	isl.headBody = b.id
+	isl.tailBody = b.id
+	isl.bodyCount = 1
+}
+
+// removeBodyFromIsland unlinks a body from its island and destroys the
+// island when it becomes empty. It corresponds to b2RemoveBodyFromIsland in
+// src/body.c.
+func removeBodyFromIsland(w *world, b *body) {
+	if b.islandId == nullIndex {
+		if b.islandPrev != nullIndex || b.islandNext != nullIndex {
+			panic("dbox2d: a body without an island has island links")
+		}
+		return
+	}
+
+	islandId := b.islandId
+	isl := &w.islands[islandId]
+
+	// Fix the island's linked list of sims
+	if b.islandPrev != nullIndex {
+		prevBody := &w.bodies[b.islandPrev]
+		prevBody.islandNext = b.islandNext
+	}
+
+	if b.islandNext != nullIndex {
+		nextBody := &w.bodies[b.islandNext]
+		nextBody.islandPrev = b.islandPrev
+	}
+
+	if isl.bodyCount <= 0 {
+		panic("dbox2d: the island body count underflows")
+	}
+	isl.bodyCount -= 1
+
+	if isl.headBody == b.id {
+		isl.headBody = b.islandNext
+
+		if isl.headBody == nullIndex {
+			// Destroy empty island
+			if isl.tailBody != b.id || isl.bodyCount != 0 {
+				panic("dbox2d: the emptied island still lists bodies")
+			}
+			if isl.contactCount != 0 {
+				panic("dbox2d: the emptied island still lists contacts")
+			}
+
+			// Free the island
+			destroyIsland(w, isl.islandId)
+		}
+	} else if isl.tailBody == b.id {
+		isl.tailBody = b.islandPrev
+	}
+
+	b.islandId = nullIndex
+	b.islandPrev = nullIndex
+	b.islandNext = nullIndex
 }

@@ -45,7 +45,7 @@ func TestChecksumIsOrderIndependent(t *testing.T) {
 // the body and shape folds. The second world reverses both object creation and
 // contact orientation, but represents the same physical state.
 func TestChecksumContactsIgnoreCreationOrder(t *testing.T) {
-	positions := [3]Vec2{v2(0, 0), {X: fixed.MustParse("0.75")}, v2(4, 0)}
+	positions := [3]Vec2{v2(0, 0), {X: fixed.Q32MustParse("0.75")}, v2(4, 0)}
 	build := func(order [3]int, reverseContact bool) WorldId {
 		worldId := createTestWorld(t)
 		var bodies [3]BodyId
@@ -80,7 +80,7 @@ func TestChecksumContactsIgnoreCreationOrder(t *testing.T) {
 func TestChecksumSeesContactState(t *testing.T) {
 	worldId := createTestWorld(t)
 	idA := addDynamicCircle(t, worldId, v2(0, 0))
-	idB := addDynamicCircle(t, worldId, Vec2{X: fixed.MustParse("0.75")})
+	idB := addDynamicCircle(t, worldId, Vec2{X: fixed.Q32MustParse("0.75")})
 	w := getWorldFromId(worldId)
 	shapeA := firstShape(w, idA)
 	shapeB := firstShape(w, idB)
@@ -102,7 +102,7 @@ func TestChecksumSeesContactState(t *testing.T) {
 		t.Fatal("updating the contact manifold did not change the checksum")
 	}
 
-	cs.manifold.Points[0].NormalImpulse = fixed.One()
+	cs.manifold.Points[0].NormalImpulse = fixed.Q32One()
 	if Checksum(worldId) == withManifold {
 		t.Fatal("a stored contact impulse did not change the checksum")
 	}
@@ -117,7 +117,7 @@ func TestChecksumSeesAStateChange(t *testing.T) {
 
 	w := getWorldFromId(worldId)
 	b := getBodyFullId(w, bodyId)
-	getBodyState(w, b).linearVelocity = Vec2{X: fixed.One()}
+	getBodyState(w, b).linearVelocity = Vec2{X: fixed.Q32One()}
 	if Checksum(worldId) == before {
 		t.Errorf("a velocity change did not change the checksum")
 	}
@@ -148,19 +148,50 @@ func TestChecksumSeesFutureBehaviour(t *testing.T) {
 		bodyDef.LinearDamping = damping
 		bodyId := CreateBody(worldId, &bodyDef)
 		shapeDef := DefaultShapeDef()
-		box := MakeSquare(fixed.One())
+		box := MakeSquare(fixed.Q32One())
 		CreatePolygonShape(bodyId, &shapeDef, &box)
 		return worldId
 	}
 
-	base := build(v2(0, -10), fixed.Zero())
-	differentGravity := build(v2(0, -9), fixed.Zero())
-	differentDamping := build(v2(0, -10), fixed.One())
+	base := build(v2(0, -10), fixed.Q32Zero())
+	differentGravity := build(v2(0, -9), fixed.Q32Zero())
+	differentDamping := build(v2(0, -10), fixed.Q32One())
 	if Checksum(base) == Checksum(differentGravity) {
 		t.Errorf("world gravity did not change the checksum")
 	}
 	if Checksum(base) == Checksum(differentDamping) {
 		t.Errorf("body damping did not change the checksum")
+	}
+}
+
+// TestChecksumSeesAPendingSplit pins the island state that the bodies and
+// contacts do not show: an island with a removed constraint splits on the
+// next step and cannot sleep, so two worlds with the same visible state
+// must not share a checksum.
+func TestChecksumSeesAPendingSplit(t *testing.T) {
+	build := func(chain bool) (WorldId, BodyId) {
+		worldId := createTestWorld(t)
+		w := getWorldFromId(worldId)
+		idA := addDynamicCircle(t, worldId, v2(0, 0))
+		idB := addDynamicCircle(t, worldId, v2(1, 0))
+		idC := addDynamicCircle(t, worldId, v2(2, 0))
+		startTouching(t, w, idA, idB)
+		if chain {
+			c := startTouching(t, w, idB, idC)
+			mergeAwakeIslands(w)
+			destroyContact(w, c, false)
+		}
+		return worldId, idA
+	}
+
+	pending, idA := build(true)
+	settled, _ := build(false)
+	w := getWorldFromId(pending)
+	if w.islands[getBodyFullId(w, idA).islandId].constraintRemoveCount == 0 {
+		t.Fatalf("the chain world has no pending split")
+	}
+	if Checksum(pending) == Checksum(settled) {
+		t.Errorf("a pending island split did not change the checksum")
 	}
 }
 
@@ -178,25 +209,20 @@ func TestChecksumMatchesDeterministicWitness(t *testing.T) {
 		bodies[i] = id
 		w := getWorldFromId(worldId)
 		b := getBodyFullId(w, id)
-		getBodyState(w, b).angularVelocity = fixed.MustParse("0.1")
+		getBodyState(w, b).angularVelocity = fixed.Q32MustParse("0.1")
 	}
 
+	// Step updates the manifold itself. A manifold filled by hand before the
+	// first step hides the begin-touch transition and skips the solver.
 	w := getWorldFromId(worldId)
-	shapeA := firstShape(w, bodies[0])
-	shapeB := firstShape(w, bodies[1])
-	createContact(w, shapeA, shapeB)
-	c := &w.contacts[0]
-	cs := getContactSim(w, c)
-	xfA := getBodyTransformQuick(w, getBodyFullId(w, bodies[0]))
-	xfB := getBodyTransformQuick(w, getBodyFullId(w, bodies[1]))
-	updateContact(w, cs, shapeA, xfA, Vec2Zero(), shapeB, xfB, Vec2Zero())
+	createContact(w, firstShape(w, bodies[0]), firstShape(w, bodies[1]))
 
 	dt := stepDt()
 	for range 120 {
 		Step(worldId, dt, 4)
 	}
 
-	const want uint64 = 15399750377841976944
+	const want uint64 = 7856699544564466143
 	if got := Checksum(worldId); got != want {
 		t.Errorf("checksum = %d, want %d", got, want)
 	}

@@ -6,16 +6,28 @@ import "github.com/dhannyell/fixed"
 // src/contact.h. The touching flag arrives with the narrowphase update of
 // the step; the hit event flag arrives with the solver events.
 const (
+	// contactTouchingFlag is set when the shapes touch.
+	contactTouchingFlag uint32 = 0x0001
+
 	// contactEnableContactEvents marks a contact that wants contact events.
 	contactEnableContactEvents uint32 = 0x0004
 )
 
 // Contact sim flags, shifted to be distinct from the contact flags. They
-// correspond to b2ContactSimFlags in src/contact.h. The disjoint and the
-// started/stopped flags arrive with the broadphase and the solver.
+// correspond to b2ContactSimFlags in src/contact.h.
 const (
 	// simTouchingFlag is set when the shapes touch.
 	simTouchingFlag uint32 = 0x00010000
+
+	// simDisjoint is set when the bounding boxes stop overlapping.
+	simDisjoint uint32 = 0x00020000
+
+	// simStartedTouching is set when the shapes began to touch this step.
+	simStartedTouching uint32 = 0x00040000
+
+	// simStoppedTouching is set when the shapes stopped touching this
+	// step.
+	simStoppedTouching uint32 = 0x00080000
 
 	// simEnableHitEvent is set when a touching contact wants hit events.
 	simEnableHitEvent uint32 = 0x00100000
@@ -75,8 +87,12 @@ type contactSim struct {
 	shapeIdA int
 	shapeIdB int
 
-	// Deferred: the inverse mass and inertia copies of the reference. The
-	// contact solver prepare stage fills them.
+	// Inverse mass and inertia copies, filled when the contact enters the
+	// constraint graph.
+	invMassA Q
+	invIA    Q
+	invMassB Q
+	invIB    Q
 
 	manifold Manifold
 
@@ -296,12 +312,10 @@ func createContact(w *world, shapeA, shapeB *shape) {
 }
 
 // destroyContact unlinks a contact from both bodies and frees it.
-// wakeBodies asks to wake the bodies of a touching contact; the wake itself
-// waits for the island stage, as does the end touch event. It corresponds
-// to b2DestroyContact in src/contact.c.
+// wakeBodies wakes the bodies of a touching contact. The end touch event
+// waits for the events. It corresponds to b2DestroyContact in
+// src/contact.c.
 func destroyContact(w *world, c *contact, wakeBodies bool) {
-	_ = wakeBodies
-
 	// Remove the pair from the set.
 	w.pairSet.removeKey(shapePairKey(c.shapeIdA, c.shapeIdB))
 
@@ -310,6 +324,17 @@ func destroyContact(w *world, c *contact, wakeBodies bool) {
 
 	bodyA := &w.bodies[edgeA.bodyId]
 	bodyB := &w.bodies[edgeB.bodyId]
+
+	flags := c.flags
+	touching := flags&contactTouchingFlag != 0
+
+	// End touch event
+	if touching && flags&contactEnableContactEvents != 0 {
+		shapeA := &w.shapes[c.shapeIdA]
+		shapeB := &w.shapes[c.shapeIdB]
+		event := ContactEndTouchEvent{ShapeIdA: shapeIdOf(w, shapeA), ShapeIdB: shapeIdOf(w, shapeB)}
+		w.contactEndEvents[w.endEventArrayIndex] = append(w.contactEndEvents[w.endEventArrayIndex], event)
+	}
 
 	// Remove from body A.
 	if edgeA.prevKey != nullIndex {
@@ -343,17 +368,30 @@ func destroyContact(w *world, c *contact, wakeBodies bool) {
 	}
 	bodyB.contactCount--
 
-	// The island unlink and the constraint graph removal wait for their
-	// stages; islandId and colorIndex stay nullIndex until then. The
-	// contact is non-touching or sleeping, so its sim lives in a solver
-	// set.
-	set := &w.solverSets[c.setIndex]
-	var movedIndex int
-	set.contactSims, movedIndex = removeSwap(set.contactSims, c.localIndex)
-	if movedIndex != nullIndex {
-		movedContactSim := &set.contactSims[c.localIndex]
-		movedContact := &w.contacts[movedContactSim.contactId]
-		movedContact.localIndex = c.localIndex
+	// Remove contact from the array that owns it
+	if c.islandId != nullIndex {
+		unlinkContact(w, c)
+	}
+
+	if c.colorIndex != nullIndex {
+		// contact is an active constraint
+		if c.setIndex != awakeSet {
+			panic("dbox2d: a graph contact lives in the awake set")
+		}
+		removeContactFromGraph(w, edgeA.bodyId, edgeB.bodyId, c.colorIndex, c.localIndex)
+	} else {
+		// contact is non-touching or is sleeping
+		if c.setIndex == awakeSet && touching {
+			panic("dbox2d: a touching awake contact is outside the graph")
+		}
+		set := &w.solverSets[c.setIndex]
+		var movedIndex int
+		set.contactSims, movedIndex = removeSwap(set.contactSims, c.localIndex)
+		if movedIndex != nullIndex {
+			movedContactSim := &set.contactSims[c.localIndex]
+			movedContact := &w.contacts[movedContactSim.contactId]
+			movedContact.localIndex = c.localIndex
+		}
 	}
 
 	c.contactId = nullIndex
@@ -362,12 +400,25 @@ func destroyContact(w *world, c *contact, wakeBodies bool) {
 	c.localIndex = nullIndex
 
 	w.contactIdPool.freeId(contactId)
+
+	if wakeBodies && touching {
+		wakeBody(w, bodyA)
+		wakeBody(w, bodyB)
+	}
 }
 
 // getContactSim returns the warm data of a contact. It corresponds to
-// b2GetContactSim in src/contact.c. The constraint graph branch waits for
-// the graph; colorIndex stays nullIndex until then.
+// b2GetContactSim in src/contact.c.
 func getContactSim(w *world, c *contact) *contactSim {
+	if c.setIndex == awakeSet && c.colorIndex != nullIndex {
+		// contact lives in constraint graph
+		if c.colorIndex < 0 || c.colorIndex >= graphColorCount {
+			panic("dbox2d: the color index is out of range")
+		}
+		color := &w.constraintGraph.colors[c.colorIndex]
+		return &color.contactSims[c.localIndex]
+	}
+
 	set := &w.solverSets[c.setIndex]
 	return &set.contactSims[c.localIndex]
 }
@@ -389,7 +440,7 @@ func updateContact(w *world, cs *contactSim, shapeA *shape, transformA Transform
 	cs.friction = w.frictionCallback(shapeA.friction, shapeA.userMaterialId, shapeB.friction, shapeB.userMaterialId)
 	cs.restitution = w.restitutionCallback(shapeA.restitution, shapeA.userMaterialId, shapeB.restitution, shapeB.userMaterialId)
 
-	zero := fixed.Zero()
+	zero := fixed.Q32Zero()
 	if zero.Less(shapeA.rollingResistance) || zero.Less(shapeB.rollingResistance) {
 		radiusA := getShapeRadius(shapeA)
 		radiusB := getShapeRadius(shapeB)
@@ -411,7 +462,7 @@ func updateContact(w *world, cs *contactSim, shapeA *shape, transformA Transform
 	// behaviour without the dead branch.
 	if !w.enableSpeculative && pointCount == 2 {
 		slop := LinearSlop()
-		if slop.Add(slop.Div(fixed.FromInt(2))).Less(cs.manifold.Points[0].Separation) {
+		if slop.Add(slop.Div(fixed.Q32FromInt(2))).Less(cs.manifold.Points[0].Separation) {
 			cs.manifold.Points[0] = cs.manifold.Points[1]
 			cs.manifold.PointCount = 1
 		}

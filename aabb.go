@@ -11,7 +11,7 @@ type AABB struct {
 // IsValidAABB reports whether a is usable and not inverted.
 func IsValidAABB(a AABB) bool {
 	d := a.UpperBound.Sub(a.LowerBound)
-	valid := !d.X.Less(fixed.Zero()) && !d.Y.Less(fixed.Zero())
+	valid := !d.X.Less(fixed.Q32Zero()) && !d.Y.Less(fixed.Q32Zero())
 	valid = valid && IsValidVec2(a.LowerBound) && IsValidVec2(a.UpperBound)
 	return valid
 }
@@ -19,7 +19,7 @@ func IsValidAABB(a AABB) bool {
 func perimeter(a AABB) Q {
 	wx := a.UpperBound.X.Sub(a.LowerBound.X)
 	wy := a.UpperBound.Y.Sub(a.LowerBound.Y)
-	return fixed.FromInt(2).Mul(wx.Add(wy))
+	return fixed.Q32FromInt(2).Mul(wx.Add(wy))
 }
 
 // enlargeAABB grows a until it contains b. It reports whether a grew.
@@ -60,7 +60,7 @@ func AABBContains(a, b AABB) bool {
 
 // AABBCenter returns the center of a.
 func AABBCenter(a AABB) Vec2 {
-	half := fixed.Half()
+	half := fixed.Q32Half()
 	return Vec2{
 		X: half.Mul(a.LowerBound.X.Add(a.UpperBound.X)),
 		Y: half.Mul(a.LowerBound.Y.Add(a.UpperBound.Y)),
@@ -69,7 +69,7 @@ func AABBCenter(a AABB) Vec2 {
 
 // AABBExtents returns the half-widths of a.
 func AABBExtents(a AABB) Vec2 {
-	half := fixed.Half()
+	half := fixed.Q32Half()
 	return Vec2{
 		X: half.Mul(a.UpperBound.X.Sub(a.LowerBound.X)),
 		Y: half.Mul(a.UpperBound.Y.Sub(a.LowerBound.Y)),
@@ -117,11 +117,11 @@ func MakeAABB(points []Vec2, radius Q) AABB {
 func aabbRayCast(a AABB, p1, p2 Vec2) CastOutput {
 	output := CastOutput{}
 
-	zero := fixed.Zero()
-	one := fixed.One()
+	zero := fixed.Q32Zero()
+	one := fixed.Q32One()
 
-	tmin := fixed.MinValue()
-	tmax := fixed.MaxValue()
+	tmin := fixed.Q32MinValue()
+	tmax := fixed.Q32MaxValue()
 
 	p := p1
 	d := p2.Sub(p1)

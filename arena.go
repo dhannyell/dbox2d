@@ -1,5 +1,7 @@
 package dbox2d
 
+import "unsafe"
+
 // arenaEntry records one live allocation of the arena. It corresponds to
 // b2ArenaEntry in src/arena_allocator.h.
 type arenaEntry struct {
@@ -116,4 +118,16 @@ func (a *arenaAllocator) grow() {
 	if a.maxAllocation > len(a.data) {
 		a.data = make([]byte, a.maxAllocation+a.maxAllocation/2)
 	}
+}
+
+// arenaSlice returns a typed scratch slice of count elements over one
+// arena item, plus the item for freeItem. The reference casts the bytes
+// in place; the port uses unsafe.Slice so the arena accounting matches.
+func arenaSlice[T any](a *arenaAllocator, count int, name string) ([]T, []byte) {
+	var zero T
+	mem := a.allocateItem(count*int(unsafe.Sizeof(zero)), name)
+	if count == 0 {
+		return nil, mem
+	}
+	return unsafe.Slice((*T)(unsafe.Pointer(&mem[0])), count), mem
 }
