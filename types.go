@@ -407,3 +407,17 @@ type OverlapResultFcn func(shapeId ShapeId) bool
 // 1 to continue. It corresponds to b2CastResultFcn in
 // include/box2d/types.h; the closure carries the context.
 type CastResultFcn func(shapeId ShapeId, point, normal Vec2, fraction Q) Q
+
+// RayResult is the answer of CastRayClosest. On an initial overlap the
+// fraction and the normal are zero and the point is an arbitrary point of
+// the overlap region. It corresponds to b2RayResult in
+// include/box2d/types.h.
+type RayResult struct {
+	ShapeId    ShapeId
+	Point      Vec2
+	Normal     Vec2
+	Fraction   Q
+	NodeVisits int
+	LeafVisits int
+	Hit        bool
+}
