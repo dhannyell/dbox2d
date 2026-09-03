@@ -237,6 +237,26 @@ func DefaultQueryFilter() QueryFilter {
 	return QueryFilter{CategoryBits: DefaultCategoryBits, MaskBits: DefaultMaskBits}
 }
 
+// ExplosionDef configures an explosion. It corresponds to b2ExplosionDef in
+// include/box2d/types.h.
+type ExplosionDef struct {
+	// MaskBits filters the shapes the explosion reaches.
+	MaskBits uint64
+
+	// Position is the center of the explosion in world space.
+	Position Vec2
+
+	// Radius is the full-impulse radius of the explosion.
+	Radius Q
+
+	// Falloff is the distance beyond Radius where the impulse fades to zero.
+	Falloff Q
+
+	// ImpulsePerLength scales the impulse by the perimeter facing the
+	// explosion. It may be negative for an implosion.
+	ImpulsePerLength Q
+}
+
 // ShapeType identifies the geometry of a shape.
 type ShapeType int
 

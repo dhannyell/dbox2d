@@ -705,3 +705,104 @@ func TestCustomFilterAcceptingKeepsWitness(t *testing.T) {
 		t.Fatalf("checksum with an always-true filter = %d, want %d", got, want)
 	}
 }
+
+// TestExplodeImpulseByDistance pins the falloff shape of b2World_Explode.
+// Every case uses addDynamicBox: a unit half-width square, density 1, so
+// mass = 4 and invMass = 0.25. The box sits on the x-axis so its closest
+// edge faces the explosion head-on, giving getShapeProjectedPerimeter a
+// perimeter of exactly 2 (the two y-extents, no polygon radius).
+func TestExplodeImpulseByDistance(t *testing.T) {
+	radius := fixed.Q32FromInt(4)
+	falloff := fixed.Q32FromInt(2)
+	impulsePerLength := fixed.Q32FromInt(8)
+
+	def := func() ExplosionDef {
+		return ExplosionDef{
+			MaskBits:         DefaultMaskBits,
+			Position:         v2(0, 0),
+			Radius:           radius,
+			Falloff:          falloff,
+			ImpulsePerLength: impulsePerLength,
+		}
+	}
+
+	t.Run("full impulse inside the radius", func(t *testing.T) {
+		// distance = radius/2 = 2, closest edge at x=1: box center at x=3.
+		// magnitude = impulsePerLength * perimeter * scale = 8*2*1 = 16.
+		// velocity = invMass * magnitude = 0.25*16 = 4, along +x.
+		worldId := createTestWorld(t)
+		bodyId := addDynamicBox(t, worldId, v2(3, 0))
+
+		explosionDef := def()
+		worldId.Explode(&explosionDef)
+
+		want := v2(4, 0)
+		if v := bodyId.GetLinearVelocity(); !v.X.Eq(want.X) || !v.Y.Eq(want.Y) {
+			t.Fatalf("velocity at half radius = %v, want %v", v, want)
+		}
+	})
+
+	t.Run("half impulse in the falloff band", func(t *testing.T) {
+		// distance = radius + falloff/2 = 5, closest edge at x=5: center at x=6.
+		// scale = (radius+falloff-distance)/falloff = (6-5)/2 = 0.5.
+		// magnitude = 8*2*0.5 = 8. velocity = 0.25*8 = 2, along +x.
+		worldId := createTestWorld(t)
+		bodyId := addDynamicBox(t, worldId, v2(6, 0))
+
+		explosionDef := def()
+		worldId.Explode(&explosionDef)
+
+		want := v2(2, 0)
+		if v := bodyId.GetLinearVelocity(); !v.X.Eq(want.X) || !v.Y.Eq(want.Y) {
+			t.Fatalf("velocity in the falloff band = %v, want %v", v, want)
+		}
+	})
+
+	t.Run("no impulse beyond the falloff, sleeper stays asleep", func(t *testing.T) {
+		// distance = radius+falloff+1 = 7, closest edge at x=7: center at x=8.
+		worldId := createTestWorld(t)
+		bodyId := addDynamicBox(t, worldId, v2(8, 0))
+		bodyId.SetAwake(false)
+
+		explosionDef := def()
+		worldId.Explode(&explosionDef)
+
+		if v := bodyId.GetLinearVelocity(); !v.X.Eq(fixed.Q32Zero()) || !v.Y.Eq(fixed.Q32Zero()) {
+			t.Fatalf("velocity beyond the falloff = %v, want zero", v)
+		}
+		if bodyId.IsAwake() {
+			t.Fatalf("a shape beyond the falloff should not wake its body")
+		}
+	})
+
+	t.Run("a sleeper inside the radius wakes up", func(t *testing.T) {
+		worldId := createTestWorld(t)
+		bodyId := addDynamicBox(t, worldId, v2(3, 0))
+		bodyId.SetAwake(false)
+
+		explosionDef := def()
+		worldId.Explode(&explosionDef)
+
+		if !bodyId.IsAwake() {
+			t.Fatalf("a shape inside the radius should wake its sleeping body")
+		}
+	})
+
+	t.Run("center on the explosion point falls back to +x", func(t *testing.T) {
+		// The box's local centroid is its body origin, so the D-012
+		// zero-distance branch picks a closest point equal to the
+		// explosion position: the direction is zero-length too, and
+		// b2World_Explode falls back to (1, 0) rather than the shape
+		// centroid direction.
+		worldId := createTestWorld(t)
+		bodyId := addDynamicBox(t, worldId, v2(0, 0))
+
+		explosionDef := def()
+		worldId.Explode(&explosionDef)
+
+		v := bodyId.GetLinearVelocity()
+		if !v.Y.Eq(fixed.Q32Zero()) || !fixed.Q32Zero().Less(v.X) {
+			t.Fatalf("velocity at the explosion center = %v, want a positive x and zero y", v)
+		}
+	})
+}

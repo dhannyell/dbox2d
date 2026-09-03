@@ -626,6 +626,45 @@ func computeShapeExtent(s *shape, localCenter Vec2) shapeExtent {
 	return extent
 }
 
+// getShapeProjectedPerimeter projects the shape perimeter onto an infinite
+// line. It corresponds to b2GetShapeProjectedPerimeter in src/shape.c.
+func getShapeProjectedPerimeter(s *shape, line Vec2) Q {
+	switch s.shapeType {
+	case CapsuleShape:
+		axis := s.capsule.Center2.Sub(s.capsule.Center1)
+		projectedLength := axis.Dot(line).Abs()
+		return projectedLength.Add(s.capsule.Radius.Add(s.capsule.Radius))
+
+	case CircleShape:
+		return s.circle.Radius.Add(s.circle.Radius)
+
+	case PolygonShape:
+		poly := &s.polygon
+		value := poly.Vertices[0].Dot(line)
+		lower := value
+		upper := value
+		for i := 1; i < poly.Count; i++ {
+			value = poly.Vertices[i].Dot(line)
+			lower = lower.Min(value)
+			upper = upper.Max(value)
+		}
+		return upper.Sub(lower).Add(poly.Radius.Add(poly.Radius))
+
+	case SegmentShape:
+		value1 := s.segment.Point1.Dot(line)
+		value2 := s.segment.Point2.Dot(line)
+		return value2.Sub(value1).Abs()
+
+	case ChainSegmentShape:
+		value1 := s.chainSegment.Segment.Point1.Dot(line)
+		value2 := s.chainSegment.Segment.Point2.Dot(line)
+		return value2.Sub(value1).Abs()
+
+	default:
+		return fixed.Q32Zero()
+	}
+}
+
 // shapeIdOf builds the public id of a shape.
 func shapeIdOf(w *world, s *shape) ShapeId {
 	return ShapeId{index1: int32(s.id) + 1, world0: w.worldId, generation: s.generation}

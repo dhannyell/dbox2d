@@ -1458,3 +1458,106 @@ func (worldId WorldId) CollideMover(mover *Capsule, filter QueryFilter, fcn Plan
 		w.broadPhase.trees[i].query(aabb, filter.MaskBits, callback)
 	}
 }
+
+// explosionContext carries the explosion parameters to explosionCallback. It
+// corresponds to the reference's ExplosionContext in src/world.c.
+type explosionContext struct {
+	w                *world
+	position         Vec2
+	radius           Q
+	falloff          Q
+	impulsePerLength Q
+}
+
+// explosionCallback applies the impulse of one explosion to one shape's
+// body. It corresponds to ExplosionCallback in src/world.c.
+func (ctx *explosionContext) explosionCallback(_ int, userData uint64) bool {
+	w := ctx.w
+	s := &w.shapes[int(userData)]
+	b := &w.bodies[s.bodyId]
+
+	transform := getBodyTransformQuick(w, b)
+
+	zero := fixed.Q32Zero()
+	one := fixed.Q32One()
+
+	input := DistanceInput{
+		ProxyA:     makeShapeDistanceProxy(s),
+		ProxyB:     MakeProxy([]Vec2{ctx.position}, zero),
+		TransformA: transform,
+		TransformB: TransformIdentity(),
+		UseRadii:   true,
+	}
+	cache := SimplexCache{}
+	output := ShapeDistance(&input, &cache, nil)
+
+	if output.Distance.Greater(ctx.radius.Add(ctx.falloff)) {
+		return true
+	}
+
+	wakeBody(w, b)
+	if b.setIndex != awakeSet {
+		return true
+	}
+
+	closestPoint := output.PointA
+	// D-012: the reference's exact zero-distance check.
+	if output.Distance.Eq(zero) {
+		closestPoint = TransformPoint(transform, getShapeCentroid(s))
+	}
+
+	direction := closestPoint.Sub(ctx.position)
+	// D-012: the reference's epsilon guard becomes an exact zero test.
+	if direction.LenSq().Eq(zero) {
+		direction = Vec2{X: one}
+	} else {
+		direction = direction.Normalize()
+	}
+
+	localLine := InvRotateVector(transform.Q, LeftPerp(direction))
+	perimeter := getShapeProjectedPerimeter(s, localLine)
+
+	scale := one
+	if output.Distance.Greater(ctx.radius) && ctx.falloff.Greater(zero) {
+		// D-006: the reference's division stays a division.
+		scale = ctx.radius.Add(ctx.falloff).Sub(output.Distance).Div(ctx.falloff).Clamp(zero, one)
+	}
+
+	magnitude := ctx.impulsePerLength.Mul(perimeter).Mul(scale)
+	impulse := direction.Mul(magnitude)
+
+	state := getBodyState(w, b)
+	sim := getBodySim(w, b)
+	state.linearVelocity = MulAdd(state.linearVelocity, sim.invMass, impulse)
+	// D-004: convert the reference's radian angular impulse to turns.
+	state.angularVelocity = state.angularVelocity.Add(sim.invInertia.Mul(Cross(closestPoint.Sub(sim.center), impulse)).Div(tau))
+
+	return true
+}
+
+// Explode applies an impulse to every dynamic body near an explosion
+// center, scaled by distance and by the shape perimeter facing the
+// center. A locked world is a no-op. It corresponds to b2World_Explode in
+// src/world.c.
+func (worldId WorldId) Explode(def *ExplosionDef) {
+	w := getWorldFromId(worldId)
+	if w.locked {
+		return
+	}
+
+	ctx := explosionContext{
+		w:                w,
+		position:         def.Position,
+		radius:           def.Radius,
+		falloff:          def.Falloff,
+		impulsePerLength: def.ImpulsePerLength,
+	}
+
+	reach := def.Radius.Add(def.Falloff)
+	aabb := AABB{
+		LowerBound: Vec2{X: def.Position.X.Sub(reach), Y: def.Position.Y.Sub(reach)},
+		UpperBound: Vec2{X: def.Position.X.Add(reach), Y: def.Position.Y.Add(reach)},
+	}
+
+	w.broadPhase.trees[DynamicBody].query(aabb, def.MaskBits, ctx.explosionCallback)
+}

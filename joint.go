@@ -1458,3 +1458,9 @@ func solveJoints(context *stepContext, colorIndex int, useBias bool) {
 		solveJoint(&joints[i], context, useBias)
 	}
 }
+
+// DefaultExplosionDef returns an explosion definition with every mask bit
+// set and every other field zero. It corresponds to b2DefaultExplosionDef.
+func DefaultExplosionDef() ExplosionDef {
+	return ExplosionDef{MaskBits: DefaultMaskBits}
+}
