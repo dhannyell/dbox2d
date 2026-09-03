@@ -727,10 +727,9 @@ func BenchmarkCollidePolygonsF64(b *testing.B) {
 	}
 }
 
-// The pyramid composite exercises the collide block and the contact stages
-// over a settled stack of unit boxes on a static ground. The pairs come
-// from one brute-force pass in test code, because the broad phase waits
-// for a later stage. Sleep stays off so the stack keeps solving.
+// The pyramid composite exercises the broadphase, the collide block and
+// the contact stages over a settled stack of unit boxes on a static
+// ground. Sleep stays off so the stack keeps solving.
 
 const pyramidRows = 20
 
@@ -862,6 +861,7 @@ type f64Pyramid struct {
 	contacts    []f64Contact
 	constraints []f64Constraint
 	dummyState  f64BodyState
+	broadPhase  *f64BroadPhase
 }
 
 // makeBoxWHF64 mirrors MakeBox.
@@ -1299,6 +1299,9 @@ func (p *f64Pyramid) stepPyramidF64(dt float64, subStepCount int) {
 	contactSoftness := makeSoftF64(contactHertz, 10, h)
 	staticSoftness := makeSoftF64(2*contactHertz, 10, h)
 
+	// The settled stack moves no proxy, so the pair search sees an empty
+	// move buffer, as Step does.
+	p.broadPhase.findPairs()
 	p.collideF64()
 	count := p.prepareContactsF64(contactSoftness, staticSoftness)
 
@@ -1315,10 +1318,11 @@ func (p *f64Pyramid) stepPyramidF64(dt float64, subStepCount int) {
 }
 
 // BenchmarkStepPyramidF64 runs the float64 mirror over the same pyramid as
-// BenchmarkStepPyramid, with the same brute-force pair pass before the timer.
+// BenchmarkStepPyramid. The pairs come from the float64 tree mirror.
 func BenchmarkStepPyramidF64(b *testing.B) {
 	centers := pyramidCenters(pyramidRows)
 	p := &f64Pyramid{
+		broadPhase: newF64PyramidBroadPhase(),
 		sims:       make([]f64BodySim, len(centers)),
 		states:     make([]f64BodyState, len(centers)),
 		shapes:     make([]f64Shape, len(centers)),
@@ -1352,19 +1356,17 @@ func BenchmarkStepPyramidF64(b *testing.B) {
 		shape.fat = [4]float64{shape.aabb[0] - margin, shape.aabb[1] - margin, shape.aabb[2] + margin, shape.aabb[3] + margin}
 	}
 
-	overlaps := func(a, b [4]float64) bool {
-		return !(b[0] > a[2] || b[1] > a[3] || a[0] > b[2] || a[1] > b[3])
-	}
-	for i := range p.shapes {
-		if overlaps(p.groundShape.fat, p.shapes[i].fat) {
-			p.contacts = append(p.contacts, f64Contact{indexA: -1, indexB: i, shapeA: &p.groundShape, shapeB: &p.shapes[i], polyA: &p.groundPoly, polyB: &p.boxPoly})
+	// Shape 0 is the ground; shape i+1 is box i.
+	p.broadPhase.onPair = func(shapeA, shapeB int) {
+		if shapeA == 0 {
+			p.contacts = append(p.contacts, f64Contact{indexA: -1, indexB: shapeB - 1, shapeA: &p.groundShape, shapeB: &p.shapes[shapeB-1], polyA: &p.groundPoly, polyB: &p.boxPoly})
+			return
 		}
-		for j := i + 1; j < len(p.shapes); j++ {
-			if overlaps(p.shapes[i].fat, p.shapes[j].fat) {
-				p.contacts = append(p.contacts, f64Contact{indexA: i, indexB: j, shapeA: &p.shapes[i], shapeB: &p.shapes[j], polyA: &p.boxPoly, polyB: &p.boxPoly})
-			}
-		}
+		p.contacts = append(p.contacts, f64Contact{indexA: shapeA - 1, indexB: shapeB - 1, shapeA: &p.shapes[shapeA-1], shapeB: &p.shapes[shapeB-1], polyA: &p.boxPoly, polyB: &p.boxPoly})
 	}
+	p.broadPhase.moveAll()
+	p.broadPhase.findPairs()
+	p.broadPhase.onPair = nil
 	p.constraints = make([]f64Constraint, len(p.contacts))
 
 	dt := 1.0 / 60.0
@@ -1377,4 +1379,601 @@ func BenchmarkStepPyramidF64(b *testing.B) {
 	if len(p.contacts) == 0 {
 		b.Fatal("the pyramid lost its contacts")
 	}
+}
+
+// The tree pair measures the dynamic tree of the broadphase: the insertion
+// with the surface area heuristic and the rotations, and the query. The
+// float64 mirror follows the same lines with float64 bounds; it skips the
+// category bits and the enlarged flags, which are integer bookkeeping.
+
+// f64AABB holds [lower x, lower y, upper x, upper y].
+type f64AABB [4]float64
+
+func f64Perimeter(a f64AABB) float64 {
+	return 2 * ((a[2] - a[0]) + (a[3] - a[1]))
+}
+
+func f64Union(a, b f64AABB) f64AABB {
+	return f64AABB{math.Min(a[0], b[0]), math.Min(a[1], b[1]), math.Max(a[2], b[2]), math.Max(a[3], b[3])}
+}
+
+func f64Overlaps(a, b f64AABB) bool {
+	return !(b[0] > a[2] || b[1] > a[3] || a[0] > b[2] || a[1] > b[3])
+}
+
+func f64Center(a f64AABB) (float64, float64) {
+	return 0.5 * (a[0] + a[2]), 0.5 * (a[1] + a[3])
+}
+
+type f64TreeNode struct {
+	aabb           f64AABB
+	userData       uint64
+	child1, child2 int32
+	parent, next   int32
+	height         uint16
+}
+
+type f64Tree struct {
+	nodes     []f64TreeNode
+	root      int
+	nodeCount int
+	freeList  int
+}
+
+func newF64Tree() *f64Tree {
+	tree := &f64Tree{root: nullIndex, nodes: make([]f64TreeNode, 16)}
+	for i := range len(tree.nodes) - 1 {
+		tree.nodes[i].next = int32(i + 1)
+	}
+	tree.nodes[len(tree.nodes)-1].next = nullIndex
+	return tree
+}
+
+// allocate mirrors allocateNode.
+func (tree *f64Tree) allocate() int {
+	if tree.freeList == nullIndex {
+		oldCapacity := len(tree.nodes)
+		nodeCapacity := oldCapacity + oldCapacity>>1
+		nodes := make([]f64TreeNode, nodeCapacity)
+		copy(nodes, tree.nodes[:tree.nodeCount])
+		tree.nodes = nodes
+		for i := tree.nodeCount; i < nodeCapacity-1; i++ {
+			tree.nodes[i].next = int32(i + 1)
+		}
+		tree.nodes[nodeCapacity-1].next = nullIndex
+		tree.freeList = tree.nodeCount
+	}
+	nodeIndex := tree.freeList
+	node := &tree.nodes[nodeIndex]
+	tree.freeList = int(node.next)
+	*node = f64TreeNode{child1: nullIndex, child2: nullIndex, parent: nullIndex, next: nullIndex}
+	tree.nodeCount++
+	return nodeIndex
+}
+
+// findBestSibling mirrors findBestSibling line by line, with the FLT_MAX
+// seed of the reference.
+func (tree *f64Tree) findBestSibling(boxD f64AABB) int {
+	centerDX, centerDY := f64Center(boxD)
+	areaD := f64Perimeter(boxD)
+
+	nodes := tree.nodes
+	rootIndex := tree.root
+	rootBox := nodes[rootIndex].aabb
+
+	areaBase := f64Perimeter(rootBox)
+	directCost := f64Perimeter(f64Union(rootBox, boxD))
+	inheritedCost := 0.0
+
+	bestSibling := rootIndex
+	bestCost := directCost
+
+	index := rootIndex
+	for nodes[index].height > 0 {
+		child1 := int(nodes[index].child1)
+		child2 := int(nodes[index].child2)
+
+		cost := directCost + inheritedCost
+		if cost < bestCost {
+			bestSibling = index
+			bestCost = cost
+		}
+
+		inheritedCost += directCost - areaBase
+
+		leaf1 := nodes[child1].height == 0
+		leaf2 := nodes[child2].height == 0
+
+		lowerCost1 := math.MaxFloat64
+		box1 := nodes[child1].aabb
+		directCost1 := f64Perimeter(f64Union(box1, boxD))
+		area1 := 0.0
+		if leaf1 {
+			cost1 := directCost1 + inheritedCost
+			if cost1 < bestCost {
+				bestSibling = child1
+				bestCost = cost1
+			}
+		} else {
+			area1 = f64Perimeter(box1)
+			lowerCost1 = inheritedCost + directCost1 + math.Min(areaD-area1, 0)
+		}
+
+		lowerCost2 := math.MaxFloat64
+		box2 := nodes[child2].aabb
+		directCost2 := f64Perimeter(f64Union(box2, boxD))
+		area2 := 0.0
+		if leaf2 {
+			cost2 := directCost2 + inheritedCost
+			if cost2 < bestCost {
+				bestSibling = child2
+				bestCost = cost2
+			}
+		} else {
+			area2 = f64Perimeter(box2)
+			lowerCost2 = inheritedCost + directCost2 + math.Min(areaD-area2, 0)
+		}
+
+		if leaf1 && leaf2 {
+			break
+		}
+		if bestCost <= lowerCost1 && bestCost <= lowerCost2 {
+			break
+		}
+
+		if lowerCost1 == lowerCost2 && !leaf1 {
+			c1x, c1y := f64Center(box1)
+			c2x, c2y := f64Center(box2)
+			d1x, d1y := c1x-centerDX, c1y-centerDY
+			d2x, d2y := c2x-centerDX, c2y-centerDY
+			lowerCost1 = d1x*d1x + d1y*d1y
+			lowerCost2 = d2x*d2x + d2y*d2y
+		}
+
+		if lowerCost1 < lowerCost2 && !leaf1 {
+			index = child1
+			areaBase = area1
+			directCost = directCost1
+		} else {
+			index = child2
+			areaBase = area2
+			directCost = directCost2
+		}
+	}
+	return bestSibling
+}
+
+// rotateNodes mirrors rotateNodes: the same four swaps by perimeter.
+func (tree *f64Tree) rotateNodes(iA int) {
+	nodes := tree.nodes
+	A := &nodes[iA]
+	if A.height < 2 {
+		return
+	}
+	iB, iC := int(A.child1), int(A.child2)
+	B, C := &nodes[iB], &nodes[iC]
+
+	swapBF := func(iF int, F, G *f64TreeNode, aabbBG f64AABB) {
+		A.child1 = int32(iF)
+		C.child1 = int32(iB)
+		B.parent = int32(iC)
+		F.parent = int32(iA)
+		C.aabb = aabbBG
+		C.height = 1 + max(B.height, G.height)
+		A.height = 1 + max(C.height, F.height)
+	}
+	swapBG := func(iG int, F, G *f64TreeNode, aabbBF f64AABB) {
+		A.child1 = int32(iG)
+		C.child2 = int32(iB)
+		B.parent = int32(iC)
+		G.parent = int32(iA)
+		C.aabb = aabbBF
+		C.height = 1 + max(B.height, F.height)
+		A.height = 1 + max(C.height, G.height)
+	}
+	swapCD := func(iD int, D, E *f64TreeNode, aabbCE f64AABB) {
+		A.child2 = int32(iD)
+		B.child1 = int32(iC)
+		C.parent = int32(iB)
+		D.parent = int32(iA)
+		B.aabb = aabbCE
+		B.height = 1 + max(C.height, E.height)
+		A.height = 1 + max(B.height, D.height)
+	}
+	swapCE := func(iE int, D, E *f64TreeNode, aabbCD f64AABB) {
+		A.child2 = int32(iE)
+		B.child2 = int32(iC)
+		C.parent = int32(iB)
+		E.parent = int32(iA)
+		B.aabb = aabbCD
+		B.height = 1 + max(C.height, D.height)
+		A.height = 1 + max(B.height, E.height)
+	}
+
+	switch {
+	case B.height == 0:
+		iF, iG := int(C.child1), int(C.child2)
+		F, G := &nodes[iF], &nodes[iG]
+		costBase := f64Perimeter(C.aabb)
+		aabbBG := f64Union(B.aabb, G.aabb)
+		costBF := f64Perimeter(aabbBG)
+		aabbBF := f64Union(B.aabb, F.aabb)
+		costBG := f64Perimeter(aabbBF)
+		if costBase < costBF && costBase < costBG {
+			return
+		}
+		if costBF < costBG {
+			swapBF(iF, F, G, aabbBG)
+		} else {
+			swapBG(iG, F, G, aabbBF)
+		}
+	case C.height == 0:
+		iD, iE := int(B.child1), int(B.child2)
+		D, E := &nodes[iD], &nodes[iE]
+		costBase := f64Perimeter(B.aabb)
+		aabbCE := f64Union(C.aabb, E.aabb)
+		costCD := f64Perimeter(aabbCE)
+		aabbCD := f64Union(C.aabb, D.aabb)
+		costCE := f64Perimeter(aabbCD)
+		if costBase < costCD && costBase < costCE {
+			return
+		}
+		if costCD < costCE {
+			swapCD(iD, D, E, aabbCE)
+		} else {
+			swapCE(iE, D, E, aabbCD)
+		}
+	default:
+		iD, iE := int(B.child1), int(B.child2)
+		iF, iG := int(C.child1), int(C.child2)
+		D, E := &nodes[iD], &nodes[iE]
+		F, G := &nodes[iF], &nodes[iG]
+
+		areaB := f64Perimeter(B.aabb)
+		areaC := f64Perimeter(C.aabb)
+		costBase := areaB + areaC
+		bestRotation := rotateNone
+		bestCost := costBase
+
+		aabbBG := f64Union(B.aabb, G.aabb)
+		if costBF := areaB + f64Perimeter(aabbBG); costBF < bestCost {
+			bestRotation, bestCost = rotateBF, costBF
+		}
+		aabbBF := f64Union(B.aabb, F.aabb)
+		if costBG := areaB + f64Perimeter(aabbBF); costBG < bestCost {
+			bestRotation, bestCost = rotateBG, costBG
+		}
+		aabbCE := f64Union(C.aabb, E.aabb)
+		if costCD := areaC + f64Perimeter(aabbCE); costCD < bestCost {
+			bestRotation, bestCost = rotateCD, costCD
+		}
+		aabbCD := f64Union(C.aabb, D.aabb)
+		if costCE := areaC + f64Perimeter(aabbCD); costCE < bestCost {
+			bestRotation = rotateCE
+		}
+
+		switch bestRotation {
+		case rotateBF:
+			swapBF(iF, F, G, aabbBG)
+		case rotateBG:
+			swapBG(iG, F, G, aabbBF)
+		case rotateCD:
+			swapCD(iD, D, E, aabbCE)
+		case rotateCE:
+			swapCE(iE, D, E, aabbCD)
+		}
+	}
+}
+
+// insertLeaf mirrors insertLeaf with the rotations on.
+func (tree *f64Tree) insertLeaf(leaf int) {
+	if tree.root == nullIndex {
+		tree.root = leaf
+		tree.nodes[leaf].parent = nullIndex
+		return
+	}
+
+	leafAABB := tree.nodes[leaf].aabb
+	sibling := tree.findBestSibling(leafAABB)
+
+	oldParent := int(tree.nodes[sibling].parent)
+	newParent := tree.allocate()
+
+	nodes := tree.nodes
+	nodes[newParent].parent = int32(oldParent)
+	nodes[newParent].userData = ^uint64(0)
+	nodes[newParent].aabb = f64Union(leafAABB, nodes[sibling].aabb)
+	nodes[newParent].height = nodes[sibling].height + 1
+
+	if oldParent != nullIndex {
+		if int(nodes[oldParent].child1) == sibling {
+			nodes[oldParent].child1 = int32(newParent)
+		} else {
+			nodes[oldParent].child2 = int32(newParent)
+		}
+	} else {
+		tree.root = newParent
+	}
+	nodes[newParent].child1 = int32(sibling)
+	nodes[newParent].child2 = int32(leaf)
+	nodes[sibling].parent = int32(newParent)
+	nodes[leaf].parent = int32(newParent)
+
+	index := int(nodes[leaf].parent)
+	for index != nullIndex {
+		child1 := int(nodes[index].child1)
+		child2 := int(nodes[index].child2)
+		nodes[index].aabb = f64Union(nodes[child1].aabb, nodes[child2].aabb)
+		nodes[index].height = 1 + max(nodes[child1].height, nodes[child2].height)
+		tree.rotateNodes(index)
+		index = int(nodes[index].parent)
+	}
+}
+
+// createProxy mirrors createProxy.
+func (tree *f64Tree) createProxy(aabb f64AABB, userData uint64) int {
+	proxyId := tree.allocate()
+	node := &tree.nodes[proxyId]
+	node.aabb = aabb
+	node.userData = userData
+	node.height = 0
+	tree.insertLeaf(proxyId)
+	return proxyId
+}
+
+// query mirrors query with the same fixed stack. It returns the node
+// visits.
+func (tree *f64Tree) query(aabb f64AABB, callback func(proxyId int, userData uint64) bool) int {
+	if tree.nodeCount == 0 {
+		return 0
+	}
+	var stack [treeStackSize]int
+	stackCount := 1
+	stack[0] = tree.root
+	visits := 0
+	for stackCount > 0 {
+		stackCount--
+		nodeId := stack[stackCount]
+		node := &tree.nodes[nodeId]
+		visits++
+		if f64Overlaps(node.aabb, aabb) {
+			if node.height == 0 {
+				if !callback(nodeId, node.userData) {
+					return visits
+				}
+			} else {
+				stack[stackCount] = int(node.child1)
+				stack[stackCount+1] = int(node.child2)
+				stackCount += 2
+			}
+		}
+	}
+	return visits
+}
+
+// The tree query scene: one hundred unit boxes on a ten by ten grid with
+// a half unit gap, and a query box over four boxes. The bounds are
+// in half units so both formats build the same boxes.
+const treeBenchSide = 10
+
+func treeBenchBox(i int) [4]int {
+	x := 3 * (i % treeBenchSide)
+	y := 3 * (i / treeBenchSide)
+	return [4]int{x, y, x + 2, y + 2}
+}
+
+var treeBenchQuery = [4]int{12, 12, 17, 17}
+
+func halfUnitsQ(box [4]int) AABB {
+	half := fixed.Q32Half()
+	return AABB{
+		LowerBound: Vec2{X: fixed.Q32FromInt(box[0]).Mul(half), Y: fixed.Q32FromInt(box[1]).Mul(half)},
+		UpperBound: Vec2{X: fixed.Q32FromInt(box[2]).Mul(half), Y: fixed.Q32FromInt(box[3]).Mul(half)},
+	}
+}
+
+func halfUnitsF64(box [4]int) f64AABB {
+	return f64AABB{0.5 * float64(box[0]), 0.5 * float64(box[1]), 0.5 * float64(box[2]), 0.5 * float64(box[3])}
+}
+
+func BenchmarkTreeQueryQ(b *testing.B) {
+	tree := createTree()
+	for i := range treeBenchSide * treeBenchSide {
+		tree.createProxy(halfUnitsQ(treeBenchBox(i)), DefaultCategoryBits, uint64(i))
+	}
+	query := halfUnitsQ(treeBenchQuery)
+
+	hits := 0
+	callback := func(int, uint64) bool {
+		hits++
+		return true
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		tree.query(query, DefaultMaskBits, callback)
+	}
+	b.StopTimer()
+	if hits != 4*b.N {
+		b.Fatalf("the query hit %d boxes over %d runs, want 4 each", hits, b.N)
+	}
+	destroyTree(&tree)
+}
+
+func BenchmarkTreeQueryF64(b *testing.B) {
+	tree := newF64Tree()
+	for i := range treeBenchSide * treeBenchSide {
+		tree.createProxy(halfUnitsF64(treeBenchBox(i)), uint64(i))
+	}
+	query := halfUnitsF64(treeBenchQuery)
+
+	hits := 0
+	callback := func(int, uint64) bool {
+		hits++
+		return true
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		tree.query(query, callback)
+	}
+	b.StopTimer()
+	if hits != 4*b.N {
+		b.Fatalf("the query hit %d boxes over %d runs, want 4 each", hits, b.N)
+	}
+}
+
+// The pair update composite moves every proxy of the pyramid and runs the
+// pair search with every pair already known, so the timer sees the tree
+// walks and the pair rules without contact creation.
+
+func BenchmarkUpdateBroadPhasePairsQ(b *testing.B) {
+	def := DefaultWorldDef()
+	def.EnableSleep = false
+	worldId := CreateWorld(&def)
+	defer DestroyWorld(worldId)
+	buildPyramid(worldId, pyramidRows)
+	w := getWorldFromId(worldId)
+	updateBroadPhasePairs(w)
+	contacts := w.contactIdPool.idCount()
+	// Step grows the arena after the first pass; the bench does the same.
+	w.arena.grow()
+
+	moveAll := func() {
+		for i := range w.shapes {
+			if w.shapes[i].proxyKey != nullIndex {
+				w.broadPhase.bufferMove(w.shapes[i].proxyKey)
+			}
+		}
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		moveAll()
+		updateBroadPhasePairs(w)
+	}
+	b.StopTimer()
+	if w.contactIdPool.idCount() != contacts {
+		b.Fatal("the pair update created contacts in the steady state")
+	}
+}
+
+// f64BroadPhase mirrors the three trees, the move buffer and the pair
+// rules of the broadphase. The sets are the same integer hash sets.
+type f64BroadPhase struct {
+	trees     [BodyTypeCount]*f64Tree
+	bodies    []int
+	keys      []int
+	moveArray []int
+	moveSet   hashSet
+	pairSet   hashSet
+	pairs     int
+	onPair    func(shapeA, shapeB int)
+}
+
+// moveAll buffers every proxy.
+func (bp *f64BroadPhase) moveAll() {
+	for _, key := range bp.keys {
+		bp.bufferMove(key)
+	}
+}
+
+func (bp *f64BroadPhase) bufferMove(proxyKey int) {
+	if !bp.moveSet.addKey(uint64(proxyKey + 1)) {
+		bp.moveArray = append(bp.moveArray, proxyKey)
+	}
+}
+
+// findPairs mirrors findPairs and pairQueryCallback: the self test, the
+// move set rule, the pair set and the body test.
+func (bp *f64BroadPhase) findPairs() {
+	for _, queryProxyKey := range bp.moveArray {
+		queryProxyType := proxyTypeOf(queryProxyKey)
+		proxyId := proxyIdOf(queryProxyKey)
+		fatAABB := bp.trees[queryProxyType].nodes[proxyId].aabb
+		queryShapeIndex := int(bp.trees[queryProxyType].nodes[proxyId].userData)
+
+		var treeType BodyType
+		callback := func(proxyId int, userData uint64) bool {
+			shapeId := int(userData)
+			proxyKey := proxyKeyOf(proxyId, treeType)
+			if proxyKey == queryProxyKey {
+				return true
+			}
+			if queryProxyType == DynamicBody {
+				if treeType == DynamicBody && proxyKey < queryProxyKey && bp.moveSet.containsKey(uint64(proxyKey+1)) {
+					return true
+				}
+			} else if bp.moveSet.containsKey(uint64(proxyKey + 1)) {
+				return true
+			}
+			pairKey := shapePairKey(shapeId, queryShapeIndex)
+			if bp.pairSet.containsKey(pairKey) {
+				return true
+			}
+			if bp.bodies[shapeId] == bp.bodies[queryShapeIndex] {
+				return true
+			}
+			bp.pairSet.addKey(pairKey)
+			bp.pairs++
+			if bp.onPair != nil {
+				bp.onPair(min(shapeId, queryShapeIndex), max(shapeId, queryShapeIndex))
+			}
+			return true
+		}
+
+		if queryProxyType == DynamicBody {
+			treeType = KinematicBody
+			bp.trees[KinematicBody].query(fatAABB, callback)
+			treeType = StaticBody
+			bp.trees[StaticBody].query(fatAABB, callback)
+		}
+		treeType = DynamicBody
+		bp.trees[DynamicBody].query(fatAABB, callback)
+	}
+	bp.moveArray = bp.moveArray[:0]
+	clearSet(&bp.moveSet)
+}
+
+// newF64PyramidBroadPhase fills the trees with the fat bounds of the
+// pyramid. The ground is shape 0 on body 0; box i is shape i+1 on body i+1.
+func newF64PyramidBroadPhase() *f64BroadPhase {
+	bp := &f64BroadPhase{moveSet: createSet(16), pairSet: createSet(16)}
+	for i := range bp.trees {
+		bp.trees[i] = newF64Tree()
+	}
+	// The fat bounds grow by the speculative distance and the margin.
+	grow := qFloat(speculativeDistance) + qFloat(aabbMargin)
+
+	rows := float64(pyramidRows)
+	ground := f64AABB{-rows - grow, -1 - grow, rows + grow, grow}
+	bp.bodies = append(bp.bodies, 0)
+	bp.keys = append(bp.keys, proxyKeyOf(bp.trees[StaticBody].createProxy(ground, 0), StaticBody))
+	for i, c := range pyramidCenters(pyramidRows) {
+		x, y := 0.5*float64(c[0]), 0.5*float64(c[1])
+		fat := f64AABB{x - 0.5 - grow, y - 0.5 - grow, x + 0.5 + grow, y + 0.5 + grow}
+		bp.bodies = append(bp.bodies, i+1)
+		bp.keys = append(bp.keys, proxyKeyOf(bp.trees[DynamicBody].createProxy(fat, uint64(i+1)), DynamicBody))
+	}
+	return bp
+}
+
+func BenchmarkUpdateBroadPhasePairsF64(b *testing.B) {
+	bp := newF64PyramidBroadPhase()
+	bp.moveAll()
+	bp.findPairs()
+	pairs := bp.pairs
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		bp.moveAll()
+		bp.findPairs()
+	}
+	b.StopTimer()
+	if bp.pairs != pairs {
+		b.Fatal("the pair search created pairs in the steady state")
+	}
+	destroySet(&bp.moveSet)
+	destroySet(&bp.pairSet)
 }
