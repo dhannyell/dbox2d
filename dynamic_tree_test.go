@@ -1,6 +1,7 @@
 package dbox2d
 
 import (
+	"math/rand"
 	"testing"
 
 	"github.com/dhannyell/fixed"
@@ -425,4 +426,51 @@ func TestTreeRebuildKeepsEveryLeaf(t *testing.T) {
 	if empty.rebuild(true) != 0 {
 		t.Errorf("an empty tree rebuilt leaves")
 	}
+}
+
+// TestTreeQueryMatchesBruteForce compares query with the enumeration of
+// a hundred random boxes: the same leaves for every box and mask.
+func TestTreeQueryMatchesBruteForce(t *testing.T) {
+	rng := rand.New(rand.NewSource(1))
+	const count = 100
+	tree := createTree()
+	boxes := make([]AABB, count)
+	categories := make([]uint64, count)
+	for i := range count {
+		x, y := rng.Intn(60), rng.Intn(60)
+		boxes[i] = box(x, y, x+1+rng.Intn(6), y+1+rng.Intn(6))
+		categories[i] = 1 << uint(rng.Intn(3))
+		tree.createProxy(boxes[i], categories[i], uint64(i))
+	}
+	tree.validate()
+
+	for range 50 {
+		x, y := rng.Intn(60), rng.Intn(60)
+		query := box(x, y, x+1+rng.Intn(20), y+1+rng.Intn(20))
+		mask := uint64(rng.Intn(8))
+
+		want := map[uint64]bool{}
+		for i := range count {
+			if AABBOverlaps(boxes[i], query) && categories[i]&mask != 0 {
+				want[uint64(i)] = true
+			}
+		}
+		got := map[uint64]bool{}
+		tree.query(query, mask, func(_ int, userData uint64) bool {
+			if got[userData] {
+				t.Fatalf("query reported leaf %d twice", userData)
+			}
+			got[userData] = true
+			return true
+		})
+		if len(got) != len(want) {
+			t.Fatalf("query of %v with mask %d found %d leaves, brute force %d", query, mask, len(got), len(want))
+		}
+		for id := range want {
+			if !got[id] {
+				t.Fatalf("query of %v with mask %d missed leaf %d", query, mask, id)
+			}
+		}
+	}
+	destroyTree(&tree)
 }

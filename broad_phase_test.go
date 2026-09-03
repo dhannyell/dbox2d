@@ -1,6 +1,7 @@
 package dbox2d
 
 import (
+	"math/rand"
 	"testing"
 
 	"github.com/dhannyell/fixed"
@@ -224,5 +225,73 @@ func TestShouldBodiesCollideRejectsTwoNonDynamicBodies(t *testing.T) {
 	}
 	if !shouldBodiesCollide(w, static, dynamic) || !shouldBodiesCollide(w, dynamic, kinematic) {
 		t.Errorf("a dynamic body does not collide")
+	}
+}
+
+// TestBroadPhasePairsMatchBruteForce compares updateBroadPhasePairs with
+// the enumeration of a hundred circles over the three body types and
+// random filters: one contact for every pair that the rules accept.
+func TestBroadPhasePairsMatchBruteForce(t *testing.T) {
+	rng := rand.New(rand.NewSource(2))
+	worldId := createTestWorld(t)
+	w := getWorldFromId(worldId)
+
+	const count = 100
+	types := [3]BodyType{DynamicBody, StaticBody, KinematicBody}
+	circle := Circle{Radius: fixed.Q32Half()}
+	for i := range count {
+		bodyDef := DefaultBodyDef()
+		bodyDef.Type = types[i%3]
+		bodyDef.Position = Vec2{X: fixed.Q32FromRatio(rng.Intn(80), 4), Y: fixed.Q32FromRatio(rng.Intn(80), 4)}
+		bodyId := CreateBody(worldId, &bodyDef)
+		shapeDef := DefaultShapeDef()
+		shapeDef.Filter.CategoryBits = 1 << uint(rng.Intn(3))
+		shapeDef.Filter.MaskBits = uint64(rng.Intn(8))
+		CreateCircleShape(bodyId, &shapeDef, &circle)
+	}
+
+	updateBroadPhasePairs(w)
+	validateWorld(w)
+	w.broadPhase.validate()
+
+	want := map[uint64]bool{}
+	for i := range count {
+		for j := i + 1; j < count; j++ {
+			sa, sb := &w.shapes[i], &w.shapes[j]
+			if !AABBOverlaps(sa.fatAABB, sb.fatAABB) || sa.bodyId == sb.bodyId {
+				continue
+			}
+			if !shouldBodiesCollide(w, &w.bodies[sa.bodyId], &w.bodies[sb.bodyId]) {
+				continue
+			}
+			if !shouldShapesCollide(sa.filter, sb.filter) {
+				continue
+			}
+			want[shapePairKey(i, j)] = true
+		}
+	}
+	if len(want) == 0 {
+		t.Fatal("the scene has no pair to check")
+	}
+
+	got := map[uint64]bool{}
+	for i := range w.contacts {
+		ct := &w.contacts[i]
+		if ct.setIndex == nullIndex {
+			continue
+		}
+		key := shapePairKey(ct.shapeIdA, ct.shapeIdB)
+		if got[key] {
+			t.Fatalf("shapes %d and %d have two contacts", ct.shapeIdA, ct.shapeIdB)
+		}
+		got[key] = true
+	}
+	if len(got) != len(want) {
+		t.Fatalf("the update created %d contacts, brute force wants %d", len(got), len(want))
+	}
+	for key := range want {
+		if !got[key] {
+			t.Fatalf("the update missed the pair with key %d", key)
+		}
 	}
 }
