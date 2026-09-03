@@ -18,6 +18,12 @@ import (
 // bit; TestProbeFormatMatchesQ16AndQ48 proves it. With 12 bits it is a
 // Q20.12. Positions and rotations stay in Q32 and cross the boundary in
 // the prepare and in the finalize. Nothing here enters the library.
+//
+// The lanes row keeps the state in Q32 too: velocities, position deltas
+// and the impulse sums never leave Q32. The contact stages read them
+// into the working format, rounded to nearest, compute one constraint,
+// and write back only the delta. The integrations run in Q32. That row
+// measures the working format as a lane format, not as a state format.
 
 // probeFormat is the working format: fracBits of fraction in an int32,
 // with its own saturation counter.
@@ -207,9 +213,14 @@ func (f *probeFormat) sqrtAcc(acc int64) int64 {
 }
 
 // fromQ floors a Q32 to the working grid like Q32.ToQ16; toQ widens like
-// Q16.ToQ32.
+// Q16.ToQ32. fromQNearest rounds to the nearest grid value; the lanes row
+// reads the Q32 state through it. No library operation does this.
 func (f *probeFormat) fromQ(q Q) int32 { return f.sat(q.Raw() >> (32 - f.fracBits)) }
-func (f *probeFormat) toQ(a int32) Q   { return fixed.Q32FromRaw(int64(a) << (32 - f.fracBits)) }
+func (f *probeFormat) fromQNearest(q Q) int32 {
+	return f.sat((q.Raw() + 1<<(31-f.fracBits)) >> (32 - f.fracBits))
+}
+func (f *probeFormat) fromVecNearest(v Vec2) pv { return pv{f.fromQNearest(v.X), f.fromQNearest(v.Y)} }
+func (f *probeFormat) toQ(a int32) Q            { return fixed.Q32FromRaw(int64(a) << (32 - f.fracBits)) }
 
 // pv is a vector in the working format.
 type pv struct{ x, y int32 }
@@ -281,18 +292,25 @@ type probeSim struct {
 	isSpeedCapped bool
 }
 
-// probeState mirrors bodyState in the working format.
+// probeState mirrors bodyState in the working format. The lanes row uses
+// the Q32 fields instead and leaves the working fields at zero.
 type probeState struct {
 	v        pv
 	w        int32
 	dp       pv
 	dqc, dqs int32
+
+	v32  Vec2
+	w32  Q
+	dp32 Vec2
+	dq32 Rot
 }
 
 // probeShape keeps the Q32 bounds of one box.
 type probeShape struct{ aabb, fatAABB AABB }
 
-// probeContact keeps the Q32 manifold and the working impulses.
+// probeContact keeps the Q32 manifold and the working impulses. The lanes
+// row keeps the impulses in the Q32 fields.
 type probeContact struct {
 	indexA, indexB int
 	manifold       Manifold
@@ -302,6 +320,8 @@ type probeContact struct {
 	friction       int32
 	restitution    int32
 	touching       bool
+
+	nimp32, timp32, tnimp32 [2]Q
 }
 
 type probePoint struct {
@@ -313,6 +333,8 @@ type probePoint struct {
 	totalNormalImpulse int32
 	normalMass         int32
 	tangentMass        int32
+
+	ni32, ti32, tni32 Q
 }
 
 type probeConstraint struct {
@@ -345,6 +367,14 @@ type probePyramid struct {
 	constraints []probeConstraint
 	dummy       probeState
 
+	// lanes selects the Q32 state with working-format lanes.
+	lanes bool
+
+	// The Q32 scalars of the lanes row, as the library computes them.
+	dt32, invDt32, h32                  Q
+	gravity32                           Vec2
+	maxLinearSpeed32, maxAngularSpeed32 Q
+
 	tau, dt, invDt, h, invH int32
 	gravity                 pv
 	maxLinearSpeed          int32
@@ -372,10 +402,16 @@ func newProbePyramid(fracBits uint, rows int) *probePyramid {
 		groundXf:   Transform{P: Vec2{Y: half.Neg()}, Q: fixed.RotIdentity()},
 		groundPoly: MakeBox(fixed.Q32FromInt(rows), half),
 		boxPoly:    MakeSquare(half),
-		dummy:      probeState{dqc: f.one},
+		dummy:      probeState{dqc: f.one, dq32: fixed.RotIdentity()},
 	}
 
 	def := DefaultWorldDef()
+	p.dt32 = fixed.Q32One().Div(fixed.Q32FromInt(60))
+	p.invDt32 = fixed.Q32One().Div(p.dt32)
+	p.h32 = p.dt32.Div(fixed.Q32FromInt(4))
+	p.gravity32 = def.Gravity
+	p.maxLinearSpeed32 = def.MaximumLinearSpeed
+	p.maxAngularSpeed32 = maxRotation.Mul(p.invDt32)
 	p.tau = f.fromQ(tau)
 	p.gravity = f.fromVec(def.Gravity)
 	p.maxLinearSpeed = f.fromQ(def.MaximumLinearSpeed)
@@ -413,6 +449,7 @@ func newProbePyramid(fracBits uint, rows int) *probePyramid {
 		sim.invMass = f.fromQ(fixed.Q32One().Div(massData.Mass))
 		sim.invInertia = f.fromQ(fixed.Q32One().Div(massData.RotationalInertia))
 		p.states[i].dqc = f.one
+		p.states[i].dq32 = fixed.RotIdentity()
 
 		aabb := speculate(ComputePolygonAABB(&p.boxPoly, sim.transform))
 		p.shapes[i] = probeShape{aabb: aabb, fatAABB: fatten(aabb)}
@@ -447,6 +484,62 @@ func (p *probePyramid) stateOf(index int) *probeState {
 		return &p.dummy
 	}
 	return &p.states[index]
+}
+
+// gather reads the velocity of a state into the working format, with the
+// angular velocity in radians. The lanes row rounds the Q32 state to the
+// nearest grid value.
+func (p *probePyramid) gather(state *probeState) (pv, int32) {
+	f := p.f
+	if p.lanes {
+		return f.fromVecNearest(state.v32), f.mul(f.fromQNearest(state.w32), p.tau)
+	}
+	return state.v, f.mul(state.w, p.tau)
+}
+
+// scatter writes the velocity back. The lanes row adds only the delta
+// since gather to the Q32 state, so the state is never re-quantized.
+func (p *probePyramid) scatter(state *probeState, v pv, w int32, v0 pv, w0 int32) {
+	f := p.f
+	if p.lanes {
+		state.v32 = state.v32.Add(f.toVec(f.vsub(v, v0)))
+		state.w32 = state.w32.Add(f.toQ(f.div(f.sub(w, w0), p.tau)))
+		return
+	}
+	state.v = v
+	state.w = f.div(w, p.tau)
+}
+
+// deltaPose reads the position deltas of the sub-step for one pair.
+func (p *probePyramid) deltaPose(stateA, stateB *probeState) (dp pv, dqAc, dqAs, dqBc, dqBs int32) {
+	f := p.f
+	if p.lanes {
+		dp = f.fromVecNearest(stateB.dp32.Sub(stateA.dp32))
+		return dp, f.fromQNearest(stateA.dq32.Cos), f.fromQNearest(stateA.dq32.Sin), f.fromQNearest(stateB.dq32.Cos), f.fromQNearest(stateB.dq32.Sin)
+	}
+	dp = f.vsub(stateB.dp, stateA.dp)
+	return dp, stateA.dqc, stateA.dqs, stateB.dqc, stateB.dqs
+}
+
+// The impulse sums of the lanes row live in Q32. accumulate adds a lane
+// delta to a Q32 sum under a lower bound and returns the applied delta
+// in the working format; accumulateClamped does the same under a
+// symmetric bound.
+func (p *probePyramid) accumulate(sum *Q, delta int32) int32 {
+	f := p.f
+	next := sum.Add(f.toQ(delta)).Max(fixed.Q32Zero())
+	applied := f.fromQNearest(next.Sub(*sum))
+	*sum = next
+	return applied
+}
+
+func (p *probePyramid) accumulateClamped(sum *Q, delta int32, bound int32) int32 {
+	f := p.f
+	b := f.toQ(bound)
+	next := sum.Add(f.toQ(delta)).Clamp(b.Neg(), b)
+	applied := f.fromQNearest(next.Sub(*sum))
+	*sum = next
+	return applied
 }
 
 // updatePairs plays the broadphase: every pair whose fat bounds overlap
@@ -494,6 +587,7 @@ func (p *probePyramid) updateContact(c *probeContact) {
 	f := p.f
 	old := c.manifold
 	oldNimp, oldTimp := c.nimp, c.timp
+	oldNimp32, oldTimp32 := c.nimp32, c.timp32
 
 	xfA, offsetA := p.poseOf(c.indexA)
 	xfB, offsetB := p.poseOf(c.indexB)
@@ -514,13 +608,17 @@ func (p *probePyramid) updateContact(c *probeContact) {
 		mp.AnchorA = mp.AnchorA.Sub(offsetA)
 		mp.AnchorB = mp.AnchorB.Sub(offsetB)
 		c.nimp[i], c.timp[i], c.tnimp[i], c.nvel[i] = 0, 0, 0, 0
+		c.nimp32[i], c.timp32[i], c.tnimp32[i] = fixed.Q32Zero(), fixed.Q32Zero(), fixed.Q32Zero()
 		mp.Persisted = false
 		for j := range old.PointCount {
 			if old.Points[j].Id == mp.Id {
 				c.nimp[i] = oldNimp[j]
 				c.timp[i] = oldTimp[j]
+				c.nimp32[i] = oldNimp32[j]
+				c.timp32[i] = oldTimp32[j]
 				mp.Persisted = true
 				oldNimp[j], oldTimp[j] = 0, 0
+				oldNimp32[j], oldTimp32[j] = fixed.Q32Zero(), fixed.Q32Zero()
 				break
 			}
 		}
@@ -560,15 +658,11 @@ func (p *probePyramid) prepare() int {
 		var wA, wB int32
 		var mA, iA, mB, iB int32
 		if cs.indexA >= 0 {
-			stateA := &p.states[cs.indexA]
-			vA = stateA.v
-			wA = f.mul(stateA.w, p.tau)
+			vA, wA = p.gather(&p.states[cs.indexA])
 			mA, iA = p.sims[cs.indexA].invMass, p.sims[cs.indexA].invInertia
 		}
 		if cs.indexB >= 0 {
-			stateB := &p.states[cs.indexB]
-			vB = stateB.v
-			wB = f.mul(stateB.w, p.tau)
+			vB, wB = p.gather(&p.states[cs.indexB])
 			mB, iB = p.sims[cs.indexB].invMass, p.sims[cs.indexB].invInertia
 		}
 
@@ -596,6 +690,7 @@ func (p *probePyramid) prepare() int {
 			cp.normalImpulse = cs.nimp[j]
 			cp.tangentImpulse = cs.timp[j]
 			cp.totalNormalImpulse = 0
+			cp.ni32, cp.ti32, cp.tni32 = cs.nimp32[j], cs.timp32[j], fixed.Q32Zero()
 
 			rA := f.fromVec(mp.AnchorA)
 			rB := f.fromVec(mp.AnchorB)
@@ -637,11 +732,9 @@ func (p *probePyramid) warmStart(count int) {
 		constraint := &p.constraints[i]
 		stateA := p.stateOf(constraint.indexA)
 		stateB := p.stateOf(constraint.indexB)
-
-		vA := stateA.v
-		wA := f.mul(stateA.w, p.tau)
-		vB := stateB.v
-		wB := f.mul(stateB.w, p.tau)
+		vA, wA := p.gather(stateA)
+		vB, wB := p.gather(stateB)
+		vA0, wA0, vB0, wB0 := vA, wA, vB, wB
 
 		mA, iA := constraint.invMassA, constraint.invIA
 		mB, iB := constraint.invMassB, constraint.invIB
@@ -651,7 +744,11 @@ func (p *probePyramid) warmStart(count int) {
 
 		for j := range constraint.pointCount {
 			cp := &constraint.points[j]
-			P := f.vadd(f.vscale(normal, cp.normalImpulse), f.vscale(tangent, cp.tangentImpulse))
+			ni, ti := cp.normalImpulse, cp.tangentImpulse
+			if p.lanes {
+				ni, ti = f.fromQNearest(cp.ni32), f.fromQNearest(cp.ti32)
+			}
+			P := f.vadd(f.vscale(normal, ni), f.vscale(tangent, ti))
 			wA = f.sub(wA, f.mul(iA, f.cross(cp.rA, P)))
 			vA = f.vmulAdd(vA, f.neg(mA), P)
 			wB = f.add(wB, f.mul(iB, f.cross(cp.rB, P)))
@@ -661,10 +758,8 @@ func (p *probePyramid) warmStart(count int) {
 		wA = f.sub(wA, f.mul(iA, constraint.rollingImpulse))
 		wB = f.add(wB, f.mul(iB, constraint.rollingImpulse))
 
-		stateA.v = vA
-		stateA.w = f.div(wA, p.tau)
-		stateB.v = vB
-		stateB.w = f.div(wB, p.tau)
+		p.scatter(stateA, vA, wA, vA0, wA0)
+		p.scatter(stateB, vB, wB, vB0, wB0)
 	}
 }
 
@@ -678,15 +773,10 @@ func (p *probePyramid) solve(count int, useBias bool) {
 
 		stateA := p.stateOf(constraint.indexA)
 		stateB := p.stateOf(constraint.indexB)
-		vA := stateA.v
-		wA := f.mul(stateA.w, p.tau)
-		dqAc, dqAs := stateA.dqc, stateA.dqs
-
-		vB := stateB.v
-		wB := f.mul(stateB.w, p.tau)
-		dqBc, dqBs := stateB.dqc, stateB.dqs
-
-		dp := f.vsub(stateB.dp, stateA.dp)
+		vA, wA := p.gather(stateA)
+		vB, wB := p.gather(stateB)
+		vA0, wA0, vB0, wB0 := vA, wA, vB, wB
+		dp, dqAc, dqAs, dqBc, dqBs := p.deltaPose(stateA, stateB)
 
 		normal := constraint.normal
 		tangent := pv{normal.y, f.neg(normal.x)}
@@ -718,13 +808,23 @@ func (p *probePyramid) solve(count int, useBias bool) {
 			vrB := f.vadd(vB, f.crossSV(wB, rB))
 			vn := f.dot(f.vsub(vrB, vrA), normal)
 
-			impulse := f.sub(f.mul(f.mul(f.neg(cp.normalMass), massScale), f.add(vn, velocityBias)), f.mul(impulseScale, cp.normalImpulse))
+			ni := cp.normalImpulse
+			if p.lanes {
+				ni = f.fromQNearest(cp.ni32)
+			}
+			impulse := f.sub(f.mul(f.mul(f.neg(cp.normalMass), massScale), f.add(vn, velocityBias)), f.mul(impulseScale, ni))
 
-			newImpulse := f.max(f.add(cp.normalImpulse, impulse), 0)
-			impulse = f.sub(newImpulse, cp.normalImpulse)
-			cp.normalImpulse = newImpulse
-			cp.totalNormalImpulse = f.add(cp.totalNormalImpulse, newImpulse)
-			totalNormalImpulse = f.add(totalNormalImpulse, newImpulse)
+			if p.lanes {
+				impulse = p.accumulate(&cp.ni32, impulse)
+				cp.tni32 = cp.tni32.Add(cp.ni32)
+				totalNormalImpulse = f.add(totalNormalImpulse, f.fromQNearest(cp.ni32))
+			} else {
+				newImpulse := f.max(f.add(cp.normalImpulse, impulse), 0)
+				impulse = f.sub(newImpulse, cp.normalImpulse)
+				cp.normalImpulse = newImpulse
+				cp.totalNormalImpulse = f.add(cp.totalNormalImpulse, newImpulse)
+				totalNormalImpulse = f.add(totalNormalImpulse, newImpulse)
+			}
 
 			P := f.vscale(normal, impulse)
 			vA = f.vmulSub(vA, mA, P)
@@ -743,10 +843,15 @@ func (p *probePyramid) solve(count int, useBias bool) {
 
 			impulse := f.mul(cp.tangentMass, f.neg(vt))
 
-			maxFriction := f.mul(friction, cp.normalImpulse)
-			newImpulse := f.clamp(f.add(cp.tangentImpulse, impulse), f.neg(maxFriction), maxFriction)
-			impulse = f.sub(newImpulse, cp.tangentImpulse)
-			cp.tangentImpulse = newImpulse
+			if p.lanes {
+				maxFriction := f.mul(friction, f.fromQNearest(cp.ni32))
+				impulse = p.accumulateClamped(&cp.ti32, impulse, maxFriction)
+			} else {
+				maxFriction := f.mul(friction, cp.normalImpulse)
+				newImpulse := f.clamp(f.add(cp.tangentImpulse, impulse), f.neg(maxFriction), maxFriction)
+				impulse = f.sub(newImpulse, cp.tangentImpulse)
+				cp.tangentImpulse = newImpulse
+			}
 
 			P := f.vscale(tangent, impulse)
 			vA = f.vmulSub(vA, mA, P)
@@ -766,10 +871,8 @@ func (p *probePyramid) solve(count int, useBias bool) {
 			wB = f.add(wB, f.mul(iB, deltaLambda))
 		}
 
-		stateA.v = vA
-		stateA.w = f.div(wA, p.tau)
-		stateB.v = vB
-		stateB.w = f.div(wB, p.tau)
+		p.scatter(stateA, vA, wA, vA0, wA0)
+		p.scatter(stateB, vB, wB, vB0, wB0)
 	}
 }
 
@@ -787,15 +890,18 @@ func (p *probePyramid) restitution(count int) {
 
 		stateA := p.stateOf(constraint.indexA)
 		stateB := p.stateOf(constraint.indexB)
-		vA := stateA.v
-		wA := f.mul(stateA.w, p.tau)
-		vB := stateB.v
-		wB := f.mul(stateB.w, p.tau)
+		vA, wA := p.gather(stateA)
+		vB, wB := p.gather(stateB)
+		vA0, wA0, vB0, wB0 := vA, wA, vB, wB
 		normal := constraint.normal
 
 		for j := range constraint.pointCount {
 			cp := &constraint.points[j]
-			if f.neg(p.threshold) < cp.relativeVelocity || cp.totalNormalImpulse == 0 {
+			total := cp.totalNormalImpulse != 0
+			if p.lanes {
+				total = !cp.tni32.Eq(fixed.Q32Zero())
+			}
+			if f.neg(p.threshold) < cp.relativeVelocity || !total {
 				continue
 			}
 			rA, rB := cp.rA, cp.rB
@@ -804,10 +910,15 @@ func (p *probePyramid) restitution(count int) {
 			vn := f.dot(f.vsub(vrB, vrA), normal)
 
 			impulse := f.mul(f.neg(cp.normalMass), f.add(vn, f.mul(constraint.restitution, cp.relativeVelocity)))
-			newImpulse := f.max(f.add(cp.normalImpulse, impulse), 0)
-			impulse = f.sub(newImpulse, cp.normalImpulse)
-			cp.normalImpulse = newImpulse
-			cp.totalNormalImpulse = f.add(cp.totalNormalImpulse, impulse)
+			if p.lanes {
+				impulse = p.accumulate(&cp.ni32, impulse)
+				cp.tni32 = cp.tni32.Add(f.toQ(impulse))
+			} else {
+				newImpulse := f.max(f.add(cp.normalImpulse, impulse), 0)
+				impulse = f.sub(newImpulse, cp.normalImpulse)
+				cp.normalImpulse = newImpulse
+				cp.totalNormalImpulse = f.add(cp.totalNormalImpulse, impulse)
+			}
 
 			P := f.vscale(normal, impulse)
 			vA = f.vmulSub(vA, mA, P)
@@ -816,10 +927,8 @@ func (p *probePyramid) restitution(count int) {
 			wB = f.add(wB, f.mul(iB, f.cross(rB, P)))
 		}
 
-		stateA.v = vA
-		stateA.w = f.div(wA, p.tau)
-		stateB.v = vB
-		stateB.w = f.div(wB, p.tau)
+		p.scatter(stateA, vA, wA, vA0, wA0)
+		p.scatter(stateB, vB, wB, vB0, wB0)
 	}
 }
 
@@ -838,8 +947,59 @@ func (p *probePyramid) store() {
 			cs.timp[j] = constraint.points[j].tangentImpulse
 			cs.tnimp[j] = constraint.points[j].totalNormalImpulse
 			cs.nvel[j] = constraint.points[j].relativeVelocity
+			cs.nimp32[j] = constraint.points[j].ni32
+			cs.timp32[j] = constraint.points[j].ti32
+			cs.tnimp32[j] = constraint.points[j].tni32
 		}
 		cs.rolling = constraint.rollingImpulse
+	}
+}
+
+// integrateVelocities32 follows integrateVelocitiesTask in Q32 for the
+// lanes row: no damping, no force, no torque.
+func (p *probePyramid) integrateVelocities32() {
+	zero := fixed.Q32Zero()
+	one := fixed.Q32One()
+	h := p.h32
+	maxLinearSpeedSquared := p.maxLinearSpeed32.Mul(p.maxLinearSpeed32)
+	maxAngularSpeedSquared := p.maxAngularSpeed32.Mul(p.maxAngularSpeed32)
+	for i := range p.sims {
+		sim := &p.sims[i]
+		state := &p.states[i]
+		v := state.v32
+		omega := state.w32
+
+		linearDamping := one.Add(h.Mul(zero))
+		angularDamping := one.Add(h.Mul(zero))
+		gravityScale := zero
+		if sim.invMass > 0 {
+			gravityScale = one
+		}
+		linearVelocityDelta := Vec2Zero().Mul(h.Mul(p.f.toQ(sim.invMass))).Add(p.gravity32.Mul(h.Mul(gravityScale)))
+		angularVelocityDelta := h.Mul(p.f.toQ(sim.invInertia)).Mul(zero).Div(tau)
+
+		v = Vec2{X: linearVelocityDelta.X.Add(v.X.Div(linearDamping)), Y: linearVelocityDelta.Y.Add(v.Y.Div(linearDamping))}
+		omega = angularVelocityDelta.Add(omega.Div(angularDamping))
+
+		if maxLinearSpeedSquared.Less(v.Dot(v)) {
+			v = v.Mul(p.maxLinearSpeed32.Div(v.Len()))
+			sim.isSpeedCapped = true
+		}
+		if maxAngularSpeedSquared.Less(omega.Mul(omega)) {
+			omega = omega.Mul(p.maxAngularSpeed32.Div(omega.Abs()))
+			sim.isSpeedCapped = true
+		}
+		state.v32 = v
+		state.w32 = omega
+	}
+}
+
+// integratePositions32 follows integratePositionsTask in Q32.
+func (p *probePyramid) integratePositions32() {
+	for i := range p.states {
+		state := &p.states[i]
+		state.dq32 = IntegrateRotation(state.dq32, p.h32.Mul(state.w32))
+		state.dp32 = MulAdd(state.dp32, p.h32, state.v32)
 	}
 }
 
@@ -847,6 +1007,10 @@ func (p *probePyramid) store() {
 // squared does not fit the working format, so the linear test compares
 // two accumulators.
 func (p *probePyramid) integrateVelocities() {
+	if p.lanes {
+		p.integrateVelocities32()
+		return
+	}
 	f := p.f
 	maxLinearSpeedSquared := f.mulAdd(0, p.maxLinearSpeed, p.maxLinearSpeed)
 	maxAngularSpeedSquared := f.mul(p.maxAngularSpeed, p.maxAngularSpeed)
@@ -892,6 +1056,10 @@ func (p *probePyramid) integrateVelocities() {
 // integratePositions mirrors integratePositionsTask. The rotation
 // normalizes by the reference division, not by the Q32 unit pair.
 func (p *probePyramid) integratePositions() {
+	if p.lanes {
+		p.integratePositions32()
+		return
+	}
 	f := p.f
 	for i := range p.states {
 		state := &p.states[i]
@@ -920,15 +1088,23 @@ func (p *probePyramid) finalize() {
 		sim := &p.sims[i]
 		state := &p.states[i]
 
-		sim.center = sim.center.Add(f.toVec(state.dp))
-		dq := Rot{Cos: f.toQ(state.dqc), Sin: f.toQ(state.dqs)}
-		sim.transform.Q = NormalizeRot(MulRot(dq, sim.transform.Q))
+		if p.lanes {
+			sim.center = sim.center.Add(state.dp32)
+			sim.transform.Q = NormalizeRot(MulRot(state.dq32, sim.transform.Q))
+			p.maxSpeed = p.maxSpeed.Max(state.v32.Len())
+			state.dp32 = Vec2Zero()
+			state.dq32 = fixed.RotIdentity()
+		} else {
+			sim.center = sim.center.Add(f.toVec(state.dp))
+			dq := Rot{Cos: f.toQ(state.dqc), Sin: f.toQ(state.dqs)}
+			sim.transform.Q = NormalizeRot(MulRot(dq, sim.transform.Q))
 
-		speed := f.toQ(f.narrow(f.sqrtAcc(f.mulAdd(f.mulAdd(0, state.v.x, state.v.x), state.v.y, state.v.y))))
-		p.maxSpeed = p.maxSpeed.Max(speed)
+			speed := f.toQ(f.narrow(f.sqrtAcc(f.mulAdd(f.mulAdd(0, state.v.x, state.v.x), state.v.y, state.v.y))))
+			p.maxSpeed = p.maxSpeed.Max(speed)
 
-		state.dp = pv{}
-		state.dqc, state.dqs = f.one, 0
+			state.dp = pv{}
+			state.dqc, state.dqs = f.one, 0
+		}
 
 		sim.transform.P = sim.center.Sub(RotateVector(sim.transform.Q, sim.localCenter))
 		sim.isSpeedCapped = false
@@ -966,6 +1142,11 @@ func (p *probePyramid) checksum() uint64 {
 		state := &p.states[i]
 		h = checksumVec2(h, sim.center)
 		h = checksumRot(h, sim.transform.Q)
+		if p.lanes {
+			h = checksumVec2(h, state.v32)
+			h = fnvFold(h, uint64(state.w32.Raw()))
+			continue
+		}
 		h = fnvFold(h, uint64(uint32(state.v.x)))
 		h = fnvFold(h, uint64(uint32(state.v.y)))
 		h = fnvFold(h, uint64(uint32(state.w)))
@@ -974,6 +1155,11 @@ func (p *probePyramid) checksum() uint64 {
 		c := &p.contacts[i]
 		h = fnvFold(h, uint64(c.manifold.PointCount))
 		for j := range c.manifold.PointCount {
+			if p.lanes {
+				h = fnvFold(h, uint64(c.nimp32[j].Raw()))
+				h = fnvFold(h, uint64(c.timp32[j].Raw()))
+				continue
+			}
 			h = fnvFold(h, uint64(uint32(c.nimp[j])))
 			h = fnvFold(h, uint64(uint32(c.timp[j])))
 		}
@@ -1008,10 +1194,11 @@ type probeRun struct {
 }
 
 // runProbe runs the mirror over the scene and collects the criteria.
-func runProbe(fracBits uint, nearest bool) probeRun {
+func runProbe(fracBits uint, nearest, lanes bool) probeRun {
 	fixed.ResetSaturationCount()
 	p := newProbePyramid(fracBits, pyramidRows)
 	p.f.nearest = nearest
+	p.lanes = lanes
 	var run probeRun
 	for i := range probeSteps {
 		p.step()
@@ -1154,10 +1341,12 @@ func TestProbeFormatMatchesQ16AndQ48(t *testing.T) {
 	fixed.ResetSaturationCount()
 }
 
-// probeRow is one row of the probe table: a format and its rounding.
+// probeRow is one row of the probe table: a format, its rounding, and
+// whether the format is a lane format over a Q32 state.
 type probeRow struct {
 	fracBits uint
 	nearest  bool
+	lanes    bool
 	witness  uint64
 }
 
@@ -1168,6 +1357,7 @@ var probeRows = []probeRow{
 	{fracBits: 16, witness: 11199930024838461989},
 	{fracBits: 12, witness: 6491751349712592663},
 	{fracBits: 16, nearest: true, witness: 3093283145204991723},
+	{fracBits: 16, nearest: true, lanes: true, witness: 17243034577844031924},
 }
 
 // TestProbeSolverFormats runs the scene in Q32 and in the mirror for every
@@ -1191,29 +1381,31 @@ func TestProbeSolverFormats(t *testing.T) {
 	}
 
 	for _, row := range probeRows {
-		first := runProbe(row.fracBits, row.nearest)
-		second := runProbe(row.fracBits, row.nearest)
+		first := runProbe(row.fracBits, row.nearest, row.lanes)
+		second := runProbe(row.fracBits, row.nearest, row.lanes)
 
 		rest := math.Abs(first.topY - reference.topY)
-		t.Logf("fracBits %d nearest %v: top %.5f m (delta %.5f, %s), max |v| %.5f m/s (%s), checksum %d, grid saturations %d, accumulator saturations %d, fixed saturations %d (%s)",
-			row.fracBits, row.nearest, first.topY, rest, verdict(rest <= probeRestLimit),
+		t.Logf("fracBits %d nearest %v lanes %v: top %.5f m (delta %.5f, %s), max |v| %.5f m/s (%s), checksum %d, grid saturations %d, accumulator saturations %d, fixed saturations %d (%s)",
+			row.fracBits, row.nearest, row.lanes, first.topY, rest, verdict(rest <= probeRestLimit),
 			first.maxSpeed, verdict(first.maxSpeed < probeSleepLimit), first.checksum,
 			first.saturations, first.accSaturations, first.fixedEvents,
 			verdict(first.saturations == 0 && first.accSaturations == 0 && first.fixedEvents == 0))
 
 		if first.checksum != second.checksum {
-			t.Errorf("fracBits %d nearest %v: two runs gave checksums %d and %d", row.fracBits, row.nearest, first.checksum, second.checksum)
+			t.Errorf("fracBits %d nearest %v lanes %v: two runs gave checksums %d and %d", row.fracBits, row.nearest, row.lanes, first.checksum, second.checksum)
 		}
 		if row.witness != 0 && row.witness != first.checksum {
-			t.Errorf("fracBits %d nearest %v: checksum %d, the witness is %d", row.fracBits, row.nearest, first.checksum, row.witness)
+			t.Errorf("fracBits %d nearest %v lanes %v: checksum %d, the witness is %d", row.fracBits, row.nearest, row.lanes, first.checksum, row.witness)
 		}
 	}
 }
 
 // BenchmarkProbeStepPyramid16 and 12 measure the mirror step over the
 // same pyramid as BenchmarkStepPyramid and BenchmarkStepPyramidF64.
-func benchmarkProbeStepPyramid(b *testing.B, fracBits uint) {
+func benchmarkProbeStepPyramid(b *testing.B, fracBits uint, nearest, lanes bool) {
 	p := newProbePyramid(fracBits, pyramidRows)
+	p.f.nearest = nearest
+	p.lanes = lanes
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
@@ -1225,5 +1417,7 @@ func benchmarkProbeStepPyramid(b *testing.B, fracBits uint) {
 	}
 }
 
-func BenchmarkProbeStepPyramid16(b *testing.B) { benchmarkProbeStepPyramid(b, 16) }
-func BenchmarkProbeStepPyramid12(b *testing.B) { benchmarkProbeStepPyramid(b, 12) }
+func BenchmarkProbeStepPyramid16(b *testing.B)        { benchmarkProbeStepPyramid(b, 16, false, false) }
+func BenchmarkProbeStepPyramid12(b *testing.B)        { benchmarkProbeStepPyramid(b, 12, false, false) }
+func BenchmarkProbeStepPyramid16Nearest(b *testing.B) { benchmarkProbeStepPyramid(b, 16, true, false) }
+func BenchmarkProbeStepPyramidLanes(b *testing.B)     { benchmarkProbeStepPyramid(b, 16, true, true) }
