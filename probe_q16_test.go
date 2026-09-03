@@ -217,6 +217,9 @@ func (f *probeFormat) sqrtAcc(acc int64) int64 {
 // reads the Q32 state through it. No library operation does this.
 func (f *probeFormat) fromQ(q Q) int32 { return f.sat(q.Raw() >> (32 - f.fracBits)) }
 func (f *probeFormat) fromQNearest(q Q) int32 {
+	if !f.nearest {
+		return f.fromQ(q)
+	}
 	return f.sat((q.Raw() + 1<<(31-f.fracBits)) >> (32 - f.fracBits))
 }
 func (f *probeFormat) fromVecNearest(v Vec2) pv { return pv{f.fromQNearest(v.X), f.fromQNearest(v.Y)} }
@@ -367,8 +370,11 @@ type probePyramid struct {
 	constraints []probeConstraint
 	dummy       probeState
 
-	// lanes selects the Q32 state with working-format lanes.
-	lanes bool
+	// lanes selects the Q32 state with working-format lanes. wideOn runs
+	// the contact stages of the lanes row through the batch functions.
+	lanes  bool
+	wideOn bool
+	wide   probeWide
 
 	// The Q32 scalars of the lanes row, as the library computes them.
 	dt32, invDt32, h32                  Q
@@ -1122,12 +1128,25 @@ func (p *probePyramid) step() {
 	p.updatePairs()
 	p.collide()
 	count := p.prepare()
+	if p.wideOn {
+		p.wideBuild(count)
+	}
 	for range 4 {
 		p.integrateVelocities()
+		if p.wideOn {
+			p.wideWarmStart()
+			p.wideSolve(true)
+			p.integratePositions()
+			p.wideSolve(false)
+			continue
+		}
 		p.warmStart(count)
 		p.solve(count, true)
 		p.integratePositions()
 		p.solve(count, false)
+	}
+	if p.wideOn {
+		p.wideStore(count)
 	}
 	p.restitution(count)
 	p.store()
@@ -1194,11 +1213,12 @@ type probeRun struct {
 }
 
 // runProbe runs the mirror over the scene and collects the criteria.
-func runProbe(fracBits uint, nearest, lanes bool) probeRun {
+func runProbe(fracBits uint, nearest, lanes, wide bool) probeRun {
 	fixed.ResetSaturationCount()
 	p := newProbePyramid(fracBits, pyramidRows)
 	p.f.nearest = nearest
 	p.lanes = lanes
+	p.wideOn = wide
 	var run probeRun
 	for i := range probeSteps {
 		p.step()
@@ -1347,6 +1367,7 @@ type probeRow struct {
 	fracBits uint
 	nearest  bool
 	lanes    bool
+	wide     bool
 	witness  uint64
 }
 
@@ -1358,6 +1379,8 @@ var probeRows = []probeRow{
 	{fracBits: 12, witness: 6491751349712592663},
 	{fracBits: 16, nearest: true, witness: 3093283145204991723},
 	{fracBits: 16, nearest: true, lanes: true, witness: 17243034577844031924},
+	{fracBits: 16, nearest: false, lanes: true, witness: 3884108997595085682},
+	{fracBits: 16, nearest: false, lanes: true, wide: true, witness: 3624099612550400531},
 }
 
 // TestProbeSolverFormats runs the scene in Q32 and in the mirror for every
@@ -1381,12 +1404,12 @@ func TestProbeSolverFormats(t *testing.T) {
 	}
 
 	for _, row := range probeRows {
-		first := runProbe(row.fracBits, row.nearest, row.lanes)
-		second := runProbe(row.fracBits, row.nearest, row.lanes)
+		first := runProbe(row.fracBits, row.nearest, row.lanes, row.wide)
+		second := runProbe(row.fracBits, row.nearest, row.lanes, row.wide)
 
 		rest := math.Abs(first.topY - reference.topY)
-		t.Logf("fracBits %d nearest %v lanes %v: top %.5f m (delta %.5f, %s), max |v| %.5f m/s (%s), checksum %d, grid saturations %d, accumulator saturations %d, fixed saturations %d (%s)",
-			row.fracBits, row.nearest, row.lanes, first.topY, rest, verdict(rest <= probeRestLimit),
+		t.Logf("fracBits %d nearest %v lanes %v wide %v (%s): top %.5f m (delta %.5f, %s), max |v| %.5f m/s (%s), checksum %d, grid saturations %d, accumulator saturations %d, fixed saturations %d (%s)",
+			row.fracBits, row.nearest, row.lanes, row.wide, fixed.BatchPath(), first.topY, rest, verdict(rest <= probeRestLimit),
 			first.maxSpeed, verdict(first.maxSpeed < probeSleepLimit), first.checksum,
 			first.saturations, first.accSaturations, first.fixedEvents,
 			verdict(first.saturations == 0 && first.accSaturations == 0 && first.fixedEvents == 0))
@@ -1402,10 +1425,11 @@ func TestProbeSolverFormats(t *testing.T) {
 
 // BenchmarkProbeStepPyramid16 and 12 measure the mirror step over the
 // same pyramid as BenchmarkStepPyramid and BenchmarkStepPyramidF64.
-func benchmarkProbeStepPyramid(b *testing.B, fracBits uint, nearest, lanes bool) {
+func benchmarkProbeStepPyramid(b *testing.B, fracBits uint, nearest, lanes, wide bool) {
 	p := newProbePyramid(fracBits, pyramidRows)
 	p.f.nearest = nearest
 	p.lanes = lanes
+	p.wideOn = wide
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
@@ -1417,7 +1441,18 @@ func benchmarkProbeStepPyramid(b *testing.B, fracBits uint, nearest, lanes bool)
 	}
 }
 
-func BenchmarkProbeStepPyramid16(b *testing.B)        { benchmarkProbeStepPyramid(b, 16, false, false) }
-func BenchmarkProbeStepPyramid12(b *testing.B)        { benchmarkProbeStepPyramid(b, 12, false, false) }
-func BenchmarkProbeStepPyramid16Nearest(b *testing.B) { benchmarkProbeStepPyramid(b, 16, true, false) }
-func BenchmarkProbeStepPyramidLanes(b *testing.B)     { benchmarkProbeStepPyramid(b, 16, true, true) }
+func BenchmarkProbeStepPyramid16(b *testing.B) { benchmarkProbeStepPyramid(b, 16, false, false, false) }
+func BenchmarkProbeStepPyramid12(b *testing.B) { benchmarkProbeStepPyramid(b, 12, false, false, false) }
+func BenchmarkProbeStepPyramid16Nearest(b *testing.B) {
+	benchmarkProbeStepPyramid(b, 16, true, false, false)
+}
+func BenchmarkProbeStepPyramidLanes(b *testing.B) {
+	benchmarkProbeStepPyramid(b, 16, true, true, false)
+}
+func BenchmarkProbeStepPyramidLanesFloor(b *testing.B) {
+	benchmarkProbeStepPyramid(b, 16, false, true, false)
+}
+func BenchmarkProbeStepPyramidWide(b *testing.B) {
+	b.Logf("batch path %s", fixed.BatchPath())
+	benchmarkProbeStepPyramid(b, 16, false, true, true)
+}

@@ -68,6 +68,8 @@ in for the floating-point formulation of the reference.
 | Pyramid step, solver probe on a Q16.16 grid with Q48.16 sums, test only | ~1.7 ms | 0 |
 | Pyramid step, solver probe on a Q20.12 grid with 64-bit sums, test only | ~1.4 ms | 0 |
 | Pyramid step, solver probe with the state in Q32.32 and each contact in Q16.16 lanes, test only | ~2.5 ms | 0 |
+| Pyramid step, the same probe with the contacts colored and solved through the Q16 batch functions, scalar kernels, test only | ~1.9 ms | 0 |
+| Pyramid step, the same probe on the AVX2 kernels (`GOEXPERIMENT=simd`, Go 1.27), test only | ~1.6 ms | 0 |
 
 The composite numbers are the honest ones. The pyramid, a settled stack that
 collides and solves every contact on every step, runs about **3.3×** slower
@@ -87,12 +89,15 @@ bounds and sum perimeters, which cost the same in both formats, so the
 pair update and the tree query run at parity. The pyramid mirror takes
 its pairs from a `float64` mirror of the tree.
 
-The three probe lines run the contact solver of the pyramid on narrower
-grids inside `probe_q16_test.go`. The first two keep the state on the
-narrow grid. The third keeps the state and the impulse sums in Q32.32,
-reads them into Q16.16 lanes rounded to nearest for each contact, and
-writes back only the delta. The probe measures the behaviour and the
-scalar throughput of those grids only; the library keeps Q32.32.
+The probe lines run the contact solver of the pyramid on narrower grids
+inside `probe_q16_test.go` and `probe_wide_test.go`. The first two keep
+the state on the narrow grid. The third keeps the state and the impulse
+sums in Q32.32, reads them into Q16.16 lanes for each contact, and writes
+back only the delta. The last two color the contacts so that no two in
+one color share a dynamic body, and run each color as slices through the
+`Batch*16` functions of `fixed`; the scalar and the AVX2 kernels give the
+same bits. The probe measures the behaviour and the throughput of those
+grids only; the library keeps Q32.32.
 
 The `fixed` v0.3.0 release moved these numbers: its `Q32.Mul` now inlines,
 and its `Normalize` skips two divisions when the length is already one. The
