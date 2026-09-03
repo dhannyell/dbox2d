@@ -2,6 +2,8 @@ package dbox2d
 
 import (
 	"math"
+	"math/big"
+	"math/bits"
 	"math/rand"
 	"testing"
 
@@ -23,6 +25,10 @@ type probeFormat struct {
 	fracBits    uint
 	one         int32
 	saturations int
+
+	// accSaturations counts the saturations of the accumulator, which
+	// follow the Q48 rules: a sum or a quotient outside int64 clamps.
+	accSaturations int
 
 	// nearest rounds every product to the nearest grid value instead of
 	// the floor of Q16.Mul. A diagnosis switch, off in the plan rows.
@@ -116,28 +122,88 @@ func (f *probeFormat) sqrt(a int32) int32 {
 // The accumulator is an int64 on the working grid: Q48.16 when fracBits
 // is 16. widen is Q16.ToQ48, narrow is Q48.ToQ16, mulAdd is Q48.MulAdd16,
 // mulSub is the Q48.Sub of one floored product, and divAcc is Q48.Div.
+// The sums and the quotient saturate and count like Q48.
 
 func (f *probeFormat) widen(a int32) int64    { return int64(a) }
 func (f *probeFormat) narrow(acc int64) int32 { return f.sat(acc) }
 
+// addAcc mirrors Q48.Add; subAcc mirrors Q48.Sub.
+func (f *probeFormat) addAcc(a, b int64) int64 {
+	res := a + b
+	if (a >= 0) == (b >= 0) && (res >= 0) != (a >= 0) {
+		f.accSaturations++
+		return math.MaxInt64 ^ (a >> 63)
+	}
+	return res
+}
+
+func (f *probeFormat) subAcc(a, b int64) int64 {
+	res := a - b
+	if (a >= 0) != (b >= 0) && (res >= 0) != (a >= 0) {
+		f.accSaturations++
+		return math.MaxInt64 ^ (a >> 63)
+	}
+	return res
+}
+
 func (f *probeFormat) mulAdd(acc int64, a, b int32) int64 {
-	return acc + f.product(a, b)
+	return f.addAcc(acc, f.product(a, b))
 }
 
 func (f *probeFormat) mulSub(acc int64, a, b int32) int64 {
-	return acc - f.product(a, b)
+	return f.subAcc(acc, f.product(a, b))
 }
 
+// divAcc mirrors Q48.Div: the numerator widens to 128 bits, the quotient
+// truncates toward zero and saturates.
 func (f *probeFormat) divAcc(n, d int64) int64 {
-	return (n << f.fracBits) / d
+	if d == 0 {
+		panic("probe: division by zero")
+	}
+	neg := (n < 0) != (d < 0)
+	un, ud := magnitude64(n), magnitude64(d)
+	hi, lo := un>>(64-f.fracBits), un<<f.fracBits
+	if hi >= ud {
+		f.accSaturations++
+		if neg {
+			return math.MinInt64
+		}
+		return math.MaxInt64
+	}
+	quo, _ := bits.Div64(hi, lo, ud)
+	if neg {
+		if quo > 1<<63 {
+			f.accSaturations++
+			return math.MinInt64
+		}
+		return -int64(quo)
+	}
+	if quo > math.MaxInt64 {
+		f.accSaturations++
+		return math.MaxInt64
+	}
+	return int64(quo)
 }
 
-// sqrtAcc floors the root of an accumulator like Q48.Sqrt.
+func magnitude64(v int64) uint64 {
+	if v < 0 {
+		return uint64(-v)
+	}
+	return uint64(v)
+}
+
+// sqrtAcc floors the root of an accumulator like Q48.Sqrt. The root of
+// the widened radicand fits int64, so it never saturates; the wide
+// radicand takes the slow path.
 func (f *probeFormat) sqrtAcc(acc int64) int64 {
 	if acc < 0 {
 		panic("probe: square root of a negative value")
 	}
-	return int64(isqrt64(uint64(acc) << f.fracBits))
+	if uint64(acc) < 1<<(64-f.fracBits) {
+		return int64(isqrt64(uint64(acc) << f.fracBits))
+	}
+	r := new(big.Int).Lsh(big.NewInt(acc), f.fracBits)
+	return r.Sqrt(r).Int64()
 }
 
 // fromQ floors a Q32 to the working grid like Q32.ToQ16; toQ widens like
@@ -933,11 +999,12 @@ const (
 
 // probeRun holds the measures of one scene run.
 type probeRun struct {
-	topY        float64
-	maxSpeed    float64
-	checksum    uint64
-	saturations int
-	fixedEvents uint64
+	topY           float64
+	maxSpeed       float64
+	checksum       uint64
+	saturations    int
+	accSaturations int
+	fixedEvents    uint64
 }
 
 // runProbe runs the mirror over the scene and collects the criteria.
@@ -955,6 +1022,7 @@ func runProbe(fracBits uint, nearest bool) probeRun {
 	run.topY = p.topY()
 	run.checksum = p.checksum()
 	run.saturations = p.f.saturations
+	run.accSaturations = p.f.accSaturations
 	run.fixedEvents = fixed.SaturationCount()
 	return run
 }
@@ -1043,6 +1111,46 @@ func TestProbeFormatMatchesQ16AndQ48(t *testing.T) {
 			t.Fatalf("toQ(%d) = %d, Q16 gives %d", a, got.Raw(), want.Raw())
 		}
 	}
+
+	// The boundary of the accumulator: sums, differences and quotients
+	// that leave int64 saturate like Q48 and count once each.
+	fixed.ResetSaturationCount()
+	f.accSaturations = 0
+	edges := []int64{math.MaxInt64, math.MaxInt64 - 1, math.MinInt64, math.MinInt64 + 1, 1 << 62, -1 << 62, 1 << 47, -1 << 47, 1, -1, 0}
+	factors := []int32{math.MaxInt32, math.MinInt32, 1 << 16, -1 << 16, 1, -1, 0}
+	for _, acc := range edges {
+		q := fixed.Q48FromRaw(acc)
+		for _, a := range factors {
+			for _, b := range factors {
+				qa, qb := fixed.Q16FromRaw(a), fixed.Q16FromRaw(b)
+				if got, want := f.mulAdd(acc, a, b), q.MulAdd16(qa, qb).Raw(); got != want {
+					t.Fatalf("mulAdd(%d, %d, %d) = %d, Q48 gives %d", acc, a, b, got, want)
+				}
+				if got, want := f.mulSub(acc, a, b), q.Sub(fixed.Q48FromRaw((int64(a)*int64(b))>>16)).Raw(); got != want {
+					t.Fatalf("mulSub(%d, %d, %d) = %d, Q48 gives %d", acc, a, b, got, want)
+				}
+			}
+		}
+		for _, d := range edges {
+			if d == 0 {
+				continue
+			}
+			if got, want := f.divAcc(acc, d), q.Div(fixed.Q48FromRaw(d)).Raw(); got != want {
+				t.Fatalf("divAcc(%d, %d) = %d, Q48 gives %d", acc, d, got, want)
+			}
+		}
+		if acc >= 0 {
+			if got, want := f.sqrtAcc(acc), q.Sqrt().Raw(); got != want {
+				t.Fatalf("sqrtAcc(%d) = %d, Q48 gives %d", acc, got, want)
+			}
+		}
+	}
+	if f.accSaturations == 0 {
+		t.Fatal("the boundary cases saturated nothing")
+	}
+	if got, want := uint64(f.accSaturations), fixed.SaturationCount(); got != want {
+		t.Fatalf("the accumulator counted %d saturations, Q48 counted %d", got, want)
+	}
 	fixed.ResetSaturationCount()
 }
 
@@ -1087,10 +1195,11 @@ func TestProbeSolverFormats(t *testing.T) {
 		second := runProbe(row.fracBits, row.nearest)
 
 		rest := math.Abs(first.topY - reference.topY)
-		t.Logf("fracBits %d nearest %v: top %.5f m (delta %.5f, %s), max |v| %.5f m/s (%s), checksum %d, probe saturations %d, fixed saturations %d (%s)",
+		t.Logf("fracBits %d nearest %v: top %.5f m (delta %.5f, %s), max |v| %.5f m/s (%s), checksum %d, grid saturations %d, accumulator saturations %d, fixed saturations %d (%s)",
 			row.fracBits, row.nearest, first.topY, rest, verdict(rest <= probeRestLimit),
 			first.maxSpeed, verdict(first.maxSpeed < probeSleepLimit), first.checksum,
-			first.saturations, first.fixedEvents, verdict(first.saturations == 0 && first.fixedEvents == 0))
+			first.saturations, first.accSaturations, first.fixedEvents,
+			verdict(first.saturations == 0 && first.accSaturations == 0 && first.fixedEvents == 0))
 
 		if first.checksum != second.checksum {
 			t.Errorf("fracBits %d nearest %v: two runs gave checksums %d and %d", row.fracBits, row.nearest, first.checksum, second.checksum)
