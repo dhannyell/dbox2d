@@ -178,18 +178,20 @@ Numbering is sequential from `D-001` and never reused.
 
 ### D-009 An infinite sentinel becomes the largest representable value
 
-- Files: aabb.go, hull.go, manifold.go (upstream src/aabb.c
-  `b2AABB_RayCast`, src/hull.c `b2ComputeHull`, src/manifold.c
+- Files: aabb.go, hull.go, manifold.go, dynamic_tree.go (upstream
+  src/aabb.c `b2AABB_RayCast`, src/hull.c `b2ComputeHull`, src/manifold.c
   `b2CollidePolygonAndCircle`, `b2FindMaxSeparation` and `b2CollidePolygons`
-  search seeds)
+  search seeds, src/dynamic_tree.c `b2FindBestSibling` lower bounds and
+  `b2PartitionSAH` bin bounds and cost seed)
 - Tier: T2
 - Reason: the reference seeds a search with `FLT_MAX`, which no coordinate
   reaches. Q32.32 has no infinity and it saturates instead.
 - Behaviour: the seeds are the largest and the smallest representable values.
   Those values sit outside the valid input range: `IsValidQ` rejects a
   coordinate that equals either seed.
-- Test: TestAABBRayCastHitsTheNearFace in aabb_test.go and
-  TestComputeHullDropsAnInteriorPoint in hull_test.go
+- Test: TestAABBRayCastHitsTheNearFace in aabb_test.go,
+  TestComputeHullDropsAnInteriorPoint in hull_test.go, and
+  TestTreeSeedNeverWins in dynamic_tree_test.go
 
 ### D-010 A generated array becomes a slice
 
@@ -267,3 +269,26 @@ Numbering is sequential from `D-001` and never reused.
   TestCollidePolygonsClipsThePartialOverlap and
   TestCollideSegmentAndPolygonRejectsADegenerateSegment in manifold_test.go,
   and the clipSegments tests in manifold_internal_test.go
+
+### D-013 reserved
+
+- File: broad_phase.go
+- Tier: T2
+- Reason: recorded with the broadphase.
+
+### D-014 A callback with a context becomes a closure
+
+- Files: dynamic_tree.go (upstream src/dynamic_tree.c `b2DynamicTree_Query`
+  and `b2DynamicTree_RayCast`, include/box2d/collision.h
+  `b2TreeQueryCallbackFcn` and `b2TreeRayCastCallbackFcn`)
+- Tier: T2
+- Reason: the reference passes a function pointer and a `void*` context.
+  Go closes over the context instead, and a typed closure keeps the call
+  site legible.
+- Behaviour: the tree walks take a closure with the proxy id and the user
+  data. The public query callbacks keep the shape id and the context of
+  the reference. A closure that does not escape allocates nothing; the
+  step test pins zero allocations.
+- Test: TestTreeQueryReportsTheOverlaps and TestTreeRayCastClipsTheRay in
+  dynamic_tree_test.go
+
