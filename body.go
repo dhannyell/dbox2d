@@ -521,6 +521,80 @@ func (bodyId BodyId) GetTransform() Transform {
 	return getBodyTransformQuick(w, b)
 }
 
+// SetTransform changes the body's world transform. It corresponds to
+// b2Body_SetTransform.
+func (bodyId BodyId) SetTransform(position Vec2, rotation Rot) {
+	if !IsValidVec2(position) {
+		panic("dbox2d: SetTransform position is not valid")
+	}
+	if !IsValidRotation(rotation) {
+		panic("dbox2d: SetTransform rotation is not valid")
+	}
+	w := getWorld(bodyId.world0)
+	if w.locked {
+		panic("dbox2d: the world is locked")
+	}
+	b := getBodyFullId(w, bodyId)
+	sim := getBodySim(w, b)
+
+	sim.transform = Transform{P: position, Q: rotation}
+	sim.center = TransformPoint(sim.transform, sim.localCenter)
+	sim.rotation0 = sim.transform.Q
+	sim.center0 = sim.center
+
+	for shapeId := b.headShapeId; shapeId != nullIndex; shapeId = w.shapes[shapeId].nextShapeId {
+		s := &w.shapes[shapeId]
+		fatAABB := s.fatAABB
+		updateShapeAABBs(s, sim.transform, b.bodyType)
+		if AABBContains(fatAABB, s.aabb) {
+			s.fatAABB = fatAABB
+			continue
+		}
+		if s.proxyKey != nullIndex {
+			w.broadPhase.moveProxy(s.proxyKey, s.fatAABB)
+		}
+	}
+}
+
+// SetTargetTransform sets the velocity needed to reach a target transform.
+// It corresponds to b2Body_SetTargetTransform.
+func (bodyId BodyId) SetTargetTransform(target Transform, timeStep Q) {
+	w := getWorld(bodyId.world0)
+	b := getBodyFullId(w, bodyId)
+	zero := fixed.Q32Zero()
+	if b.bodyType == StaticBody || !zero.Less(timeStep) {
+		return
+	}
+
+	sim := getBodySim(w, b)
+	// D-006: the reciprocal is an exact fixed-point division.
+	invTimeStep := fixed.Q32One().Div(timeStep)
+	center1 := sim.center
+	center2 := TransformPoint(target, sim.localCenter)
+	linearVelocity := center2.Sub(center1).Mul(invTimeStep)
+
+	angularVelocity := zero
+	if !b.fixedRotation {
+		deltaAngle := RelativeAngle(target.Q, sim.transform.Q)
+		// D-004: RelativeAngle already returns turns.
+		angularVelocity = deltaAngle.Mul(invTimeStep)
+	}
+
+	maxVelocity := linearVelocity.Len().Add(tau.Mul(angularVelocity.Abs()).Mul(sim.maxExtent))
+	if maxVelocity.Less(b.sleepThreshold) {
+		return
+	}
+
+	wakeBody(w, b)
+	state := getBodyState(w, b)
+	if state == nil {
+		return
+	}
+	state.linearVelocity = linearVelocity
+	state.angularVelocity = angularVelocity
+	limitVelocity(state, w.maxLinearSpeed)
+}
+
 // GetLocalPoint converts a world point to the body's local frame. It
 // corresponds to b2Body_GetLocalPoint.
 func (bodyId BodyId) GetLocalPoint(worldPoint Vec2) Vec2 {
@@ -775,6 +849,46 @@ func (bodyId BodyId) GetMassData() MassData {
 	b := getBodyFullId(w, bodyId)
 	sim := getBodySim(w, b)
 	return MassData{Mass: b.mass, Center: sim.localCenter, RotationalInertia: b.inertia}
+}
+
+// SetMassData overrides the body's mass, center and rotational inertia. It
+// corresponds to b2Body_SetMassData.
+func (bodyId BodyId) SetMassData(massData MassData) {
+	w := getWorld(bodyId.world0)
+	if w.locked {
+		return
+	}
+	zero := fixed.Q32Zero()
+	if !IsValidQ(massData.Mass) || massData.Mass.Less(zero) {
+		panic("dbox2d: mass data has an invalid mass")
+	}
+	if !IsValidQ(massData.RotationalInertia) || massData.RotationalInertia.Less(zero) {
+		panic("dbox2d: mass data has an invalid rotational inertia")
+	}
+	if !IsValidVec2(massData.Center) {
+		panic("dbox2d: mass data has an invalid center")
+	}
+
+	b := getBodyFullId(w, bodyId)
+	sim := getBodySim(w, b)
+	b.mass = massData.Mass
+	b.inertia = massData.RotationalInertia
+	sim.localCenter = massData.Center
+	sim.center = TransformPoint(sim.transform, massData.Center)
+	sim.center0 = sim.center
+
+	if zero.Less(b.mass) {
+		// D-006: the reciprocal is an exact fixed-point division.
+		sim.invMass = fixed.Q32One().Div(b.mass)
+	} else {
+		sim.invMass = zero
+	}
+	if zero.Less(b.inertia) {
+		// D-006: the reciprocal is an exact fixed-point division.
+		sim.invInertia = fixed.Q32One().Div(b.inertia)
+	} else {
+		sim.invInertia = zero
+	}
 }
 
 // ApplyMassFromShapes recomputes mass data from the body's shapes. It

@@ -64,6 +64,86 @@ func TestBodyAccessorsRoundTrip(t *testing.T) {
 	}
 }
 
+// TestSetTransformMovesBodyAndProxy verifies that a moved proxy creates the
+// contact found by the next broad-phase update.
+func TestSetTransformMovesBodyAndProxy(t *testing.T) {
+	worldId := createTestWorld(t)
+
+	plateDef := DefaultBodyDef()
+	plateDef.Position = v2(0, -1)
+	plate := CreateBody(worldId, &plateDef)
+	shapeDef := DefaultShapeDef()
+	shapeDef.EnableContactEvents = true
+	plateBox := MakeBox(fixed.Q32FromInt(5), fixed.Q32Half())
+	plateShape := CreatePolygonShape(plate, &shapeDef, &plateBox)
+
+	bodyDef := DefaultBodyDef()
+	bodyDef.Type = DynamicBody
+	bodyDef.Position = v2(10, 0)
+	body := CreateBody(worldId, &bodyDef)
+	bodyBox := MakeSquare(fixed.Q32Half())
+	bodyShape := CreatePolygonShape(body, &shapeDef, &bodyBox)
+
+	newPosition := v2(0, -1)
+	body.SetTransform(newPosition, RotIdentity())
+	if got := body.GetPosition(); got != newPosition {
+		t.Fatalf("position = %v, want %v", got, newPosition)
+	}
+
+	worldId.Step(stepDt(), 4)
+	events := worldId.GetContactEvents()
+	if len(events.BeginEvents) != 1 {
+		t.Fatalf("begin events = %d, want 1", len(events.BeginEvents))
+	}
+	begin := events.BeginEvents[0]
+	if !((begin.ShapeIdA == plateShape && begin.ShapeIdB == bodyShape) || (begin.ShapeIdA == bodyShape && begin.ShapeIdB == plateShape)) {
+		t.Fatalf("begin event shapes = %v/%v, want plate/body", begin.ShapeIdA, begin.ShapeIdB)
+	}
+}
+
+// TestSetTargetTransformDerivesVelocity verifies target position and rotation
+// become the corresponding linear and turn-rate velocities.
+func TestSetTargetTransformDerivesVelocity(t *testing.T) {
+	worldId := createTestWorld(t)
+	body := addDynamicBox(t, worldId, Vec2Zero())
+	body.SetTargetTransform(Transform{P: v2(1, 0), Q: MakeRot(fixed.Q32MustParse("0.25"))}, fixed.Q32FromRatio(1, 60))
+
+	// (1 m - 0 m) / (1/60 s) = 60 m/s; (0.25 turn - 0 turn) / (1/60 s) = 15 turns/s.
+	linearWant := v2(60, 0)
+	angularWant := fixed.Q32MustParse("0.25").Mul(fixed.Q32FromInt(60))
+	tolerance := fixed.Q32FromRaw(2048)
+	if got := body.GetLinearVelocity(); !withinQ(got.X, linearWant.X, tolerance) || !withinQ(got.Y, linearWant.Y, tolerance) {
+		t.Errorf("linear velocity = %v, want %v", got, linearWant)
+	}
+	if got := body.GetAngularVelocity(); !withinQ(got, angularWant, tolerance) {
+		t.Errorf("angular velocity = %v, want %v turns/s", got, angularWant)
+	}
+}
+
+// TestSetMassDataOverridesShapeMass verifies explicit mass properties and a
+// changed local center.
+func TestSetMassDataOverridesShapeMass(t *testing.T) {
+	worldId := createTestWorld(t)
+	body := addDynamicBox(t, worldId, Vec2Zero())
+	before := body.GetLocalCenterOfMass()
+	massData := MassData{
+		Mass:              fixed.Q32FromInt(5),
+		Center:            v2(1, 0),
+		RotationalInertia: fixed.Q32FromInt(2),
+	}
+	body.SetMassData(massData)
+
+	if got := body.GetMass(); !got.Eq(massData.Mass) {
+		t.Errorf("mass = %v, want %v", got, massData.Mass)
+	}
+	if got := body.GetRotationalInertia(); !got.Eq(massData.RotationalInertia) {
+		t.Errorf("rotational inertia = %v, want %v", got, massData.RotationalInertia)
+	}
+	if got := body.GetLocalCenterOfMass(); got == before || got != massData.Center {
+		t.Errorf("local center = %v, want moved to %v from %v", got, massData.Center, before)
+	}
+}
+
 // TestApplyForceOffCenterGivesTorque verifies the expected torque sign.
 func TestApplyForceOffCenterGivesTorque(t *testing.T) {
 	def := DefaultWorldDef()
