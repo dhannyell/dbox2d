@@ -106,6 +106,7 @@ type setTypeScenario struct {
 	w           *world
 	groundShape ShapeId
 	bodyA       BodyId
+	bodyAShape  ShapeId
 	bodyB       BodyId
 }
 
@@ -117,6 +118,7 @@ func newSetTypeScenario(t *testing.T) setTypeScenario {
 	groundDef.Position = v2(0, -1)
 	ground := CreateBody(worldId, &groundDef)
 	shapeDef := DefaultShapeDef()
+	shapeDef.EnableContactEvents = true
 	groundBox := MakeBox(fixed.Q32FromInt(5), fixed.Q32Half())
 	groundShape := CreatePolygonShape(ground, &shapeDef, &groundBox)
 
@@ -125,7 +127,7 @@ func newSetTypeScenario(t *testing.T) setTypeScenario {
 	bodyDef.Position = v2(-1, 0)
 	bodyA := CreateBody(worldId, &bodyDef)
 	bodyBox := MakeSquare(fixed.Q32Half())
-	CreatePolygonShape(bodyA, &shapeDef, &bodyBox)
+	bodyAShape := CreatePolygonShape(bodyA, &shapeDef, &bodyBox)
 
 	bodyDef.Position = v2(1, 0)
 	bodyB := CreateBody(worldId, &bodyDef)
@@ -147,8 +149,109 @@ func newSetTypeScenario(t *testing.T) setTypeScenario {
 		w:           getWorldFromId(worldId),
 		groundShape: groundShape,
 		bodyA:       bodyA,
+		bodyAShape:  bodyAShape,
 		bodyB:       bodyB,
 	}
+}
+
+func TestDisableEmitsEndEventsAndFreezes(t *testing.T) {
+	scenario := newSetTypeScenario(t)
+	scenario.bodyA.Disable()
+
+	if scenario.bodyA.IsEnabled() {
+		t.Fatal("body A is enabled after Disable")
+	}
+	if got := scenario.bodyA.GetJointCount(); got != 1 {
+		t.Fatalf("body A joint count = %d, want 1", got)
+	}
+
+	position := scenario.bodyA.GetPosition()
+	scenario.worldId.Step(stepDt(), 4)
+	events := scenario.worldId.GetContactEvents()
+	foundEnd := false
+	for _, event := range events.EndEvents {
+		if event.ShapeIdA == scenario.bodyAShape || event.ShapeIdB == scenario.bodyAShape {
+			foundEnd = true
+			break
+		}
+	}
+	if !foundEnd {
+		t.Fatalf("end events = %+v, want body A shape", events.EndEvents)
+	}
+
+	for range 30 {
+		scenario.worldId.Step(stepDt(), 4)
+	}
+	if got := scenario.bodyA.GetPosition(); got != position {
+		t.Fatalf("body A position = %v, want %v", got, position)
+	}
+	validateWorld(scenario.w)
+	validateSolverSets(scenario.w)
+}
+
+func TestEnableRecreatesContacts(t *testing.T) {
+	scenario := newSetTypeScenario(t)
+	restingY := scenario.bodyA.GetPosition().Y
+	scenario.bodyA.Disable()
+	scenario.bodyA.Enable()
+
+	foundBegin := false
+	for range 2 {
+		scenario.worldId.Step(stepDt(), 4)
+		for _, event := range scenario.worldId.GetContactEvents().BeginEvents {
+			if event.ShapeIdA == scenario.bodyAShape || event.ShapeIdB == scenario.bodyAShape {
+				foundBegin = true
+			}
+		}
+	}
+	if !foundBegin {
+		t.Fatal("contact events have no begin event for body A")
+	}
+
+	data := make([]ContactData, scenario.bodyA.GetContactCapacity())
+	count := scenario.bodyA.GetContactData(data)
+	foundGround := false
+	for i := range count {
+		if data[i].ShapeIdA == scenario.groundShape || data[i].ShapeIdB == scenario.groundShape {
+			foundGround = true
+			break
+		}
+	}
+	if !foundGround {
+		t.Fatalf("body A contacts = %+v, want a ground contact", data[:count])
+	}
+	if got := scenario.bodyA.GetPosition().Y; !withinQ(got, restingY, fixed.Q32MustParse("0.01")) {
+		t.Fatalf("body A y = %v, want %v", got, restingY)
+	}
+	validateWorld(scenario.w)
+	validateSolverSets(scenario.w)
+}
+
+func TestDisableStaticBody(t *testing.T) {
+	worldId := createTestWorld(t)
+	w := getWorldFromId(worldId)
+	bodyDef := DefaultBodyDef()
+	body := CreateBody(worldId, &bodyDef)
+	shapeDef := DefaultShapeDef()
+	box := MakeSquare(fixed.Q32Half())
+	CreatePolygonShape(body, &shapeDef, &box)
+
+	if got := getBodyFullId(w, body).setIndex; got != staticSet {
+		t.Fatalf("initial body set = %d, want %d", got, staticSet)
+	}
+	body.Disable()
+	if got := getBodyFullId(w, body).setIndex; got != disabledSet {
+		t.Fatalf("disabled body set = %d, want %d", got, disabledSet)
+	}
+	validateWorld(w)
+	validateSolverSets(w)
+
+	body.Enable()
+	if got := getBodyFullId(w, body).setIndex; got != staticSet {
+		t.Fatalf("enabled body set = %d, want %d", got, staticSet)
+	}
+	validateWorld(w)
+	validateSolverSets(w)
 }
 
 // TestSetTypeDynamicToStaticHolds verifies that a static conversion stops

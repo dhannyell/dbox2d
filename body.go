@@ -1194,6 +1194,122 @@ func (bodyId BodyId) IsEnabled() bool {
 	return b.setIndex != disabledSet
 }
 
+// Disable removes the body from simulation. It corresponds to b2Body_Disable.
+func (bodyId BodyId) Disable() {
+	w := getWorld(bodyId.world0)
+	if w.locked {
+		panic("dbox2d: the world is locked")
+	}
+	b := getBodyFullId(w, bodyId)
+	if b.setIndex == disabledSet {
+		return
+	}
+
+	wakeBody(w, b)
+	destroyBodyContacts(w, b, false)
+	removeBodyFromIsland(w, b)
+
+	for shapeId := b.headShapeId; shapeId != nullIndex; {
+		s := &w.shapes[shapeId]
+		shapeId = s.nextShapeId
+		destroyShapeProxy(s, &w.broadPhase)
+	}
+
+	set := &w.solverSets[b.setIndex]
+	disabledSolverSet := &w.solverSets[disabledSet]
+	transferBody(w, disabledSolverSet, set, b)
+
+	for jointKey := b.headJointKey; jointKey != nullIndex; {
+		jointId := jointKey >> 1
+		edgeIndex := jointKey & 1
+		j := &w.joints[jointId]
+		jointKey = j.edges[edgeIndex].nextKey
+
+		if j.setIndex == disabledSet {
+			continue
+		}
+		if j.setIndex != set.setIndex && set.setIndex != staticSet {
+			panic("dbox2d: a joint of the body is in an unexpected set")
+		}
+		if j.islandId != nullIndex {
+			unlinkJoint(w, j)
+		}
+
+		jointSet := &w.solverSets[j.setIndex]
+		transferJoint(w, disabledSolverSet, jointSet, j)
+	}
+}
+
+// Enable returns the body to simulation. It corresponds to b2Body_Enable.
+func (bodyId BodyId) Enable() {
+	w := getWorld(bodyId.world0)
+	if w.locked {
+		panic("dbox2d: the world is locked")
+	}
+	b := getBodyFullId(w, bodyId)
+	if b.setIndex != disabledSet {
+		return
+	}
+
+	disabledSolverSet := &w.solverSets[disabledSet]
+	setId := awakeSet
+	if b.bodyType == StaticBody {
+		setId = staticSet
+	}
+	targetSet := &w.solverSets[setId]
+	transferBody(w, targetSet, disabledSolverSet, b)
+
+	transform := getBodyTransformQuick(w, b)
+	proxyType := b.bodyType
+	forcePairCreation := true
+	for shapeId := b.headShapeId; shapeId != nullIndex; {
+		s := &w.shapes[shapeId]
+		shapeId = s.nextShapeId
+		createShapeProxy(s, &w.broadPhase, proxyType, transform, forcePairCreation)
+	}
+
+	if setId != staticSet {
+		createIslandForBody(w, setId, b)
+	}
+
+	mergeIslands := false
+	for jointKey := b.headJointKey; jointKey != nullIndex; {
+		jointId := jointKey >> 1
+		edgeIndex := jointKey & 1
+		j := &w.joints[jointId]
+		if j.setIndex != disabledSet {
+			panic("dbox2d: a joint of a disabled body is not disabled")
+		}
+		if j.islandId != nullIndex {
+			panic("dbox2d: a disabled joint belongs to an island")
+		}
+
+		jointKey = j.edges[edgeIndex].nextKey
+		bodyA := &w.bodies[j.edges[0].bodyId]
+		bodyB := &w.bodies[j.edges[1].bodyId]
+		if bodyA.setIndex == disabledSet || bodyB.setIndex == disabledSet {
+			continue
+		}
+
+		var jointSetId int
+		if bodyA.setIndex == staticSet && bodyB.setIndex == staticSet {
+			jointSetId = staticSet
+		} else if bodyA.setIndex == staticSet {
+			jointSetId = bodyB.setIndex
+		} else {
+			jointSetId = bodyA.setIndex
+		}
+
+		jointSet := &w.solverSets[jointSetId]
+		transferJoint(w, jointSet, disabledSolverSet, j)
+		if jointSetId != staticSet {
+			linkJoint(w, j, mergeIslands)
+		}
+	}
+
+	mergeAwakeIslands(w)
+}
+
 // SetFixedRotation enables or disables body rotation. It corresponds to
 // b2Body_SetFixedRotation.
 func (bodyId BodyId) SetFixedRotation(flag bool) {
