@@ -228,9 +228,9 @@ func TestJointSleepsAndWakesWithTheIsland(t *testing.T) {
 
 	idA := addDynamicCircle(t, worldId, v2(0, 0))
 	idB := addDynamicCircle(t, worldId, v2(3, 0))
-	def := DefaultWeldJointDef()
+	def := DefaultRevoluteJointDef()
 	def.BodyIdA, def.BodyIdB = idA, idB
-	jointId := CreateWeldJoint(worldId, &def)
+	jointId := CreateRevoluteJoint(worldId, &def)
 	j := getJointFullId(w, jointId)
 	bodyA := getBodyFullId(w, idA)
 	colorIndex := j.colorIndex
@@ -262,7 +262,7 @@ func TestJointSleepsAndWakesWithTheIsland(t *testing.T) {
 		t.Errorf("the woken joint is in set %d color %d", j.setIndex, j.colorIndex)
 	}
 	js := getJointSim(w, j)
-	if js.jointId != j.jointId || js.jointType != WeldJoint {
+	if js.jointId != j.jointId || js.jointType != RevoluteJoint {
 		t.Errorf("the woken sim has id %d and type %d", js.jointId, js.jointType)
 	}
 	validateWorld(w)

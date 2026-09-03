@@ -922,3 +922,88 @@ func DestroyJoint(jointId JointId) {
 
 	destroyJointInternal(w, j, true)
 }
+
+// jointStates returns the solver states of the two bodies of a joint. A
+// body outside the awake set gets the dummy state.
+func jointStates(states []bodyState, dummy *bodyState, indexA, indexB int) (stateA, stateB *bodyState) {
+	stateA = dummy
+	if indexA != nullIndex {
+		stateA = &states[indexA]
+	}
+	stateB = dummy
+	if indexB != nullIndex {
+		stateB = &states[indexB]
+	}
+	return stateA, stateB
+}
+
+// prepareJoint corresponds to b2PrepareJoint in src/joint.c.
+func prepareJoint(js *jointSim, context *stepContext) {
+	// Clamp joint hertz based on the time step to reduce jitter.
+	// D-006: the reference multiplies the inverse step by 0.25.
+	hertz := js.constraintHertz.Min(context.invH.Div(fixed.Q32FromInt(4)))
+	js.constraintSoftness = makeSoft(hertz, js.constraintDampingRatio, context.h)
+
+	switch js.jointType {
+	case FilterJoint:
+	case RevoluteJoint:
+		prepareRevoluteJoint(js, context)
+	default:
+		panic("dbox2d: joint type not ported")
+	}
+}
+
+// warmStartJoint corresponds to b2WarmStartJoint in src/joint.c.
+func warmStartJoint(js *jointSim, context *stepContext) {
+	switch js.jointType {
+	case FilterJoint:
+	case RevoluteJoint:
+		warmStartRevoluteJoint(js, context)
+	default:
+		panic("dbox2d: joint type not ported")
+	}
+}
+
+// solveJoint corresponds to b2SolveJoint in src/joint.c.
+func solveJoint(js *jointSim, context *stepContext, useBias bool) {
+	switch js.jointType {
+	case FilterJoint:
+	case RevoluteJoint:
+		solveRevoluteJoint(js, context, useBias)
+	default:
+		panic("dbox2d: joint type not ported")
+	}
+}
+
+// prepareJoints prepares the joints of one color. It corresponds to
+// b2PrepareOverflowJoints in src/joint.c and to b2PrepareJointsTask in
+// src/solver.c.
+func prepareJoints(context *stepContext, colorIndex int) {
+	joints := context.graph.colors[colorIndex].jointSims
+
+	for i := range joints {
+		prepareJoint(&joints[i], context)
+	}
+}
+
+// warmStartJoints applies the stored impulses of the joints of one color.
+// It corresponds to b2WarmStartOverflowJoints in src/joint.c and to
+// b2WarmStartJointsTask in src/solver.c.
+func warmStartJoints(context *stepContext, colorIndex int) {
+	joints := context.graph.colors[colorIndex].jointSims
+
+	for i := range joints {
+		warmStartJoint(&joints[i], context)
+	}
+}
+
+// solveJoints runs one iteration over the joints of one color. It
+// corresponds to b2SolveOverflowJoints in src/joint.c and to
+// b2SolveJointsTask in src/solver.c.
+func solveJoints(context *stepContext, colorIndex int, useBias bool) {
+	joints := context.graph.colors[colorIndex].jointSims
+
+	for i := range joints {
+		solveJoint(&joints[i], context, useBias)
+	}
+}

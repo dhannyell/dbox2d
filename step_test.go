@@ -257,16 +257,23 @@ func TestStepTracksSleepTime(t *testing.T) {
 // TestStepAllocatesNothing pins the hot-path contract: after the first
 // step that activates a contact, a step allocates nothing. The first step
 // grows the graph colors, the arena and the event buffers once, as the
-// reference does. Sleep stays off so the contact keeps solving.
+// reference does. Sleep stays off so the contact and the joint keep
+// solving.
 func TestStepAllocatesNothing(t *testing.T) {
 	def := DefaultWorldDef()
 	def.EnableSleep = false
 	worldId := CreateWorld(&def)
 	t.Cleanup(func() { DestroyWorld(worldId) })
 	boxOnGround(t, worldId, fixed.Q32Zero())
+	var boxIds [8]BodyId
 	for i := range 8 {
-		addDynamicBox(t, worldId, v2(10+i*3, 0))
+		boxIds[i] = addDynamicBox(t, worldId, v2(10+i*3, 0))
 	}
+	jointDef := DefaultRevoluteJointDef()
+	jointDef.BodyIdA, jointDef.BodyIdB = boxIds[0], boxIds[1]
+	jointDef.LocalAnchorA = Vec2{X: fixed.Q32FromInt(2)}
+	jointDef.LocalAnchorB = Vec2{X: fixed.Q32FromInt(-1)}
+	CreateRevoluteJoint(worldId, &jointDef)
 	w := getWorldFromId(worldId)
 
 	dt := stepDt()
@@ -965,4 +972,53 @@ func TestStepFastBodyCrossesAChainJunction(t *testing.T) {
 	if !fixed.Q32FromInt(100).Less(state.linearVelocity.X) {
 		t.Fatalf("velocity x %v, want the box still moving", state.linearVelocity.X)
 	}
+}
+
+// TestStepSwingsAPendulum pins the joint stages inside Step: a box on a
+// revolute joint one unit from a static pivot swings under gravity, the
+// arm keeps its length within two linear slops on every step, and no
+// operation saturates.
+func TestStepSwingsAPendulum(t *testing.T) {
+	worldId := createTestWorld(t)
+	w := getWorldFromId(worldId)
+
+	pivotDef := DefaultBodyDef()
+	pivotId := CreateBody(worldId, &pivotDef)
+
+	bobDef := DefaultBodyDef()
+	bobDef.Type = DynamicBody
+	bobDef.Position = Vec2{X: fixed.Q32One()}
+	bobId := CreateBody(worldId, &bobDef)
+	shapeDef := DefaultShapeDef()
+	bob := MakeSquare(fixed.Q32MustParse("0.1"))
+	CreatePolygonShape(bobId, &shapeDef, &bob)
+
+	def := DefaultRevoluteJointDef()
+	def.BodyIdA = pivotId
+	def.BodyIdB = bobId
+	def.LocalAnchorB = Vec2{X: fixed.Q32One().Neg()}
+	CreateRevoluteJoint(worldId, &def)
+
+	fixed.ResetSaturationCount()
+	body := getBodyFullId(w, bobId)
+	slack := linearSlop.Add(linearSlop)
+	one := fixed.Q32One()
+	lowest := fixed.Q32Zero()
+	dt := stepDt()
+	for i := range 120 {
+		Step(worldId, dt, 4)
+		center := getBodySim(w, body).center
+		arm := center.Len()
+		if !withinQ(arm, one, slack) {
+			t.Fatalf("step %d: the arm is %v long, want 1", i, arm)
+		}
+		lowest = lowest.Min(center.Y)
+	}
+	if !lowest.Less(fixed.Q32MustParse("-0.9")) {
+		t.Errorf("the bob only fell to y = %v", lowest)
+	}
+	if n := fixed.SaturationCount(); n != 0 {
+		t.Errorf("%d operations saturated", n)
+	}
+	validateWorld(w)
 }
