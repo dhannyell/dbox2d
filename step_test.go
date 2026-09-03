@@ -1096,3 +1096,41 @@ func TestStepSlidesToTheStop(t *testing.T) {
 	}
 	validateWorld(w)
 }
+
+// TestStepSettlesTheSuspension pins the wheel joint inside Step: a circle
+// half a unit above the ground origin, on a vertical spring of two hertz
+// without gravity, settles back onto the anchor within two linear slops,
+// and no operation saturates.
+func TestStepSettlesTheSuspension(t *testing.T) {
+	worldDef := DefaultWorldDef()
+	worldDef.Gravity = Vec2Zero()
+	worldId := CreateWorld(&worldDef)
+	t.Cleanup(func() { DestroyWorld(worldId) })
+	w := getWorldFromId(worldId)
+
+	groundDef := DefaultBodyDef()
+	groundId := CreateBody(worldId, &groundDef)
+	wheelId := addDynamicCircle(t, worldId, Vec2{Y: fixed.Q32Half()})
+
+	def := DefaultWheelJointDef()
+	def.BodyIdA = groundId
+	def.BodyIdB = wheelId
+	def.Hertz = fixed.Q32FromInt(2)
+	CreateWheelJoint(worldId, &def)
+
+	fixed.ResetSaturationCount()
+	body := getBodyFullId(w, wheelId)
+	slack := linearSlop.Add(linearSlop)
+	dt := stepDt()
+	for range 240 {
+		Step(worldId, dt, 4)
+	}
+	center := getBodySim(w, body).center
+	if !withinQ(center.X, fixed.Q32Zero(), slack) || !withinQ(center.Y, fixed.Q32Zero(), slack) {
+		t.Errorf("the wheel rests at %v, want (0, 0)", center)
+	}
+	if n := fixed.SaturationCount(); n != 0 {
+		t.Errorf("%d operations saturated", n)
+	}
+	validateWorld(w)
+}
