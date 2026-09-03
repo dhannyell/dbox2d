@@ -118,7 +118,11 @@ Numbering is sequential from `D-001` and never reused.
   src/solver.h `b2MakeSoft` `a3`;
   src/contact_solver.c `b2PrepareOverflowContacts` effective masses;
   src/distance.c `b2SolveSimplex2` `inv_d12` and `b2SolveSimplex3`
-  `inv_d12`, `inv_d13`, `inv_d23`, `inv_d123`)
+  `inv_d12`, `inv_d13`, `inv_d23`, `inv_d123`; src/distance.c
+  `b2ShapeDistance` `0.1f * B2_LINEAR_SLOP`, `b2ShapeCast` and
+  `b2TimeOfImpact` `0.25f * B2_LINEAR_SLOP`; src/world.c
+  `b2World_OverlapShape` `0.1f * B2_LINEAR_SLOP`; src/manifold.c
+  `b2CollideChainSegmentAndPolygon` `0.1f * B2_LINEAR_SLOP`)
 - Tier: T2
 - Reason: a Q32.32 reciprocal keeps only the leading bits of a large value.
   Multiplying by it discards the precision that a division keeps.
@@ -141,7 +145,11 @@ Numbering is sequential from `D-001` and never reused.
   zero mass scale, because the reference divides by that scale and a Q
   division by zero panics. The simplex solvers divide each barycentric
   weight by its denominator; the denominator is exactly positive on the
-  branch that reaches it.
+  branch that reaches it. The slop fractions of the distance queries are
+  divisions as well: `ShapeDistance` divides the slop by ten for its radius
+  guard, `ShapeCast` and `TimeOfImpact` divide it by four for their
+  tolerance, and `OverlapShape` and `CollideChainSegmentAndPolygon` divide
+  it by ten.
 - Test: TestSolve22SolvesTheSystem, TestNormalizeKeepsAShortVector and
   TestNormalizeRotKeepsAZeroRotation in math_test.go,
   TestAABBRayCastHitsTheNearFace in aabb_test.go,
@@ -188,7 +196,9 @@ Numbering is sequential from `D-001` and never reused.
 - Files: aabb.go, hull.go, manifold.go, dynamic_tree.go (upstream
   src/aabb.c `b2AABB_RayCast`, src/hull.c `b2ComputeHull`, src/manifold.c
   `b2CollidePolygonAndCircle`, `b2FindMaxSeparation` and `b2CollidePolygons`
-  search seeds, src/dynamic_tree.c `b2FindBestSibling` lower bounds and
+  search seeds, `b2CollideChainSegmentAndPolygon` SAT seeds
+  `edgeSeparation`, `s0`, `s2` (`FLT_MAX` at lines 1525, 1540, 1563) and
+  `polygonSeparation` (`-FLT_MAX` at line 1585), src/dynamic_tree.c `b2FindBestSibling` lower bounds and
   `b2PartitionSAH` bin bounds and cost seed)
 - Tier: T2
 - Reason: the reference seeds a search with `FLT_MAX`, which no coordinate

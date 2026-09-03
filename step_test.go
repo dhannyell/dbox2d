@@ -908,3 +908,61 @@ func TestStepBulletStopsAtADynamicPlate(t *testing.T) {
 		}
 	})
 }
+
+// TestStepFastBodyCrossesAChainJunction pins the side test of the
+// continuous stage: a fast box that lands on a chain from above stops at
+// the floor, then slides across the junction of two collinear segments.
+// A wrong sign in the side test lets the box tunnel through the floor.
+func TestStepFastBodyCrossesAChainJunction(t *testing.T) {
+	worldId := continuousWorld(t, true)
+	w := getWorldFromId(worldId)
+
+	// The chain normal points to the right of p1->p2, so each floor
+	// segment runs from right to left to face up. The junction is x = 8.
+	groundDef := DefaultBodyDef()
+	groundId := CreateBody(worldId, &groundDef)
+	ground := getBodyFullId(w, groundId)
+	shapeDef := DefaultShapeDef()
+	xf := getBodyTransformQuick(w, ground)
+	right := ChainSegment{
+		Ghost1:  Vec2{X: fixed.Q32FromInt(30)},
+		Segment: Segment{Point1: Vec2{X: fixed.Q32FromInt(20)}, Point2: Vec2{X: fixed.Q32FromInt(8)}},
+		Ghost2:  Vec2{X: fixed.Q32FromInt(-10)},
+	}
+	left := ChainSegment{
+		Ghost1:  Vec2{X: fixed.Q32FromInt(20)},
+		Segment: Segment{Point1: Vec2{X: fixed.Q32FromInt(8)}, Point2: Vec2{X: fixed.Q32FromInt(-10)}},
+		Ghost2:  Vec2{X: fixed.Q32FromInt(-20)},
+	}
+	createShapeInternal(w, ground, xf, &shapeDef, &right, ChainSegmentShape)
+	createShapeInternal(w, ground, xf, &shapeDef, &left, ChainSegmentShape)
+
+	// The box has a half extent of 0.1. It crosses more than three metres
+	// and falls one metre per step, so it reaches the floor two metres
+	// before the junction.
+	bodyDef := DefaultBodyDef()
+	bodyDef.Type = DynamicBody
+	bodyDef.Position = Vec2{X: fixed.Q32FromInt(6), Y: fixed.Q32MustParse("0.6")}
+	bodyDef.LinearVelocity = v2(200, -60)
+	boxId := CreateBody(worldId, &bodyDef)
+	boxShape := MakeSquare(fixed.Q32FromRatio(1, 10))
+	CreatePolygonShape(boxId, &shapeDef, &boxShape)
+	box := getBodyFullId(w, boxId)
+
+	junction := fixed.Q32FromInt(8)
+	for range 3 {
+		Step(worldId, stepDt(), 4)
+		validateWorld(w)
+	}
+
+	if x := bodyX(worldId, boxId); !junction.Less(x) {
+		t.Fatalf("x %v, want past the junction at %v", x, junction)
+	}
+	if y := getBodyTransformQuick(w, box).P.Y; !fixed.Q32Zero().Less(y) {
+		t.Fatalf("y %v, want the box above the floor", y)
+	}
+	state := getBodyState(w, box)
+	if !fixed.Q32FromInt(100).Less(state.linearVelocity.X) {
+		t.Fatalf("velocity x %v, want the box still moving", state.linearVelocity.X)
+	}
+}
