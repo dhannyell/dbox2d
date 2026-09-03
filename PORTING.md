@@ -449,7 +449,9 @@ pair set moves from the world to the broadphase. `shape.go` gains
 **The public queries have landed**: `world.go` gains `OverlapAABB` and `CastRay`
 over the three trees, `shape.go` gains the ray cast dispatcher, and the
 public callbacks are closures per D-014. A zero fraction ends the cast
-before the next tree; a locked world panics per D-003. The shape casts
+before the next tree; a false overlap result ends only the current tree,
+because the reference loop does not check it; a locked world panics per
+D-003. The shape casts
 and the closest-hit helpers wait for the shape cast of the collision
 foundation.
 

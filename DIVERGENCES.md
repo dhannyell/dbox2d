@@ -309,4 +309,3 @@ Numbering is sequential from `D-001` and never reused.
 - Test: TestTreeQueryReportsTheOverlaps and TestTreeRayCastClipsTheRay in
   dynamic_tree_test.go; TestOverlapAABBReportsTheFatBounds and
   TestCastRayClipsAcrossTheTrees in world_test.go
-

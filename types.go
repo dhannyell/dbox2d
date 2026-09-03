@@ -396,8 +396,10 @@ type BodyEvents struct {
 }
 
 // OverlapResultFcn receives each shape that an overlap query finds.
-// Return false to stop the query. It corresponds to b2OverlapResultFcn
-// in include/box2d/types.h; the closure carries the context.
+// Return false to stop the walk of the current tree; the query goes on
+// with the next body type, as the reference does. It corresponds to
+// b2OverlapResultFcn in include/box2d/types.h; the closure carries the
+// context.
 type OverlapResultFcn func(shapeId ShapeId) bool
 
 // CastResultFcn receives each hit of a ray cast. Return -1 to skip the

@@ -747,8 +747,10 @@ func validateContacts(w *world) {
 }
 
 // OverlapAABB reports every shape whose fat bounds overlap the box and
-// whose filter accepts the query. A locked world panics. It corresponds
-// to b2World_OverlapAABB in src/world.c.
+// whose filter accepts the query. It walks the static, the kinematic and
+// the dynamic tree in that order; a false result ends only the current
+// tree, as in the reference. A locked world panics. It corresponds to
+// b2World_OverlapAABB in src/world.c.
 func OverlapAABB(worldId WorldId, aabb AABB, filter QueryFilter, fcn OverlapResultFcn) TreeStats {
 	w := getWorldFromId(worldId)
 	if w.locked {
