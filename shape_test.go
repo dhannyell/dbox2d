@@ -236,3 +236,92 @@ func TestTestPoint(t *testing.T) {
 		t.Fatal("TestPoint accepted a point outside the box")
 	}
 }
+
+func TestCreateChainOpenBuildsSegmentsWithGhosts(t *testing.T) {
+	worldId := createTestWorld(t)
+	bodyDef := DefaultBodyDef()
+	bodyId := CreateBody(worldId, &bodyDef)
+	points := []Vec2{v2(0, 0), v2(1, 0), v2(2, 0), v2(3, 0), v2(4, 0)}
+	chainDef := DefaultChainDef()
+	chainDef.Points = points
+	chainId := CreateChain(bodyId, &chainDef)
+
+	if got := chainId.GetSegmentCount(); got != 2 {
+		t.Fatalf("segment count = %d, want 2", got)
+	}
+	segments := make([]ShapeId, chainId.GetSegmentCount())
+	if got := chainId.GetSegments(segments); got != len(segments) {
+		t.Fatalf("segments written = %d, want %d", got, len(segments))
+	}
+	for i, segmentId := range segments {
+		segment := segmentId.GetChainSegment()
+		if segment.Ghost1 != points[i] || segment.Ghost2 != points[i+3] {
+			t.Errorf("segment %d ghosts = %v/%v, want %v/%v", i, segment.Ghost1, segment.Ghost2, points[i], points[i+3])
+		}
+		if got := segmentId.GetParentChain(); got != chainId {
+			t.Errorf("segment %d parent chain = %v, want %v", i, got, chainId)
+		}
+	}
+}
+
+func TestCreateChainLoopBuildsAllSegments(t *testing.T) {
+	worldId := createTestWorld(t)
+	bodyDef := DefaultBodyDef()
+	bodyId := CreateBody(worldId, &bodyDef)
+	chainDef := DefaultChainDef()
+	chainDef.Points = []Vec2{v2(0, 0), v2(2, 0), v2(2, 2), v2(0, 2)}
+	chainDef.IsLoop = true
+	chainId := CreateChain(bodyId, &chainDef)
+
+	if got := chainId.GetSegmentCount(); got != 4 {
+		t.Fatalf("segment count = %d, want 4", got)
+	}
+}
+
+func TestCreateChainPanicsBelowFourPoints(t *testing.T) {
+	worldId := createTestWorld(t)
+	bodyDef := DefaultBodyDef()
+	bodyId := CreateBody(worldId, &bodyDef)
+	chainDef := DefaultChainDef()
+	chainDef.Points = []Vec2{v2(0, 0), v2(1, 0), v2(2, 0)}
+
+	requirePanic(t, func() { CreateChain(bodyId, &chainDef) })
+}
+
+func TestChainSetFrictionReachesEverySegment(t *testing.T) {
+	worldId := createTestWorld(t)
+	bodyDef := DefaultBodyDef()
+	bodyId := CreateBody(worldId, &bodyDef)
+	chainDef := DefaultChainDef()
+	chainDef.Points = []Vec2{v2(0, 0), v2(1, 0), v2(2, 0), v2(3, 0), v2(4, 0)}
+	chainId := CreateChain(bodyId, &chainDef)
+	friction := fixed.Q32MustParse("0.375")
+	chainId.SetFriction(friction)
+
+	segments := make([]ShapeId, chainId.GetSegmentCount())
+	chainId.GetSegments(segments)
+	for i, segmentId := range segments {
+		if got := segmentId.GetFriction(); !got.Eq(friction) {
+			t.Errorf("segment %d friction = %v, want %v", i, got, friction)
+		}
+	}
+}
+
+func TestDestroyChainRemovesSegmentsFromBody(t *testing.T) {
+	worldId := createTestWorld(t)
+	w := getWorldFromId(worldId)
+	bodyDef := DefaultBodyDef()
+	bodyId := CreateBody(worldId, &bodyDef)
+	chainDef := DefaultChainDef()
+	chainDef.Points = []Vec2{v2(0, 0), v2(1, 0), v2(2, 0), v2(3, 0)}
+	chainId := CreateChain(bodyId, &chainDef)
+
+	DestroyChain(chainId)
+	if got := bodyId.GetShapeCount(); got != 0 {
+		t.Errorf("shape count after destroy = %d, want 0", got)
+	}
+	if chainId.IsValid() {
+		t.Error("destroyed chain is still valid")
+	}
+	validateWorld(w)
+}

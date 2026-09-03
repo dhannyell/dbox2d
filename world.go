@@ -13,7 +13,7 @@ const (
 
 // world manages all physics entities and the dynamic simulation.
 type world struct {
-	// Deferred: the chain and sensor storage and the task system of the reference.
+	// Deferred: the sensor storage and the task system of the reference.
 
 	// constraintGraph colors the awake touching contacts.
 	constraintGraph constraintGraph
@@ -39,6 +39,11 @@ type world struct {
 
 	// shapes maps a shape id to the shape data.
 	shapes []shape
+
+	chainIdPool idPool
+
+	// chainShapes maps a chain id to the chain data.
+	chainShapes []chainShape
 
 	contactIdPool idPool
 
@@ -226,6 +231,8 @@ func CreateWorld(def *WorldDef) WorldId {
 
 	w.shapeIdPool = createIdPool()
 	w.shapes = make([]shape, 0, 16)
+	w.chainIdPool = createIdPool()
+	w.chainShapes = make([]chainShape, 0, 16)
 
 	w.contactIdPool = createIdPool()
 	w.contacts = make([]contact, 0, 16)

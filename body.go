@@ -338,21 +338,29 @@ func DestroyBody(bodyId BodyId) {
 	// Destroy all contacts attached to this body.
 	destroyBodyContacts(w, b, wakeBodies)
 
-	// Destroy the attached shapes. Deferred: their sensor records.
+	// Destroy the attached shapes. Chain segments are destroyed with their
+	// owning chain below.
 	shapeId := b.headShapeId
 	for shapeId != nullIndex {
 		s := &w.shapes[shapeId]
 
-		destroyShapeProxy(s, &w.broadPhase)
+		if s.chainId == nullIndex {
+			destroyShapeProxy(s, &w.broadPhase)
 
-		// Return shape to free list.
-		w.shapeIdPool.freeId(shapeId)
-		s.id = nullIndex
+			// Return shape to free list.
+			w.shapeIdPool.freeId(shapeId)
+			s.id = nullIndex
+		}
 
 		shapeId = s.nextShapeId
 	}
 
-	// Deferred: the attached chains go away here, after their shapes.
+	for chainID := b.headChainId; chainID != nullIndex; {
+		chain := &w.chainShapes[chainID]
+		nextChainID := chain.nextChainId
+		DestroyChain(ChainId{index1: int32(chainID) + 1, world0: w.worldId, generation: chain.generation})
+		chainID = nextChainID
+	}
 
 	removeBodyFromIsland(w, b)
 

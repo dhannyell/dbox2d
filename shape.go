@@ -6,6 +6,7 @@ import "github.com/dhannyell/fixed"
 type shape struct {
 	id          int
 	bodyId      int
+	chainId     int
 	prevShapeId int
 	nextShapeId int
 	sensorIndex int
@@ -44,6 +45,14 @@ type shape struct {
 	enableHitEvents      bool
 	enablePreSolveEvents bool
 	enlargedAABB         bool
+}
+
+type chainShape struct {
+	id           int
+	bodyId       int
+	nextChainId  int
+	shapeIndices []int
+	generation   uint16
 }
 
 // shapeExtent holds the distances from a reference point to the nearest and
@@ -113,6 +122,7 @@ func createShapeInternal(w *world, b *body, transform Transform, def *ShapeDef, 
 
 	s.id = shapeId
 	s.bodyId = b.id
+	s.chainId = nullIndex
 	s.shapeType = shapeType
 	s.density = def.Density
 	s.friction = def.Material.Friction
@@ -232,6 +242,187 @@ func CreateSegmentShape(bodyId BodyId, def *ShapeDef, segment *Segment) ShapeId 
 	}
 
 	return createShape(bodyId, def, segment, SegmentShape)
+}
+
+// CreateChain ports b2CreateChain.
+func CreateChain(bodyId BodyId, def *ChainDef) ChainId {
+	checkDef(def.internalValue)
+
+	n := len(def.Points)
+	if n < 4 {
+		panic("dbox2d: ChainDef.Points must contain at least 4 points")
+	}
+	materialCount := len(def.Materials)
+	if materialCount != 1 && materialCount != n {
+		panic("dbox2d: ChainDef.Materials must contain one material or one per point")
+	}
+
+	zero := fixed.Q32Zero()
+	for i := range def.Materials {
+		material := def.Materials[i]
+		if !IsValidQ(material.Friction) || material.Friction.Less(zero) {
+			panic("dbox2d: ChainDef.Materials contains invalid friction")
+		}
+		if !IsValidQ(material.Restitution) || material.Restitution.Less(zero) {
+			panic("dbox2d: ChainDef.Materials contains invalid restitution")
+		}
+		if !IsValidQ(material.RollingResistance) || material.RollingResistance.Less(zero) {
+			panic("dbox2d: ChainDef.Materials contains invalid rolling resistance")
+		}
+		if !IsValidQ(material.TangentSpeed) {
+			panic("dbox2d: ChainDef.Materials contains invalid tangent speed")
+		}
+	}
+
+	w := getWorldLocked(bodyId.world0)
+	b := getBodyFullId(w, bodyId)
+	transform := getBodyTransformQuick(w, b)
+
+	chainID := w.chainIdPool.allocId()
+	if chainID == len(w.chainShapes) {
+		w.chainShapes = append(w.chainShapes, chainShape{})
+	} else if w.chainShapes[chainID].id != nullIndex {
+		panic("dbox2d: the chain slot is still in use")
+	}
+
+	chain := &w.chainShapes[chainID]
+	chain.id = chainID
+	chain.bodyId = b.id
+	chain.nextChainId = b.headChainId
+	chain.generation += 1
+	b.headChainId = chainID
+
+	shapeDef := DefaultShapeDef()
+	shapeDef.UserData = def.UserData
+	shapeDef.Filter = def.Filter
+	shapeDef.EnableSensorEvents = def.EnableSensorEvents
+	shapeDef.EnableContactEvents = false
+	shapeDef.EnableHitEvents = false
+	shapeDef.EnablePreSolveEvents = false
+
+	if def.IsLoop {
+		chain.shapeIndices = make([]int, n)
+
+		chainSegment := ChainSegment{ChainId: chainID}
+		prevIndex := n - 1
+		for i := 0; i < n-2; i++ {
+			chainSegment.Ghost1 = def.Points[prevIndex]
+			chainSegment.Segment.Point1 = def.Points[i]
+			chainSegment.Segment.Point2 = def.Points[i+1]
+			chainSegment.Ghost2 = def.Points[i+2]
+			prevIndex = i
+
+			materialIndex := 0
+			if materialCount != 1 {
+				materialIndex = i
+			}
+			shapeDef.Material = def.Materials[materialIndex]
+
+			s := createShapeInternal(w, b, transform, &shapeDef, &chainSegment, ChainSegmentShape)
+			s.chainId = chainID
+			chain.shapeIndices[i] = s.id
+		}
+
+		chainSegment.Ghost1 = def.Points[n-3]
+		chainSegment.Segment.Point1 = def.Points[n-2]
+		chainSegment.Segment.Point2 = def.Points[n-1]
+		chainSegment.Ghost2 = def.Points[0]
+		materialIndex := 0
+		if materialCount != 1 {
+			materialIndex = n - 2
+		}
+		shapeDef.Material = def.Materials[materialIndex]
+		s := createShapeInternal(w, b, transform, &shapeDef, &chainSegment, ChainSegmentShape)
+		s.chainId = chainID
+		chain.shapeIndices[n-2] = s.id
+
+		chainSegment.Ghost1 = def.Points[n-2]
+		chainSegment.Segment.Point1 = def.Points[n-1]
+		chainSegment.Segment.Point2 = def.Points[0]
+		chainSegment.Ghost2 = def.Points[1]
+		materialIndex = 0
+		if materialCount != 1 {
+			materialIndex = n - 1
+		}
+		shapeDef.Material = def.Materials[materialIndex]
+		s = createShapeInternal(w, b, transform, &shapeDef, &chainSegment, ChainSegmentShape)
+		s.chainId = chainID
+		chain.shapeIndices[n-1] = s.id
+	} else {
+		chain.shapeIndices = make([]int, n-3)
+
+		for i := 0; i < n-3; i++ {
+			chainSegment := ChainSegment{
+				Ghost1: def.Points[i],
+				Segment: Segment{
+					Point1: def.Points[i+1],
+					Point2: def.Points[i+2],
+				},
+				Ghost2:  def.Points[i+3],
+				ChainId: chainID,
+			}
+			materialIndex := 0
+			if materialCount != 1 {
+				materialIndex = i + 1
+			}
+			shapeDef.Material = def.Materials[materialIndex]
+
+			s := createShapeInternal(w, b, transform, &shapeDef, &chainSegment, ChainSegmentShape)
+			s.chainId = chainID
+			chain.shapeIndices[i] = s.id
+		}
+	}
+
+	return ChainId{index1: int32(chainID) + 1, world0: w.worldId, generation: chain.generation}
+}
+
+// DestroyChain ports b2DestroyChain.
+func DestroyChain(chainId ChainId) {
+	w := getWorldLocked(chainId.world0)
+	id := int(chainId.index1) - 1
+	chain := &w.chainShapes[id]
+	if chain.id != id || chain.generation != chainId.generation {
+		panic("dbox2d: invalid ChainId")
+	}
+	b := &w.bodies[chain.bodyId]
+
+	chainIDPtr := &b.headChainId
+	found := false
+	for *chainIDPtr != nullIndex {
+		if *chainIDPtr == chain.id {
+			*chainIDPtr = chain.nextChainId
+			found = true
+			break
+		}
+		chainIDPtr = &w.chainShapes[*chainIDPtr].nextChainId
+	}
+	if !found {
+		panic("dbox2d: chain is not attached to its body")
+	}
+
+	for _, shapeID := range chain.shapeIndices {
+		s := &w.shapes[shapeID]
+		destroyShapeInternal(w, s, b)
+	}
+
+	freeChainData(chain)
+	w.chainIdPool.freeId(chain.id)
+	chain.id = nullIndex
+}
+
+func getChain(w *world, chainId ChainId) *chainShape {
+	id := int(chainId.index1) - 1
+	chain := &w.chainShapes[id]
+	if chain.id != id || chain.generation != chainId.generation {
+		panic("dbox2d: invalid ChainId")
+	}
+	return chain
+}
+
+// freeChainData releases the storage owned by a chain. It corresponds to
+// b2FreeChainData.
+func freeChainData(chain *chainShape) {
+	chain.shapeIndices = nil
 }
 
 // destroyShapeInternal unlinks the shape, destroys its contacts and frees its
@@ -552,6 +743,140 @@ func (shapeId ShapeId) GetWorld() WorldId {
 	return WorldId{index1: shapeId.world0 + 1, generation: w.generation}
 }
 
+// GetParentChain returns the chain that owns the shape. It corresponds to
+// b2Shape_GetParentChain.
+func (shapeId ShapeId) GetParentChain() ChainId {
+	w := getWorld(shapeId.world0)
+	s := getShape(w, shapeId)
+	if s.shapeType != ChainSegmentShape || s.chainId == nullIndex {
+		return ChainId{}
+	}
+
+	chain := &w.chainShapes[s.chainId]
+	return ChainId{index1: int32(s.chainId) + 1, world0: shapeId.world0, generation: chain.generation}
+}
+
+// IsValid reports whether the id references a live chain.
+func (chainId ChainId) IsValid() bool {
+	if maxWorlds <= chainId.world0 {
+		return false
+	}
+
+	w := &worlds[chainId.world0]
+	if w.worldId != chainId.world0 {
+		return false
+	}
+
+	chainIndex := int(chainId.index1) - 1
+	if chainIndex < 0 || len(w.chainShapes) <= chainIndex {
+		return false
+	}
+
+	chain := &w.chainShapes[chainIndex]
+	if chain.id == nullIndex {
+		return false
+	}
+	if chain.id != chainIndex {
+		panic("dbox2d: the chain id does not match its slot")
+	}
+
+	return chain.generation == chainId.generation
+}
+
+// GetWorld returns the world containing the chain. It corresponds to
+// b2Chain_GetWorld.
+func (chainId ChainId) GetWorld() WorldId {
+	w := getWorld(chainId.world0)
+	return WorldId{index1: chainId.world0 + 1, generation: w.generation}
+}
+
+// GetSegmentCount returns the number of segments in the chain. It corresponds
+// to b2Chain_GetSegmentCount.
+func (chainId ChainId) GetSegmentCount() int {
+	w := getWorld(chainId.world0)
+	return len(getChain(w, chainId).shapeIndices)
+}
+
+// GetSegments fills segments with the chain's segment shapes. It corresponds
+// to b2Chain_GetSegments.
+func (chainId ChainId) GetSegments(segments []ShapeId) int {
+	w := getWorld(chainId.world0)
+	chain := getChain(w, chainId)
+	count := len(chain.shapeIndices)
+	if len(segments) < count {
+		count = len(segments)
+	}
+
+	for i := 0; i < count; i++ {
+		s := &w.shapes[chain.shapeIndices[i]]
+		segments[i] = shapeIdOf(w, s)
+	}
+	return count
+}
+
+// SetFriction changes the friction of every chain segment. It corresponds to
+// b2Chain_SetFriction.
+func (chainId ChainId) SetFriction(friction Q) {
+	zero := fixed.Q32Zero()
+	if !IsValidQ(friction) || friction.Less(zero) {
+		panic("dbox2d: SetFriction friction is not valid")
+	}
+
+	w := getWorldLocked(chainId.world0)
+	chain := getChain(w, chainId)
+	for _, shapeIndex := range chain.shapeIndices {
+		w.shapes[shapeIndex].friction = friction
+	}
+}
+
+// GetFriction returns the first segment's friction. It corresponds to
+// b2Chain_GetFriction.
+func (chainId ChainId) GetFriction() Q {
+	w := getWorld(chainId.world0)
+	chain := getChain(w, chainId)
+	return w.shapes[chain.shapeIndices[0]].friction
+}
+
+// SetRestitution changes the restitution of every chain segment. It
+// corresponds to b2Chain_SetRestitution.
+func (chainId ChainId) SetRestitution(restitution Q) {
+	if !IsValidQ(restitution) {
+		panic("dbox2d: SetRestitution restitution is not valid")
+	}
+
+	w := getWorldLocked(chainId.world0)
+	chain := getChain(w, chainId)
+	for _, shapeIndex := range chain.shapeIndices {
+		w.shapes[shapeIndex].restitution = restitution
+	}
+}
+
+// GetRestitution returns the first segment's restitution. It corresponds to
+// b2Chain_GetRestitution.
+func (chainId ChainId) GetRestitution() Q {
+	w := getWorld(chainId.world0)
+	chain := getChain(w, chainId)
+	return w.shapes[chain.shapeIndices[0]].restitution
+}
+
+// SetMaterial changes the user material id of every chain segment. It
+// corresponds to b2Chain_SetMaterial.
+func (chainId ChainId) SetMaterial(material int) {
+	w := getWorldLocked(chainId.world0)
+	chain := getChain(w, chainId)
+	for _, shapeIndex := range chain.shapeIndices {
+		w.shapes[shapeIndex].userMaterialId = material
+	}
+}
+
+// GetMaterial returns the first segment's user material id. It corresponds to
+// b2Chain_GetMaterial.
+func (chainId ChainId) GetMaterial() int {
+	w := getWorld(chainId.world0)
+	chain := getChain(w, chainId)
+	return w.shapes[chain.shapeIndices[0]].userMaterialId
+}
+
 // SetUserData attaches application data to the shape. It corresponds to
 // b2Shape_SetUserData.
 func (shapeId ShapeId) SetUserData(userData any) {
@@ -677,20 +1002,6 @@ func (shapeId ShapeId) GetRestitution() Q {
 	return getShape(w, shapeId).restitution
 }
 
-// SetMaterial sets the shape user material id. It corresponds to
-// b2Shape_SetMaterial.
-func (shapeId ShapeId) SetMaterial(material int) {
-	w := getWorldLocked(shapeId.world0)
-	getShape(w, shapeId).userMaterialId = material
-}
-
-// GetMaterial returns the shape user material id. It corresponds to
-// b2Shape_GetMaterial.
-func (shapeId ShapeId) GetMaterial() int {
-	w := getWorld(shapeId.world0)
-	return getShape(w, shapeId).userMaterialId
-}
-
 // GetSurfaceMaterial returns the shape surface material. It corresponds to
 // b2Shape_GetSurfaceMaterial.
 func (shapeId ShapeId) GetSurfaceMaterial() SurfaceMaterial {
@@ -704,6 +1015,20 @@ func (shapeId ShapeId) GetSurfaceMaterial() SurfaceMaterial {
 		UserMaterialId:    s.userMaterialId,
 		CustomColor:       s.customColor,
 	}
+}
+
+// SetMaterial sets the shape user material id. It corresponds to
+// b2Shape_SetMaterial.
+func (shapeId ShapeId) SetMaterial(material int) {
+	w := getWorldLocked(shapeId.world0)
+	getShape(w, shapeId).userMaterialId = material
+}
+
+// GetMaterial returns the shape user material id. It corresponds to
+// b2Shape_GetMaterial.
+func (shapeId ShapeId) GetMaterial() int {
+	w := getWorld(shapeId.world0)
+	return getShape(w, shapeId).userMaterialId
 }
 
 // SetSurfaceMaterial changes the shape surface material. It corresponds to

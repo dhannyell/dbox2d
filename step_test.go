@@ -751,14 +751,14 @@ func TestStepLandsABoxOnAChainSegment(t *testing.T) {
 	// from right to left to face up.
 	groundDef := DefaultBodyDef()
 	groundId := CreateBody(worldId, &groundDef)
-	ground := getBodyFullId(w, groundId)
-	shapeDef := DefaultShapeDef()
-	floor := ChainSegment{
-		Ghost1:  Vec2{X: fixed.Q32FromInt(6)},
-		Segment: Segment{Point1: Vec2{X: fixed.Q32FromInt(5)}, Point2: Vec2{X: fixed.Q32FromInt(-5)}},
-		Ghost2:  Vec2{X: fixed.Q32FromInt(-6)},
+	chainDef := DefaultChainDef()
+	chainDef.Points = []Vec2{
+		{X: fixed.Q32FromInt(6)},
+		{X: fixed.Q32FromInt(5)},
+		{X: fixed.Q32FromInt(-5)},
+		{X: fixed.Q32FromInt(-6)},
 	}
-	createShapeInternal(w, ground, getBodyTransformQuick(w, ground), &shapeDef, &floor, ChainSegmentShape)
+	CreateChain(groundId, &chainDef)
 
 	boxId := addDynamicBox(t, worldId, Vec2{Y: fixed.Q32FromInt(2)})
 	box := getBodyFullId(w, boxId)
@@ -928,21 +928,16 @@ func TestStepFastBodyCrossesAChainJunction(t *testing.T) {
 	// segment runs from right to left to face up. The junction is x = 8.
 	groundDef := DefaultBodyDef()
 	groundId := CreateBody(worldId, &groundDef)
-	ground := getBodyFullId(w, groundId)
 	shapeDef := DefaultShapeDef()
-	xf := getBodyTransformQuick(w, ground)
-	right := ChainSegment{
-		Ghost1:  Vec2{X: fixed.Q32FromInt(30)},
-		Segment: Segment{Point1: Vec2{X: fixed.Q32FromInt(20)}, Point2: Vec2{X: fixed.Q32FromInt(8)}},
-		Ghost2:  Vec2{X: fixed.Q32FromInt(-10)},
+	chainDef := DefaultChainDef()
+	chainDef.Points = []Vec2{
+		{X: fixed.Q32FromInt(30)},
+		{X: fixed.Q32FromInt(20)},
+		{X: fixed.Q32FromInt(8)},
+		{X: fixed.Q32FromInt(-10)},
+		{X: fixed.Q32FromInt(-20)},
 	}
-	left := ChainSegment{
-		Ghost1:  Vec2{X: fixed.Q32FromInt(20)},
-		Segment: Segment{Point1: Vec2{X: fixed.Q32FromInt(8)}, Point2: Vec2{X: fixed.Q32FromInt(-10)}},
-		Ghost2:  Vec2{X: fixed.Q32FromInt(-20)},
-	}
-	createShapeInternal(w, ground, xf, &shapeDef, &right, ChainSegmentShape)
-	createShapeInternal(w, ground, xf, &shapeDef, &left, ChainSegmentShape)
+	CreateChain(groundId, &chainDef)
 
 	// The box has a half extent of 0.1. It crosses more than three metres
 	// and falls one metre per step, so it reaches the floor two metres

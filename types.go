@@ -341,6 +341,40 @@ func DefaultShapeDef() ShapeDef {
 	}
 }
 
+// ChainDef configures a chain shape. It corresponds to b2ChainDef.
+type ChainDef struct {
+	// Application data attached to the chain's segments.
+	UserData any
+
+	// An array of at least four points. The points are copied during creation.
+	Points []Vec2
+
+	// One material for every segment, or one material shared by all segments.
+	Materials []SurfaceMaterial
+
+	// Collision filtering data.
+	Filter Filter
+
+	// Enable sensors to detect this chain.
+	EnableSensorEvents bool
+
+	// Connect the last point back to the first point.
+	IsLoop bool
+
+	// internalValue proves that DefaultChainDef ran. upstream internalValue
+	internalValue int
+}
+
+// DefaultChainDef returns the default chain definition. It corresponds to
+// b2DefaultChainDef.
+func DefaultChainDef() ChainDef {
+	return ChainDef{
+		Materials:     []SurfaceMaterial{DefaultSurfaceMaterial()},
+		Filter:        DefaultFilter(),
+		internalValue: secretCookie,
+	}
+}
+
 // ContactData reports the manifold of a touching contact on a body. It
 // corresponds to b2ContactData in include/box2d/types.h.
 type ContactData struct {
