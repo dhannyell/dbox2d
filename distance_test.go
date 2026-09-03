@@ -408,3 +408,209 @@ func TestShapeCastMatchesHandCases(t *testing.T) {
 		}
 	})
 }
+
+// toiPair builds a time of impact input for two proxies. A rests at the
+// origin; B translates from c1 to c2 and turns from q1 to q2.
+func toiPair(a, b dbox2d.ShapeProxy, c1, c2 dbox2d.Vec2, q1, q2 dbox2d.Rot) dbox2d.TOIInput {
+	return dbox2d.TOIInput{
+		ProxyA:      a,
+		ProxyB:      b,
+		SweepA:      dbox2d.Sweep{Q1: dbox2d.RotIdentity(), Q2: dbox2d.RotIdentity()},
+		SweepB:      dbox2d.Sweep{C1: c1, C2: c2, Q1: q1, Q2: q2},
+		MaxFraction: fixed.Q32One(),
+	}
+}
+
+// toiGap returns the core distance of the proxies at the fraction, without
+// the radii, which is the quantity the solver drives to its target.
+func toiGap(input *dbox2d.TOIInput, fraction dbox2d.Q) dbox2d.Q {
+	distanceInput := dbox2d.DistanceInput{
+		ProxyA:     input.ProxyA,
+		ProxyB:     input.ProxyB,
+		TransformA: dbox2d.GetSweepTransform(&input.SweepA, fraction),
+		TransformB: dbox2d.GetSweepTransform(&input.SweepB, fraction),
+	}
+	var cache dbox2d.SimplexCache
+	return dbox2d.ShapeDistance(&distanceInput, &cache, nil).Distance
+}
+
+// toiTarget returns the separation the solver seeks and the band around it.
+func toiTarget(input *dbox2d.TOIInput) (target, tolerance dbox2d.Q) {
+	slop := dbox2d.LinearSlop()
+	totalRadius := input.ProxyA.Radius.Add(input.ProxyB.Radius)
+	return slop.Max(totalRadius.Sub(slop)), slop.Div(fixed.Q32FromInt(4))
+}
+
+// TestTimeOfImpactMatchesHandCases pins the solver on sweeps whose answer
+// is known. The hit fraction lands where the gap equals one slop, within a
+// quarter of a slop.
+func TestTimeOfImpactMatchesHandCases(t *testing.T) {
+	identity := dbox2d.RotIdentity()
+	a := boxProxy(1, 1, vec(0, 0))
+	b := boxProxy(1, 1, vec(0, 0))
+
+	t.Run("hit", func(t *testing.T) {
+		input := toiPair(a, b, vec(5, 0), vec(-5, 0), identity, identity)
+		out := dbox2d.TimeOfImpact(&input)
+		if out.State != dbox2d.TOIStateHit {
+			t.Fatalf("state %v, want a hit", out.State)
+		}
+		// The faces close a gap of 3 at a speed of 10 and stop one slop
+		// short: (3 - 0.005) / 10.
+		if !near(out.Fraction, fixed.Q32MustParse("0.2995"), fixed.Q32MustParse("0.0002")) {
+			t.Fatalf("fraction %v, want about 0.2995", out.Fraction)
+		}
+	})
+
+	t.Run("separated", func(t *testing.T) {
+		input := toiPair(a, b, vec(5, 0), vec(10, 0), identity, identity)
+		out := dbox2d.TimeOfImpact(&input)
+		if out.State != dbox2d.TOIStateSeparated || !out.Fraction.Eq(fixed.Q32One()) {
+			t.Fatalf("state %v fraction %v, want separated at 1", out.State, out.Fraction)
+		}
+	})
+
+	t.Run("out of range", func(t *testing.T) {
+		input := toiPair(a, b, vec(5, 0), vec(-5, 0), identity, identity)
+		input.MaxFraction = fixed.Q32FromRatio(1, 4)
+		out := dbox2d.TimeOfImpact(&input)
+		if out.State != dbox2d.TOIStateSeparated || !out.Fraction.Eq(input.MaxFraction) {
+			t.Fatalf("state %v fraction %v, want separated at the max fraction", out.State, out.Fraction)
+		}
+	})
+
+	t.Run("overlapped", func(t *testing.T) {
+		input := toiPair(a, b, vec(0, 0), vec(5, 0), identity, identity)
+		out := dbox2d.TimeOfImpact(&input)
+		if out.State != dbox2d.TOIStateOverlapped || !out.Fraction.Eq(fixed.Q32Zero()) {
+			t.Fatalf("state %v fraction %v, want overlapped at 0", out.State, out.Fraction)
+		}
+	})
+
+	t.Run("touching", func(t *testing.T) {
+		// The gap starts at half a slop, inside the target band.
+		input := toiPair(a, b, vecQ("2.0025", "0"), vec(-5, 0), identity, identity)
+		out := dbox2d.TimeOfImpact(&input)
+		if out.State != dbox2d.TOIStateHit || !out.Fraction.Eq(fixed.Q32Zero()) {
+			t.Fatalf("state %v fraction %v, want a hit at 0", out.State, out.Fraction)
+		}
+	})
+
+	t.Run("rotation", func(t *testing.T) {
+		// A rod turns a quarter turn about its center and sweeps a small
+		// box that sits above it. The translation alone never touches.
+		rod := boxProxy(3, 1, vec(0, 0))
+		rod.Points[0].Y = fixed.Q32MustParse("-0.1")
+		rod.Points[1].Y = fixed.Q32MustParse("-0.1")
+		rod.Points[2].Y = fixed.Q32MustParse("0.1")
+		rod.Points[3].Y = fixed.Q32MustParse("0.1")
+		input := dbox2d.TOIInput{
+			ProxyA:      boxProxy(1, 1, vec(0, 0)),
+			ProxyB:      rod,
+			SweepA:      dbox2d.Sweep{C1: vec(2, 2), C2: vec(2, 2), Q1: identity, Q2: identity},
+			SweepB:      dbox2d.Sweep{Q1: identity, Q2: dbox2d.MakeRot(fixed.Q32FromRatio(1, 4))},
+			MaxFraction: fixed.Q32One(),
+		}
+		out := dbox2d.TimeOfImpact(&input)
+		if out.State != dbox2d.TOIStateHit {
+			t.Fatalf("state %v, want a hit", out.State)
+		}
+		if !fixed.Q32Zero().Less(out.Fraction) || !out.Fraction.Less(fixed.Q32One()) {
+			t.Fatalf("fraction %v, want inside (0, 1)", out.Fraction)
+		}
+		target, tolerance := toiTarget(&input)
+		gap := toiGap(&input, out.Fraction)
+		if !near(gap, target, tolerance) {
+			t.Fatalf("gap %v at the fraction, want %v within %v", gap, target, tolerance)
+		}
+	})
+}
+
+// randomTOIInput builds a sweep pair on a millimetre grid. The rotations
+// turn at most a quarter turn, so the interpolated rotation never
+// collapses to zero.
+func randomTOIInput(rng *rand.Rand) dbox2d.TOIInput {
+	milli := func(lo, hi int) dbox2d.Q { return fixed.Q32FromRatio(lo+rng.Intn(hi-lo+1), 1000) }
+	sweep := func() dbox2d.Sweep {
+		turn := milli(0, 999)
+		return dbox2d.Sweep{
+			LocalCenter: dbox2d.Vec2{X: milli(-500, 500), Y: milli(-500, 500)},
+			C1:          dbox2d.Vec2{X: milli(-5000, 5000), Y: milli(-5000, 5000)},
+			C2:          dbox2d.Vec2{X: milli(-5000, 5000), Y: milli(-5000, 5000)},
+			Q1:          dbox2d.MakeRot(turn),
+			Q2:          dbox2d.MakeRot(turn.Add(milli(-250, 250))),
+		}
+	}
+	distance := randomDistanceInput(rng)
+	return dbox2d.TOIInput{
+		ProxyA:      distance.ProxyA,
+		ProxyB:      distance.ProxyB,
+		SweepA:      sweep(),
+		SweepB:      sweep(),
+		MaxFraction: fixed.Q32One(),
+	}
+}
+
+// TestTimeOfImpactConvergesOnRandomSweeps checks every result state on
+// random sweeps against the gap at the reported fraction, pins the bits
+// with a witness and confirms that no operation saturated.
+func TestTimeOfImpactConvergesOnRandomSweeps(t *testing.T) {
+	const witness uint64 = 3402533517278441094
+
+	rng := rand.New(rand.NewSource(11))
+	hash := fnv.New64a()
+	var buf [8]byte
+	fixed.ResetSaturationCount()
+	hits, failed := 0, 0
+
+	for range 1000 {
+		input := randomTOIInput(rng)
+		out := dbox2d.TimeOfImpact(&input)
+		target, tolerance := toiTarget(&input)
+
+		switch out.State {
+		case dbox2d.TOIStateHit:
+			hits++
+			gap := toiGap(&input, out.Fraction)
+			if fixed.Q32Zero().Less(out.Fraction) && !near(gap, target, tolerance) {
+				t.Fatalf("hit at %v with a gap of %v, want %v within %v", out.Fraction, gap, target, tolerance)
+			}
+			if !fixed.Q32Zero().Less(gap) || target.Add(tolerance).Less(gap) {
+				t.Fatalf("hit at %v with a gap of %v, want inside (0, %v]", out.Fraction, gap, target.Add(tolerance))
+			}
+		case dbox2d.TOIStateSeparated:
+			if !out.Fraction.Eq(fixed.Q32One()) {
+				t.Fatalf("separated at %v, want 1", out.Fraction)
+			}
+			if gap := toiGap(&input, out.Fraction); !target.Less(gap) {
+				t.Fatalf("separated with a gap of %v, want over %v", gap, target)
+			}
+		case dbox2d.TOIStateOverlapped:
+			if !out.Fraction.Eq(fixed.Q32Zero()) {
+				t.Fatalf("overlapped at %v, want 0", out.Fraction)
+			}
+		case dbox2d.TOIStateFailed:
+			failed++
+		default:
+			t.Fatalf("state %v", out.State)
+		}
+
+		binary.LittleEndian.PutUint64(buf[:], uint64(out.State))
+		hash.Write(buf[:])
+		binary.LittleEndian.PutUint64(buf[:], uint64(out.Fraction.Raw()))
+		hash.Write(buf[:])
+	}
+
+	if hits < 100 {
+		t.Fatalf("only %d hits", hits)
+	}
+	if failed > 10 {
+		t.Fatalf("%d sweeps failed", failed)
+	}
+	if n := fixed.SaturationCount(); n != 0 {
+		t.Fatalf("%d operations saturated", n)
+	}
+	if got := hash.Sum64(); got != witness {
+		t.Fatalf("witness %d, want %d", got, witness)
+	}
+}

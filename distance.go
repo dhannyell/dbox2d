@@ -666,3 +666,379 @@ func ShapeCast(input *ShapeCastPairInput) CastOutput {
 	// Failure!
 	return output
 }
+
+// separationType selects the axis a separationFunction tracks. It
+// corresponds to b2SeparationType in src/distance.c.
+type separationType int
+
+const (
+	pointsType separationType = iota
+	faceAType
+	faceBType
+)
+
+// separationFunction evaluates the separation of two proxies along one
+// axis over their sweeps. It corresponds to b2SeparationFunction in
+// src/distance.c.
+type separationFunction struct {
+	proxyA     *ShapeProxy
+	proxyB     *ShapeProxy
+	sweepA     Sweep
+	sweepB     Sweep
+	localPoint Vec2
+	axis       Vec2
+	kind       separationType
+}
+
+// makeSeparationFunction builds the separating axis from the simplex cache
+// at the time t1. It corresponds to b2MakeSeparationFunction in
+// src/distance.c.
+func makeSeparationFunction(cache *SimplexCache, proxyA *ShapeProxy, sweepA *Sweep, proxyB *ShapeProxy, sweepB *Sweep, t1 Q) separationFunction {
+	var f separationFunction
+
+	f.proxyA = proxyA
+	f.proxyB = proxyB
+	count := int(cache.Count)
+	if count <= 0 || count >= 3 {
+		panic("dbox2d: the separation function needs one or two cached vertices")
+	}
+
+	f.sweepA = *sweepA
+	f.sweepB = *sweepB
+
+	xfA := GetSweepTransform(sweepA, t1)
+	xfB := GetSweepTransform(sweepB, t1)
+
+	if count == 1 {
+		f.kind = pointsType
+		localPointA := proxyA.Points[cache.IndexA[0]]
+		localPointB := proxyB.Points[cache.IndexB[0]]
+		pointA := TransformPoint(xfA, localPointA)
+		pointB := TransformPoint(xfB, localPointB)
+		f.axis = pointB.Sub(pointA).Normalize()
+		f.localPoint = Vec2Zero()
+		return f
+	}
+
+	if cache.IndexA[0] == cache.IndexA[1] {
+		// Two points on B and one on A.
+		f.kind = faceBType
+		localPointB1 := proxyB.Points[cache.IndexB[0]]
+		localPointB2 := proxyB.Points[cache.IndexB[1]]
+
+		f.axis = CrossVS(localPointB2.Sub(localPointB1), fixed.Q32One())
+		f.axis = f.axis.Normalize()
+		normal := RotateVector(xfB.Q, f.axis)
+
+		f.localPoint = localPointB1.Add(localPointB2).Mul(fixed.Q32Half())
+		pointB := TransformPoint(xfB, f.localPoint)
+
+		localPointA := proxyA.Points[cache.IndexA[0]]
+		pointA := TransformPoint(xfA, localPointA)
+
+		s := pointA.Sub(pointB).Dot(normal)
+		if s.Less(fixed.Q32Zero()) {
+			f.axis = Neg(f.axis)
+		}
+		return f
+	}
+
+	// Two points on A and one or two points on B.
+	f.kind = faceAType
+	localPointA1 := proxyA.Points[cache.IndexA[0]]
+	localPointA2 := proxyA.Points[cache.IndexA[1]]
+
+	f.axis = CrossVS(localPointA2.Sub(localPointA1), fixed.Q32One())
+	f.axis = f.axis.Normalize()
+	normal := RotateVector(xfA.Q, f.axis)
+
+	f.localPoint = localPointA1.Add(localPointA2).Mul(fixed.Q32Half())
+	pointA := TransformPoint(xfA, f.localPoint)
+
+	localPointB := proxyB.Points[cache.IndexB[0]]
+	pointB := TransformPoint(xfB, localPointB)
+
+	s := pointB.Sub(pointA).Dot(normal)
+	if s.Less(fixed.Q32Zero()) {
+		f.axis = Neg(f.axis)
+	}
+	return f
+}
+
+// findMinSeparation returns the deepest separation along the axis at the
+// time t and the witness indices. The return values replace the out
+// parameters of b2FindMinSeparation in src/distance.c.
+func findMinSeparation(f *separationFunction, t Q) (separation Q, indexA, indexB int) {
+	xfA := GetSweepTransform(&f.sweepA, t)
+	xfB := GetSweepTransform(&f.sweepB, t)
+
+	switch f.kind {
+	case pointsType:
+		axisA := InvRotateVector(xfA.Q, f.axis)
+		axisB := InvRotateVector(xfB.Q, Neg(f.axis))
+
+		indexA = findSupport(f.proxyA, axisA)
+		indexB = findSupport(f.proxyB, axisB)
+
+		localPointA := f.proxyA.Points[indexA]
+		localPointB := f.proxyB.Points[indexB]
+
+		pointA := TransformPoint(xfA, localPointA)
+		pointB := TransformPoint(xfB, localPointB)
+
+		separation = pointB.Sub(pointA).Dot(f.axis)
+		return separation, indexA, indexB
+
+	case faceAType:
+		normal := RotateVector(xfA.Q, f.axis)
+		pointA := TransformPoint(xfA, f.localPoint)
+
+		axisB := InvRotateVector(xfB.Q, Neg(normal))
+
+		indexA = -1
+		indexB = findSupport(f.proxyB, axisB)
+
+		localPointB := f.proxyB.Points[indexB]
+		pointB := TransformPoint(xfB, localPointB)
+
+		separation = pointB.Sub(pointA).Dot(normal)
+		return separation, indexA, indexB
+
+	case faceBType:
+		normal := RotateVector(xfB.Q, f.axis)
+		pointB := TransformPoint(xfB, f.localPoint)
+
+		axisA := InvRotateVector(xfA.Q, Neg(normal))
+
+		indexB = -1
+		indexA = findSupport(f.proxyA, axisA)
+
+		localPointA := f.proxyA.Points[indexA]
+		pointA := TransformPoint(xfA, localPointA)
+
+		separation = pointA.Sub(pointB).Dot(normal)
+		return separation, indexA, indexB
+
+	default:
+		panic("dbox2d: the separation type is out of range")
+	}
+}
+
+// evaluateSeparation returns the separation of the witness points along
+// the axis at the time t. It corresponds to b2EvaluateSeparation in
+// src/distance.c.
+func evaluateSeparation(f *separationFunction, indexA, indexB int, t Q) Q {
+	xfA := GetSweepTransform(&f.sweepA, t)
+	xfB := GetSweepTransform(&f.sweepB, t)
+
+	switch f.kind {
+	case pointsType:
+		localPointA := f.proxyA.Points[indexA]
+		localPointB := f.proxyB.Points[indexB]
+
+		pointA := TransformPoint(xfA, localPointA)
+		pointB := TransformPoint(xfB, localPointB)
+
+		return pointB.Sub(pointA).Dot(f.axis)
+
+	case faceAType:
+		normal := RotateVector(xfA.Q, f.axis)
+		pointA := TransformPoint(xfA, f.localPoint)
+
+		localPointB := f.proxyB.Points[indexB]
+		pointB := TransformPoint(xfB, localPointB)
+
+		return pointB.Sub(pointA).Dot(normal)
+
+	case faceBType:
+		normal := RotateVector(xfB.Q, f.axis)
+		pointB := TransformPoint(xfB, f.localPoint)
+
+		localPointA := f.proxyA.Points[indexA]
+		pointA := TransformPoint(xfA, localPointA)
+
+		return pointA.Sub(pointB).Dot(normal)
+
+	default:
+		panic("dbox2d: the separation type is out of range")
+	}
+}
+
+// TimeOfImpact computes the largest fraction of the sweeps at which the
+// two proxies stay separated by the target. It uses the local separating
+// axis method, so it may miss some intermediate, non-tunneling
+// collisions. The reference counters under B2_SNOOP_TOI_COUNTERS are not
+// ported. It corresponds to b2TimeOfImpact in src/distance.c.
+func TimeOfImpact(input *TOIInput) TOIOutput {
+	zero := fixed.Q32Zero()
+
+	var output TOIOutput
+	output.State = TOIStateUnknown
+	output.Fraction = input.MaxFraction
+
+	sweepA := input.SweepA
+	sweepB := input.SweepB
+	if !IsNormalizedRot(sweepA.Q1) || !IsNormalizedRot(sweepA.Q2) || !IsNormalizedRot(sweepB.Q1) || !IsNormalizedRot(sweepB.Q2) {
+		panic("dbox2d: TimeOfImpact needs unit rotations")
+	}
+
+	proxyA := &input.ProxyA
+	proxyB := &input.ProxyB
+
+	tMax := input.MaxFraction
+
+	totalRadius := proxyA.Radius.Add(proxyB.Radius)
+	target := linearSlop.Max(totalRadius.Sub(linearSlop))
+	tolerance := linearSlop.Div(fixed.Q32FromInt(4))
+	if !tolerance.Less(target) {
+		panic("dbox2d: the time of impact target is inside the tolerance")
+	}
+
+	t1 := zero
+	const maxIterations = 20
+	distanceIterations := 0
+
+	// Prepare input for distance query.
+	var cache SimplexCache
+	var distanceInput DistanceInput
+	distanceInput.ProxyA = input.ProxyA
+	distanceInput.ProxyB = input.ProxyB
+	distanceInput.UseRadii = false
+
+	// The outer loop progressively attempts to compute new separating axes.
+	// This loop terminates when an axis is repeated (no progress is made).
+	for {
+		xfA := GetSweepTransform(&sweepA, t1)
+		xfB := GetSweepTransform(&sweepB, t1)
+
+		// Get the distance between shapes. We can also use the results
+		// to get a separating axis.
+		distanceInput.TransformA = xfA
+		distanceInput.TransformB = xfB
+		distanceOutput := ShapeDistance(&distanceInput, &cache, nil)
+
+		distanceIterations++
+
+		// If the shapes are overlapped, we give up on continuous collision.
+		if !zero.Less(distanceOutput.Distance) {
+			// Failure!
+			output.State = TOIStateOverlapped
+			output.Fraction = zero
+			break
+		}
+
+		if !target.Add(tolerance).Less(distanceOutput.Distance) {
+			// Victory!
+			output.State = TOIStateHit
+			output.Fraction = t1
+			break
+		}
+
+		// Initialize the separating axis.
+		fcn := makeSeparationFunction(&cache, proxyA, &sweepA, proxyB, &sweepB, t1)
+
+		// Compute the TOI on the separating axis. We do this by successively
+		// resolving the deepest point. This loop is bounded by the number of vertices.
+		done := false
+		t2 := tMax
+		pushBackIterations := 0
+		for {
+			// Find the deepest point at t2. Store the witness point indices.
+			s2, indexA, indexB := findMinSeparation(&fcn, t2)
+
+			// Is the final configuration separated?
+			if target.Add(tolerance).Less(s2) {
+				// Victory!
+				output.State = TOIStateSeparated
+				output.Fraction = tMax
+				done = true
+				break
+			}
+
+			// Has the separation reached tolerance?
+			if target.Sub(tolerance).Less(s2) {
+				// Advance the sweeps
+				t1 = t2
+				break
+			}
+
+			// Compute the initial separation of the witness points.
+			s1 := evaluateSeparation(&fcn, indexA, indexB, t1)
+
+			// Check for initial overlap. This might happen if the root finder
+			// runs out of iterations.
+			if s1.Less(target.Sub(tolerance)) {
+				output.State = TOIStateFailed
+				output.Fraction = t1
+				done = true
+				break
+			}
+
+			// Check for touching
+			if !target.Add(tolerance).Less(s1) {
+				// Victory! t1 should hold the TOI (could be 0.0).
+				output.State = TOIStateHit
+				output.Fraction = t1
+				done = true
+				break
+			}
+
+			// Compute 1D root of: f(x) - target = 0
+			rootIterationCount := 0
+			a1, a2 := t1, t2
+			for {
+				// Use a mix of the secant rule and bisection.
+				var t Q
+				if rootIterationCount&1 == 1 {
+					// Secant rule to improve convergence.
+					t = a1.Add(target.Sub(s1).Mul(a2.Sub(a1)).Div(s2.Sub(s1)))
+				} else {
+					// Bisection to guarantee progress.
+					t = fixed.Q32Half().Mul(a1.Add(a2))
+				}
+
+				rootIterationCount++
+
+				s := evaluateSeparation(&fcn, indexA, indexB, t)
+
+				if s.Sub(target).Abs().Less(tolerance) {
+					// t2 holds a tentative value for t1
+					t2 = t
+					break
+				}
+
+				// Ensure we continue to bracket the root.
+				if target.Less(s) {
+					a1 = t
+					s1 = s
+				} else {
+					a2 = t
+					s2 = s
+				}
+
+				if rootIterationCount == 50 {
+					break
+				}
+			}
+
+			pushBackIterations++
+
+			if pushBackIterations == MaxPolygonVertices {
+				break
+			}
+		}
+
+		if done {
+			break
+		}
+
+		if distanceIterations == maxIterations {
+			// Root finder got stuck. Semi-victory.
+			output.State = TOIStateFailed
+			output.Fraction = t1
+			break
+		}
+	}
+
+	return output
+}

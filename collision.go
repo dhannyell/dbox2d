@@ -352,6 +352,56 @@ type Sweep struct {
 	Q2 Rot
 }
 
+// TOIInput is the input of TimeOfImpact. It corresponds to b2TOIInput in
+// include/box2d/collision.h.
+type TOIInput struct {
+	// ProxyA is the proxy for shape A.
+	ProxyA ShapeProxy
+
+	// ProxyB is the proxy for shape B.
+	ProxyB ShapeProxy
+
+	// SweepA is the movement of shape A.
+	SweepA Sweep
+
+	// SweepB is the movement of shape B.
+	SweepB Sweep
+
+	// MaxFraction defines the sweep interval [0, MaxFraction].
+	MaxFraction Q
+}
+
+// TOIState describes the result of TimeOfImpact. It corresponds to
+// b2TOIState in include/box2d/collision.h.
+type TOIState int
+
+const (
+	// TOIStateUnknown means the solver did not reach a conclusion.
+	TOIStateUnknown TOIState = iota
+
+	// TOIStateFailed means the root finder ran out of iterations.
+	TOIStateFailed
+
+	// TOIStateOverlapped means the shapes overlap at the start.
+	TOIStateOverlapped
+
+	// TOIStateHit means the shapes touch at the fraction.
+	TOIStateHit
+
+	// TOIStateSeparated means the shapes stay apart over the whole interval.
+	TOIStateSeparated
+)
+
+// TOIOutput is the output of TimeOfImpact. It corresponds to b2TOIOutput
+// in include/box2d/collision.h.
+type TOIOutput struct {
+	// State is the type of result.
+	State TOIState
+
+	// Fraction is the sweep time of the collision.
+	Fraction Q
+}
+
 // TreeStats counts the nodes a world query visited. It corresponds to
 // b2TreeStats in include/box2d/collision.h.
 type TreeStats struct {
