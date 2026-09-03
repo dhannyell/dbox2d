@@ -124,8 +124,19 @@ func wakeSolverSet(w *world, setIndex int) {
 		}
 	}
 
-	// Deferred: the joints transfer from the sleeping set to the graph
-	// here.
+	// transfer joints from sleeping set to awake set
+	{
+		jointCount := len(set.jointSims)
+		for i := range jointCount {
+			js := &set.jointSims[i]
+			j := &w.joints[js.jointId]
+			if j.setIndex != setIndex {
+				panic("dbox2d: a joint does not point at its sleeping set")
+			}
+			addJointToGraph(w, js, j)
+			j.setIndex = awakeSet
+		}
+	}
 
 	// transfer island from sleeping set to awake set
 	// Usually a sleeping set has only one island, but it is possible
@@ -185,6 +196,7 @@ func trySleepIsland(w *world, islandId int) {
 	sleepSet.setIndex = sleepSetId
 	sleepSet.bodySims = make([]bodySim, 0, isl.bodyCount)
 	sleepSet.contactSims = make([]contactSim, 0, isl.contactCount)
+	sleepSet.jointSims = make([]jointSim, 0, isl.jointCount)
 
 	// move awake bodies to sleeping set
 	// this shuffles around bodies in the awake set
@@ -348,7 +360,55 @@ func trySleepIsland(w *world, islandId int) {
 		}
 	}
 
-	// Deferred: the joints of the island move here.
+	// move joints
+	// this shuffles joints in the awake set
+	{
+		jointId := isl.headJoint
+		for jointId != nullIndex {
+			j := &w.joints[jointId]
+			if j.setIndex != awakeSet || j.islandId != islandId {
+				panic("dbox2d: a joint of the island is not awake in it")
+			}
+			colorIndex := j.colorIndex
+			localIndex := j.localIndex
+
+			if colorIndex < 0 || colorIndex >= graphColorCount {
+				panic("dbox2d: the color index is out of range")
+			}
+
+			color := &w.constraintGraph.colors[colorIndex]
+
+			awakeJointSim := &color.jointSims[localIndex]
+
+			if colorIndex != overflowIndex {
+				// might clear a bit for a static body, but this has no effect
+				color.bodySet.clearBit(j.edges[0].bodyId)
+				color.bodySet.clearBit(j.edges[1].bodyId)
+			}
+
+			sleepJointIndex := len(sleepSet.jointSims)
+			sleepSet.jointSims = append(sleepSet.jointSims, *awakeJointSim)
+
+			var movedIndex int
+			color.jointSims, movedIndex = removeSwap(color.jointSims, localIndex)
+			if movedIndex != nullIndex {
+				// fix moved element
+				movedJointSim := &color.jointSims[localIndex]
+				movedId := movedJointSim.jointId
+				movedJoint := &w.joints[movedId]
+				if movedJoint.localIndex != movedIndex {
+					panic("dbox2d: the moved joint has the wrong local index")
+				}
+				movedJoint.localIndex = localIndex
+			}
+
+			j.setIndex = sleepSetId
+			j.colorIndex = nullIndex
+			j.localIndex = sleepJointIndex
+
+			jointId = j.islandNext
+		}
+	}
 
 	// move island struct
 	{
@@ -427,7 +487,22 @@ func mergeSolverSets(w *world, setId1, setId2 int) {
 		}
 	}
 
-	// Deferred: the joints transfer here.
+	// transfer joints
+	{
+		jointCount := len(set2.jointSims)
+		for i := range jointCount {
+			jointSrc := &set2.jointSims[i]
+
+			j := &w.joints[jointSrc.jointId]
+			if j.setIndex != setId2 {
+				panic("dbox2d: a joint does not point at its set")
+			}
+			j.setIndex = setId1
+			j.localIndex = len(set1.jointSims)
+
+			set1.jointSims = append(set1.jointSims, *jointSrc)
+		}
+	}
 
 	// transfer islands
 	{
@@ -484,4 +559,57 @@ func transferBody(w *world, targetSet, sourceSet *solverSet, b *body) {
 	b.localIndex = targetIndex
 }
 
-// Deferred: transferJoint waits for the joints.
+// transferJoint moves a joint sim between two sets. The awake set keeps
+// its sims in the graph colors. It corresponds to b2TransferJoint in
+// src/solver_set.c.
+func transferJoint(w *world, targetSet, sourceSet *solverSet, j *joint) {
+	if targetSet == sourceSet {
+		panic("dbox2d: the sets are the same")
+	}
+
+	localIndex := j.localIndex
+	colorIndex := j.colorIndex
+
+	// Retrieve source.
+	var sourceSim *jointSim
+	if sourceSet.setIndex == awakeSet {
+		if colorIndex < 0 || colorIndex >= graphColorCount {
+			panic("dbox2d: the color index is out of range")
+		}
+		color := &w.constraintGraph.colors[colorIndex]
+
+		sourceSim = &color.jointSims[localIndex]
+	} else {
+		if colorIndex != nullIndex {
+			panic("dbox2d: a joint outside the awake set has a color")
+		}
+		sourceSim = &sourceSet.jointSims[localIndex]
+	}
+
+	// Create target and copy. Fix joint.
+	if targetSet.setIndex == awakeSet {
+		addJointToGraph(w, sourceSim, j)
+		j.setIndex = awakeSet
+	} else {
+		j.setIndex = targetSet.setIndex
+		j.localIndex = len(targetSet.jointSims)
+		j.colorIndex = nullIndex
+
+		targetSet.jointSims = append(targetSet.jointSims, *sourceSim)
+	}
+
+	// Destroy source.
+	if sourceSet.setIndex == awakeSet {
+		removeJointFromGraph(w, j.edges[0].bodyId, j.edges[1].bodyId, colorIndex, localIndex)
+	} else {
+		var movedIndex int
+		sourceSet.jointSims, movedIndex = removeSwap(sourceSet.jointSims, localIndex)
+		if movedIndex != nullIndex {
+			// fix swapped element
+			movedJointSim := &sourceSet.jointSims[localIndex]
+			movedId := movedJointSim.jointId
+			movedJoint := &w.joints[movedId]
+			movedJoint.localIndex = localIndex
+		}
+	}
+}
