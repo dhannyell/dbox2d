@@ -115,6 +115,11 @@ type world struct {
 	frictionCallback    FrictionCallback
 	restitutionCallback RestitutionCallback
 
+	// customFilterFcn and preSolveFcn are nil unless the caller sets them,
+	// matching the reference's NULL default (no context: D-014).
+	customFilterFcn CustomFilterFcn
+	preSolveFcn     PreSolveFcn
+
 	worldId uint16
 
 	enableSleep        bool
@@ -853,6 +858,20 @@ func (worldId WorldId) SetRestitutionCallback(callback RestitutionCallback) {
 		callback = defaultRestitutionCallback
 	}
 	w.restitutionCallback = callback
+}
+
+// SetCustomFilterCallback sets the pair filter run during collision.
+// It corresponds to b2World_SetCustomFilterCallback in src/world.c; the
+// reference also stores a void* context, dropped here per D-014.
+func (worldId WorldId) SetCustomFilterCallback(fcn CustomFilterFcn) {
+	getWorldFromId(worldId).customFilterFcn = fcn
+}
+
+// SetPreSolveCallback sets the callback run after a contact's manifold is
+// updated, before the solver sees it. It corresponds to
+// b2World_SetPreSolveCallback in src/world.c.
+func (worldId WorldId) SetPreSolveCallback(fcn PreSolveFcn) {
+	getWorldFromId(worldId).preSolveFcn = fcn
 }
 
 // RebuildStaticTree rebuilds the static broad-phase tree.

@@ -200,7 +200,14 @@ func (ctx *continuousContext) queryCallback(_ int, userData uint64) bool {
 		return true
 	}
 
-	// Deferred: the custom filter callback of the reference runs here.
+	// Custom user filtering
+	if w.customFilterFcn != nil {
+		idA := ShapeId{index1: int32(s.id) + 1, world0: w.worldId, generation: s.generation}
+		idB := ShapeId{index1: int32(fastShape.id) + 1, world0: w.worldId, generation: fastShape.generation}
+		if !w.customFilterFcn(idA, idB) {
+			return true
+		}
+	}
 
 	// Prevent pausing on chain segment junctions
 	if s.shapeType == ChainSegmentShape {
@@ -253,8 +260,17 @@ func (ctx *continuousContext) queryCallback(_ int, userData uint64) bool {
 		}
 	}
 
-	// Deferred: the pre-solve callback of the reference runs here on a
-	// temporary manifold.
+	if didHit && (s.enablePreSolveEvents || fastShape.enablePreSolveEvents) && w.preSolveFcn != nil {
+		// Pre-solve is expensive: it needs a temporary manifold. The user
+		// may edit it, but only the real manifold of the discrete solver
+		// matters, so the edit here has no effect.
+		transformA := GetSweepTransform(&input.SweepA, hitFraction)
+		transformB := GetSweepTransform(&input.SweepB, hitFraction)
+		manifold := computeManifold(s, transformA, fastShape, transformB)
+		idA := ShapeId{index1: int32(s.id) + 1, world0: w.worldId, generation: s.generation}
+		idB := ShapeId{index1: int32(fastShape.id) + 1, world0: w.worldId, generation: fastShape.generation}
+		didHit = w.preSolveFcn(idA, idB, &manifold)
+	}
 
 	if didHit {
 		ctx.fraction = hitFraction

@@ -73,6 +73,14 @@ type FrictionCallback func(frictionA Q, userMaterialIdA int, frictionB Q, userMa
 // RestitutionCallback mixes the restitution values of two shapes.
 type RestitutionCallback func(restitutionA Q, userMaterialIdA int, restitutionB Q, userMaterialIdB int) Q
 
+// CustomFilterFcn decides whether two shapes may collide. It corresponds to
+// b2CustomFilterFcn; return false to reject the pair.
+type CustomFilterFcn func(shapeIdA, shapeIdB ShapeId) bool
+
+// PreSolveFcn inspects a contact manifold before the solver runs. It
+// corresponds to b2PreSolveFcn; return false to disable the contact this step.
+type PreSolveFcn func(shapeIdA, shapeIdB ShapeId, manifold *Manifold) bool
+
 // DefaultWorldDef returns the default world definition.
 func DefaultWorldDef() WorldDef {
 	return WorldDef{

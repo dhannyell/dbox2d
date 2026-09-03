@@ -654,3 +654,54 @@ func TestCastMoverStopsAtTheWall(t *testing.T) {
 	thin.Radius = linearSlop
 	requirePanic(t, func() { worldId.CastMover(&thin, v2(20, 0), DefaultQueryFilter()) })
 }
+
+// TestCustomFilterRejectsPair locks down that a callback returning false
+// keeps the pair from ever becoming a contact.
+func TestCustomFilterRejectsPair(t *testing.T) {
+	worldId := createTestWorld(t)
+	worldId.SetCustomFilterCallback(func(ShapeId, ShapeId) bool { return false })
+
+	addDynamicBox(t, worldId, v2(0, 0))
+	addDynamicBox(t, worldId, v2(0, 0))
+
+	dt := stepDt()
+	for range 10 {
+		worldId.Step(dt, 4)
+	}
+
+	if events := worldId.GetContactEvents(); len(events.BeginEvents) != 0 {
+		t.Fatalf("got %d begin-touch events, want 0", len(events.BeginEvents))
+	}
+	if got := worldId.GetCounters().ContactCount; got != 0 {
+		t.Fatalf("contact count = %d, want 0", got)
+	}
+}
+
+// TestCustomFilterAcceptingKeepsWitness locks down that an always-true
+// callback does not perturb the simulation: the checksum of a scene run
+// with the callback matches the same scene run with no callback at all.
+func TestCustomFilterAcceptingKeepsWitness(t *testing.T) {
+	buildScene := func(worldId WorldId) {
+		addDynamicBox(t, worldId, v2(0, 5))
+		addDynamicBox(t, worldId, v2(0, 6))
+	}
+
+	dt := stepDt()
+
+	plainId := createTestWorld(t)
+	buildScene(plainId)
+	for range 30 {
+		plainId.Step(dt, 4)
+	}
+	want := Checksum(plainId)
+
+	filteredId := createTestWorld(t)
+	filteredId.SetCustomFilterCallback(func(ShapeId, ShapeId) bool { return true })
+	buildScene(filteredId)
+	for range 30 {
+		filteredId.Step(dt, 4)
+	}
+	if got := Checksum(filteredId); got != want {
+		t.Fatalf("checksum with an always-true filter = %d, want %d", got, want)
+	}
+}

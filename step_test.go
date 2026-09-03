@@ -1261,3 +1261,67 @@ func TestStepDragsToTheTarget(t *testing.T) {
 	}
 	validateWorld(w)
 }
+
+// preSolveScene builds a static plate at y=0, half-height one, under a
+// dynamic box falling from y=5, with pre-solve events enabled on the box.
+func preSolveScene(t *testing.T, worldId WorldId) BodyId {
+	t.Helper()
+	groundDef := DefaultBodyDef()
+	groundDef.Type = StaticBody
+	groundId := CreateBody(worldId, &groundDef)
+	groundShapeDef := DefaultShapeDef()
+	ground := MakeBox(fixed.Q32FromInt(5), fixed.Q32One())
+	CreatePolygonShape(groundId, &groundShapeDef, &ground)
+
+	boxDef := DefaultBodyDef()
+	boxDef.Type = DynamicBody
+	boxDef.Position = v2(0, 5)
+	boxId := CreateBody(worldId, &boxDef)
+	boxShapeDef := DefaultShapeDef()
+	boxShapeDef.EnablePreSolveEvents = true
+	box := MakeSquare(fixed.Q32One())
+	CreatePolygonShape(boxId, &boxShapeDef, &box)
+	return boxId
+}
+
+// TestPreSolveFalseLetsTheBoxThrough locks down that a pre-solve callback
+// returning false suppresses the contact: the box falls through the plate
+// instead of resting on it.
+func TestPreSolveFalseLetsTheBoxThrough(t *testing.T) {
+	worldId := createTestWorld(t)
+	worldId.SetPreSolveCallback(func(ShapeId, ShapeId, *Manifold) bool { return false })
+	boxId := preSolveScene(t, worldId)
+
+	dt := stepDt()
+	for range 90 {
+		worldId.Step(dt, 4)
+	}
+
+	if y := boxId.GetPosition().Y; !y.Less(fixed.Q32Zero()) {
+		t.Fatalf("box y = %v, want below the plate (fell through)", y)
+	}
+}
+
+// TestPreSolveTrueKeepsChecksum locks down that an always-true pre-solve
+// callback does not perturb the simulation: the checksum matches a run
+// with no callback registered.
+func TestPreSolveTrueKeepsChecksum(t *testing.T) {
+	dt := stepDt()
+
+	plainId := createTestWorld(t)
+	preSolveScene(t, plainId)
+	for range 90 {
+		plainId.Step(dt, 4)
+	}
+	want := Checksum(plainId)
+
+	filteredId := createTestWorld(t)
+	filteredId.SetPreSolveCallback(func(ShapeId, ShapeId, *Manifold) bool { return true })
+	preSolveScene(t, filteredId)
+	for range 90 {
+		filteredId.Step(dt, 4)
+	}
+	if got := Checksum(filteredId); got != want {
+		t.Fatalf("checksum with an always-true pre-solve = %d, want %d", got, want)
+	}
+}

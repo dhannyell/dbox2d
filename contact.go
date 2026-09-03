@@ -464,7 +464,17 @@ func updateContact(w *world, cs *contactSim, shapeA *shape, transformA Transform
 	pointCount := cs.manifold.PointCount
 	touching := pointCount > 0
 
-	// The pre-solve callback waits for the event stage.
+	if touching && w.preSolveFcn != nil && cs.simFlags&simEnablePreSolveEvents != 0 {
+		idA := ShapeId{index1: int32(shapeA.id) + 1, world0: w.worldId, generation: shapeA.generation}
+		idB := ShapeId{index1: int32(shapeB.id) + 1, world0: w.worldId, generation: shapeB.generation}
+
+		// This call assumes thread safety.
+		touching = w.preSolveFcn(idA, idB, &cs.manifold)
+		if !touching {
+			pointCount = 0
+			cs.manifold.PointCount = 0
+		}
+	}
 
 	// This flag exists for testing. The reference tests point zero in both
 	// branches, so only the first branch can fire; the port keeps the
