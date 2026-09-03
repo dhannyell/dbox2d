@@ -164,6 +164,14 @@ func chainSegmentAndCircleManifold(shapeA *shape, xfA Transform, shapeB *shape, 
 	return CollideChainSegmentAndCircle(&shapeA.chainSegment, xfA, &shapeB.circle, xfB)
 }
 
+func chainSegmentAndCapsuleManifold(shapeA *shape, xfA Transform, shapeB *shape, xfB Transform, cache *SimplexCache) Manifold {
+	return CollideChainSegmentAndCapsule(&shapeA.chainSegment, xfA, &shapeB.capsule, xfB, cache)
+}
+
+func chainSegmentAndPolygonManifold(shapeA *shape, xfA Transform, shapeB *shape, xfB Transform, cache *SimplexCache) Manifold {
+	return CollideChainSegmentAndPolygon(&shapeA.chainSegment, xfA, &shapeB.polygon, xfB, cache)
+}
+
 // addType registers a collide function for a type pair, in both orders.
 // It corresponds to b2AddType in src/contact.c.
 func addType(fcn manifoldFcn, type1, type2 ShapeType) {
@@ -174,9 +182,8 @@ func addType(fcn manifoldFcn, type1, type2 ShapeType) {
 }
 
 // The lazy flag of b2InitializeContactRegisters becomes a package init,
-// which runs once and in a deterministic order. The chain segment pairs
-// against capsule and polygon wait for the iterative distance solver; their
-// nil entries make createContact skip the pair.
+// which runs once and in a deterministic order. Pairs without an entry,
+// such as segment against segment, make createContact skip the pair.
 func init() {
 	addType(circleManifold, CircleShape, CircleShape)
 	addType(capsuleAndCircleManifold, CapsuleShape, CircleShape)
@@ -188,6 +195,8 @@ func init() {
 	addType(segmentAndCapsuleManifold, SegmentShape, CapsuleShape)
 	addType(segmentAndPolygonManifold, SegmentShape, PolygonShape)
 	addType(chainSegmentAndCircleManifold, ChainSegmentShape, CircleShape)
+	addType(chainSegmentAndCapsuleManifold, ChainSegmentShape, CapsuleShape)
+	addType(chainSegmentAndPolygonManifold, ChainSegmentShape, PolygonShape)
 }
 
 // createContact makes a non-touching contact between two shapes and links

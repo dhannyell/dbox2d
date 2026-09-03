@@ -159,9 +159,11 @@ func TestStepConvertsTorqueAndArcSpeedToTurns(t *testing.T) {
 	}
 }
 
-// TestStepRefreshesFastBodyBoundsWithoutCCD keeps the discrete world
-// coherent while the continuous collision stage is deferred.
-func TestStepRefreshesFastBodyBoundsWithoutCCD(t *testing.T) {
+// TestStepRefreshesFastBodyBoundsWithoutAHit pins the no-hit path of the
+// continuous stage: the shape keeps the tight bounds of the end transform,
+// as the reference does, the fat bounds still contain them, and the
+// previous transform advances.
+func TestStepRefreshesFastBodyBoundsWithoutAHit(t *testing.T) {
 	def := DefaultWorldDef()
 	def.Gravity = Vec2Zero()
 	worldId := CreateWorld(&def)
@@ -182,19 +184,20 @@ func TestStepRefreshesFastBodyBoundsWithoutCCD(t *testing.T) {
 
 	b := getBodyFullId(w, bodyId)
 	sim := getBodySim(w, b)
-	want := computeShapeAABB(s, sim.transform)
-	want.LowerBound.X = want.LowerBound.X.Sub(speculativeDistance)
-	want.LowerBound.Y = want.LowerBound.Y.Sub(speculativeDistance)
-	want.UpperBound.X = want.UpperBound.X.Add(speculativeDistance)
-	want.UpperBound.Y = want.UpperBound.Y.Add(speculativeDistance)
-	if s.aabb != want {
+	if !sim.isFast {
+		t.Fatal("the body is not marked fast")
+	}
+	if want := computeShapeAABB(s, sim.transform); s.aabb != want {
 		t.Errorf("shape AABB = %+v, want %+v", s.aabb, want)
 	}
 	if s.aabb == before {
 		t.Errorf("shape AABB did not move with the fast body")
 	}
+	if !AABBContains(s.fatAABB, s.aabb) {
+		t.Errorf("fat AABB %+v does not contain %+v", s.fatAABB, s.aabb)
+	}
 	if sim.center0 != sim.center || sim.rotation0 != sim.transform.Q {
-		t.Errorf("previous transform was not finalized without CCD")
+		t.Errorf("previous transform was not advanced")
 	}
 }
 
@@ -728,4 +731,180 @@ func TestSmallPyramidStaysStable(t *testing.T) {
 	if setIndex < firstSleepingSet {
 		t.Errorf("the pyramid is in set %d, want a sleeping set", setIndex)
 	}
+}
+
+// TestStepLandsABoxOnAChainSegment runs the chain segment against polygon
+// pair through the whole pipeline: the box falls on a chain floor, rests
+// on it and the world stays valid.
+func TestStepLandsABoxOnAChainSegment(t *testing.T) {
+	worldId := createTestWorld(t)
+	w := getWorldFromId(worldId)
+
+	// The chain normal points to the right of p1->p2, so the floor runs
+	// from right to left to face up.
+	groundDef := DefaultBodyDef()
+	groundId := CreateBody(worldId, &groundDef)
+	ground := getBodyFullId(w, groundId)
+	shapeDef := DefaultShapeDef()
+	floor := ChainSegment{
+		Ghost1:  Vec2{X: fixed.Q32FromInt(6)},
+		Segment: Segment{Point1: Vec2{X: fixed.Q32FromInt(5)}, Point2: Vec2{X: fixed.Q32FromInt(-5)}},
+		Ghost2:  Vec2{X: fixed.Q32FromInt(-6)},
+	}
+	createShapeInternal(w, ground, getBodyTransformQuick(w, ground), &shapeDef, &floor, ChainSegmentShape)
+
+	boxId := addDynamicBox(t, worldId, Vec2{Y: fixed.Q32FromInt(2)})
+	box := getBodyFullId(w, boxId)
+
+	dt := stepDt()
+	for range 120 {
+		Step(worldId, dt, 4)
+		validateWorld(w)
+	}
+
+	// The helper box has a half extent of one, so it rests with its
+	// center one unit above the floor.
+	sim := getBodySim(w, box)
+	tolerance := fixed.Q32MustParse("0.01")
+	if !sim.center.Y.Sub(fixed.Q32One()).Abs().Less(tolerance) {
+		t.Fatalf("box center %v, want y near 1", sim.center)
+	}
+	if box.contactCount != 1 {
+		t.Fatalf("contact count %d, want 1", box.contactCount)
+	}
+}
+
+// continuousWorld builds a world without gravity so a fast body keeps
+// its line of flight.
+func continuousWorld(t *testing.T, enableContinuous bool) WorldId {
+	t.Helper()
+	def := DefaultWorldDef()
+	def.Gravity = Vec2Zero()
+	def.EnableContinuous = enableContinuous
+	worldId := CreateWorld(&def)
+	t.Cleanup(func() { DestroyWorld(worldId) })
+	return worldId
+}
+
+// addPlate creates a body with a thin box: a tenth of a metre wide and
+// two metres tall.
+func addPlate(t *testing.T, worldId WorldId, bodyType BodyType, x int) BodyId {
+	t.Helper()
+	bodyDef := DefaultBodyDef()
+	bodyDef.Type = bodyType
+	bodyDef.Position = v2(x, 0)
+	bodyId := CreateBody(worldId, &bodyDef)
+	shapeDef := DefaultShapeDef()
+	plate := MakeBox(fixed.Q32FromRatio(1, 20), fixed.Q32One())
+	CreatePolygonShape(bodyId, &shapeDef, &plate)
+	return bodyId
+}
+
+// addProjectile creates a small dynamic box that crosses more than three
+// metres per step, well over half its extent.
+func addProjectile(t *testing.T, worldId WorldId, isBullet bool) BodyId {
+	t.Helper()
+	bodyDef := DefaultBodyDef()
+	bodyDef.Type = DynamicBody
+	bodyDef.Position = Vec2{X: fixed.Q32MustParse("3.5")}
+	bodyDef.LinearVelocity = v2(200, 0)
+	bodyDef.IsBullet = isBullet
+	bodyId := CreateBody(worldId, &bodyDef)
+	shapeDef := DefaultShapeDef()
+	box := MakeSquare(fixed.Q32FromRatio(1, 10))
+	CreatePolygonShape(bodyId, &shapeDef, &box)
+	return bodyId
+}
+
+func bodyX(worldId WorldId, bodyId BodyId) Q {
+	w := getWorldFromId(worldId)
+	return getBodyTransformQuick(w, getBodyFullId(w, bodyId)).P.X
+}
+
+// TestStepStopsAFastBodyAtAStaticPlate pins the continuous stage: a fast
+// box that would cross a thin static plate in one step stops at its face
+// instead. With the stage disabled the same box tunnels through.
+func TestStepStopsAFastBodyAtAStaticPlate(t *testing.T) {
+	// The plate face sits at x = 4.95 and the box half extent is 0.1.
+	face := fixed.Q32MustParse("4.85")
+
+	t.Run("continuous", func(t *testing.T) {
+		worldId := continuousWorld(t, true)
+		addPlate(t, worldId, StaticBody, 5)
+		boxId := addProjectile(t, worldId, false)
+
+		Step(worldId, stepDt(), 4)
+		w := getWorldFromId(worldId)
+		validateWorld(w)
+
+		x := bodyX(worldId, boxId)
+		if !x.Less(face) || !fixed.Q32MustParse("4.8").Less(x) {
+			t.Fatalf("x %v, want just under %v", x, face)
+		}
+		if sim := getBodySim(w, getBodyFullId(w, boxId)); !sim.isFast {
+			t.Fatal("the box is not marked fast")
+		}
+
+		// The next step lands the speculative contact and the box rests.
+		Step(worldId, stepDt(), 4)
+		validateWorld(w)
+		if x := bodyX(worldId, boxId); !x.Less(face) {
+			t.Fatalf("x %v after the second step, want under %v", x, face)
+		}
+	})
+
+	t.Run("discrete", func(t *testing.T) {
+		worldId := continuousWorld(t, false)
+		addPlate(t, worldId, StaticBody, 5)
+		boxId := addProjectile(t, worldId, false)
+
+		Step(worldId, stepDt(), 4)
+
+		if x := bodyX(worldId, boxId); !fixed.Q32FromInt(6).Less(x) {
+			t.Fatalf("x %v, want past the plate", x)
+		}
+	})
+}
+
+// TestStepBulletStopsAtADynamicPlate pins the bullet path: only a bullet
+// sweeps the dynamic tree, so a plain fast body passes a dynamic plate
+// while a bullet stops at it and pushes it.
+func TestStepBulletStopsAtADynamicPlate(t *testing.T) {
+	t.Run("bullet", func(t *testing.T) {
+		worldId := continuousWorld(t, true)
+		plateId := addPlate(t, worldId, DynamicBody, 5)
+		boxId := addProjectile(t, worldId, true)
+
+		Step(worldId, stepDt(), 4)
+		w := getWorldFromId(worldId)
+		validateWorld(w)
+
+		x := bodyX(worldId, boxId)
+		if !x.Less(fixed.Q32MustParse("4.85")) || !fixed.Q32MustParse("4.8").Less(x) {
+			t.Fatalf("x %v, want just under 4.85", x)
+		}
+
+		// The contact forms on the next step and the plate takes the hit.
+		Step(worldId, stepDt(), 4)
+		Step(worldId, stepDt(), 4)
+		validateWorld(w)
+		if plateX := bodyX(worldId, plateId); !fixed.Q32FromInt(5).Less(plateX) {
+			t.Fatalf("plate x %v, want pushed past 5", plateX)
+		}
+		if x := bodyX(worldId, boxId); !x.Less(bodyX(worldId, plateId)) {
+			t.Fatalf("box x %v passed the plate", x)
+		}
+	})
+
+	t.Run("not a bullet", func(t *testing.T) {
+		worldId := continuousWorld(t, true)
+		addPlate(t, worldId, DynamicBody, 5)
+		boxId := addProjectile(t, worldId, false)
+
+		Step(worldId, stepDt(), 4)
+
+		if x := bodyX(worldId, boxId); !fixed.Q32FromInt(6).Less(x) {
+			t.Fatalf("x %v, want past the plate", x)
+		}
+	})
 }

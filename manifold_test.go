@@ -529,3 +529,85 @@ func TestCollideSegmentAndPolygonRejectsADegenerateSegment(t *testing.T) {
 	xf := dbox2d.TransformIdentity()
 	dbox2d.CollideSegmentAndPolygon(&segmentA, xf, &boxB, xf)
 }
+
+// TestCollideChainSegmentAndPolygonMatchesTheReference covers the face
+// contact through the segment normal, the one-sided cull on the ghost
+// side, the capsule wrapper and the vertex-vertex speculative point that
+// the Gauss map admits at a convex corner.
+func TestCollideChainSegmentAndPolygonMatchesTheReference(t *testing.T) {
+	// The collidable side is to the right of p1->p2, which is below.
+	segment := dbox2d.ChainSegment{
+		Ghost1:  vec(-2, 0),
+		Segment: dbox2d.Segment{Point1: vec(-1, 0), Point2: vec(1, 0)},
+		Ghost2:  vec(2, 0),
+	}
+	xf := dbox2d.TransformIdentity()
+	half := fixed.Q32Half()
+
+	t.Run("face contact", func(t *testing.T) {
+		var cache dbox2d.SimplexCache
+		box := dbox2d.MakeBox(half, half)
+		xfB := dbox2d.Transform{P: vecQ("0", "-0.4"), Q: dbox2d.RotIdentity()}
+		manifold := dbox2d.CollideChainSegmentAndPolygon(&segment, xf, &box, xfB, &cache)
+		if manifold.PointCount != 2 {
+			t.Fatalf("pointCount %d, want 2", manifold.PointCount)
+		}
+		if manifold.Normal != vec(0, -1) {
+			t.Fatalf("normal %v, want (0, -1)", manifold.Normal)
+		}
+		wantSep := fixed.Q32MustParse("-0.1")
+		for i := range 2 {
+			if !manifold.Points[i].Separation.Eq(wantSep) {
+				t.Fatalf("point %d separation %v, want %v", i, manifold.Points[i].Separation, wantSep)
+			}
+		}
+	})
+
+	t.Run("ghost side", func(t *testing.T) {
+		var cache dbox2d.SimplexCache
+		box := dbox2d.MakeBox(half, half)
+		xfB := dbox2d.Transform{P: vecQ("0", "0.4"), Q: dbox2d.RotIdentity()}
+		manifold := dbox2d.CollideChainSegmentAndPolygon(&segment, xf, &box, xfB, &cache)
+		if manifold.PointCount != 0 {
+			t.Fatalf("ghost side produced %d points", manifold.PointCount)
+		}
+	})
+
+	t.Run("capsule", func(t *testing.T) {
+		var cache dbox2d.SimplexCache
+		capsule := dbox2d.Capsule{Center1: vecQ("-0.5", "0"), Center2: vecQ("0.5", "0"), Radius: fixed.Q32MustParse("0.25")}
+		xfB := dbox2d.Transform{P: vecQ("0", "-0.2"), Q: dbox2d.RotIdentity()}
+		manifold := dbox2d.CollideChainSegmentAndCapsule(&segment, xf, &capsule, xfB, &cache)
+		if manifold.PointCount != 2 {
+			t.Fatalf("pointCount %d, want 2", manifold.PointCount)
+		}
+		wantSep := fixed.Q32MustParse("-0.05")
+		if !near(manifold.Points[0].Separation, wantSep, sqrtTol()) {
+			t.Fatalf("separation %v, want %v", manifold.Points[0].Separation, wantSep)
+		}
+	})
+
+	t.Run("convex corner admits a vertex", func(t *testing.T) {
+		// The next edge turns up, so p2 is a convex corner. A rounded
+		// diamond hangs below and to the right of p2 with its top vertex
+		// just outside the radius: the normal lies inside the Gauss map
+		// and one speculative point comes back.
+		bent := segment
+		bent.Ghost2 = vec(2, 1)
+		var cache dbox2d.SimplexCache
+		diamond := dbox2d.MakeOffsetBox(half, half, vec(0, 0), dbox2d.MakeRot(fixed.Q32FromRatio(1, 8)))
+		diamond.Radius = fixed.Q32MustParse("0.3")
+		xfB := dbox2d.Transform{P: vecQ("1.118", "-0.994"), Q: dbox2d.RotIdentity()}
+		manifold := dbox2d.CollideChainSegmentAndPolygon(&bent, xf, &diamond, xfB, &cache)
+		if manifold.PointCount != 1 {
+			t.Fatalf("pointCount %d, want 1", manifold.PointCount)
+		}
+		sep := manifold.Points[0].Separation
+		if !fixed.Q32Zero().Less(sep) || !sep.Less(dbox2d.SpeculativeDistance()) {
+			t.Fatalf("separation %v, want a speculative gap", sep)
+		}
+		if !fixed.Q32Zero().Less(manifold.Normal.X) || !manifold.Normal.Y.Less(fixed.Q32Zero()) {
+			t.Fatalf("normal %v, want down and to the right", manifold.Normal)
+		}
+	})
+}

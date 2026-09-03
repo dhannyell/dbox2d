@@ -1,6 +1,7 @@
 package dbox2d
 
 import (
+	"math/rand"
 	"testing"
 
 	"github.com/dhannyell/fixed"
@@ -469,4 +470,147 @@ func TestCastRayClipsAcrossTheTrees(t *testing.T) {
 	w.locked = true
 	requirePanic(t, func() { CastRay(worldId, origin, translation, filter, closest) })
 	w.locked = false
+}
+
+// hundredShapeWorld fills a world with a hundred shapes spread over the
+// three trees with random category bits, for the brute-force oracles.
+func hundredShapeWorld(t *testing.T, rng *rand.Rand) WorldId {
+	t.Helper()
+	worldId := createTestWorld(t)
+	for i := range 100 {
+		bodyDef := DefaultBodyDef()
+		bodyDef.Type = BodyType(i % 3)
+		bodyDef.Position = v2(rng.Intn(60), rng.Intn(60))
+		bodyDef.Rotation = MakeRot(fixed.Q32FromRatio(rng.Intn(8), 8))
+		bodyId := CreateBody(worldId, &bodyDef)
+		shapeDef := DefaultShapeDef()
+		shapeDef.Filter.CategoryBits = 1 << uint(rng.Intn(3))
+		switch rng.Intn(3) {
+		case 0:
+			circle := Circle{Radius: fixed.Q32FromRatio(1+rng.Intn(4), 2)}
+			CreateCircleShape(bodyId, &shapeDef, &circle)
+		case 1:
+			capsule := Capsule{Center1: v2(-1, 0), Center2: v2(1, 0), Radius: fixed.Q32Half()}
+			CreateCapsuleShape(bodyId, &shapeDef, &capsule)
+		default:
+			box := MakeBox(fixed.Q32FromRatio(1+rng.Intn(4), 2), fixed.Q32FromRatio(1+rng.Intn(4), 2))
+			CreatePolygonShape(bodyId, &shapeDef, &box)
+		}
+	}
+	return worldId
+}
+
+// TestShapeQueriesMatchBruteForce runs OverlapShape, CastShape and
+// CastRayClosest against the enumeration of a hundred shapes across the
+// three trees, with random masks.
+func TestShapeQueriesMatchBruteForce(t *testing.T) {
+	rng := rand.New(rand.NewSource(3))
+	worldId := hundredShapeWorld(t, rng)
+	w := getWorldFromId(worldId)
+	one := fixed.Q32One()
+	zero := fixed.Q32Zero()
+	tolerance := linearSlop.Div(fixed.Q32FromInt(10))
+
+	for range 50 {
+		filter := DefaultQueryFilter()
+		filter.MaskBits = uint64(1 + rng.Intn(7))
+		unit := MakeBox(one, fixed.Q32Half())
+		origin := v2(rng.Intn(60), rng.Intn(60))
+		proxy := MakeOffsetProxy(unit.Vertices[:unit.Count], fixed.Q32FromRatio(rng.Intn(3), 4), origin, RotIdentity())
+		translation := v2(rng.Intn(61)-30, rng.Intn(61)-30)
+
+		// Overlap: the distance solver decides for every shape.
+		wantOverlap := map[ShapeId]bool{}
+		wantCast := ShapeId{}
+		wantCastFraction := one
+		wantRay := ShapeId{}
+		wantRayFraction := one
+		for i := range w.shapes {
+			s := &w.shapes[i]
+			if s.id == nullIndex || !shouldQueryCollide(s.filter, filter) {
+				continue
+			}
+			transform := getBodyTransformQuick(w, &w.bodies[s.bodyId])
+
+			input := DistanceInput{ProxyA: proxy, ProxyB: makeShapeDistanceProxy(s), TransformA: TransformIdentity(), TransformB: transform, UseRadii: true}
+			var cache SimplexCache
+			if out := ShapeDistance(&input, &cache, nil); !tolerance.Less(out.Distance) {
+				wantOverlap[shapeIdOf(w, s)] = true
+			}
+
+			castInput := ShapeCastInput{Proxy: proxy, Translation: translation, MaxFraction: one}
+			if out := shapeCastShape(&castInput, s, transform); out.Hit && out.Fraction.Less(wantCastFraction) {
+				wantCast, wantCastFraction = shapeIdOf(w, s), out.Fraction
+			}
+
+			rayInput := RayCastInput{Origin: origin, Translation: translation, MaxFraction: one}
+			if out := rayCastShape(&rayInput, s, transform); out.Hit && zero.Less(out.Fraction) && out.Fraction.Less(wantRayFraction) {
+				wantRay, wantRayFraction = shapeIdOf(w, s), out.Fraction
+			}
+		}
+
+		gotOverlap := map[ShapeId]bool{}
+		OverlapShape(worldId, &proxy, filter, func(id ShapeId) bool {
+			gotOverlap[id] = true
+			return true
+		})
+		if len(gotOverlap) != len(wantOverlap) {
+			t.Fatalf("OverlapShape at %v with mask %d found %d shapes, brute force %d", origin, filter.MaskBits, len(gotOverlap), len(wantOverlap))
+		}
+		for id := range wantOverlap {
+			if !gotOverlap[id] {
+				t.Fatalf("OverlapShape missed a shape at %v", origin)
+			}
+		}
+
+		gotCast := ShapeId{}
+		gotCastFraction := one
+		CastShape(worldId, &proxy, translation, filter, func(id ShapeId, _, _ Vec2, fraction Q) Q {
+			if fraction.Less(gotCastFraction) {
+				gotCast, gotCastFraction = id, fraction
+			}
+			return fraction
+		})
+		if gotCast != wantCast || !gotCastFraction.Eq(wantCastFraction) {
+			t.Fatalf("CastShape from %v by %v found %v at %v, brute force %v at %v", origin, translation, gotCast, gotCastFraction, wantCast, wantCastFraction)
+		}
+
+		ray := CastRayClosest(worldId, origin, translation, filter)
+		if ray.Hit != (wantRay != ShapeId{}) || (ray.Hit && (ray.ShapeId != wantRay || !ray.Fraction.Eq(wantRayFraction))) {
+			t.Fatalf("CastRayClosest from %v by %v found %+v, brute force %v at %v", origin, translation, ray, wantRay, wantRayFraction)
+		}
+	}
+}
+
+// TestCastMoverStopsAtTheWall sweeps a capsule at a static box: it stops
+// within a slop of the face, a shape it already overlaps does not stop
+// it, and a thin capsule panics.
+func TestCastMoverStopsAtTheWall(t *testing.T) {
+	worldId := createTestWorld(t)
+	wallDef := DefaultBodyDef()
+	wallDef.Position = v2(10, 0)
+	wall := CreateBody(worldId, &wallDef)
+	shapeDef := DefaultShapeDef()
+	wallBox := MakeBox(fixed.Q32One(), fixed.Q32FromInt(5))
+	CreatePolygonShape(wall, &shapeDef, &wallBox)
+
+	mover := Capsule{Center1: v2(0, -1), Center2: v2(0, 1), Radius: fixed.Q32Half()}
+	fraction := CastMover(worldId, &mover, v2(20, 0), DefaultQueryFilter())
+
+	// The capsule surface reaches the face at x = 9 after 8.5 units of
+	// the 20; the sweep targets the radius less a slop.
+	exact := fixed.Q32MustParse("0.425")
+	if !fraction.Sub(exact).Abs().Less(fixed.Q32MustParse("0.001")) {
+		t.Fatalf("mover fraction %v, want near 0.425", fraction)
+	}
+
+	// A circle around the start overlaps the mover and does not stop it.
+	addStaticCircle(t, worldId, v2(0, 0))
+	if again := CastMover(worldId, &mover, v2(20, 0), DefaultQueryFilter()); !again.Eq(fraction) {
+		t.Fatalf("an overlapping shape changed the fraction to %v", again)
+	}
+
+	thin := mover
+	thin.Radius = linearSlop
+	requirePanic(t, func() { CastMover(worldId, &thin, v2(20, 0), DefaultQueryFilter()) })
 }

@@ -47,7 +47,8 @@ Numbering is sequential from `D-001` and never reused.
 ### D-003 An assertion becomes a panic
 
 - Files: id_pool.go, aabb.go, math.go, hull.go, geometry.go, step.go,
-  solver.go, manifold.go, table.go, contact.go (upstream `B2_ASSERT`)
+  solver.go, manifold.go, table.go, contact.go, distance.go, world.go
+  (upstream `B2_ASSERT`)
 - Tier: T2
 - Reason: `B2_ASSERT` compiles out in a release build. Go has no such switch,
   and a silent corruption costs more than a stop.
@@ -58,9 +59,10 @@ Numbering is sequential from `D-001` and never reused.
   TestComputeRotationBetweenUnitVectors in math_test.go,
   TestPolygonConstructorsRejectInvalidHull and
   TestComputePolygonMassRejectsZeroArea in geometry_test.go,
-  TestStepRejectsInvalidInput in step_test.go, and
+  TestStepRejectsInvalidInput in step_test.go,
   TestCollideCapsulesRejectsADegenerateCapsule and
-  TestCollideSegmentAndPolygonRejectsADegenerateSegment in manifold_test.go
+  TestCollideSegmentAndPolygonRejectsADegenerateSegment in manifold_test.go,
+  and TestIterativeGeometryRejectsInvalidInput in distance_test.go
 
 ### D-004 An angle is a turn
 
@@ -114,7 +116,9 @@ Numbering is sequential from `D-001` and never reused.
   src/manifold.c `b2CollideChainSegmentAndCircle` `1/ee` and
   `b2CollidePolygons` vertex-vertex `1.0f / distance`;
   src/solver.h `b2MakeSoft` `a3`;
-  src/contact_solver.c `b2PrepareOverflowContacts` effective masses)
+  src/contact_solver.c `b2PrepareOverflowContacts` effective masses;
+  src/distance.c `b2SolveSimplex2` `inv_d12` and `b2SolveSimplex3`
+  `inv_d12`, `inv_d13`, `inv_d23`, `inv_d123`)
 - Tier: T2
 - Reason: a Q32.32 reciprocal keeps only the leading bits of a large value.
   Multiplying by it discards the precision that a division keeps.
@@ -135,7 +139,9 @@ Numbering is sequential from `D-001` and never reused.
   sub-step; the guard against a zero denominator is an exact test. The
   contact speed of the step becomes zero when the static softness has a
   zero mass scale, because the reference divides by that scale and a Q
-  division by zero panics.
+  division by zero panics. The simplex solvers divide each barycentric
+  weight by its denominator; the denominator is exactly positive on the
+  branch that reaches it.
 - Test: TestSolve22SolvesTheSystem, TestNormalizeKeepsAShortVector and
   TestNormalizeRotKeepsAZeroRotation in math_test.go,
   TestAABBRayCastHitsTheNearFace in aabb_test.go,
@@ -143,8 +149,9 @@ Numbering is sequential from `D-001` and never reused.
   TestRayCastCapsuleHitsTheSide in geometry_test.go,
   TestStepAppliesDampingByDivision in step_test.go, and
   TestMakeSoftSplitsTheUnit and TestPrepareOverflowContactsBuildsTheMasses
-  in contact_solver_test.go, and TestStepKeepsAZeroContactFrequencyFinite
-  in step_test.go
+  in contact_solver_test.go, TestStepKeepsAZeroContactFrequencyFinite
+  in step_test.go, and TestShapeDistanceMatchesHandCases in
+  distance_test.go
 
 ### D-007 The normalization tolerance is in raw units
 
@@ -197,7 +204,9 @@ Numbering is sequential from `D-001` and never reused.
 
 - Files: array.go and every file that stores a sim array (upstream
   src/array.h, src/array.c), broad_phase.go (upstream src/broad_phase.c
-  `b2PairQueryCallback` heap pairs)
+  `b2PairQueryCallback` heap pairs), distance.go (upstream src/distance.c
+  `b2MakeOffsetProxy` points and `b2ShapeDistance` simplex output),
+  step.go (upstream src/solver.h `bulletBodies` and `bulletBodyCount`)
 - Tier: T2
 - Reason: the reference generates one array type per element type with
   macros. Go has no macros, and the slice already carries the length and the
@@ -211,10 +220,16 @@ Numbering is sequential from `D-001` and never reused.
   activates a contact and then stays flat; the reference grows its arrays
   and its arena at the same moments. The pair slice of the broadphase
   grows by append when the sixteen pairs per moved proxy run out; the
-  reference takes single pairs from the heap at the same moment.
+  reference takes single pairs from the heap at the same moment. The
+  offset proxy takes a point slice, and the distance solver writes its
+  simplex trace into a slice whose length is the capacity of the
+  reference. The bullet buffer of the step is a slice over one arena item,
+  sized to the awake body count, with the count beside it.
 - Test: TestCreateAndDestroyOrdersProduceTheSameWorld and
   TestSleepingBodyGetsItsOwnSolverSet in world_test.go,
-  TestStepAllocatesNothing in step_test.go
+  TestStepAllocatesNothing and TestStepBulletStopsAtADynamicPlate in
+  step_test.go, and TestShapeDistanceWarmStartsFromTheCache in
+  distance_test.go
 
 ### D-011 The determinism witness is port-only
 
@@ -247,7 +262,8 @@ Numbering is sequential from `D-001` and never reused.
 
 ### D-012 An epsilon guard becomes an exact zero test
 
-- Files: distance.go (upstream src/distance.c:44), manifold.go (upstream
+- Files: distance.go (upstream src/distance.c:44 segment distance and
+  :520 GJK search direction), manifold.go (upstream
   src/manifold.c:24 capsule polygon length assert; 186, 209 vertex-region
   guards; 284 capsule length assert; 495 single-point normal fallback;
   602, 612 and 1206, 1216 clip lerp spans)
@@ -265,8 +281,12 @@ Numbering is sequential from `D-001` and never reused.
   fallback normal. In `clipPolygons` and `clipSegments` the lerp runs on an
   exactly positive span; the preceding disjoint test bounds the span, so in
   Q the guarded false branch is unreachable and the guard stays only for
-  structure.
-- Test: TestSegmentDistanceHandlesDegenerateSegments in distance_test.go,
+  structure. In `ShapeDistance` the overlap exit on a short search
+  direction fires only when the direction is exactly zero; every nonzero
+  direction adds a support point, so the duplicate test and the iteration
+  bound end the loop, as they do in float.
+- Test: TestSegmentDistanceHandlesDegenerateSegments and
+  TestShapeDistanceReportsOverlap in distance_test.go,
   TestCollidePolygonAndCircleRegions,
   TestCollideCapsulesFallsBackOnCoincidentClosestPoints,
   TestCollidePolygonsClipsThePartialOverlap and
@@ -294,9 +314,13 @@ Numbering is sequential from `D-001` and never reused.
 
 ### D-014 A callback with a context becomes a closure
 
-- Files: dynamic_tree.go (upstream src/dynamic_tree.c `b2DynamicTree_Query`
-  and `b2DynamicTree_RayCast`, include/box2d/collision.h
-  `b2TreeQueryCallbackFcn` and `b2TreeRayCastCallbackFcn`)
+- Files: dynamic_tree.go (upstream src/dynamic_tree.c `b2DynamicTree_Query`,
+  `b2DynamicTree_RayCast` and `b2DynamicTree_ShapeCast`,
+  include/box2d/collision.h `b2TreeQueryCallbackFcn`,
+  `b2TreeRayCastCallbackFcn` and `b2TreeShapeCastCallbackFcn`), world.go
+  (upstream src/world.c `WorldQueryContext`, `WorldRayCastContext`,
+  `WorldMoverCastContext` and `b2RayCastClosestFcn`), solver.go (upstream
+  src/solver.c `b2ContinuousContext` and `b2ContinuousQueryCallback`)
 - Tier: T2
 - Reason: the reference passes a function pointer and a `void*` context.
   Go closes over the context instead, and a typed closure keeps the call
@@ -304,8 +328,12 @@ Numbering is sequential from `D-001` and never reused.
 - Behaviour: the tree walks take a closure with the proxy id and the user
   data. The public `OverlapResultFcn` and `CastResultFcn` drop the
   `void*` context of the reference as well; the caller closes over its
-  state. A closure that does not escape allocates nothing; the step test
-  pins zero allocations.
-- Test: TestTreeQueryReportsTheOverlaps and TestTreeRayCastClipsTheRay in
-  dynamic_tree_test.go; TestOverlapAABBReportsTheFatBounds and
-  TestCastRayClipsAcrossTheTrees in world_test.go
+  state. The shape queries of the world and the closest ray hit close over
+  their result as well. The continuous stage passes a method value of its
+  context to the tree walks. A closure that does not escape allocates
+  nothing; the step and bullet benchmarks pin zero allocations.
+- Test: TestTreeQueryReportsTheOverlaps, TestTreeRayCastClipsTheRay and
+  TestTreeShapeCastMatchesBruteForce in dynamic_tree_test.go;
+  TestOverlapAABBReportsTheFatBounds, TestCastRayClipsAcrossTheTrees,
+  TestShapeQueriesMatchBruteForce and TestCastMoverStopsAtTheWall in
+  world_test.go; TestStepBulletStopsAtADynamicPlate in step_test.go

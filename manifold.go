@@ -935,6 +935,14 @@ func CollideChainSegmentAndCircle(segmentA *ChainSegment, xfA Transform, circleB
 	return manifold
 }
 
+// CollideChainSegmentAndCapsule treats the capsule as a rounded polygon
+// and defers to the polygon routine. It corresponds to
+// b2CollideChainSegmentAndCapsule in src/manifold.c.
+func CollideChainSegmentAndCapsule(segmentA *ChainSegment, xfA Transform, capsuleB *Capsule, xfB Transform, cache *SimplexCache) Manifold {
+	polyB := makeCapsule(capsuleB.Center1, capsuleB.Center2, capsuleB.Radius)
+	return CollideChainSegmentAndPolygon(segmentA, xfA, &polyB, xfB, cache)
+}
+
 // clipSegments clips segment b against segment a along the normal and
 // always yields two points. It corresponds to the static b2ClipSegments in
 // src/manifold.c.
@@ -989,6 +997,457 @@ func clipSegments(a1, a2, b1, b2 Vec2, normal Vec2, ra, rb Q, id1, id2 uint16) M
 	manifold.Points[1].Separation = separationUpper.Sub(radius)
 	manifold.Points[1].Id = id2
 	manifold.PointCount = 2
+
+	return manifold
+}
+
+// normalType classifies a normal against the Gauss map of a chain segment.
+// It corresponds to enum b2NormalType in src/manifold.c.
+type normalType int
+
+const (
+	// normalSkip: the normal is non-smooth relative to a convex vertex and
+	// should be skipped.
+	normalSkip normalType = iota
+
+	// normalAdmit: the normal is smooth relative to a convex vertex and
+	// should be used for collision.
+	normalAdmit
+
+	// normalSnap: the normal is in the region of a concave vertex and
+	// should snap to the segment normal.
+	normalSnap
+)
+
+// chainSegmentParams carries the neighbor data of a chain segment. It
+// corresponds to struct b2ChainSegmentParams in src/manifold.c.
+type chainSegmentParams struct {
+	edge1   Vec2
+	normal0 Vec2
+	normal2 Vec2
+	convex1 bool
+	convex2 bool
+}
+
+// classifyNormal evaluates the Gauss map of a chain segment. See
+// https://box2d.org/posts/2020/06/ghost-collisions/. It corresponds to the
+// static b2ClassifyNormal in src/manifold.c.
+func classifyNormal(params chainSegmentParams, normal Vec2) normalType {
+	zero := fixed.Q32Zero()
+	sinTol := fixed.Q32FromRatio(1, 100)
+
+	if !zero.Less(normal.Dot(params.edge1)) {
+		// Normal points towards the segment tail
+		if params.convex1 {
+			if sinTol.Less(Cross(normal, params.normal0)) {
+				return normalSkip
+			}
+
+			return normalAdmit
+		}
+
+		return normalSnap
+	}
+
+	// Normal points towards segment head
+	if params.convex2 {
+		if sinTol.Less(Cross(params.normal2, normal)) {
+			return normalSkip
+		}
+
+		return normalAdmit
+	}
+
+	return normalSnap
+}
+
+// CollideChainSegmentAndPolygon computes the manifold between a chain
+// segment and a polygon. The cache warm starts the distance solver
+// between calls. It corresponds to b2CollideChainSegmentAndPolygon in
+// src/manifold.c.
+func CollideChainSegmentAndPolygon(segmentA *ChainSegment, xfA Transform, polygonB *Polygon, xfB Transform, cache *SimplexCache) Manifold {
+	var manifold Manifold
+	zero := fixed.Q32Zero()
+
+	xf := InvMulTransforms(xfA, xfB)
+
+	centroidB := TransformPoint(xf, polygonB.Centroid)
+	radiusB := polygonB.Radius
+
+	p1 := segmentA.Segment.Point1
+	p2 := segmentA.Segment.Point2
+
+	edge1 := p2.Sub(p1).Normalize()
+
+	var smoothParams chainSegmentParams
+	smoothParams.edge1 = edge1
+
+	convexTol := fixed.Q32FromRatio(1, 100)
+	edge0 := p1.Sub(segmentA.Ghost1).Normalize()
+	smoothParams.normal0 = RightPerp(edge0)
+	smoothParams.convex1 = !Cross(edge0, edge1).Less(convexTol)
+
+	edge2 := segmentA.Ghost2.Sub(p2).Normalize()
+	smoothParams.normal2 = RightPerp(edge2)
+	smoothParams.convex2 = !Cross(edge1, edge2).Less(convexTol)
+
+	// Normal points to the right
+	normal1 := RightPerp(edge1)
+	behind1 := normal1.Dot(centroidB.Sub(p1)).Less(zero)
+	behind0 := true
+	behind2 := true
+	if smoothParams.convex1 {
+		behind0 = smoothParams.normal0.Dot(centroidB.Sub(p1)).Less(zero)
+	}
+
+	if smoothParams.convex2 {
+		behind2 = smoothParams.normal2.Dot(centroidB.Sub(p2)).Less(zero)
+	}
+
+	if behind1 && behind0 && behind2 {
+		// one-sided collision
+		return manifold
+	}
+
+	// Get polygonB in frameA
+	count := polygonB.Count
+	var vertices, normals [MaxPolygonVertices]Vec2
+	for i := range count {
+		vertices[i] = TransformPoint(xf, polygonB.Vertices[i])
+		normals[i] = RotateVector(xf.Q, polygonB.Normals[i])
+	}
+
+	// Distance doesn't work correctly with partial polygons
+	var input DistanceInput
+	input.ProxyA = MakeProxy([]Vec2{segmentA.Segment.Point1, segmentA.Segment.Point2}, zero)
+	input.ProxyB = MakeProxy(vertices[:count], zero)
+	input.TransformA = TransformIdentity()
+	input.TransformB = TransformIdentity()
+	input.UseRadii = false
+
+	output := ShapeDistance(&input, cache, nil)
+
+	if radiusB.Add(speculativeDistance).Less(output.Distance) {
+		return manifold
+	}
+
+	// Snap concave normals for partial polygon
+	n0 := normal1
+	if smoothParams.convex1 {
+		n0 = smoothParams.normal0
+	}
+	n2 := normal1
+	if smoothParams.convex2 {
+		n2 = smoothParams.normal2
+	}
+
+	// Index of incident vertex on polygon
+	incidentIndex := -1
+	incidentNormal := -1
+
+	if !behind1 && linearSlop.Div(fixed.Q32FromInt(10)).Less(output.Distance) {
+		// The closest features may be two vertices or an edge and a vertex even when there should
+		// be face contact
+
+		if cache.Count == 1 {
+			// vertex-vertex collision
+			pA := output.PointA
+			pB := output.PointB
+
+			normal := pB.Sub(pA).Normalize()
+
+			ntype := classifyNormal(smoothParams, normal)
+			if ntype == normalSkip {
+				return manifold
+			}
+
+			if ntype == normalAdmit {
+				manifold.Normal = RotateVector(xfA.Q, normal)
+				cp := &manifold.Points[0]
+				cp.AnchorA = RotateVector(xfA.Q, pA)
+				cp.AnchorB = cp.AnchorA.Add(xfA.P.Sub(xfB.P))
+				cp.Point = xfA.P.Add(cp.AnchorA)
+				cp.Separation = output.Distance.Sub(radiusB)
+				cp.Id = makeId(int(cache.IndexA[0]), int(cache.IndexB[0]))
+				manifold.PointCount = 1
+				return manifold
+			}
+
+			// fall through normalSnap
+			incidentIndex = int(cache.IndexB[0])
+		} else {
+			// vertex-edge collision
+			if cache.Count != 2 {
+				panic("dbox2d: the chain segment distance cache is not an edge")
+			}
+
+			ia1 := int(cache.IndexA[0])
+			ia2 := int(cache.IndexA[1])
+			ib1 := int(cache.IndexB[0])
+			ib2 := int(cache.IndexB[1])
+
+			if ia1 == ia2 {
+				// 1 point on A, expect 2 points on B
+				if ib1 == ib2 {
+					panic("dbox2d: the chain segment distance cache repeats a polygon vertex")
+				}
+
+				// Find polygon normal most aligned with vector between closest points.
+				// This effectively sorts ib1 and ib2
+				normalB := output.PointA.Sub(output.PointB)
+				dot1 := normalB.Dot(normals[ib1])
+				dot2 := normalB.Dot(normals[ib2])
+				ib := ib2
+				if dot2.Less(dot1) {
+					ib = ib1
+				}
+
+				// Use accurate normal
+				normalB = normals[ib]
+
+				ntype := classifyNormal(smoothParams, Neg(normalB))
+				if ntype == normalSkip {
+					return manifold
+				}
+
+				if ntype == normalAdmit {
+					// Get polygon edge associated with normal
+					ib1 = ib
+					ib2 = 0
+					if ib < count-1 {
+						ib2 = ib + 1
+					}
+
+					b1 := vertices[ib1]
+					b2 := vertices[ib2]
+
+					// Find incident segment vertex
+					dot1 = normalB.Dot(p1.Sub(b1))
+					dot2 = normalB.Dot(p2.Sub(b1))
+
+					if dot1.Less(dot2) {
+						if n0.Dot(normalB).Less(normal1.Dot(normalB)) {
+							// Neighbor is incident
+							return manifold
+						}
+					} else {
+						if n2.Dot(normalB).Less(normal1.Dot(normalB)) {
+							// Neighbor is incident
+							return manifold
+						}
+					}
+
+					manifold = clipSegments(b1, b2, p1, p2, normalB, radiusB, zero, makeId(ib1, 1), makeId(ib2, 0))
+
+					if manifold.PointCount != 0 && manifold.PointCount != 2 {
+						panic("dbox2d: the segment clip produced one point")
+					}
+					if manifold.PointCount == 2 {
+						manifold.Normal = RotateVector(xfA.Q, Neg(normalB))
+						manifold.Points[0].AnchorA = RotateVector(xfA.Q, manifold.Points[0].AnchorA)
+						manifold.Points[1].AnchorA = RotateVector(xfA.Q, manifold.Points[1].AnchorA)
+						pAB := xfA.P.Sub(xfB.P)
+						manifold.Points[0].AnchorB = manifold.Points[0].AnchorA.Add(pAB)
+						manifold.Points[1].AnchorB = manifold.Points[1].AnchorA.Add(pAB)
+						manifold.Points[0].Point = xfA.P.Add(manifold.Points[0].AnchorA)
+						manifold.Points[1].Point = xfA.P.Add(manifold.Points[1].AnchorA)
+					}
+					return manifold
+				}
+
+				// fall through normalSnap
+				incidentNormal = ib
+			} else {
+				// Get index of incident polygonB vertex
+				dot1 := normal1.Dot(vertices[ib1].Sub(p1))
+				dot2 := normal1.Dot(vertices[ib2].Sub(p2))
+				incidentIndex = ib2
+				if dot1.Less(dot2) {
+					incidentIndex = ib1
+				}
+			}
+		}
+	} else {
+		// SAT edge normal. The FLT_MAX seeds become the Q extremes (D-009).
+		edgeSeparation := fixed.Q32MaxValue()
+
+		for i := range count {
+			s := normal1.Dot(vertices[i].Sub(p1))
+			if s.Less(edgeSeparation) {
+				edgeSeparation = s
+				incidentIndex = i
+			}
+		}
+
+		// Check convex neighbor for edge separation
+		if smoothParams.convex1 {
+			s0 := fixed.Q32MaxValue()
+
+			for i := range count {
+				s := smoothParams.normal0.Dot(vertices[i].Sub(p1))
+				if s.Less(s0) {
+					s0 = s
+				}
+			}
+
+			if edgeSeparation.Less(s0) {
+				edgeSeparation = s0
+
+				// Indicate neighbor owns edge separation
+				incidentIndex = -1
+			}
+		}
+
+		// Check convex neighbor for edge separation
+		if smoothParams.convex2 {
+			s2 := fixed.Q32MaxValue()
+
+			for i := range count {
+				s := smoothParams.normal2.Dot(vertices[i].Sub(p2))
+				if s.Less(s2) {
+					s2 = s
+				}
+			}
+
+			if edgeSeparation.Less(s2) {
+				edgeSeparation = s2
+
+				// Indicate neighbor owns edge separation
+				incidentIndex = -1
+			}
+		}
+
+		// SAT polygon normals
+		polygonSeparation := fixed.Q32MinValue()
+		referenceIndex := -1
+
+		for i := range count {
+			n := normals[i]
+
+			ntype := classifyNormal(smoothParams, Neg(n))
+			if ntype != normalAdmit {
+				continue
+			}
+
+			p := vertices[i]
+			s := n.Dot(p2.Sub(p)).Min(n.Dot(p1.Sub(p)))
+
+			if polygonSeparation.Less(s) {
+				polygonSeparation = s
+				referenceIndex = i
+			}
+		}
+
+		if edgeSeparation.Less(polygonSeparation) {
+			ia1 := referenceIndex
+			ia2 := 0
+			if ia1 < count-1 {
+				ia2 = ia1 + 1
+			}
+			a1 := vertices[ia1]
+			a2 := vertices[ia2]
+
+			n := normals[ia1]
+
+			dot1 := n.Dot(p1.Sub(a1))
+			dot2 := n.Dot(p2.Sub(a1))
+
+			if dot1.Less(dot2) {
+				if n0.Dot(n).Less(normal1.Dot(n)) {
+					// Neighbor is incident
+					return manifold
+				}
+			} else {
+				if n2.Dot(n).Less(normal1.Dot(n)) {
+					// Neighbor is incident
+					return manifold
+				}
+			}
+
+			manifold = clipSegments(a1, a2, p1, p2, normals[ia1], radiusB, zero, makeId(ia1, 1), makeId(ia2, 0))
+
+			if manifold.PointCount != 0 && manifold.PointCount != 2 {
+				panic("dbox2d: the segment clip produced one point")
+			}
+			if manifold.PointCount == 2 {
+				manifold.Normal = RotateVector(xfA.Q, Neg(normals[ia1]))
+				manifold.Points[0].AnchorA = RotateVector(xfA.Q, manifold.Points[0].AnchorA)
+				manifold.Points[1].AnchorA = RotateVector(xfA.Q, manifold.Points[1].AnchorA)
+				pAB := xfA.P.Sub(xfB.P)
+				manifold.Points[0].AnchorB = manifold.Points[0].AnchorA.Add(pAB)
+				manifold.Points[1].AnchorB = manifold.Points[1].AnchorA.Add(pAB)
+				manifold.Points[0].Point = xfA.P.Add(manifold.Points[0].AnchorA)
+				manifold.Points[1].Point = xfA.P.Add(manifold.Points[1].AnchorA)
+			}
+
+			return manifold
+		}
+
+		if incidentIndex == -1 {
+			// neighboring segment is the separating axis
+			return manifold
+		}
+
+		// fall through segment normal axis
+	}
+
+	if incidentNormal == -1 && incidentIndex == -1 {
+		panic("dbox2d: the chain segment found no incident feature")
+	}
+
+	// Segment normal
+
+	// Find incident polygon normal: normal adjacent to deepest vertex that is most anti-parallel to segment normal
+	var b1, b2 Vec2
+	var ib1, ib2 int
+
+	if incidentNormal != -1 {
+		ib1 = incidentNormal
+		ib2 = 0
+		if ib1 < count-1 {
+			ib2 = ib1 + 1
+		}
+		b1 = vertices[ib1]
+		b2 = vertices[ib2]
+	} else {
+		i2 := incidentIndex
+		i1 := count - 1
+		if i2 > 0 {
+			i1 = i2 - 1
+		}
+		d1 := normal1.Dot(normals[i1])
+		d2 := normal1.Dot(normals[i2])
+		if d1.Less(d2) {
+			ib1, ib2 = i1, i2
+			b1 = vertices[ib1]
+			b2 = vertices[ib2]
+		} else {
+			ib1 = i2
+			ib2 = 0
+			if i2 < count-1 {
+				ib2 = i2 + 1
+			}
+			b1 = vertices[ib1]
+			b2 = vertices[ib2]
+		}
+	}
+
+	manifold = clipSegments(p1, p2, b1, b2, normal1, zero, radiusB, makeId(0, ib2), makeId(1, ib1))
+
+	if manifold.PointCount != 0 && manifold.PointCount != 2 {
+		panic("dbox2d: the segment clip produced one point")
+	}
+	if manifold.PointCount == 2 {
+		// There may be no points c
+		manifold.Normal = RotateVector(xfA.Q, manifold.Normal)
+		manifold.Points[0].AnchorA = RotateVector(xfA.Q, manifold.Points[0].AnchorA)
+		manifold.Points[1].AnchorA = RotateVector(xfA.Q, manifold.Points[1].AnchorA)
+		pAB := xfA.P.Sub(xfB.P)
+		manifold.Points[0].AnchorB = manifold.Points[0].AnchorA.Add(pAB)
+		manifold.Points[1].AnchorB = manifold.Points[1].AnchorA.Add(pAB)
+		manifold.Points[0].Point = xfA.P.Add(manifold.Points[0].AnchorA)
+		manifold.Points[1].Point = xfA.P.Add(manifold.Points[1].AnchorA)
+	}
 
 	return manifold
 }

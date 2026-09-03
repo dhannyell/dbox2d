@@ -60,7 +60,7 @@ instead shifts the result by one raw unit. Write `s.Neg().Mul(x)`.
 | `manifolds` | Narrowphase and contact bookkeeping. |
 | `solver` | Soft Step, warm starting, relax, restitution, islands, coloring. |
 | `broadphase` | Dynamic tree, pair finding, and the second executor. |
-| `later` | Joints, time of impact, sensors, character mover, worker tasks. |
+| `later` | Joints, sensors, character mover, worker tasks. |
 
 ## What the inventory found
 
@@ -140,15 +140,12 @@ the AABB ray cast in `aabb.go`. Two divergences came with them, D-008 and
 D-009, and D-003 and D-006 grew new entries.
 
 - The distance, the time of impact and the character mover own their types.
-  `SegmentDistanceResult`, `SimplexCache`, `DistanceInput`, `DistanceOutput`,
-  `Simplex`, `ShapeCastPairInput`, `Sweep`, `TOIInput`, `TOIOutput`,
-  `PlaneResult`, `CollisionPlane` and `PlaneSolverResult` wait for them.
-- `b2ShapeCastCircle`, `b2ShapeCastCapsule`, `b2ShapeCastSegment`,
-  `b2ShapeCastPolygon`, `b2PointInPolygon` and the four `b2CollideMoverAnd`
-  functions do not cross yet. Each one calls `b2ShapeDistance` or
-  `b2ShapeCast`, which are the iterative geometry of `distance.c`.
-- `RayCastPolygon` ports the closed-form branch, which needs a zero radius.
-  A rounded polygon panics until the shape cast lands.
+  The distance and time of impact types landed with order 32. `PlaneResult`,
+  `CollisionPlane` and `PlaneSolverResult` wait for the mover.
+- `b2PointInPolygon` and the four `b2CollideMoverAnd` functions do not cross
+  yet; they wait for the mover. The shape casts landed with order 32.
+- `RayCastPolygon` ports the closed-form branch for a zero radius; the
+  rounded branch calls the shape cast since order 32.
 - `B2_MAX_POLYGON_VERTICES` becomes `MaxPolygonVertices`. A shape keeps the
   upstream layout: a fixed array of that size beside a count.
 - `B2_HUGE` lands in `constants.go` with order 9, because `IsValidRay` in
@@ -192,8 +189,8 @@ adds no arithmetic divergence.
   post-review fixes of the solver stage, without their joint branches.
 - `b2WakeBody` and the wake, sleep and merge of solver sets landed when
   order 13 completed. The step surface landed with order 16 and the events
-  with order 28. `b2ShouldBodiesCollide`, `b2MakeSweep` and the query and
-  cast surface of `world.c` wait for their stages.
+  with order 28. `b2ShouldBodiesCollide` landed with order 30, `b2MakeSweep` and the
+  shape queries with order 32.
 
 **Orders 16 and 17 have landed**: `step.go`, the integration skeleton in
 `solver.go` and `checksum.go`. D-011 came with them, D-003 now covers the
@@ -207,10 +204,9 @@ assertions retained by the step, and D-004 and D-006 grew `solver.go` entries.
   runs once, after the loop.
 - The damping factor becomes a division per D-006. The torque delta and the
   arc speed of the sleep test scale by one turn per D-004.
-- The finalize refreshes the fat bounds directly. While continuous collision
-  is deferred, fast bodies also take this discrete path so their previous
-  transforms and bounds remain coherent. The `enlargedAABB` flag and the bit
-  sets stay with the broad-phase.
+- The finalize refreshes the fat bounds directly. Fast bodies leave this
+  path since order 32 and take the continuous stage. The `enlargedAABB`
+  flag and the bit sets stay with the broad-phase.
 - `Checksum` covers the deterministic world configuration and all canonical
   body and shape state. Per-body and per-shape sums make equivalent worlds
   independent of internal ids and creation order.
@@ -235,8 +231,7 @@ assertions retained by the step, and D-004 and D-006 grew `solver.go` entries.
   The epsilon guard becomes an exact zero test per D-012.
 - `MakeProxy` takes a slice in place of the pointer and count pair.
 - `b2MakeOffsetProxy`, `b2GetSweepTransform` and the whole simplex
-  apparatus stay with their consumers: the shape casts, the sweeps and
-  the iterative distance solver.
+  apparatus landed with order 32.
 
 **Order 20 has landed**: `manifold.go` — the circle and capsule colliders,
 then the polygon colliders: `makeCapsule`, `clipPolygons`,
@@ -251,8 +246,8 @@ then the polygon colliders: `makeCapsule`, `clipPolygons`,
   contract across frames.
 - `CollidePolygons` ports the compiled `#if 1` branch of the reference; the
   dead `#else` block does not enter.
-- `clipSegments` has no caller yet: the chain-segment colliders that use it
-  also need GJK and wait with the distance solver.
+- `clipSegments` serves the chain-segment colliders, which landed with
+  order 32.
 
 **Order 22 has landed**: `table.go`, ahead of order 21 because the contact
 bookkeeping needs the pair set.
@@ -274,9 +269,9 @@ releasing their owners.
 
 - The lazy register flag becomes a package `init`, which runs once and in a
   deterministic order.
-- The chain segment pairs against capsule and polygon stay out of the
-  register until the iterative distance solver lands; their nil entries make
-  `createContact` skip the pair.
+- The chain segment pairs against capsule and polygon entered the register
+  with order 32. Pairs without an entry, such as segment against segment,
+  keep a nil entry that makes `createContact` skip the pair.
 - The pair set lives on the world for now. The reference hosts it on the
   broadphase; it moves there when the broadphase lands.
 - The island and constraint graph branches and the inverse mass copies of
@@ -286,8 +281,8 @@ releasing their owners.
 - The speculative two-point reduction of the reference tests point zero in
   both branches, so only the first branch can fire; the port keeps the live
   branch only.
-- `b2SimplexCache` enters as a data-only struct. The distance solver that
-  fills it comes later; until then every dispatch runs with an empty cache.
+- `b2SimplexCache` enters as a data-only struct. The distance solver fills
+  it since order 32; the chain segment dispatches warm-start from it.
 
 **Orders 25 and 27 have landed**: `island.go` and `bitset.go`. The world
 gains the arena, the island storage, the island id pool and the split
@@ -360,8 +355,8 @@ sleep tail in reverse island order. The world gains one `taskContext`.
   finalize, which is the only order the reference forbids.
 - The color occupancy count, the contact pointers, the stage blocks and
   the per-worker contexts serve the parallel executor and wait with it.
-- The broad-phase refit and the continuous collision stage wait for
-  their orders.
+- The broad-phase refit landed with order 30 and the continuous collision
+  stage with order 32.
 
 **Order 28 has landed with the collide block and the events**: `step.go`
 gains `collide`, which follows `b2Collide` and `b2UpdateContact`: the
@@ -404,8 +399,8 @@ box query, the ray cast and the rebuild.
   and its bin seeds are the largest values (D-009). The reciprocal of the
   centroid extent is a fixed-point division, and zero when the extent is
   zero.
-- `b2DynamicTree_ShapeCast` waits for the shape cast of the collision
-  module. `b2DynamicTree_GetAreaRatio` and `b2DynamicTree_GetByteCount`
+- `b2DynamicTree_ShapeCast` landed with order 32.
+  `b2DynamicTree_GetAreaRatio` and `b2DynamicTree_GetByteCount`
   do not cross. They serve profiling views, not the simulation.
 - The validators exist, but only the tests call them. The reference
   compiles them into validation builds only.
@@ -452,8 +447,49 @@ public callbacks are closures per D-014. A zero fraction ends the cast
 before the next tree; a false overlap result ends only the current tree,
 because the reference loop does not check it; a locked world panics per
 D-003. The shape casts
-and the closest-hit helpers wait for the shape cast of the collision
-foundation.
+and the closest-hit helpers landed with order 32.
+
+**Order 32 has landed with the iterative geometry**: the simplex solver,
+the shape cast and the time of impact of `distance.c`, their consumers and
+the continuous collision stage. D-003, D-006, D-010, D-012 and D-014 grew
+entries; the determinism witness of D-011 did not move.
+
+- `ShapeDistance` keeps the loop of the reference: the simplex from the
+  cache, the two and three vertex solvers, the support search, the
+  duplicate exit at twenty iterations. The `FLT_EPSILON` guard on the
+  search direction becomes an exact zero test per D-012; the barycentric
+  reciprocals become divisions per D-006; the assertions become panics per
+  D-003. The simplex debug output takes a slice per D-010.
+- `ShapeCast` is the conservative advancement of the reference, with the
+  encroach option. The target sits one slop under the summed radii, so a
+  rounded pair stops a shade past the exact touch and a sharp pair a shade
+  short; the tests pin the side.
+- `TimeOfImpact` keeps the separating axis method: the distance loop, the
+  push-back loop bounded by the polygon vertex limit, the root finder that
+  alternates bisection and the secant rule for fifty iterations. The
+  counters under `B2_SNOOP_TOI_COUNTERS` do not cross. The solver reports
+  the five states of the reference.
+- `CollideChainSegmentAndCapsule` and `CollideChainSegmentAndPolygon` join
+  the register. Their `FLT_MAX` seeds become the largest values per D-009.
+- The four `ShapeCast*` functions, `RayCastPolygon` for a rounded polygon,
+  `shapeCastShape`, `makeShapeDistanceProxy` and the tree shape cast land.
+  The tree callback is a closure per D-014.
+- `world.go` gains `OverlapShape`, `CastShape`, `CastMover` and
+  `CastRayClosest`, all closures per D-014. `RayResult` carries the closest
+  hit with the tree statistics. The custom filter and the pre-solve
+  callbacks of the reference do not cross; comments mark their points.
+- The continuous stage of `solver.c` lands in `solver.go`. The finalize
+  flags a body as fast when its top speed over the step exceeds half its
+  minimum extent, runs `solveContinuous` inline for a plain fast body and
+  buffers a bullet in `stepContext.bulletBodies`, a slice from the arena
+  per D-010. The refit pass buffers the moves of a fast bullet, then the
+  bullet pass sweeps each bullet and enlarges its proxies serially; the
+  reference runs the sweeps in parallel and the single worker keeps the
+  buffer order. The query callback is a method value per D-014. The
+  global counters of the reference do not cross.
+- A fast body without a hit keeps the tight bounds of its end transform,
+  as the reference does; the fat bounds still contain them.
+- `makeSweep` lands in `body.go`.
 
 ## The map
 
@@ -470,33 +506,33 @@ foundation.
 | `include/box2d/collision.h` | `collision.go` | T0 | foundation | 7 | Shape structs, manifold structs, cast input and output. |
 | `src/aabb.c` | `aabb.go` | T0/T2 | foundation | 7 | AABB ray cast, unexported: `src/aabb.h` declares it, `include/box2d/` does not. `IsValidAABB` landed with order 4. See D-006, D-008 and D-009. |
 | `src/hull.c` | `hull.go` | T0/T2 | foundation | 8 | Recursive quickhull. Its tolerances are multiples of the linear slop, so only the `FLT_MAX` seed diverged. See D-009. |
-| `src/geometry.c` | `geometry.go` | T0/T1/T2 | foundation | 9 | Shape constructors, mass data, AABB per shape, point tests, ray casts. The shape casts and the mover collisions wait for order 19. |
+| `src/geometry.c` | `geometry.go` | T0/T1/T2 | foundation | 9 | Shape constructors, mass data, AABB per shape, point tests, ray casts. The shape casts landed with order 32; the mover collisions wait for the mover. |
 | `include/box2d/types.h`, `src/types.c` | `types.go` | T1 | foundation | 10 | Definition structs and their defaults. |
-| `src/body.h`, `src/body.c` | `body.go` | T0/T2 | foundation | 11 | `body`, `bodySim`, `bodyState`, unexported: `src/body.h` declares them. Layout preserved. The mass update scales the angular velocity by one turn; see D-004. The island hooks landed with order 25; the body events landed with order 28; the proxy destroy and the body collision rule landed with order 30. |
-| `src/shape.h`, `src/shape.c` | `shape.go` | T0 | foundation | 12 | Shape storage and the mass, AABB, centroid and extent dispatchers. The proxies and the filter rules landed with order 30; the ray cast dispatcher landed with the public queries. The sensors, chains and shape casts wait for their stages. |
+| `src/body.h`, `src/body.c` | `body.go` | T0/T2 | foundation | 11 | `body`, `bodySim`, `bodyState`, unexported: `src/body.h` declares them. Layout preserved. The mass update scales the angular velocity by one turn; see D-004. The island hooks landed with order 25; the body events landed with order 28; the proxy destroy and the body collision rule landed with order 30; `makeSweep` landed with order 32. |
+| `src/shape.h`, `src/shape.c` | `shape.go` | T0 | foundation | 12 | Shape storage and the mass, AABB, centroid and extent dispatchers. The proxies and the filter rules landed with order 30; the ray cast dispatcher landed with the public queries. The shape cast dispatcher and the distance proxy landed with order 32. The sensors and chains wait for their stages. |
 | `src/solver_set.h`, `src/solver_set.c` | `solver_set.go` | T0 | foundation | 13 | Static, awake, disabled and sleeping sets; body transfer, wake, sleep and set merge. The joint arrays wait. |
-| `src/world.h`, `src/world.c` | `world.go` | T0 | foundation | 14 | Split across stages. The foundation takes the registry, creation, destruction, the validity checks and the trimmed set validation. `b2World_Step` landed with order 16 in `step.go`; the events landed with order 28; the broadphase and the enlarged body bit set landed with order 30; `OverlapAABB` and `CastRay` landed with the public queries. The shape casts and the closest-hit helpers wait for the shape cast. |
+| `src/world.h`, `src/world.c` | `world.go` | T0 | foundation | 14 | Split across stages. The foundation takes the registry, creation, destruction, the validity checks and the trimmed set validation. `b2World_Step` landed with order 16 in `step.go`; the events landed with order 28; the broadphase and the enlarged body bit set landed with order 30; `OverlapAABB` and `CastRay` landed with the public queries. `OverlapShape`, `CastShape`, `CastMover` and `CastRayClosest` landed with order 32. |
 | `src/array.h`, `src/array.c` | `array.go` | T2 | foundation | 15 | The macro-generated array template becomes a Go slice; `removeSwap` keeps the swap-remove contract. Capacity follows the Go runtime and never enters a result. See D-010. |
-| `src/world.c` (`b2World_Step`), `src/solver.h` (`b2StepContext`) | `step.go` | T1/T2 | foundation | 16 | The step surface: validation, the context, the sub-step split, the locked flag. Assertions become panics per D-003. The softness setup landed with order 24; the collide block and the events landed with order 28; the pair update and the tree rebuild landed with order 30. The continuous stage waits. |
+| `src/world.c` (`b2World_Step`), `src/solver.h` (`b2StepContext`) | `step.go` | T1/T2 | foundation | 16 | The step surface: validation, the context, the sub-step split, the locked flag. Assertions become panics per D-003. The softness setup landed with order 24; the collide block and the events landed with order 28; the pair update and the tree rebuild landed with order 30; the bullet buffer landed with order 32. |
 | — | `checksum.go` | T2 | foundation | 17 | Port-only determinism witness over the complete canonical world state, commutative over bodies and shapes. See D-011. |
 | `src/arena_allocator.h`, `src/arena_allocator.c` | `arena.go` | T1 | foundation | 18 | Per-step scratch. It is how the step allocates nothing. |
-| `src/distance.c` (segment distance, proxies) | `distance.go` | T0 | manifolds | 19 | Closed-form part only. |
-| `src/manifold.c` | `manifold.go` | T0/T1 | manifolds | 20 | Nine `FLT_EPSILON` sites become exact zero tests, one T2 entry each. |
+| `src/distance.c` (segment distance, proxies) | `distance.go` | T0 | manifolds | 19 | Closed-form part. The iterative part is order 32. |
+| `src/manifold.c` | `manifold.go` | T0/T1 | manifolds | 20 | Nine `FLT_EPSILON` sites become exact zero tests, one T2 entry each. The chain segment colliders landed with order 32. |
 | `src/contact.h`, `src/contact.c` | `contact.go` | T0 | manifolds | 21 | Contact bookkeeping and the collide dispatch table. The island and graph branches landed with orders 25 and 26. |
 | `src/table.h`, `src/table.c` | `table.go` | T0 | manifolds | 22 | Open-addressing set of contact pairs. |
-| `src/solver.h`, `src/solver.c` | `solver.go` | T0/T1/T2 | solver | 23 | Nine ordered stages, from prepare joints to store impulses. `makeSoft` landed with order 24. The integration tasks and the body finalize landed with order 16; the single-worker stage order with the per-color contact stages, the island split and the sleep tail landed with order 23; the enlarged body bits and the broadphase refit landed with order 30; see D-004 and D-006. |
+| `src/solver.h`, `src/solver.c` | `solver.go` | T0/T1/T2 | solver | 23 | Nine ordered stages, from prepare joints to store impulses. `makeSoft` landed with order 24. The integration tasks and the body finalize landed with order 16; the single-worker stage order with the per-color contact stages, the island split and the sleep tail landed with order 23; the enlarged body bits and the broadphase refit landed with order 30; the continuous stage landed with order 32; see D-004 and D-006. |
 | `src/contact_solver.h`, `src/contact_solver.c` | `contact_solver.go` | T0/T1/T2 | solver | 24 | The scalar stages landed and serve every color; see D-004 and D-006. The wide `Task` family is T2 until the second executor exists. |
 | `src/island.h`, `src/island.c` | `island.go` | T0 | solver | 25 | Island linking, merging and splitting landed; the wake calls and the sleep path landed when order 13 completed. The joint lists wait for the joints. |
 | `src/constraint_graph.h`, `src/constraint_graph.c` | `constraint_graph.go` | T0 | solver | 26 | Eleven colors plus the overflow color landed. The color schedule is the parallel contract. The joint functions wait. |
 | `src/bitset.h`, `src/bitset.c` | `bitset.go` | T0 | broadphase | 27 | Set, clear, test, grow and union landed. Backs the constraint graph and the contact state of the step. |
 | `src/ctz.h` | `math/bits` | T2 | broadphase | 28 | The standard library replaces the compiler intrinsics. Landed with the collide block in `step.go`. |
-| `src/dynamic_tree.c` | `dynamic_tree.go` | T0/T2 | broadphase | 29 | Landed. Fattened AABBs, surface-area heuristic, rotation rebalance, box query, ray cast, partial rebuild. The shape cast waits for order 19. See D-009 and D-014. |
+| `src/dynamic_tree.c` | `dynamic_tree.go` | T0/T2 | broadphase | 29 | Landed. Fattened AABBs, surface-area heuristic, rotation rebalance, box query, ray cast, shape cast, partial rebuild. See D-009 and D-014. |
 | `src/broad_phase.h`, `src/broad_phase.c` | `broad_phase.go` | T0/T2 | broadphase | 30 | Landed. Three trees, the move buffer, the pair query and the pair set. The pair list of each moved proxy is sorted by shape id, so any equivalent tree gives the same world. See D-010 and D-013. |
 | `src/atomic.h` | `sync/atomic` | T2 | broadphase | 31 | Needed only when a second executor exists. The pair index of the broadphase is the length of the pair slice for one worker. |
 | `include/box2d/box2d.h` | public API | T0 | all stages | — | The public surface arrives file by file with its owner. |
 | `src/joint.h`, `src/joint.c` | `joint.go` | T3 | later | — | Eight joint types follow it. |
 | `src/distance_joint.c`, `src/motor_joint.c`, `src/mouse_joint.c`, `src/prismatic_joint.c`, `src/revolute_joint.c`, `src/weld_joint.c`, `src/wheel_joint.c` | one file each | T3 | later | — | Ports after the solver is proven. |
-| `src/distance.c` (simplex solver, shape cast, time of impact) | `gjk.go`, `toi.go` | T3 | later | — | The only iterative geometry in the library. Its stopping criteria are the largest T2 risk of the whole port. |
+| `src/distance.c` (simplex solver, shape cast, time of impact), `src/solver.c` (continuous stage) | `distance.go`, `solver.go` | T0/T2 | manifolds | 32 | Landed. The only iterative geometry in the library. Each stopping criterion keeps its form; the tests pin the iteration bounds, a float64 mirror and a bit witness. |
 | `src/sensor.h`, `src/sensor.c` | `sensor.go` | T3 | later | — | Sensor overlap events. |
 | `src/mover.c` | `mover.go` | T3 | later | — | Character movement helpers, built on shape casts. |
 | `src/timer.c` | dropped | T2 | — | — | Platform timers serve profiling. Timing never enters a deterministic result. |

@@ -217,9 +217,8 @@ type Manifold struct {
 	PointCount int
 }
 
-// SimplexCache warm starts the distance solver between two steps. The zero
-// value is an empty cache. The solver that fills it comes with the distance
-// module; until then the cache is carried but stays empty. It corresponds to
+// SimplexCache warm starts the distance solver between two calls. The zero
+// value is an empty cache; ShapeDistance fills it. It corresponds to
 // b2SimplexCache in include/box2d/collision.h.
 type SimplexCache struct {
 	// Count is the number of stored simplex vertices.
@@ -230,6 +229,177 @@ type SimplexCache struct {
 
 	// IndexB holds the vertices of shape B on the simplex.
 	IndexB [3]uint8
+}
+
+// DistanceInput is the input of ShapeDistance. It corresponds to
+// b2DistanceInput in include/box2d/collision.h.
+type DistanceInput struct {
+	// ProxyA is the proxy of shape A.
+	ProxyA ShapeProxy
+
+	// ProxyB is the proxy of shape B.
+	ProxyB ShapeProxy
+
+	// TransformA is the world transform of shape A.
+	TransformA Transform
+
+	// TransformB is the world transform of shape B.
+	TransformB Transform
+
+	// UseRadii asks the solver to subtract the proxy radii.
+	UseRadii bool
+}
+
+// DistanceOutput is the output of ShapeDistance. It corresponds to
+// b2DistanceOutput in include/box2d/collision.h.
+type DistanceOutput struct {
+	// PointA is the closest point on shape A.
+	PointA Vec2
+
+	// PointB is the closest point on shape B.
+	PointB Vec2
+
+	// Normal points from A to B. It is invalid when the distance is zero.
+	Normal Vec2
+
+	// Distance is the final distance, zero when the shapes overlap.
+	Distance Q
+
+	// Iterations counts the GJK iterations used.
+	Iterations int
+
+	// SimplexCount is the number of simplexes stored in the debug slice.
+	SimplexCount int
+}
+
+// SimplexVertex is a vertex of the GJK simplex, kept for debugging. It
+// corresponds to b2SimplexVertex in include/box2d/collision.h.
+type SimplexVertex struct {
+	// WA is the support point in proxy A.
+	WA Vec2
+
+	// WB is the support point in proxy B.
+	WB Vec2
+
+	// W is wA - wB.
+	W Vec2
+
+	// A is the barycentric coordinate of the closest point.
+	A Q
+
+	// IndexA is the index of WA.
+	IndexA int
+
+	// IndexB is the index of WB.
+	IndexB int
+}
+
+// Simplex is the simplex of the GJK algorithm. It corresponds to
+// b2Simplex in include/box2d/collision.h.
+type Simplex struct {
+	// V1, V2 and V3 are the vertices.
+	V1, V2, V3 SimplexVertex
+
+	// Count is the number of valid vertices.
+	Count int
+}
+
+// ShapeCastPairInput is the input of ShapeCast. It corresponds to
+// b2ShapeCastPairInput in include/box2d/collision.h.
+type ShapeCastPairInput struct {
+	// ProxyA is the proxy of shape A.
+	ProxyA ShapeProxy
+
+	// ProxyB is the proxy of shape B.
+	ProxyB ShapeProxy
+
+	// TransformA is the world transform of shape A.
+	TransformA Transform
+
+	// TransformB is the world transform of shape B.
+	TransformB Transform
+
+	// TranslationB is the translation of shape B.
+	TranslationB Vec2
+
+	// MaxFraction is the fraction of the translation to consider. It is
+	// usually one.
+	MaxFraction Q
+
+	// CanEncroach lets shapes with a radius move a little closer when
+	// they already touch.
+	CanEncroach bool
+}
+
+// Sweep describes the motion of a body for the time of impact. Shapes are
+// defined about the body origin, which may differ from the center of mass,
+// so the sweep interpolates the center of mass. It corresponds to b2Sweep
+// in include/box2d/collision.h.
+type Sweep struct {
+	// LocalCenter is the local center of mass.
+	LocalCenter Vec2
+
+	// C1 is the starting world center of mass.
+	C1 Vec2
+
+	// C2 is the ending world center of mass.
+	C2 Vec2
+
+	// Q1 is the starting world rotation.
+	Q1 Rot
+
+	// Q2 is the ending world rotation.
+	Q2 Rot
+}
+
+// TOIInput is the input of TimeOfImpact. It corresponds to b2TOIInput in
+// include/box2d/collision.h.
+type TOIInput struct {
+	// ProxyA is the proxy for shape A.
+	ProxyA ShapeProxy
+
+	// ProxyB is the proxy for shape B.
+	ProxyB ShapeProxy
+
+	// SweepA is the movement of shape A.
+	SweepA Sweep
+
+	// SweepB is the movement of shape B.
+	SweepB Sweep
+
+	// MaxFraction defines the sweep interval [0, MaxFraction].
+	MaxFraction Q
+}
+
+// TOIState describes the result of TimeOfImpact. It corresponds to
+// b2TOIState in include/box2d/collision.h.
+type TOIState int
+
+const (
+	// TOIStateUnknown means the solver did not reach a conclusion.
+	TOIStateUnknown TOIState = iota
+
+	// TOIStateFailed means the root finder ran out of iterations.
+	TOIStateFailed
+
+	// TOIStateOverlapped means the shapes overlap at the start.
+	TOIStateOverlapped
+
+	// TOIStateHit means the shapes touch at the fraction.
+	TOIStateHit
+
+	// TOIStateSeparated means the shapes stay apart over the whole interval.
+	TOIStateSeparated
+)
+
+// TOIOutput is the output of TimeOfImpact. It corresponds to b2TOIOutput
+// in include/box2d/collision.h.
+type TOIOutput struct {
+	// State is the type of result.
+	State TOIState
+
+	// Fraction is the sweep time of the collision.
+	Fraction Q
 }
 
 // TreeStats counts the nodes a world query visited. It corresponds to

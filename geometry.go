@@ -741,7 +741,16 @@ func RayCastPolygon(input *RayCastInput, shape *Polygon) CastOutput {
 	zero := fixed.Q32Zero()
 
 	if !shape.Radius.Eq(zero) {
-		panic("dbox2d: RayCastPolygon does not yet accept a rounded polygon")
+		// TODO_ERIN this is not working for ray vs box (zero radii)
+		var castInput ShapeCastPairInput
+		castInput.ProxyA = MakeProxy(shape.Vertices[:shape.Count], shape.Radius)
+		castInput.ProxyB = MakeProxy([]Vec2{input.Origin}, zero)
+		castInput.TransformA = TransformIdentity()
+		castInput.TransformB = TransformIdentity()
+		castInput.TranslationB = input.Translation
+		castInput.MaxFraction = input.MaxFraction
+		castInput.CanEncroach = false
+		return ShapeCast(&castInput)
 	}
 
 	// Shift all math to first vertex since the polygon may be far
@@ -806,4 +815,46 @@ func RayCastPolygon(input *RayCastInput, shape *Polygon) CastOutput {
 	}
 
 	return output
+}
+
+// shapeCastPair builds the pair input of a cast against a fixed shape
+// given as a proxy in its own frame.
+func shapeCastPair(input *ShapeCastInput, proxyA ShapeProxy) ShapeCastPairInput {
+	return ShapeCastPairInput{
+		ProxyA:       proxyA,
+		ProxyB:       input.Proxy,
+		TransformA:   TransformIdentity(),
+		TransformB:   TransformIdentity(),
+		TranslationB: input.Translation,
+		MaxFraction:  input.MaxFraction,
+		CanEncroach:  input.CanEncroach,
+	}
+}
+
+// ShapeCastCircle casts a proxy against a circle in the local frame of
+// the circle. It corresponds to b2ShapeCastCircle in src/geometry.c.
+func ShapeCastCircle(input *ShapeCastInput, shape *Circle) CastOutput {
+	pairInput := shapeCastPair(input, MakeProxy([]Vec2{shape.Center}, shape.Radius))
+	return ShapeCast(&pairInput)
+}
+
+// ShapeCastCapsule casts a proxy against a capsule in the local frame of
+// the capsule. It corresponds to b2ShapeCastCapsule in src/geometry.c.
+func ShapeCastCapsule(input *ShapeCastInput, shape *Capsule) CastOutput {
+	pairInput := shapeCastPair(input, MakeProxy([]Vec2{shape.Center1, shape.Center2}, shape.Radius))
+	return ShapeCast(&pairInput)
+}
+
+// ShapeCastSegment casts a proxy against a segment in the local frame of
+// the segment. It corresponds to b2ShapeCastSegment in src/geometry.c.
+func ShapeCastSegment(input *ShapeCastInput, shape *Segment) CastOutput {
+	pairInput := shapeCastPair(input, MakeProxy([]Vec2{shape.Point1, shape.Point2}, fixed.Q32Zero()))
+	return ShapeCast(&pairInput)
+}
+
+// ShapeCastPolygon casts a proxy against a polygon in the local frame of
+// the polygon. It corresponds to b2ShapeCastPolygon in src/geometry.c.
+func ShapeCastPolygon(input *ShapeCastInput, shape *Polygon) CastOutput {
+	pairInput := shapeCastPair(input, MakeProxy(shape.Vertices[:shape.Count], shape.Radius))
+	return ShapeCast(&pairInput)
 }

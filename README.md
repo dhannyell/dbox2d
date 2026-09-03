@@ -8,16 +8,16 @@ result bits on every supported architecture, on every run.
 The module is pre-v1. Its import path and its API may change before the first
 stable release. It requires Go 1.26.4 or newer.
 
-The port covers its foundation, the closed-form part of the narrowphase and
-the scalar contact solver: worlds, bodies, shapes, mass computation, a
-determinism checksum, contact manifolds for the supported shape pairs, the
-contact bookkeeping, the islands with sleep and wake, the constraint graph,
-the soft-step contact solver, the body and contact events, the dynamic
-trees, the broadphase and the AABB and ray queries of the world. `Step`
-finds the new pairs, updates the contacts, solves them and puts resting
-islands to sleep. Chain segments against capsules or polygons still wait
-for the iterative distance solver; the shape queries, joints, sensors and
-continuous collision wait as well.
+The port covers its foundation, the narrowphase and the scalar contact
+solver: worlds, bodies, shapes, mass computation, a determinism checksum,
+contact manifolds for every shape pair, the distance solver, the shape
+casts and the time of impact, the contact bookkeeping, the islands with
+sleep and wake, the constraint graph, the soft-step contact solver, the
+body and contact events, the dynamic trees, the broadphase and the AABB,
+ray, shape and mover queries of the world. `Step` finds the new pairs,
+updates the contacts, solves them, sweeps the fast bodies and the bullets
+against the world so they stop at their first time of impact, and puts
+resting islands to sleep. Joints, sensors and the character mover wait.
 [PORTING.md](PORTING.md) tracks what has landed.
 
 ## Fidelity contract
@@ -47,7 +47,8 @@ go get github.com/dhannyell/dbox2d
 ## Performance
 
 Fixed point buys determinism and pays in speed. The repository measures that
-price with six benchmark pairs in `bench_test.go`. Each pair runs the Q32.32
+price with eight benchmark pairs and one bullet composite in
+`bench_test.go`. Each pair runs the Q32.32
 code against a line-by-line `float64` mirror of the same code, which stands
 in for the floating-point formulation of the reference.
 
@@ -65,6 +66,11 @@ in for the floating-point formulation of the reference.
 | Broadphase pair update, pyramid, every proxy moved, `float64` mirror | ~79 µs | 0 |
 | One tree query, 100 boxes, four hits, Q32.32 | ~0.14 µs | 0 |
 | One tree query, 100 boxes, four hits, `float64` mirror | ~0.14 µs | 0 |
+| One `ShapeDistance`, two rotated boxes, cold cache, Q32.32 | ~0.33 µs | 0 |
+| One `ShapeDistance`, two rotated boxes, cold cache, `float64` mirror | ~0.082 µs | 0 |
+| One `TimeOfImpact`, a turning box that hits, Q32.32 | ~2.5 µs | 0 |
+| One `TimeOfImpact`, a turning box that hits, `float64` mirror | ~0.46 µs | 0 |
+| Bullet `Step`, 64 fast boxes bouncing between two walls, half bullets, 4 sub-steps, Q32.32 | ~59 µs | 0 |
 | Pyramid step, solver probe on a Q16.16 grid with Q48.16 sums, test only | ~1.7 ms | 0 |
 | Pyramid step, solver probe on a Q20.12 grid with 64-bit sums, test only | ~1.4 ms | 0 |
 | Pyramid step, solver probe with the state in Q32.32 and each contact in Q16.16 lanes, test only | ~2.5 ms | 0 |
@@ -87,7 +93,12 @@ of the graph colors and skips the island and event bookkeeping, so its ratio
 is an upper bound. The broadphase pays nothing: the tree walks compare
 bounds and sum perimeters, which cost the same in both formats, so the
 pair update and the tree query run at parity. The pyramid mirror takes
-its pairs from a `float64` mirror of the tree.
+its pairs from a `float64` mirror of the tree. The iterative geometry
+pays about 4× on the distance solver and about 5× on the time of impact:
+each iteration normalizes a direction and the root finder divides. The
+bullet composite has no mirror; it pins the cost and the allocation
+contract of the continuous stage, at less than a microsecond per fast
+body.
 
 The probe lines run the contact solver of the pyramid on narrower grids
 inside `probe_q16_test.go` and `probe_wide_test.go`. The first two keep

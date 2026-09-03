@@ -828,3 +828,240 @@ func CastRay(worldId WorldId, origin, translation Vec2, filter QueryFilter, fcn 
 	}
 	return stats
 }
+
+// OverlapShape reports every shape that overlaps the proxy and whose
+// filter accepts the query, tree by tree; a false result ends only the
+// current tree. The distance solver decides the overlap, so the report is
+// exact, not a bounds test. A locked world panics. It corresponds to
+// b2World_OverlapShape in src/world.c.
+func OverlapShape(worldId WorldId, proxy *ShapeProxy, filter QueryFilter, fcn OverlapResultFcn) TreeStats {
+	w := getWorldFromId(worldId)
+	if w.locked {
+		panic("dbox2d: the world is locked")
+	}
+
+	aabb := MakeAABB(proxy.Points[:proxy.Count], proxy.Radius)
+	tolerance := linearSlop.Div(fixed.Q32FromInt(10))
+
+	callback := func(_ int, userData uint64) bool {
+		s := &w.shapes[int(userData)]
+		if !shouldQueryCollide(s.filter, filter) {
+			return true
+		}
+
+		transform := getBodyTransformQuick(w, &w.bodies[s.bodyId])
+
+		var input DistanceInput
+		input.ProxyA = *proxy
+		input.ProxyB = makeShapeDistanceProxy(s)
+		input.TransformA = TransformIdentity()
+		input.TransformB = transform
+		input.UseRadii = true
+
+		var cache SimplexCache
+		output := ShapeDistance(&input, &cache, nil)
+
+		if tolerance.Less(output.Distance) {
+			return true
+		}
+
+		return fcn(shapeIdOf(w, s))
+	}
+
+	var stats TreeStats
+	for i := range w.broadPhase.trees {
+		result := w.broadPhase.trees[i].query(aabb, filter.MaskBits, callback)
+		stats.NodeVisits += result.nodeVisits
+		stats.LeafVisits += result.leafVisits
+	}
+	return stats
+}
+
+// CastRayClosest reports the closest hit of a ray, the most common cast
+// in games. An initial overlap does not count as a hit. A locked world
+// panics. It corresponds to b2World_CastRayClosest in src/world.c; the
+// closure replaces b2RayCastClosestFcn.
+func CastRayClosest(worldId WorldId, origin, translation Vec2, filter QueryFilter) RayResult {
+	var result RayResult
+
+	w := getWorldFromId(worldId)
+	if w.locked {
+		panic("dbox2d: the world is locked")
+	}
+	if !IsValidVec2(origin) || !IsValidVec2(translation) {
+		panic("dbox2d: CastRayClosest needs a valid ray")
+	}
+
+	zero := fixed.Q32Zero()
+	one := fixed.Q32One()
+	input := RayCastInput{Origin: origin, Translation: translation, MaxFraction: one}
+	fraction := one
+
+	closest := func(shapeId ShapeId, point, normal Vec2, hitFraction Q) Q {
+		// Ignore initial overlap
+		if hitFraction.Eq(zero) {
+			return one.Neg()
+		}
+
+		result.ShapeId = shapeId
+		result.Point = point
+		result.Normal = normal
+		result.Fraction = hitFraction
+		result.Hit = true
+		return hitFraction
+	}
+
+	callback := func(input *RayCastInput, _ int, userData uint64) Q {
+		s := &w.shapes[int(userData)]
+		if !shouldQueryCollide(s.filter, filter) {
+			return input.MaxFraction
+		}
+
+		transform := getBodyTransformQuick(w, &w.bodies[s.bodyId])
+		output := rayCastShape(input, s, transform)
+		if !output.Hit {
+			return input.MaxFraction
+		}
+
+		value := closest(shapeIdOf(w, s), output.Point, output.Normal, output.Fraction)
+
+		// The user may return -1 to skip this shape
+		if !value.Less(zero) && !one.Less(value) {
+			fraction = value
+		}
+		return value
+	}
+
+	for i := range w.broadPhase.trees {
+		treeResult := w.broadPhase.trees[i].rayCast(&input, filter.MaskBits, callback)
+		result.NodeVisits += treeResult.nodeVisits
+		result.LeafVisits += treeResult.leafVisits
+
+		if fraction.Eq(zero) {
+			return result
+		}
+		input.MaxFraction = fraction
+	}
+
+	return result
+}
+
+// CastShape sweeps a proxy through the world and reports each hit, tree
+// by tree. The callback returns as for CastRay. A locked world panics. It
+// corresponds to b2World_CastShape in src/world.c.
+func CastShape(worldId WorldId, proxy *ShapeProxy, translation Vec2, filter QueryFilter, fcn CastResultFcn) TreeStats {
+	w := getWorldFromId(worldId)
+	if w.locked {
+		panic("dbox2d: the world is locked")
+	}
+	if !IsValidVec2(translation) {
+		panic("dbox2d: CastShape needs a valid translation")
+	}
+
+	zero := fixed.Q32Zero()
+	one := fixed.Q32One()
+
+	var input ShapeCastInput
+	input.Proxy = *proxy
+	input.Translation = translation
+	input.MaxFraction = one
+
+	fraction := one
+
+	callback := func(input *ShapeCastInput, _ int, userData uint64) Q {
+		s := &w.shapes[int(userData)]
+		if !shouldQueryCollide(s.filter, filter) {
+			return input.MaxFraction
+		}
+
+		transform := getBodyTransformQuick(w, &w.bodies[s.bodyId])
+
+		output := shapeCastShape(input, s, transform)
+		if !output.Hit {
+			return input.MaxFraction
+		}
+
+		value := fcn(shapeIdOf(w, s), output.Point, output.Normal, output.Fraction)
+
+		// The user may return -1 to skip this shape
+		if !value.Less(zero) && !one.Less(value) {
+			fraction = value
+		}
+		return value
+	}
+
+	var stats TreeStats
+	for i := range w.broadPhase.trees {
+		result := w.broadPhase.trees[i].shapeCast(&input, filter.MaskBits, callback)
+		stats.NodeVisits += result.nodeVisits
+		stats.LeafVisits += result.leafVisits
+
+		if fraction.Eq(zero) {
+			return stats
+		}
+		input.MaxFraction = fraction
+	}
+	return stats
+}
+
+// CastMover sweeps a capsule through the world and returns the fraction
+// of the translation it may travel. Shapes it already overlaps do not
+// stop it; a capsule that already touches may move a little closer. A
+// locked world panics. It corresponds to b2World_CastMover in
+// src/world.c.
+func CastMover(worldId WorldId, mover *Capsule, translation Vec2, filter QueryFilter) Q {
+	if !IsValidVec2(translation) {
+		panic("dbox2d: CastMover needs a valid translation")
+	}
+	if !linearSlop.Mul(fixed.Q32FromInt(2)).Less(mover.Radius) {
+		panic("dbox2d: the mover radius must exceed two slops")
+	}
+
+	w := getWorldFromId(worldId)
+	if w.locked {
+		panic("dbox2d: the world is locked")
+	}
+
+	zero := fixed.Q32Zero()
+	one := fixed.Q32One()
+
+	var input ShapeCastInput
+	input.Proxy.Points[0] = mover.Center1
+	input.Proxy.Points[1] = mover.Center2
+	input.Proxy.Count = 2
+	input.Proxy.Radius = mover.Radius
+	input.Translation = translation
+	input.MaxFraction = one
+	input.CanEncroach = true
+
+	fraction := one
+
+	callback := func(input *ShapeCastInput, _ int, userData uint64) Q {
+		s := &w.shapes[int(userData)]
+		if !shouldQueryCollide(s.filter, filter) {
+			return fraction
+		}
+
+		transform := getBodyTransformQuick(w, &w.bodies[s.bodyId])
+
+		output := shapeCastShape(input, s, transform)
+		if output.Fraction.Eq(zero) {
+			// Ignore overlapping shapes
+			return fraction
+		}
+
+		fraction = output.Fraction
+		return output.Fraction
+	}
+
+	for i := range w.broadPhase.trees {
+		w.broadPhase.trees[i].shapeCast(&input, filter.MaskBits, callback)
+
+		if fraction.Eq(zero) {
+			return zero
+		}
+		input.MaxFraction = fraction
+	}
+
+	return fraction
+}
