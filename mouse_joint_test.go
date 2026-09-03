@@ -34,6 +34,23 @@ func draggedBox(t *testing.T, worldId WorldId, def *MouseJointDef) (*body, *join
 	return getBodyFullId(w, boxId), getJointFullId(w, jointId)
 }
 
+// TestMouseJointTargetRoundTrip pins the public target accessors without
+// involving the solver.
+func TestMouseJointTargetRoundTrip(t *testing.T) {
+	worldId := createTestWorld(t)
+	w := getWorldFromId(worldId)
+	def := DefaultMouseJointDef()
+	_, j := draggedBox(t, worldId, &def)
+	jointId := makeJointId(w, jointPair{joint: j, jointSim: getJointSim(w, j)})
+
+	want := Vec2{X: fixed.Q32FromRatio(3, 2), Y: fixed.Q32FromRatio(-2, 3)}
+	jointId.SetTarget(want)
+	got := jointId.GetTarget()
+	if !got.X.Eq(want.X) || !got.Y.Eq(want.Y) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
 // TestMousePullsTowardTheTarget pins the linear row and the force clamp:
 // the joint grabs the box at its origin, then the target moves to (1, 0),
 // which gives the separation (-1, 0). With the default four hertz the

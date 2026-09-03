@@ -18,6 +18,78 @@ func getWeldJointTorque(w *world, base *jointSim) Q {
 	return w.invH.Mul(base.weldJoint.angularImpulse)
 }
 
+// SetLinearHertz changes the weld joint linear frequency (b2WeldJoint_SetLinearHertz).
+func (jointId JointId) SetLinearHertz(hertz Q) {
+	zero := fixed.Q32Zero()
+	if !IsValidQ(hertz) || hertz.Less(zero) {
+		panic("dbox2d: SetLinearHertz needs a valid non-negative hertz")
+	}
+	w := getWorld(jointId.world0)
+	joint := getJointSimCheckType(w, jointId, WeldJoint)
+	joint.weldJoint.linearHertz = hertz
+}
+
+// GetLinearHertz reports the weld joint linear frequency (b2WeldJoint_GetLinearHertz).
+func (jointId JointId) GetLinearHertz() Q {
+	w := getWorld(jointId.world0)
+	joint := getJointSimCheckType(w, jointId, WeldJoint)
+	return joint.weldJoint.linearHertz
+}
+
+// SetLinearDampingRatio changes the weld joint linear damping ratio (b2WeldJoint_SetLinearDampingRatio).
+func (jointId JointId) SetLinearDampingRatio(dampingRatio Q) {
+	zero := fixed.Q32Zero()
+	if !IsValidQ(dampingRatio) || dampingRatio.Less(zero) {
+		panic("dbox2d: SetLinearDampingRatio needs a valid non-negative damping ratio")
+	}
+	w := getWorld(jointId.world0)
+	joint := getJointSimCheckType(w, jointId, WeldJoint)
+	joint.weldJoint.linearDampingRatio = dampingRatio
+}
+
+// GetLinearDampingRatio reports the weld joint linear damping ratio (b2WeldJoint_GetLinearDampingRatio).
+func (jointId JointId) GetLinearDampingRatio() Q {
+	w := getWorld(jointId.world0)
+	joint := getJointSimCheckType(w, jointId, WeldJoint)
+	return joint.weldJoint.linearDampingRatio
+}
+
+// SetAngularHertz changes the weld joint angular frequency (b2WeldJoint_SetAngularHertz).
+func (jointId JointId) SetAngularHertz(hertz Q) {
+	zero := fixed.Q32Zero()
+	if !IsValidQ(hertz) || hertz.Less(zero) {
+		panic("dbox2d: SetAngularHertz needs a valid non-negative hertz")
+	}
+	w := getWorld(jointId.world0)
+	joint := getJointSimCheckType(w, jointId, WeldJoint)
+	joint.weldJoint.angularHertz = hertz
+}
+
+// GetAngularHertz reports the weld joint angular frequency (b2WeldJoint_GetAngularHertz).
+func (jointId JointId) GetAngularHertz() Q {
+	w := getWorld(jointId.world0)
+	joint := getJointSimCheckType(w, jointId, WeldJoint)
+	return joint.weldJoint.angularHertz
+}
+
+// SetAngularDampingRatio changes the weld joint angular damping ratio (b2WeldJoint_SetAngularDampingRatio).
+func (jointId JointId) SetAngularDampingRatio(dampingRatio Q) {
+	zero := fixed.Q32Zero()
+	if !IsValidQ(dampingRatio) || dampingRatio.Less(zero) {
+		panic("dbox2d: SetAngularDampingRatio needs a valid non-negative damping ratio")
+	}
+	w := getWorld(jointId.world0)
+	joint := getJointSimCheckType(w, jointId, WeldJoint)
+	joint.weldJoint.angularDampingRatio = dampingRatio
+}
+
+// GetAngularDampingRatio reports the weld joint angular damping ratio (b2WeldJoint_GetAngularDampingRatio).
+func (jointId JointId) GetAngularDampingRatio() Q {
+	w := getWorld(jointId.world0)
+	joint := getJointSimCheckType(w, jointId, WeldJoint)
+	return joint.weldJoint.angularDampingRatio
+}
+
 // Point-to-point constraint
 // C = p2 - p1
 // Cdot = v2 - v1

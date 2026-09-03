@@ -36,6 +36,57 @@ func weldedBox(t *testing.T, worldId WorldId, position Vec2, def *WeldJointDef) 
 	return getBodyFullId(w, boxId), getJointFullId(w, jointId)
 }
 
+// TestWeldJointSpringAccessorsRoundTrip pins the four weld spring settings
+// through their public setters and getters without involving the solver.
+func TestWeldJointSpringAccessorsRoundTrip(t *testing.T) {
+	worldId := createTestWorld(t)
+	w := getWorldFromId(worldId)
+	def := DefaultWeldJointDef()
+	_, j := weldedBox(t, worldId, v2(0, 0), &def)
+	jointId := makeJointId(w, jointPair{joint: j, jointSim: getJointSim(w, j)})
+
+	tests := []struct {
+		name string
+		set  func(Q)
+		get  func() Q
+		want Q
+	}{
+		{
+			name: "linear hertz",
+			set:  jointId.SetLinearHertz,
+			get:  jointId.GetLinearHertz,
+			want: fixed.Q32FromInt(2),
+		},
+		{
+			name: "linear damping ratio",
+			set:  jointId.SetLinearDampingRatio,
+			get:  jointId.GetLinearDampingRatio,
+			want: fixed.Q32FromRatio(3, 2),
+		},
+		{
+			name: "angular hertz",
+			set:  jointId.SetAngularHertz,
+			get:  jointId.GetAngularHertz,
+			want: fixed.Q32FromInt(4),
+		},
+		{
+			name: "angular damping ratio",
+			set:  jointId.SetAngularDampingRatio,
+			get:  jointId.GetAngularDampingRatio,
+			want: fixed.Q32FromRatio(5, 4),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.set(tt.want)
+			if got := tt.get(); !got.Eq(tt.want) {
+				t.Errorf("got %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 // TestWeldHoldsTheAnchor pins the linear block: the box hangs one unit to
 // the right of the weld and falls at one unit per second without spin.
 // The angular row sees Cdot = 0, so the linear row alone acts, as in the

@@ -2,6 +2,23 @@ package dbox2d
 
 import "github.com/dhannyell/fixed"
 
+// SetTarget changes the mouse joint target (b2MouseJoint_SetTarget).
+func (jointId JointId) SetTarget(target Vec2) {
+	if !IsValidVec2(target) {
+		panic("dbox2d: SetTarget needs a valid vector")
+	}
+	w := getWorld(jointId.world0)
+	js := getJointSimCheckType(w, jointId, MouseJoint)
+	js.mouseJoint.targetA = target
+}
+
+// GetTarget reports the mouse joint target (b2MouseJoint_GetTarget).
+func (jointId JointId) GetTarget() Vec2 {
+	w := getWorld(jointId.world0)
+	js := getJointSimCheckType(w, jointId, MouseJoint)
+	return js.mouseJoint.targetA
+}
+
 // This file corresponds to src/mouse_joint.c of the reference. The joint
 // acts on body B alone; body A only carries the target frame.
 
