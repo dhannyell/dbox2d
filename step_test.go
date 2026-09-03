@@ -1187,3 +1187,43 @@ func TestStepWeldsTwoBoxes(t *testing.T) {
 	}
 	validateWorld(w)
 }
+
+// TestStepDrivesToTheOffset pins the motor joint inside Step: a circle on
+// a motor joint to the ground with the linear offset (1, 0) and the
+// default correction factor converges to x = 1 within two linear slops in
+// 120 steps, and no operation saturates.
+func TestStepDrivesToTheOffset(t *testing.T) {
+	worldDef := DefaultWorldDef()
+	worldDef.Gravity = Vec2Zero()
+	worldId := CreateWorld(&worldDef)
+	t.Cleanup(func() { DestroyWorld(worldId) })
+	w := getWorldFromId(worldId)
+
+	groundDef := DefaultBodyDef()
+	groundId := CreateBody(worldId, &groundDef)
+	circleId := addDynamicCircle(t, worldId, v2(0, 0))
+
+	def := DefaultMotorJointDef()
+	def.BodyIdA = groundId
+	def.BodyIdB = circleId
+	def.LinearOffset = Vec2{X: fixed.Q32One()}
+	def.MaxForce = fixed.Q32FromInt(1000)
+	def.MaxTorque = fixed.Q32FromInt(1000)
+	CreateMotorJoint(worldId, &def)
+
+	fixed.ResetSaturationCount()
+	body := getBodyFullId(w, circleId)
+	dt := stepDt()
+	for range 120 {
+		Step(worldId, dt, 4)
+	}
+	center := getBodySim(w, body).center
+	slack := linearSlop.Add(linearSlop)
+	if !withinQ(center.X, fixed.Q32One(), slack) || !withinQ(center.Y, fixed.Q32Zero(), slack) {
+		t.Errorf("the circle rests at %v, want (1, 0)", center)
+	}
+	if n := fixed.SaturationCount(); n != 0 {
+		t.Errorf("%d operations saturated", n)
+	}
+	validateWorld(w)
+}
