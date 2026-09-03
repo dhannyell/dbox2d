@@ -131,6 +131,275 @@ func integratePositionsTask(startIndex, endIndex int, context *stepContext) {
 // finalizeBodiesTask writes the advanced deltas into the transforms, tracks
 // sleep time and refreshes the shape bounds. It corresponds to
 // b2FinalizeBodiesTask in src/solver.c.
+// continuousContext carries the fast shape and its sweep through the tree
+// queries of the continuous stage. It corresponds to b2ContinuousContext
+// in src/solver.c.
+type continuousContext struct {
+	world       *world
+	fastBodySim *bodySim
+	fastShape   *shape
+	centroid1   Vec2
+	centroid2   Vec2
+	sweep       Sweep
+	fraction    Q
+}
+
+// queryCallback runs for each proxy the swept box of the fast shape
+// touches and shortens the fraction on a time of impact. The method value
+// replaces the context pointer of b2ContinuousQueryCallback in
+// src/solver.c. See D-014.
+func (ctx *continuousContext) queryCallback(_ int, userData uint64) bool {
+	zero := fixed.Q32Zero()
+
+	shapeId := int(userData)
+
+	fastShape := ctx.fastShape
+	fastBodySim := ctx.fastBodySim
+
+	// Skip same shape
+	if shapeId == fastShape.id {
+		return true
+	}
+
+	w := ctx.world
+
+	s := &w.shapes[shapeId]
+
+	// Skip same body
+	if s.bodyId == fastShape.bodyId {
+		return true
+	}
+
+	// Skip sensors
+	if s.sensorIndex != nullIndex {
+		return true
+	}
+
+	// Skip filtered shapes
+	canCollide := shouldShapesCollide(fastShape.filter, s.filter)
+	if !canCollide {
+		return true
+	}
+
+	b := &w.bodies[s.bodyId]
+
+	sim := getBodySim(w, b)
+	if b.bodyType != StaticBody && !fastBodySim.isBullet {
+		panic("dbox2d: a fast body swept a moving body")
+	}
+
+	// Skip bullets
+	if sim.isBullet {
+		return true
+	}
+
+	// Skip filtered bodies
+	fastBody := &w.bodies[fastBodySim.bodyId]
+	canCollide = shouldBodiesCollide(w, fastBody, b)
+	if !canCollide {
+		return true
+	}
+
+	// Deferred: the custom filter callback of the reference runs here.
+
+	// Prevent pausing on chain segment junctions
+	if s.shapeType == ChainSegmentShape {
+		transform := sim.transform
+		p1 := TransformPoint(transform, s.chainSegment.Segment.Point1)
+		p2 := TransformPoint(transform, s.chainSegment.Segment.Point2)
+		e := p2.Sub(p1)
+		var length Q
+		length, e = GetLengthAndNormalize(e)
+		if linearSlop.Less(length) {
+			c1 := ctx.centroid1
+			offset1 := Cross(c1.Sub(p1), e)
+			c2 := ctx.centroid2
+			offset2 := Cross(c2.Sub(p1), e)
+
+			// todo this should use the min extent of the fast shape, not the body
+			allowedFraction := fixed.Q32FromRatio(1, 4)
+			if offset1.Less(zero) || offset1.Sub(offset2).Less(allowedFraction.Mul(fastBodySim.minExtent)) {
+				// Minimal clipping
+				return true
+			}
+		}
+	}
+
+	var input TOIInput
+	input.ProxyA = makeShapeDistanceProxy(s)
+	input.ProxyB = makeShapeDistanceProxy(fastShape)
+	input.SweepA = makeSweep(sim)
+	input.SweepB = ctx.sweep
+	input.MaxFraction = ctx.fraction
+
+	hitFraction := ctx.fraction
+
+	didHit := false
+	output := TimeOfImpact(&input)
+	if zero.Less(output.Fraction) && output.Fraction.Less(ctx.fraction) {
+		hitFraction = output.Fraction
+		didHit = true
+	} else if output.Fraction.Eq(zero) {
+		// fallback to TOI of a small circle around the fast shape centroid
+		centroid := getShapeCentroid(fastShape)
+		extent := computeShapeExtent(fastShape, centroid)
+		radius := fixed.Q32FromRatio(1, 4).Mul(extent.minExtent)
+		centroidPoint := [1]Vec2{centroid}
+		input.ProxyB = MakeProxy(centroidPoint[:], radius)
+		output = TimeOfImpact(&input)
+		if zero.Less(output.Fraction) && output.Fraction.Less(ctx.fraction) {
+			hitFraction = output.Fraction
+			didHit = true
+		}
+	}
+
+	// Deferred: the pre-solve callback of the reference runs here on a
+	// temporary manifold.
+
+	if didHit {
+		ctx.fraction = hitFraction
+	}
+
+	return true
+}
+
+// solveContinuous sweeps one fast body against the static tree, or
+// against every tree for a bullet, and moves the body back to its first
+// time of impact. It corresponds to b2SolveContinuous in src/solver.c.
+func solveContinuous(w *world, bodySimIndex int) {
+	awake := &w.solverSets[awakeSet]
+	fastBodySim := &awake.bodySims[bodySimIndex]
+	if !fastBodySim.isFast {
+		panic("dbox2d: the continuous stage got a slow body")
+	}
+
+	sweep := makeSweep(fastBodySim)
+
+	var xf1 Transform
+	xf1.Q = sweep.Q1
+	xf1.P = sweep.C1.Sub(RotateVector(sweep.Q1, sweep.LocalCenter))
+
+	var xf2 Transform
+	xf2.Q = sweep.Q2
+	xf2.P = sweep.C2.Sub(RotateVector(sweep.Q2, sweep.LocalCenter))
+
+	staticTree := &w.broadPhase.trees[StaticBody]
+	kinematicTree := &w.broadPhase.trees[KinematicBody]
+	dynamicTree := &w.broadPhase.trees[DynamicBody]
+	fastBody := &w.bodies[fastBodySim.bodyId]
+
+	var ctx continuousContext
+	ctx.world = w
+	ctx.sweep = sweep
+	ctx.fastBodySim = fastBodySim
+	ctx.fraction = fixed.Q32One()
+
+	isBullet := fastBodySim.isBullet
+
+	shapeId := fastBody.headShapeId
+	for shapeId != nullIndex {
+		fastShape := &w.shapes[shapeId]
+		shapeId = fastShape.nextShapeId
+
+		ctx.fastShape = fastShape
+		ctx.centroid1 = TransformPoint(xf1, fastShape.localCentroid)
+		ctx.centroid2 = TransformPoint(xf2, fastShape.localCentroid)
+
+		box1 := fastShape.aabb
+		box2 := computeShapeAABB(fastShape, xf2)
+		box := AABBUnion(box1, box2)
+
+		// Store this to avoid double computation in the case there is no impact event
+		fastShape.aabb = box2
+
+		// No continuous collision for sensors (but still need the updated bounds)
+		if fastShape.sensorIndex != nullIndex {
+			continue
+		}
+
+		staticTree.query(box, DefaultMaskBits, ctx.queryCallback)
+
+		if isBullet {
+			kinematicTree.query(box, DefaultMaskBits, ctx.queryCallback)
+			dynamicTree.query(box, DefaultMaskBits, ctx.queryCallback)
+		}
+	}
+
+	if ctx.fraction.Less(fixed.Q32One()) {
+		// Handle time of impact event
+		q := NLerp(sweep.Q1, sweep.Q2, ctx.fraction)
+		c := Lerp(sweep.C1, sweep.C2, ctx.fraction)
+		origin := c.Sub(RotateVector(q, sweep.LocalCenter))
+
+		// Advance body
+		transform := Transform{P: origin, Q: q}
+		fastBodySim.transform = transform
+		fastBodySim.center = c
+		fastBodySim.rotation0 = q
+		fastBodySim.center0 = c
+
+		// Update body move event
+		w.bodyMoveEvents[bodySimIndex].Transform = transform
+
+		// Prepare AABBs for broad-phase.
+		// Even though a body is fast, it may not move much. So the
+		// AABB may not need enlargement.
+
+		shapeId = fastBody.headShapeId
+		for shapeId != nullIndex {
+			s := &w.shapes[shapeId]
+
+			// Must recompute aabb at the interpolated transform
+			aabb := computeShapeAABB(s, transform)
+			aabb.LowerBound.X = aabb.LowerBound.X.Sub(speculativeDistance)
+			aabb.LowerBound.Y = aabb.LowerBound.Y.Sub(speculativeDistance)
+			aabb.UpperBound.X = aabb.UpperBound.X.Add(speculativeDistance)
+			aabb.UpperBound.Y = aabb.UpperBound.Y.Add(speculativeDistance)
+			s.aabb = aabb
+
+			if !AABBContains(s.fatAABB, aabb) {
+				fatAABB := AABB{
+					LowerBound: Vec2{X: aabb.LowerBound.X.Sub(aabbMargin), Y: aabb.LowerBound.Y.Sub(aabbMargin)},
+					UpperBound: Vec2{X: aabb.UpperBound.X.Add(aabbMargin), Y: aabb.UpperBound.Y.Add(aabbMargin)},
+				}
+				s.fatAABB = fatAABB
+
+				s.enlargedAABB = true
+				fastBodySim.enlargeAABB = true
+			}
+
+			shapeId = s.nextShapeId
+		}
+	} else {
+		// No time of impact event
+
+		// Advance body
+		fastBodySim.rotation0 = fastBodySim.transform.Q
+		fastBodySim.center0 = fastBodySim.center
+
+		// Prepare AABBs for broad-phase
+		shapeId = fastBody.headShapeId
+		for shapeId != nullIndex {
+			s := &w.shapes[shapeId]
+
+			// shape->aabb is still valid from above
+
+			if !AABBContains(s.fatAABB, s.aabb) {
+				fatAABB := AABB{
+					LowerBound: Vec2{X: s.aabb.LowerBound.X.Sub(aabbMargin), Y: s.aabb.LowerBound.Y.Sub(aabbMargin)},
+					UpperBound: Vec2{X: s.aabb.UpperBound.X.Add(aabbMargin), Y: s.aabb.UpperBound.Y.Add(aabbMargin)},
+				}
+				s.fatAABB = fatAABB
+
+				s.enlargedAABB = true
+				fastBodySim.enlargeAABB = true
+			}
+
+			shapeId = s.nextShapeId
+		}
+	}
+}
+
 func finalizeBodiesTask(startIndex, endIndex int, context *stepContext) {
 	w := context.world
 	enableSleep := w.enableSleep
@@ -151,6 +420,8 @@ func finalizeBodiesTask(startIndex, endIndex int, context *stepContext) {
 	taskContext := &w.taskContext
 	enlargedSimBitSet := &taskContext.enlargedSimBitSet
 	awakeIslandBitSet := &taskContext.awakeIslandBitSet
+
+	enableContinuous := w.enableContinuous
 
 	zero := fixed.Q32Zero()
 	half := fixed.Q32Half()
@@ -211,11 +482,23 @@ func finalizeBodiesTask(startIndex, endIndex int, context *stepContext) {
 			// Body is not sleepy
 			b.sleepTime = zero
 
-			// Continuous collision and its fast-body test are deferred. Until
-			// they land, finalize every body discretely so its previous
-			// transform and bounds do not remain stale.
-			sim.center0 = sim.center
-			sim.rotation0 = sim.transform.Q
+			if b.bodyType == DynamicBody && enableContinuous && half.Mul(sim.minExtent).Less(maxVelocity.Mul(timeStep)) {
+				// This flag is only retained for debug draw
+				sim.isFast = true
+
+				// Store in fast array for the continuous collision stage
+				// This is deterministic because the order of TOI sweeps doesn't matter
+				if sim.isBullet {
+					context.bulletBodies[context.bulletBodyCount] = simIndex
+					context.bulletBodyCount++
+				} else {
+					solveContinuous(w, simIndex)
+				}
+			} else {
+				// Body is safe to advance
+				sim.center0 = sim.center
+				sim.rotation0 = sim.transform.Q
+			}
 		} else {
 			// Body is safe to advance and is falling asleep
 			sim.center0 = sim.center
@@ -240,32 +523,42 @@ func finalizeBodiesTask(startIndex, endIndex int, context *stepContext) {
 
 		// Update shapes AABBs
 		transform := sim.transform
+		isFast := sim.isFast
 		shapeId := b.headShapeId
 		for shapeId != nullIndex {
 			s := &w.shapes[shapeId]
 
-			aabb := computeShapeAABB(s, transform)
-			aabb.LowerBound.X = aabb.LowerBound.X.Sub(speculativeDistance)
-			aabb.LowerBound.Y = aabb.LowerBound.Y.Sub(speculativeDistance)
-			aabb.UpperBound.X = aabb.UpperBound.X.Add(speculativeDistance)
-			aabb.UpperBound.Y = aabb.UpperBound.Y.Add(speculativeDistance)
-			s.aabb = aabb
+			if isFast {
+				// For fast non-bullet bodies the AABB has already been updated in solveContinuous
+				// For fast bullet bodies the AABB will be updated at a later stage
 
-			if s.enlargedAABB {
-				panic("dbox2d: the shape is still marked enlarged")
-			}
-
-			if !AABBContains(s.fatAABB, aabb) {
-				fatAABB := AABB{
-					LowerBound: Vec2{X: aabb.LowerBound.X.Sub(aabbMargin), Y: aabb.LowerBound.Y.Sub(aabbMargin)},
-					UpperBound: Vec2{X: aabb.UpperBound.X.Add(aabbMargin), Y: aabb.UpperBound.Y.Add(aabbMargin)},
-				}
-				s.fatAABB = fatAABB
-
-				s.enlargedAABB = true
-
+				// Add to enlarged shapes regardless of AABB changes.
 				// Bit-set to keep the move array sorted
 				enlargedSimBitSet.setBit(simIndex)
+			} else {
+				aabb := computeShapeAABB(s, transform)
+				aabb.LowerBound.X = aabb.LowerBound.X.Sub(speculativeDistance)
+				aabb.LowerBound.Y = aabb.LowerBound.Y.Sub(speculativeDistance)
+				aabb.UpperBound.X = aabb.UpperBound.X.Add(speculativeDistance)
+				aabb.UpperBound.Y = aabb.UpperBound.Y.Add(speculativeDistance)
+				s.aabb = aabb
+
+				if s.enlargedAABB {
+					panic("dbox2d: the shape is still marked enlarged")
+				}
+
+				if !AABBContains(s.fatAABB, aabb) {
+					fatAABB := AABB{
+						LowerBound: Vec2{X: aabb.LowerBound.X.Sub(aabbMargin), Y: aabb.LowerBound.Y.Sub(aabbMargin)},
+						UpperBound: Vec2{X: aabb.UpperBound.X.Add(aabbMargin), Y: aabb.UpperBound.Y.Add(aabbMargin)},
+					}
+					s.fatAABB = fatAABB
+
+					s.enlargedAABB = true
+
+					// Bit-set to keep the move array sorted
+					enlargedSimBitSet.setBit(simIndex)
+				}
 			}
 
 			shapeId = s.nextShapeId
@@ -294,6 +587,10 @@ func solve(w *world, context *stepContext) {
 
 	// Solve constraints using graph coloring
 	{
+		// Prepare buffers for bullets
+		context.bulletBodyCount = 0
+		context.bulletBodies, context.bulletBodyMem = arenaSlice[int](&w.arena, awakeBodyCount, "bullet bodies")
+
 		graph := context.graph
 		colors := &graph.colors
 
@@ -453,21 +750,33 @@ func solve(w *world, context *stepContext) {
 
 				b := &w.bodies[bodySim.bodyId]
 
-				// Deferred: a fast bullet body buffers its shapes here and
-				// enlarges them in the continuous stage.
-
 				shapeId := b.headShapeId
-				for shapeId != nullIndex {
-					s := &w.shapes[shapeId]
+				if bodySim.isBullet && bodySim.isFast {
+					// Fast bullet bodies don't have their final AABB yet
+					for shapeId != nullIndex {
+						s := &w.shapes[shapeId]
 
-					// The AABB may not have been enlarged, despite the body being flagged as enlarged.
-					// For example, a body with multiple shapes may have not have all shapes enlarged.
-					if s.enlargedAABB {
-						broadPhase.enlargeProxy(s.proxyKey, s.fatAABB)
-						s.enlargedAABB = false
+						// Shape is fast. It's aabb will be enlarged in continuous collision.
+						// Update the move array here for determinism because bullets are processed
+						// below in non-deterministic order.
+						broadPhase.bufferMove(s.proxyKey)
+
+						shapeId = s.nextShapeId
 					}
+				} else {
+					for shapeId != nullIndex {
+						s := &w.shapes[shapeId]
 
-					shapeId = s.nextShapeId
+						// The AABB may not have been enlarged, despite the body being flagged as enlarged.
+						// For example, a body with multiple shapes may have not have all shapes enlarged.
+						// A fast body may have been flagged as enlarged despite having no shapes enlarged.
+						if s.enlargedAABB {
+							broadPhase.enlargeProxy(s.proxyKey, s.fatAABB)
+							s.enlargedAABB = false
+						}
+
+						shapeId = s.nextShapeId
+					}
 				}
 
 				// Clear the smallest set bit
@@ -476,7 +785,68 @@ func solve(w *world, context *stepContext) {
 		}
 	}
 
-	// Deferred: the continuous collision stage of the reference runs here.
+	// Continuous collision of the bullet bodies. The reference sweeps them
+	// in parallel and enlarges their proxies serially; the port runs both
+	// on one worker, in the buffer order.
+	if context.bulletBodyCount > 0 {
+		// Fast bullet bodies
+		// Note: a bullet body may be moving slow
+		for i := range context.bulletBodyCount {
+			solveContinuous(w, context.bulletBodies[i])
+		}
+
+		// Serially enlarge broad-phase proxies for bullet shapes
+		broadPhase := &w.broadPhase
+		dynamicTree := &broadPhase.trees[DynamicBody]
+
+		bodySimArray := awake.bodySims
+		bulletBodySimIndices := context.bulletBodies[:context.bulletBodyCount]
+
+		for _, simIndex := range bulletBodySimIndices {
+			bulletBodySim := &bodySimArray[simIndex]
+			if !bulletBodySim.enlargeAABB {
+				continue
+			}
+
+			// clear flag
+			bulletBodySim.enlargeAABB = false
+
+			bulletBody := &w.bodies[bulletBodySim.bodyId]
+
+			shapeId := bulletBody.headShapeId
+			for shapeId != nullIndex {
+				s := &w.shapes[shapeId]
+				if !s.enlargedAABB {
+					shapeId = s.nextShapeId
+					continue
+				}
+
+				// clear flag
+				s.enlargedAABB = false
+
+				proxyKey := s.proxyKey
+				proxyId := proxyIdOf(proxyKey)
+				if proxyTypeOf(proxyKey) != DynamicBody {
+					panic("dbox2d: a bullet shape is not in the dynamic tree")
+				}
+
+				// all fast bullet shapes should already be in the move buffer
+				if !broadPhase.moveSet.containsKey(uint64(proxyKey) + 1) {
+					panic("dbox2d: a bullet shape is not in the move buffer")
+				}
+
+				dynamicTree.enlargeProxy(proxyId, s.fatAABB)
+
+				shapeId = s.nextShapeId
+			}
+		}
+	}
+
+	// Need to free this even if no bullets got processed.
+	w.arena.freeItem(context.bulletBodyMem)
+	context.bulletBodies = nil
+	context.bulletBodyMem = nil
+	context.bulletBodyCount = 0
 
 	// Island sleeping
 	// This must be done last because putting islands to sleep invalidates the enlarged body bits.

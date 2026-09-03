@@ -43,6 +43,12 @@ type stepContext struct {
 	// The body arrays of the awake set.
 	sims   []bodySim
 	states []bodyState
+
+	// bulletBodies buffers the awake sim indices of the fast bullet
+	// bodies for the continuous stage. The slice lives in the arena.
+	bulletBodies    []int
+	bulletBodyMem   []byte
+	bulletBodyCount int
 }
 
 // Step advances the simulation by timeStep, split into subStepCount

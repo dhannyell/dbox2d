@@ -601,3 +601,15 @@ func shouldBodiesCollide(w *world, bodyA, bodyB *body) bool {
 
 	return true
 }
+
+// makeSweep builds the sweep of a body sim from its previous and current
+// center and rotation. It corresponds to b2MakeSweep in src/body.c.
+func makeSweep(sim *bodySim) Sweep {
+	return Sweep{
+		LocalCenter: sim.localCenter,
+		C1:          sim.center0,
+		C2:          sim.center,
+		Q1:          sim.rotation0,
+		Q2:          sim.transform.Q,
+	}
+}
