@@ -54,7 +54,7 @@ type stepContext struct {
 // Step advances the simulation by timeStep, split into subStepCount
 // sub-steps. The reference recommends a fixed time step and 4 sub-steps.
 // It corresponds to b2World_Step in src/world.c.
-func Step(worldId WorldId, timeStep Q, subStepCount int) {
+func (worldId WorldId) Step(timeStep Q, subStepCount int) {
 	if !IsValidQ(timeStep) {
 		panic("dbox2d: the time step is not valid")
 	}

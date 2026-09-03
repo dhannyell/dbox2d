@@ -238,7 +238,7 @@ func TestJointSleepsAndWakesWithTheIsland(t *testing.T) {
 	// The bodies rest; the island sleeps after timeToSleep.
 	dt := stepDt()
 	for range 40 {
-		Step(worldId, dt, 4)
+		worldId.Step(dt, 4)
 	}
 	sleepIndex := bodyA.setIndex
 	if sleepIndex < firstSleepingSet {

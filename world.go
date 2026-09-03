@@ -698,7 +698,7 @@ type taskContext struct {
 
 // GetBodyEvents returns the move events of the last step. It corresponds
 // to b2World_GetBodyEvents in src/world.c.
-func GetBodyEvents(worldId WorldId) BodyEvents {
+func (worldId WorldId) GetBodyEvents() BodyEvents {
 	w := getWorldFromId(worldId)
 	if w.locked {
 		panic("dbox2d: the world is locked")
@@ -708,7 +708,7 @@ func GetBodyEvents(worldId WorldId) BodyEvents {
 
 // GetContactEvents returns the contact events of the last step. It
 // corresponds to b2World_GetContactEvents in src/world.c.
-func GetContactEvents(worldId WorldId) ContactEvents {
+func (worldId WorldId) GetContactEvents() ContactEvents {
 	w := getWorldFromId(worldId)
 	if w.locked {
 		panic("dbox2d: the world is locked")
@@ -874,7 +874,7 @@ func validateContacts(w *world) {
 // the dynamic tree in that order; a false result ends only the current
 // tree, as in the reference. A locked world panics. It corresponds to
 // b2World_OverlapAABB in src/world.c.
-func OverlapAABB(worldId WorldId, aabb AABB, filter QueryFilter, fcn OverlapResultFcn) TreeStats {
+func (worldId WorldId) OverlapAABB(aabb AABB, filter QueryFilter, fcn OverlapResultFcn) TreeStats {
 	w := getWorldFromId(worldId)
 	if w.locked {
 		panic("dbox2d: the world is locked")
@@ -903,7 +903,7 @@ func OverlapAABB(worldId WorldId, aabb AABB, filter QueryFilter, fcn OverlapResu
 // CastRay reports the shapes a ray hits, tree by tree. The callback
 // clips the ray for the next tree; a zero return stops the cast. A
 // locked world panics. It corresponds to b2World_CastRay in src/world.c.
-func CastRay(worldId WorldId, origin, translation Vec2, filter QueryFilter, fcn CastResultFcn) TreeStats {
+func (worldId WorldId) CastRay(origin, translation Vec2, filter QueryFilter, fcn CastResultFcn) TreeStats {
 	w := getWorldFromId(worldId)
 	if w.locked {
 		panic("dbox2d: the world is locked")
@@ -957,7 +957,7 @@ func CastRay(worldId WorldId, origin, translation Vec2, filter QueryFilter, fcn 
 // current tree. The distance solver decides the overlap, so the report is
 // exact, not a bounds test. A locked world panics. It corresponds to
 // b2World_OverlapShape in src/world.c.
-func OverlapShape(worldId WorldId, proxy *ShapeProxy, filter QueryFilter, fcn OverlapResultFcn) TreeStats {
+func (worldId WorldId) OverlapShape(proxy *ShapeProxy, filter QueryFilter, fcn OverlapResultFcn) TreeStats {
 	w := getWorldFromId(worldId)
 	if w.locked {
 		panic("dbox2d: the world is locked")
@@ -1004,7 +1004,7 @@ func OverlapShape(worldId WorldId, proxy *ShapeProxy, filter QueryFilter, fcn Ov
 // in games. An initial overlap does not count as a hit. A locked world
 // panics. It corresponds to b2World_CastRayClosest in src/world.c; the
 // closure replaces b2RayCastClosestFcn.
-func CastRayClosest(worldId WorldId, origin, translation Vec2, filter QueryFilter) RayResult {
+func (worldId WorldId) CastRayClosest(origin, translation Vec2, filter QueryFilter) RayResult {
 	var result RayResult
 
 	w := getWorldFromId(worldId)
@@ -1072,7 +1072,7 @@ func CastRayClosest(worldId WorldId, origin, translation Vec2, filter QueryFilte
 // CastShape sweeps a proxy through the world and reports each hit, tree
 // by tree. The callback returns as for CastRay. A locked world panics. It
 // corresponds to b2World_CastShape in src/world.c.
-func CastShape(worldId WorldId, proxy *ShapeProxy, translation Vec2, filter QueryFilter, fcn CastResultFcn) TreeStats {
+func (worldId WorldId) CastShape(proxy *ShapeProxy, translation Vec2, filter QueryFilter, fcn CastResultFcn) TreeStats {
 	w := getWorldFromId(worldId)
 	if w.locked {
 		panic("dbox2d: the world is locked")
@@ -1132,7 +1132,7 @@ func CastShape(worldId WorldId, proxy *ShapeProxy, translation Vec2, filter Quer
 // stop it; a capsule that already touches may move a little closer. A
 // locked world panics. It corresponds to b2World_CastMover in
 // src/world.c.
-func CastMover(worldId WorldId, mover *Capsule, translation Vec2, filter QueryFilter) Q {
+func (worldId WorldId) CastMover(mover *Capsule, translation Vec2, filter QueryFilter) Q {
 	if !IsValidVec2(translation) {
 		panic("dbox2d: CastMover needs a valid translation")
 	}

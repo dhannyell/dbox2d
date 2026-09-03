@@ -33,8 +33,8 @@ func TestChecksumIsOrderIndependent(t *testing.T) {
 
 	dt := stepDt()
 	for range 60 {
-		Step(world1, dt, 4)
-		Step(world2, dt, 4)
+		world1.Step(dt, 4)
+		world2.Step(dt, 4)
 	}
 	if Checksum(world1) != Checksum(world2) {
 		t.Errorf("checksums differ after stepping: %d and %d", Checksum(world1), Checksum(world2))
@@ -216,7 +216,7 @@ func TestChecksumMatchesDeterministicWitness(t *testing.T) {
 	// first step.
 	dt := stepDt()
 	for range 120 {
-		Step(worldId, dt, 4)
+		worldId.Step(dt, 4)
 	}
 
 	// Rebased when the joint count and sum entered the hash.
@@ -243,7 +243,7 @@ func TestChecksumIgnoresTheTreeTopology(t *testing.T) {
 		}
 		dt := stepDt()
 		for range 60 {
-			Step(worldId, dt, 4)
+			worldId.Step(dt, 4)
 		}
 		validateWorld(w)
 		return Checksum(worldId)

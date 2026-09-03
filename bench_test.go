@@ -292,7 +292,7 @@ func BenchmarkStep(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
-		Step(worldId, dt, 4)
+		worldId.Step(dt, 4)
 	}
 }
 
@@ -781,7 +781,7 @@ func BenchmarkStepPyramid(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
-		Step(worldId, dt, 4)
+		worldId.Step(dt, 4)
 	}
 	b.StopTimer()
 	if len(w.contacts) == 0 || len(w.constraintGraph.colors[0].contactSims) == 0 {
@@ -2123,13 +2123,13 @@ func BenchmarkStepBullets(b *testing.B) {
 
 	// Warm up through several bounces so every buffer has grown.
 	for range 120 {
-		Step(worldId, dt, 4)
+		worldId.Step(dt, 4)
 	}
 
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
-		Step(worldId, dt, 4)
+		worldId.Step(dt, 4)
 	}
 	b.StopTimer()
 
@@ -2179,13 +2179,13 @@ func BenchmarkStepRevoluteChain(b *testing.B) {
 
 	// Warm up through the first swing so every buffer has grown.
 	for range 120 {
-		Step(worldId, dt, 4)
+		worldId.Step(dt, 4)
 	}
 
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
-		Step(worldId, dt, 4)
+		worldId.Step(dt, 4)
 	}
 }
 

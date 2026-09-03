@@ -368,7 +368,7 @@ func TestOverlapAABBReportsTheFatBounds(t *testing.T) {
 	}
 
 	got := map[ShapeId]bool{}
-	stats := OverlapAABB(worldId, query, DefaultQueryFilter(), func(id ShapeId) bool {
+	stats := worldId.OverlapAABB(query, DefaultQueryFilter(), func(id ShapeId) bool {
 		got[id] = true
 		return true
 	})
@@ -384,7 +384,7 @@ func TestOverlapAABBReportsTheFatBounds(t *testing.T) {
 	// A false return ends the current tree; the next tree still runs, so
 	// the two dynamic boxes yield one call and the trees three in total.
 	calls := 0
-	OverlapAABB(worldId, query, DefaultQueryFilter(), func(ShapeId) bool {
+	worldId.OverlapAABB(query, DefaultQueryFilter(), func(ShapeId) bool {
 		calls++
 		return false
 	})
@@ -394,13 +394,13 @@ func TestOverlapAABBReportsTheFatBounds(t *testing.T) {
 
 	filter := DefaultQueryFilter()
 	filter.MaskBits = 0
-	OverlapAABB(worldId, query, filter, func(ShapeId) bool {
+	worldId.OverlapAABB(query, filter, func(ShapeId) bool {
 		t.Errorf("an empty mask reported a shape")
 		return true
 	})
 
 	w.locked = true
-	requirePanic(t, func() { OverlapAABB(worldId, query, DefaultQueryFilter(), func(ShapeId) bool { return true }) })
+	requirePanic(t, func() { worldId.OverlapAABB(query, DefaultQueryFilter(), func(ShapeId) bool { return true }) })
 	w.locked = false
 }
 
@@ -426,7 +426,7 @@ func TestCastRayClipsAcrossTheTrees(t *testing.T) {
 		hit, point = id, p
 		return fraction
 	}
-	stats := CastRay(worldId, origin, translation, filter, closest)
+	stats := worldId.CastRay(origin, translation, filter, closest)
 	if hit != near || stats.LeafVisits < 2 {
 		t.Fatalf("the closest hit is not the near box (%d leaf visits)", stats.LeafVisits)
 	}
@@ -438,7 +438,7 @@ func TestCastRayClipsAcrossTheTrees(t *testing.T) {
 	}
 
 	hit = ShapeId{}
-	CastRay(worldId, origin, translation, filter, func(id ShapeId, p, n Vec2, fraction Q) Q {
+	worldId.CastRay(origin, translation, filter, func(id ShapeId, p, n Vec2, fraction Q) Q {
 		if id == near {
 			return fixed.Q32One().Neg()
 		}
@@ -450,13 +450,13 @@ func TestCastRayClipsAcrossTheTrees(t *testing.T) {
 
 	masked := DefaultQueryFilter()
 	masked.MaskBits = 0
-	CastRay(worldId, origin, translation, masked, func(ShapeId, Vec2, Vec2, Q) Q {
+	worldId.CastRay(origin, translation, masked, func(ShapeId, Vec2, Vec2, Q) Q {
 		t.Errorf("an empty mask reported a hit")
 		return fixed.Q32One()
 	})
 
 	calls := 0
-	CastRay(worldId, v2(8, 0), translation, filter, func(id ShapeId, _, _ Vec2, fraction Q) Q {
+	worldId.CastRay(v2(8, 0), translation, filter, func(id ShapeId, _, _ Vec2, fraction Q) Q {
 		calls++
 		if id != static || !fraction.Eq(fixed.Q32Zero()) {
 			t.Errorf("the inside origin did not report the static circle at fraction zero")
@@ -468,7 +468,7 @@ func TestCastRayClipsAcrossTheTrees(t *testing.T) {
 	}
 
 	w.locked = true
-	requirePanic(t, func() { CastRay(worldId, origin, translation, filter, closest) })
+	requirePanic(t, func() { worldId.CastRay(origin, translation, filter, closest) })
 	w.locked = false
 }
 
@@ -550,7 +550,7 @@ func TestShapeQueriesMatchBruteForce(t *testing.T) {
 		}
 
 		gotOverlap := map[ShapeId]bool{}
-		OverlapShape(worldId, &proxy, filter, func(id ShapeId) bool {
+		worldId.OverlapShape(&proxy, filter, func(id ShapeId) bool {
 			gotOverlap[id] = true
 			return true
 		})
@@ -565,7 +565,7 @@ func TestShapeQueriesMatchBruteForce(t *testing.T) {
 
 		gotCast := ShapeId{}
 		gotCastFraction := one
-		CastShape(worldId, &proxy, translation, filter, func(id ShapeId, _, _ Vec2, fraction Q) Q {
+		worldId.CastShape(&proxy, translation, filter, func(id ShapeId, _, _ Vec2, fraction Q) Q {
 			if fraction.Less(gotCastFraction) {
 				gotCast, gotCastFraction = id, fraction
 			}
@@ -575,7 +575,7 @@ func TestShapeQueriesMatchBruteForce(t *testing.T) {
 			t.Fatalf("CastShape from %v by %v found %v at %v, brute force %v at %v", origin, translation, gotCast, gotCastFraction, wantCast, wantCastFraction)
 		}
 
-		ray := CastRayClosest(worldId, origin, translation, filter)
+		ray := worldId.CastRayClosest(origin, translation, filter)
 		if ray.Hit != (wantRay != ShapeId{}) || (ray.Hit && (ray.ShapeId != wantRay || !ray.Fraction.Eq(wantRayFraction))) {
 			t.Fatalf("CastRayClosest from %v by %v found %+v, brute force %v at %v", origin, translation, ray, wantRay, wantRayFraction)
 		}
@@ -595,7 +595,7 @@ func TestCastMoverStopsAtTheWall(t *testing.T) {
 	CreatePolygonShape(wall, &shapeDef, &wallBox)
 
 	mover := Capsule{Center1: v2(0, -1), Center2: v2(0, 1), Radius: fixed.Q32Half()}
-	fraction := CastMover(worldId, &mover, v2(20, 0), DefaultQueryFilter())
+	fraction := worldId.CastMover(&mover, v2(20, 0), DefaultQueryFilter())
 
 	// The capsule surface reaches the face at x = 9 after 8.5 units of
 	// the 20; the sweep targets the radius less a slop.
@@ -606,11 +606,11 @@ func TestCastMoverStopsAtTheWall(t *testing.T) {
 
 	// A circle around the start overlaps the mover and does not stop it.
 	addStaticCircle(t, worldId, v2(0, 0))
-	if again := CastMover(worldId, &mover, v2(20, 0), DefaultQueryFilter()); !again.Eq(fraction) {
+	if again := worldId.CastMover(&mover, v2(20, 0), DefaultQueryFilter()); !again.Eq(fraction) {
 		t.Fatalf("an overlapping shape changed the fraction to %v", again)
 	}
 
 	thin := mover
 	thin.Radius = linearSlop
-	requirePanic(t, func() { CastMover(worldId, &thin, v2(20, 0), DefaultQueryFilter()) })
+	requirePanic(t, func() { worldId.CastMover(&thin, v2(20, 0), DefaultQueryFilter()) })
 }

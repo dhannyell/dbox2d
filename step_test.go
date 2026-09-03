@@ -65,7 +65,7 @@ func TestStepAppliesGravityExactly(t *testing.T) {
 	}
 
 	for range stepCount {
-		Step(worldId, dt, subStepCount)
+		worldId.Step(dt, subStepCount)
 	}
 
 	w := getWorldFromId(worldId)
@@ -105,7 +105,7 @@ func TestStepAppliesDampingByDivision(t *testing.T) {
 	b := getBodyFullId(w, bodyId)
 	initialState := *getBodyState(w, b)
 	dt := stepDt()
-	Step(worldId, dt, 1)
+	worldId.Step(dt, 1)
 
 	state := getBodyState(w, b)
 	linearDenominator := fixed.Q32One().Add(dt.Mul(bodyDef.LinearDamping))
@@ -148,7 +148,7 @@ func TestStepConvertsTorqueAndArcSpeedToTurns(t *testing.T) {
 
 	dt := stepDt()
 	wantAngular := bodyDef.AngularVelocity.Add(dt.Mul(sim.invInertia).Mul(sim.torque).Div(tau))
-	Step(worldId, dt, 1)
+	worldId.Step(dt, 1)
 
 	state := getBodyState(w, b)
 	if !state.angularVelocity.Eq(wantAngular) {
@@ -180,7 +180,7 @@ func TestStepRefreshesFastBodyBoundsWithoutAHit(t *testing.T) {
 	w := getWorldFromId(worldId)
 	s := getShape(w, shapeId)
 	before := s.aabb
-	Step(worldId, stepDt(), 4)
+	worldId.Step(stepDt(), 4)
 
 	b := getBodyFullId(w, bodyId)
 	sim := getBodySim(w, b)
@@ -207,16 +207,16 @@ func TestStepRejectsInvalidInput(t *testing.T) {
 	worldId := createTestWorld(t)
 
 	t.Run("saturated time step", func(t *testing.T) {
-		requirePanic(t, func() { Step(worldId, fixed.Q32MaxValue(), 4) })
+		requirePanic(t, func() { worldId.Step(fixed.Q32MaxValue(), 4) })
 	})
 	t.Run("non-positive sub-step count", func(t *testing.T) {
-		requirePanic(t, func() { Step(worldId, stepDt(), 0) })
+		requirePanic(t, func() { worldId.Step(stepDt(), 0) })
 	})
 	t.Run("locked world", func(t *testing.T) {
 		w := getWorldFromId(worldId)
 		w.locked = true
 		defer func() { w.locked = false }()
-		requirePanic(t, func() { Step(worldId, stepDt(), 4) })
+		requirePanic(t, func() { worldId.Step(stepDt(), 4) })
 	})
 }
 
@@ -235,7 +235,7 @@ func TestStepTracksSleepTime(t *testing.T) {
 	dt := stepDt()
 	const stepCount = 10
 	for range stepCount {
-		Step(worldId, dt, 4)
+		worldId.Step(dt, 4)
 	}
 
 	w := getWorldFromId(worldId)
@@ -248,7 +248,7 @@ func TestStepTracksSleepTime(t *testing.T) {
 	// A push above the sleep threshold resets the sleep time.
 	moving := getBodyFullId(w, movingId)
 	getBodyState(w, moving).linearVelocity = Vec2{X: fixed.Q32One()}
-	Step(worldId, dt, 4)
+	worldId.Step(dt, 4)
 	if !moving.sleepTime.Eq(fixed.Q32Zero()) {
 		t.Errorf("sleep time in motion = %v, want zero", moving.sleepTime)
 	}
@@ -277,13 +277,13 @@ func TestStepAllocatesNothing(t *testing.T) {
 	w := getWorldFromId(worldId)
 
 	dt := stepDt()
-	Step(worldId, dt, 4)
+	worldId.Step(dt, 4)
 	if len(w.constraintGraph.colors[1].contactSims) != 1 {
 		t.Fatalf("the warm-up step did not activate the contact")
 	}
 
 	allocs := testing.AllocsPerRun(10, func() {
-		Step(worldId, dt, 4)
+		worldId.Step(dt, 4)
 	})
 	if allocs != 0 {
 		t.Errorf("Step allocates %v times per call, want 0", allocs)
@@ -309,8 +309,8 @@ func TestStepIsReproducibleBitForBit(t *testing.T) {
 
 	dt := stepDt()
 	for step := range 120 {
-		Step(world1, dt, 4)
-		Step(world2, dt, 4)
+		world1.Step(dt, 4)
+		world2.Step(dt, 4)
 		c1, c2 := Checksum(world1), Checksum(world2)
 		if c1 != c2 {
 			t.Fatalf("checksums diverge at step %d: %d and %d", step, c1, c2)
@@ -336,7 +336,7 @@ func TestStepPutsARestingIslandToSleep(t *testing.T) {
 	// The sleep time is one half second. A rounded 1/60 times 30 falls one
 	// bit short, so the 31st step crosses it.
 	for range 31 {
-		Step(worldId, dt, 4)
+		worldId.Step(dt, 4)
 	}
 
 	resting := getBodyFullId(w, restingId)
@@ -378,7 +378,7 @@ func TestStepSplitsTheIslandBeforeItSleeps(t *testing.T) {
 
 	dt := stepDt()
 	for range 31 {
-		Step(worldId, dt, 4)
+		worldId.Step(dt, 4)
 	}
 	if w.splitIslandId == nullIndex {
 		t.Fatalf("the finalize did not pick the split candidate")
@@ -387,7 +387,7 @@ func TestStepSplitsTheIslandBeforeItSleeps(t *testing.T) {
 		t.Fatalf("the island slept with a pending split")
 	}
 
-	Step(worldId, dt, 4)
+	worldId.Step(dt, 4)
 	bodyB := getBodyFullId(w, idB)
 	if bodyA.islandId == bodyB.islandId {
 		t.Errorf("the bodies still share island %d", bodyA.islandId)
@@ -443,7 +443,7 @@ func TestStepLandsAFallingBox(t *testing.T) {
 
 	dt := stepDt()
 	for range 120 {
-		Step(worldId, dt, 4)
+		worldId.Step(dt, 4)
 	}
 
 	sim := getBodySim(w, box)
@@ -471,9 +471,9 @@ func TestStepReportsBeginAndEndTouch(t *testing.T) {
 	box := getBodyFullId(w, boxId)
 
 	dt := stepDt()
-	Step(worldId, dt, 4)
+	worldId.Step(dt, 4)
 
-	events := GetContactEvents(worldId)
+	events := worldId.GetContactEvents()
 	if len(events.BeginEvents) != 1 || len(events.EndEvents) != 0 || len(events.HitEvents) != 0 {
 		t.Fatalf("the first step reports %d begin, %d end and %d hit events, want 1, 0 and 0", len(events.BeginEvents), len(events.EndEvents), len(events.HitEvents))
 	}
@@ -485,8 +485,8 @@ func TestStepReportsBeginAndEndTouch(t *testing.T) {
 		t.Errorf("the begin manifold has %d points and impulse %v, want points and zero", begin.Manifold.PointCount, begin.Manifold.Points[0].NormalImpulse)
 	}
 
-	Step(worldId, dt, 4)
-	if len(GetContactEvents(worldId).BeginEvents) != 0 {
+	worldId.Step(dt, 4)
+	if len(worldId.GetContactEvents().BeginEvents) != 0 {
 		t.Errorf("the second step repeats the begin event")
 	}
 
@@ -497,9 +497,9 @@ func TestStepReportsBeginAndEndTouch(t *testing.T) {
 	sim.center.Y = sim.center.Y.Add(lift)
 	sim.transform.P.Y = sim.transform.P.Y.Add(lift)
 	getBodyState(w, box).linearVelocity = Vec2{Y: fixed.Q32FromInt(5)}
-	Step(worldId, dt, 4)
+	worldId.Step(dt, 4)
 
-	events = GetContactEvents(worldId)
+	events = worldId.GetContactEvents()
 	if len(events.EndEvents) != 1 {
 		t.Fatalf("the lift step reports %d end events, want 1", len(events.EndEvents))
 	}
@@ -522,7 +522,7 @@ func TestStepDestroysADisjointContact(t *testing.T) {
 	box := getBodyFullId(w, boxId)
 
 	dt := stepDt()
-	Step(worldId, dt, 4)
+	worldId.Step(dt, 4)
 	if w.contactIdPool.idCount() != 1 {
 		t.Fatalf("the contact did not survive the first step")
 	}
@@ -534,13 +534,13 @@ func TestStepDestroysADisjointContact(t *testing.T) {
 	sim.center.Y = sim.center.Y.Add(far)
 	sim.transform.P.Y = sim.transform.P.Y.Add(far)
 	getBodyState(w, box).linearVelocity = Vec2{Y: fixed.Q32FromInt(5)}
-	Step(worldId, dt, 4)
-	Step(worldId, dt, 4)
+	worldId.Step(dt, 4)
+	worldId.Step(dt, 4)
 
 	if w.contactIdPool.idCount() != 0 || w.broadPhase.pairSet.count != 0 {
 		t.Errorf("the disjoint contact survives: %d contacts and %d pairs", w.contactIdPool.idCount(), w.broadPhase.pairSet.count)
 	}
-	if len(GetContactEvents(worldId).EndEvents) != 0 {
+	if len(worldId.GetContactEvents().EndEvents) != 0 {
 		t.Errorf("a disjoint contact that never touched reported an end event")
 	}
 	validateSolverSets(w)
@@ -559,8 +559,8 @@ func TestStepReportsMoveEvents(t *testing.T) {
 	resting := getBodyFullId(w, restingId)
 
 	dt := stepDt()
-	Step(worldId, dt, 4)
-	events := GetBodyEvents(worldId)
+	worldId.Step(dt, 4)
+	events := worldId.GetBodyEvents()
 	if len(events.MoveEvents) != 1 {
 		t.Fatalf("the step reports %d move events, want 1", len(events.MoveEvents))
 	}
@@ -570,9 +570,9 @@ func TestStepReportsMoveEvents(t *testing.T) {
 	}
 
 	for range 30 {
-		Step(worldId, dt, 4)
+		worldId.Step(dt, 4)
 	}
-	events = GetBodyEvents(worldId)
+	events = worldId.GetBodyEvents()
 	if len(events.MoveEvents) != 1 || !events.MoveEvents[0].FellAsleep {
 		t.Fatalf("the sleep step reports %+v", events.MoveEvents)
 	}
@@ -580,8 +580,8 @@ func TestStepReportsMoveEvents(t *testing.T) {
 		t.Errorf("the body is in set %d, want a sleeping set", resting.setIndex)
 	}
 
-	Step(worldId, dt, 4)
-	if len(GetBodyEvents(worldId).MoveEvents) != 0 {
+	worldId.Step(dt, 4)
+	if len(worldId.GetBodyEvents().MoveEvents) != 0 {
 		t.Errorf("a sleeping body reports a move event")
 	}
 }
@@ -597,7 +597,7 @@ func TestStepKeepsAZeroContactFrequencyFinite(t *testing.T) {
 	w := getWorldFromId(worldId)
 	boxOnGround(t, worldId, fixed.Q32Zero())
 
-	Step(worldId, stepDt(), 4)
+	worldId.Step(stepDt(), 4)
 	if !w.contactSpeed.Eq(fixed.Q32Zero()) {
 		t.Errorf("the contact speed is %v, want zero", w.contactSpeed)
 	}
@@ -621,8 +621,8 @@ func TestStepReportsAHitEvent(t *testing.T) {
 
 	dt := stepDt()
 	for range 30 {
-		Step(worldId, dt, 4)
-		events := GetContactEvents(worldId)
+		worldId.Step(dt, 4)
+		events := worldId.GetContactEvents()
 		if len(events.HitEvents) == 0 {
 			continue
 		}
@@ -677,10 +677,10 @@ func TestStepOrdersEventsByContactId(t *testing.T) {
 	}
 
 	dt := stepDt()
-	events := GetContactEvents(worldId)
+	events := worldId.GetContactEvents()
 	for range 30 {
-		Step(worldId, dt, 4)
-		events = GetContactEvents(worldId)
+		worldId.Step(dt, 4)
+		events = worldId.GetContactEvents()
 		if len(events.BeginEvents) == 2 {
 			break
 		}
@@ -700,8 +700,8 @@ func TestStepOrdersEventsByContactId(t *testing.T) {
 		sim.transform.P.Y = sim.transform.P.Y.Add(fixed.Q32One())
 		getBodyState(w, b).linearVelocity = Vec2{Y: fixed.Q32FromInt(5)}
 	}
-	Step(worldId, dt, 4)
-	events = GetContactEvents(worldId)
+	worldId.Step(dt, 4)
+	events = worldId.GetContactEvents()
 	if len(events.EndEvents) != 2 || events.EndEvents[0].ShapeIdB != shapes[0] || events.EndEvents[1].ShapeIdB != shapes[1] {
 		t.Fatalf("the end events do not follow the contact ids: %d events", len(events.EndEvents))
 	}
@@ -719,7 +719,7 @@ func TestSmallPyramidStaysStable(t *testing.T) {
 		topId := buildPyramid(worldId, rows)
 		dt := stepDt()
 		for range 100 {
-			Step(worldId, dt, 4)
+			worldId.Step(dt, 4)
 		}
 		validateWorld(w)
 		top := getBodyFullId(w, topId)
@@ -765,7 +765,7 @@ func TestStepLandsABoxOnAChainSegment(t *testing.T) {
 
 	dt := stepDt()
 	for range 120 {
-		Step(worldId, dt, 4)
+		worldId.Step(dt, 4)
 		validateWorld(w)
 	}
 
@@ -840,7 +840,7 @@ func TestStepStopsAFastBodyAtAStaticPlate(t *testing.T) {
 		addPlate(t, worldId, StaticBody, 5)
 		boxId := addProjectile(t, worldId, false)
 
-		Step(worldId, stepDt(), 4)
+		worldId.Step(stepDt(), 4)
 		w := getWorldFromId(worldId)
 		validateWorld(w)
 
@@ -853,7 +853,7 @@ func TestStepStopsAFastBodyAtAStaticPlate(t *testing.T) {
 		}
 
 		// The next step lands the speculative contact and the box rests.
-		Step(worldId, stepDt(), 4)
+		worldId.Step(stepDt(), 4)
 		validateWorld(w)
 		if x := bodyX(worldId, boxId); !x.Less(face) {
 			t.Fatalf("x %v after the second step, want under %v", x, face)
@@ -865,7 +865,7 @@ func TestStepStopsAFastBodyAtAStaticPlate(t *testing.T) {
 		addPlate(t, worldId, StaticBody, 5)
 		boxId := addProjectile(t, worldId, false)
 
-		Step(worldId, stepDt(), 4)
+		worldId.Step(stepDt(), 4)
 
 		if x := bodyX(worldId, boxId); !fixed.Q32FromInt(6).Less(x) {
 			t.Fatalf("x %v, want past the plate", x)
@@ -882,7 +882,7 @@ func TestStepBulletStopsAtADynamicPlate(t *testing.T) {
 		plateId := addPlate(t, worldId, DynamicBody, 5)
 		boxId := addProjectile(t, worldId, true)
 
-		Step(worldId, stepDt(), 4)
+		worldId.Step(stepDt(), 4)
 		w := getWorldFromId(worldId)
 		validateWorld(w)
 
@@ -892,8 +892,8 @@ func TestStepBulletStopsAtADynamicPlate(t *testing.T) {
 		}
 
 		// The contact forms on the next step and the plate takes the hit.
-		Step(worldId, stepDt(), 4)
-		Step(worldId, stepDt(), 4)
+		worldId.Step(stepDt(), 4)
+		worldId.Step(stepDt(), 4)
 		validateWorld(w)
 		if plateX := bodyX(worldId, plateId); !fixed.Q32FromInt(5).Less(plateX) {
 			t.Fatalf("plate x %v, want pushed past 5", plateX)
@@ -908,7 +908,7 @@ func TestStepBulletStopsAtADynamicPlate(t *testing.T) {
 		addPlate(t, worldId, DynamicBody, 5)
 		boxId := addProjectile(t, worldId, false)
 
-		Step(worldId, stepDt(), 4)
+		worldId.Step(stepDt(), 4)
 
 		if x := bodyX(worldId, boxId); !fixed.Q32FromInt(6).Less(x) {
 			t.Fatalf("x %v, want past the plate", x)
@@ -958,7 +958,7 @@ func TestStepFastBodyCrossesAChainJunction(t *testing.T) {
 
 	junction := fixed.Q32FromInt(8)
 	for range 3 {
-		Step(worldId, stepDt(), 4)
+		worldId.Step(stepDt(), 4)
 		validateWorld(w)
 	}
 
@@ -1006,7 +1006,7 @@ func TestStepSwingsAPendulum(t *testing.T) {
 	lowest := fixed.Q32Zero()
 	dt := stepDt()
 	for i := range 120 {
-		Step(worldId, dt, 4)
+		worldId.Step(dt, 4)
 		center := getBodySim(w, body).center
 		arm := center.Len()
 		if !withinQ(arm, one, slack) {
@@ -1046,7 +1046,7 @@ func TestStepPullsTheRopeTight(t *testing.T) {
 	bodyB := getBodyFullId(w, idB)
 	dt := stepDt()
 	for range 60 {
-		Step(worldId, dt, 4)
+		worldId.Step(dt, 4)
 	}
 	gap := getBodySim(w, bodyB).center.Sub(getBodySim(w, bodyA).center).Len()
 	if !withinQ(gap, fixed.Q32One(), linearSlop.Add(linearSlop)) {
@@ -1085,7 +1085,7 @@ func TestStepSlidesToTheStop(t *testing.T) {
 	slack := linearSlop.Add(linearSlop)
 	dt := stepDt()
 	for range 120 {
-		Step(worldId, dt, 4)
+		worldId.Step(dt, 4)
 	}
 	center := getBodySim(w, body).center
 	if !withinQ(center.X, fixed.Q32One(), slack) || !withinQ(center.Y, fixed.Q32Zero(), slack) {
@@ -1123,7 +1123,7 @@ func TestStepSettlesTheSuspension(t *testing.T) {
 	slack := linearSlop.Add(linearSlop)
 	dt := stepDt()
 	for range 240 {
-		Step(worldId, dt, 4)
+		worldId.Step(dt, 4)
 	}
 	center := getBodySim(w, body).center
 	if !withinQ(center.X, fixed.Q32Zero(), slack) || !withinQ(center.Y, fixed.Q32Zero(), slack) {
@@ -1170,7 +1170,7 @@ func TestStepWeldsTwoBoxes(t *testing.T) {
 	fixed.ResetSaturationCount()
 	dt := stepDt()
 	for range 60 {
-		Step(worldId, dt, 4)
+		worldId.Step(dt, 4)
 	}
 	simA := getBodySim(w, bodyA)
 	simB := getBodySim(w, bodyB)
@@ -1215,7 +1215,7 @@ func TestStepDrivesToTheOffset(t *testing.T) {
 	body := getBodyFullId(w, circleId)
 	dt := stepDt()
 	for range 120 {
-		Step(worldId, dt, 4)
+		worldId.Step(dt, 4)
 	}
 	center := getBodySim(w, body).center
 	slack := linearSlop.Add(linearSlop)
@@ -1255,7 +1255,7 @@ func TestStepDragsToTheTarget(t *testing.T) {
 	body := getBodyFullId(w, circleId)
 	dt := stepDt()
 	for range 60 {
-		Step(worldId, dt, 4)
+		worldId.Step(dt, 4)
 	}
 	center := getBodySim(w, body).center
 	if gap := center.Sub(target).Len(); !gap.Less(fixed.Q32MustParse("0.05")) {

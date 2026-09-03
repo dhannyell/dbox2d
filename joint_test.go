@@ -232,7 +232,7 @@ func TestJointWithoutCollisionRemovesTheContact(t *testing.T) {
 	groundId := BodyId{index1: 1, world0: w.worldId, generation: w.bodies[0].generation}
 
 	dt := stepDt()
-	Step(worldId, dt, 4)
+	worldId.Step(dt, 4)
 	if w.contactIdPool.idCount() != 1 {
 		t.Fatalf("the contact did not survive the first step")
 	}
@@ -247,7 +247,7 @@ func TestJointWithoutCollisionRemovesTheContact(t *testing.T) {
 	if shouldBodiesCollide(w, &w.bodies[0], box) {
 		t.Errorf("shouldBodiesCollide accepts the filtered pair")
 	}
-	Step(worldId, dt, 4)
+	worldId.Step(dt, 4)
 	if w.contactIdPool.idCount() != 0 {
 		t.Errorf("the next step recreated the contact")
 	}
