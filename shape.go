@@ -457,3 +457,31 @@ func shouldShapesCollide(filterA, filterB Filter) bool {
 func shouldQueryCollide(shapeFilter Filter, queryFilter QueryFilter) bool {
 	return shapeFilter.CategoryBits&queryFilter.MaskBits != 0 && shapeFilter.MaskBits&queryFilter.CategoryBits != 0
 }
+
+// rayCastShape casts a world-space ray against a shape. It corresponds
+// to b2RayCastShape in src/shape.c.
+func rayCastShape(input *RayCastInput, s *shape, transform Transform) CastOutput {
+	localInput := *input
+	localInput.Origin = InvTransformPoint(transform, input.Origin)
+	localInput.Translation = InvRotateVector(transform.Q, input.Translation)
+
+	var output CastOutput
+	switch s.shapeType {
+	case CapsuleShape:
+		output = RayCastCapsule(&localInput, &s.capsule)
+	case CircleShape:
+		output = RayCastCircle(&localInput, &s.circle)
+	case PolygonShape:
+		output = RayCastPolygon(&localInput, &s.polygon)
+	case SegmentShape:
+		output = RayCastSegment(&localInput, &s.segment, false)
+	case ChainSegmentShape:
+		output = RayCastSegment(&localInput, &s.chainSegment.Segment, true)
+	default:
+		return output
+	}
+
+	output.Point = TransformPoint(transform, output.Point)
+	output.Normal = RotateVector(transform.Q, output.Normal)
+	return output
+}

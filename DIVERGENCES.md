@@ -302,9 +302,11 @@ Numbering is sequential from `D-001` and never reused.
   Go closes over the context instead, and a typed closure keeps the call
   site legible.
 - Behaviour: the tree walks take a closure with the proxy id and the user
-  data. The public query callbacks keep the shape id and the context of
-  the reference. A closure that does not escape allocates nothing; the
-  step test pins zero allocations.
+  data. The public `OverlapResultFcn` and `CastResultFcn` drop the
+  `void*` context of the reference as well; the caller closes over its
+  state. A closure that does not escape allocates nothing; the step test
+  pins zero allocations.
 - Test: TestTreeQueryReportsTheOverlaps and TestTreeRayCastClipsTheRay in
-  dynamic_tree_test.go
+  dynamic_tree_test.go; TestOverlapAABBReportsTheFatBounds and
+  TestCastRayClipsAcrossTheTrees in world_test.go
 
