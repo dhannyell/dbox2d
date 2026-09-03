@@ -140,6 +140,13 @@ func getBodyTransformQuick(w *world, b *body) Transform {
 	return set.bodySims[b.localIndex].transform
 }
 
+// getBodyTransform returns the transform of a body by raw id. It corresponds
+// to b2GetBodyTransform in src/body.c.
+func getBodyTransform(w *world, bodyId int) Transform {
+	b := &w.bodies[bodyId]
+	return getBodyTransformQuick(w, b)
+}
+
 // makeBodyId builds a BodyId from a raw id.
 func makeBodyId(w *world, bodyId int) BodyId {
 	b := &w.bodies[bodyId]

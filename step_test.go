@@ -1022,3 +1022,38 @@ func TestStepSwingsAPendulum(t *testing.T) {
 	}
 	validateWorld(w)
 }
+
+// TestStepPullsTheRopeTight pins the distance joint inside Step: two
+// circles two units apart on a rigid rope of length one converge to one
+// unit and no operation saturates.
+func TestStepPullsTheRopeTight(t *testing.T) {
+	worldDef := DefaultWorldDef()
+	worldDef.Gravity = Vec2Zero()
+	worldId := CreateWorld(&worldDef)
+	t.Cleanup(func() { DestroyWorld(worldId) })
+	w := getWorldFromId(worldId)
+
+	idA := addDynamicCircle(t, worldId, v2(0, 0))
+	idB := addDynamicCircle(t, worldId, v2(2, 0))
+	def := DefaultDistanceJointDef()
+	def.BodyIdA = idA
+	def.BodyIdB = idB
+	def.Length = fixed.Q32One()
+	CreateDistanceJoint(worldId, &def)
+
+	fixed.ResetSaturationCount()
+	bodyA := getBodyFullId(w, idA)
+	bodyB := getBodyFullId(w, idB)
+	dt := stepDt()
+	for range 60 {
+		Step(worldId, dt, 4)
+	}
+	gap := getBodySim(w, bodyB).center.Sub(getBodySim(w, bodyA).center).Len()
+	if !withinQ(gap, fixed.Q32One(), linearSlop.Add(linearSlop)) {
+		t.Errorf("the rope is %v long, want 1", gap)
+	}
+	if n := fixed.SaturationCount(); n != 0 {
+		t.Errorf("%d operations saturated", n)
+	}
+	validateWorld(w)
+}
