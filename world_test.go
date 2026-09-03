@@ -31,6 +31,82 @@ func v2(x, y int) Vec2 {
 	return Vec2{X: fixed.Q32FromInt(x), Y: fixed.Q32FromInt(y)}
 }
 
+func TestWorldAccessorsRoundTrip(t *testing.T) {
+	worldId := createTestWorld(t)
+	worldId.SetGravity(v2(3, -4))
+	worldId.SetRestitutionThreshold(fixed.Q32FromInt(2))
+	worldId.SetHitEventThreshold(fixed.Q32FromInt(3))
+	worldId.SetContactTuning(fixed.Q32FromInt(4), fixed.Q32Half(), fixed.Q32FromInt(5))
+	worldId.SetMaximumLinearSpeed(fixed.Q32FromInt(6))
+	worldId.SetUserData("world")
+	worldId.EnableSleeping(false)
+	worldId.EnableContinuous(false)
+	worldId.EnableWarmStarting(false)
+	worldId.EnableSpeculative(false)
+
+	checks := []struct {
+		name string
+		got  Q
+		want Q
+	}{
+		{"restitution threshold", worldId.GetRestitutionThreshold(), fixed.Q32FromInt(2)},
+		{"hit event threshold", worldId.GetHitEventThreshold(), fixed.Q32FromInt(3)},
+		{"maximum linear speed", worldId.GetMaximumLinearSpeed(), fixed.Q32FromInt(6)},
+	}
+	for _, check := range checks {
+		if !check.got.Eq(check.want) {
+			t.Errorf("%s = %v, want %v", check.name, check.got, check.want)
+		}
+	}
+	if got := worldId.GetGravity(); got != v2(3, -4) {
+		t.Errorf("gravity = %v, want %v", got, v2(3, -4))
+	}
+	if worldId.IsSleepingEnabled() || worldId.IsContinuousEnabled() || worldId.IsWarmStartingEnabled() {
+		t.Error("one of the boolean accessors remained enabled")
+	}
+	if got := worldId.GetUserData(); got != "world" {
+		t.Errorf("user data = %v, want world", got)
+	}
+}
+
+func TestWorldGetCounters(t *testing.T) {
+	worldId := createTestWorld(t)
+	bodyA := addDynamicBox(t, worldId, v2(0, 0))
+	bodyB := addDynamicBox(t, worldId, v2(1, 0))
+	addDynamicBox(t, worldId, v2(2, 0))
+
+	jointDef := DefaultDistanceJointDef()
+	jointDef.BodyIdA = bodyA
+	jointDef.BodyIdB = bodyB
+	CreateDistanceJoint(worldId, &jointDef)
+	worldId.Step(stepDt(), 4)
+
+	counters := worldId.GetCounters()
+	if counters.BodyCount == 0 || counters.ShapeCount == 0 || counters.JointCount == 0 || counters.ContactCount == 0 {
+		t.Fatalf("counters = %+v, want bodies, shapes, joints and contacts", counters)
+	}
+	if counters.IslandCount == 0 || counters.TreeHeight == 0 {
+		t.Fatalf("counters = %+v, want islands and a dynamic tree", counters)
+	}
+}
+
+func TestSetFrictionCallbackAffectsNextContact(t *testing.T) {
+	worldId := createTestWorld(t)
+	constant := fixed.Q32MustParse("0.75")
+	worldId.SetFrictionCallback(func(Q, int, Q, int) Q { return constant })
+	addDynamicCircle(t, worldId, v2(0, 0))
+	addDynamicCircle(t, worldId, v2(1, 0))
+	worldId.Step(stepDt(), 4)
+
+	w := getWorldFromId(worldId)
+	if len(w.contacts) == 0 {
+		t.Fatal("the overlapping circles created no contact")
+	}
+	if got := getContactSim(w, &w.contacts[0]).friction; !got.Eq(constant) {
+		t.Errorf("contact friction = %v, want %v", got, constant)
+	}
+}
+
 // TestIdReuseInvalidatesTheOldHandle pins the generation scheme: a destroyed
 // id never validates again, even after its slot is reused.
 func TestIdReuseInvalidatesTheOldHandle(t *testing.T) {

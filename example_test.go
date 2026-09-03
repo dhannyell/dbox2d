@@ -42,6 +42,19 @@ func ExampleCreateDistanceJoint() {
 	// Output: false
 }
 
+func ExampleWorldId_SetFrictionCallback() {
+	worldDef := dbox2d.DefaultWorldDef()
+	worldId := dbox2d.CreateWorld(&worldDef)
+	defer dbox2d.DestroyWorld(worldId)
+
+	worldId.SetFrictionCallback(func(frictionA dbox2d.Q, _ int, frictionB dbox2d.Q, _ int) dbox2d.Q {
+		return frictionA.Add(frictionB).Div(fixed.Q32FromInt(2))
+	})
+
+	fmt.Println(worldId.IsValid())
+	// Output: true
+}
+
 func ExampleCreateFilterJoint() {
 	worldId, groundId, boxId := exampleWorld()
 	defer dbox2d.DestroyWorld(worldId)

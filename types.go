@@ -40,8 +40,13 @@ type WorldDef struct {
 	// Maximum linear speed, usually in meters per second.
 	MaximumLinearSpeed Q
 
-	// Deferred: the mixing callbacks and the task system fields of the
-	// reference.
+	// FrictionCallback customizes friction mixing for new contacts.
+	FrictionCallback FrictionCallback
+
+	// RestitutionCallback customizes restitution mixing for new contacts.
+	RestitutionCallback RestitutionCallback
+
+	// Deferred: the task system fields of the reference.
 
 	// Enable sleeping to improve performance.
 	EnableSleep bool
@@ -55,6 +60,18 @@ type WorldDef struct {
 	// internalValue proves that DefaultWorldDef ran. upstream internalValue
 	internalValue int
 }
+
+// Counters reports world sizes and solver storage usage for diagnostics.
+type Counters struct {
+	BodyCount, ShapeCount, ContactCount, JointCount, IslandCount, StackUsed, StaticTreeHeight, TreeHeight int
+	ColorCounts                                                                                           [graphColorCount]int
+}
+
+// FrictionCallback mixes the friction values of two shapes.
+type FrictionCallback func(frictionA Q, userMaterialIdA int, frictionB Q, userMaterialIdB int) Q
+
+// RestitutionCallback mixes the restitution values of two shapes.
+type RestitutionCallback func(restitutionA Q, userMaterialIdA int, restitutionB Q, userMaterialIdB int) Q
 
 // DefaultWorldDef returns the default world definition.
 func DefaultWorldDef() WorldDef {

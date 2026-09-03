@@ -13,8 +13,7 @@ const (
 
 // world manages all physics entities and the dynamic simulation.
 type world struct {
-	// Deferred: the chain and sensor storage, the callbacks and the task
-	// system of the reference.
+	// Deferred: the chain and sensor storage and the task system of the reference.
 
 	// constraintGraph colors the awake touching contacts.
 	constraintGraph constraintGraph
@@ -106,8 +105,8 @@ type world struct {
 
 	// The mixing callbacks combine the material values of two shapes into
 	// the effective contact values.
-	frictionCallback    mixingCallback
-	restitutionCallback mixingCallback
+	frictionCallback    FrictionCallback
+	restitutionCallback RestitutionCallback
 
 	worldId uint16
 
@@ -118,10 +117,6 @@ type world struct {
 	enableSpeculative  bool
 	inUse              bool
 }
-
-// mixingCallback combines the material values of two shapes. It corresponds
-// to b2FrictionCallback and b2RestitutionCallback in include/box2d/types.h.
-type mixingCallback func(valueA Q, userMaterialIdA int, valueB Q, userMaterialIdB int) Q
 
 // defaultFrictionCallback is the geometric mean. It corresponds to
 // b2DefaultFrictionCallback in src/world.c.
@@ -259,8 +254,14 @@ func CreateWorld(def *WorldDef) WorldId {
 	w.contactHitEvents = make([]ContactHitEvent, 0, 16)
 	w.endEventArrayIndex = 0
 
-	w.frictionCallback = defaultFrictionCallback
-	w.restitutionCallback = defaultRestitutionCallback
+	w.frictionCallback = def.FrictionCallback
+	if w.frictionCallback == nil {
+		w.frictionCallback = defaultFrictionCallback
+	}
+	w.restitutionCallback = def.RestitutionCallback
+	if w.restitutionCallback == nil {
+		w.restitutionCallback = defaultRestitutionCallback
+	}
 
 	w.stepIndex = 0
 	w.gravity = def.Gravity
@@ -667,11 +668,194 @@ func validateSolverSets(w *world) {
 	}
 }
 
-// Gravity returns the gravity vector of the world.
-func (id WorldId) Gravity() Vec2 {
-	w := getWorldFromId(id)
+// GetGravity returns the gravity vector. It corresponds to b2World_GetGravity.
+func (worldId WorldId) GetGravity() Vec2 {
+	w := getWorldFromId(worldId)
 	return w.gravity
 }
+
+// EnableSleeping changes sleeping and wakes sleeping sets when disabled.
+// It corresponds to b2World_EnableSleeping in src/world.c.
+func (worldId WorldId) EnableSleeping(flag bool) {
+	w := getWorldFromId(worldId)
+	if w.locked || flag == w.enableSleep {
+		return
+	}
+	w.enableSleep = flag
+	if !flag {
+		for setIndex := firstSleepingSet; setIndex < len(w.solverSets); setIndex++ {
+			if w.solverSets[setIndex].setIndex != nullIndex && len(w.solverSets[setIndex].bodySims) > 0 {
+				wakeSolverSet(w, setIndex)
+			}
+		}
+	}
+}
+
+// IsSleepingEnabled reports whether sleeping is enabled.
+// It corresponds to b2World_IsSleepingEnabled in src/world.c.
+func (worldId WorldId) IsSleepingEnabled() bool { return getWorldFromId(worldId).enableSleep }
+
+// EnableContinuous changes continuous collision detection.
+// It corresponds to b2World_EnableContinuous in src/world.c.
+func (worldId WorldId) EnableContinuous(flag bool) {
+	w := getWorldFromId(worldId)
+	if w.locked {
+		return
+	}
+	w.enableContinuous = flag
+}
+
+// IsContinuousEnabled reports whether continuous collision is enabled.
+// It corresponds to b2World_IsContinuousEnabled in src/world.c.
+func (worldId WorldId) IsContinuousEnabled() bool { return getWorldFromId(worldId).enableContinuous }
+
+// SetRestitutionThreshold limits the speed threshold to the valid Q range.
+// It corresponds to b2World_SetRestitutionThreshold in src/world.c.
+func (worldId WorldId) SetRestitutionThreshold(value Q) {
+	w := getWorldFromId(worldId)
+	if w.locked {
+		return
+	}
+	w.restitutionThreshold = value.Max(fixed.Q32Zero()).Min(fixed.Q32MaxValue())
+}
+
+// GetRestitutionThreshold returns the restitution speed threshold.
+// It corresponds to b2World_GetRestitutionThreshold in src/world.c.
+func (worldId WorldId) GetRestitutionThreshold() Q {
+	return getWorldFromId(worldId).restitutionThreshold
+}
+
+// SetHitEventThreshold limits the hit-event threshold to the valid Q range.
+// It corresponds to b2World_SetHitEventThreshold in src/world.c.
+func (worldId WorldId) SetHitEventThreshold(value Q) {
+	w := getWorldFromId(worldId)
+	if w.locked {
+		return
+	}
+	w.hitEventThreshold = value.Max(fixed.Q32Zero()).Min(fixed.Q32MaxValue())
+}
+
+// GetHitEventThreshold returns the hit-event threshold.
+// It corresponds to b2World_GetHitEventThreshold in src/world.c.
+func (worldId WorldId) GetHitEventThreshold() Q { return getWorldFromId(worldId).hitEventThreshold }
+
+// SetGravity changes the world gravity vector.
+// It corresponds to b2World_SetGravity in src/world.c.
+func (worldId WorldId) SetGravity(gravity Vec2) { getWorldFromId(worldId).gravity = gravity }
+
+// SetContactTuning changes contact softness and push speed.
+// It corresponds to b2World_SetContactTuning in src/world.c.
+func (worldId WorldId) SetContactTuning(hertz, dampingRatio, pushSpeed Q) {
+	w := getWorldFromId(worldId)
+	if w.locked {
+		return
+	}
+	zero, maxValue := fixed.Q32Zero(), fixed.Q32MaxValue()
+	w.contactHertz = hertz.Max(zero).Min(maxValue)
+	w.contactDampingRatio = dampingRatio.Max(zero).Min(maxValue)
+	w.maxContactPushSpeed = pushSpeed.Max(zero).Min(maxValue)
+}
+
+// SetMaximumLinearSpeed changes the velocity cap.
+// It corresponds to b2World_SetMaximumLinearSpeed in src/world.c.
+func (worldId WorldId) SetMaximumLinearSpeed(maximumLinearSpeed Q) {
+	w := getWorldFromId(worldId)
+	if w.locked {
+		return
+	}
+	w.maxLinearSpeed = maximumLinearSpeed
+}
+
+// GetMaximumLinearSpeed returns the velocity cap.
+// It corresponds to b2World_GetMaximumLinearSpeed in src/world.c.
+func (worldId WorldId) GetMaximumLinearSpeed() Q { return getWorldFromId(worldId).maxLinearSpeed }
+
+// EnableWarmStarting changes impulse warm starting.
+// It corresponds to b2World_EnableWarmStarting in src/world.c.
+func (worldId WorldId) EnableWarmStarting(flag bool) {
+	w := getWorldFromId(worldId)
+	if w.locked {
+		return
+	}
+	w.enableWarmStarting = flag
+}
+
+// IsWarmStartingEnabled reports whether warm starting is enabled.
+// It corresponds to b2World_IsWarmStartingEnabled in src/world.c.
+func (worldId WorldId) IsWarmStartingEnabled() bool {
+	return getWorldFromId(worldId).enableWarmStarting
+}
+
+// GetAwakeBodyCount returns the number of bodies in the awake set.
+// It corresponds to b2World_GetAwakeBodyCount in src/world.c.
+func (worldId WorldId) GetAwakeBodyCount() int {
+	return len(getWorldFromId(worldId).solverSets[awakeSet].bodySims)
+}
+
+// GetCounters reports entity, tree, arena and graph counts.
+// It corresponds to b2World_GetCounters in src/world.c.
+func (worldId WorldId) GetCounters() Counters {
+	w := getWorldFromId(worldId)
+	result := Counters{
+		BodyCount: w.bodyIdPool.idCount(), ShapeCount: w.shapeIdPool.idCount(), ContactCount: w.contactIdPool.idCount(),
+		JointCount: w.jointIdPool.idCount(), IslandCount: w.islandIdPool.idCount(), StackUsed: getMaxArenaAllocation(&w.arena),
+		StaticTreeHeight: w.broadPhase.trees[StaticBody].getHeight(),
+	}
+	result.TreeHeight = max(w.broadPhase.trees[DynamicBody].getHeight(), w.broadPhase.trees[KinematicBody].getHeight())
+	for i := range graphColorCount {
+		color := &w.constraintGraph.colors[i]
+		result.ColorCounts[i] = len(color.contactSims) + len(color.jointSims)
+	}
+	return result
+}
+
+// SetUserData attaches application data to the world.
+// It corresponds to b2World_SetUserData in src/world.c.
+func (worldId WorldId) SetUserData(userData any) { getWorldFromId(worldId).userData = userData }
+
+// GetUserData returns the data attached to the world.
+// It corresponds to b2World_GetUserData in src/world.c.
+func (worldId WorldId) GetUserData() any { return getWorldFromId(worldId).userData }
+
+// SetFrictionCallback changes friction mixing for future contacts.
+// It corresponds to b2World_SetFrictionCallback in src/world.c.
+func (worldId WorldId) SetFrictionCallback(callback FrictionCallback) {
+	w := getWorldFromId(worldId)
+	if w.locked {
+		return
+	}
+	if callback == nil {
+		callback = defaultFrictionCallback
+	}
+	w.frictionCallback = callback
+}
+
+// SetRestitutionCallback changes restitution mixing for future contacts.
+// It corresponds to b2World_SetRestitutionCallback in src/world.c.
+func (worldId WorldId) SetRestitutionCallback(callback RestitutionCallback) {
+	w := getWorldFromId(worldId)
+	if w.locked {
+		return
+	}
+	if callback == nil {
+		callback = defaultRestitutionCallback
+	}
+	w.restitutionCallback = callback
+}
+
+// RebuildStaticTree rebuilds the static broad-phase tree.
+// It corresponds to b2World_RebuildStaticTree in src/world.c.
+func (worldId WorldId) RebuildStaticTree() {
+	w := getWorldFromId(worldId)
+	if w.locked {
+		return
+	}
+	w.broadPhase.trees[StaticBody].rebuild(true)
+}
+
+// EnableSpeculative changes speculative collision handling.
+// It corresponds to b2World_EnableSpeculative in src/world.c.
+func (worldId WorldId) EnableSpeculative(flag bool) { getWorldFromId(worldId).enableSpeculative = flag }
 
 // taskContext is the scratch that the body finalize fills for the island
 // sleep. It corresponds to b2TaskContext in src/world.h.

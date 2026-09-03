@@ -49,7 +49,7 @@ func TestStepAppliesGravityExactly(t *testing.T) {
 	const stepCount = 8
 
 	h := dt.Div(fixed.Q32FromInt(subStepCount))
-	gravity := worldId.Gravity()
+	gravity := worldId.GetGravity()
 
 	// The scalar mirror of the loop: velocity gains h*g per sub-step and the
 	// position gains h*v after each velocity update.
