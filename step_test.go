@@ -1227,3 +1227,42 @@ func TestStepDrivesToTheOffset(t *testing.T) {
 	}
 	validateWorld(w)
 }
+
+// TestStepDragsToTheTarget pins the mouse joint inside Step: a five hertz
+// mouse joint grabs a circle at its center, the target moves to (1, 0),
+// and the circle gets within 0.05 of it in 60 steps without saturation.
+func TestStepDragsToTheTarget(t *testing.T) {
+	worldDef := DefaultWorldDef()
+	worldDef.Gravity = Vec2Zero()
+	worldId := CreateWorld(&worldDef)
+	t.Cleanup(func() { DestroyWorld(worldId) })
+	w := getWorldFromId(worldId)
+
+	groundDef := DefaultBodyDef()
+	groundId := CreateBody(worldId, &groundDef)
+	circleId := addDynamicCircle(t, worldId, v2(0, 0))
+
+	def := DefaultMouseJointDef()
+	def.BodyIdA = groundId
+	def.BodyIdB = circleId
+	def.Hertz = fixed.Q32FromInt(5)
+	def.MaxForce = fixed.Q32FromInt(1000)
+	jointId := CreateMouseJoint(worldId, &def)
+	target := Vec2{X: fixed.Q32One()}
+	getJointSim(w, getJointFullId(w, jointId)).mouseJoint.targetA = target
+
+	fixed.ResetSaturationCount()
+	body := getBodyFullId(w, circleId)
+	dt := stepDt()
+	for range 60 {
+		Step(worldId, dt, 4)
+	}
+	center := getBodySim(w, body).center
+	if gap := center.Sub(target).Len(); !gap.Less(fixed.Q32MustParse("0.05")) {
+		t.Errorf("the circle rests at %v, %v from the target", center, gap)
+	}
+	if n := fixed.SaturationCount(); n != 0 {
+		t.Errorf("%d operations saturated", n)
+	}
+	validateWorld(w)
+}

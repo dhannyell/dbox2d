@@ -302,22 +302,6 @@ func getJointSim(w *world, j *joint) *jointSim {
 	return &set.jointSims[j.localIndex]
 }
 
-// getJointSimCheckType returns the sim data of a joint of the expected
-// type. It corresponds to b2GetJointSimCheckType in src/joint.c.
-func getJointSimCheckType(jointId JointId, jointType JointType) *jointSim {
-	w := getWorldLocked(jointId.world0)
-
-	j := getJointFullId(w, jointId)
-	if j.jointType != jointType {
-		panic("dbox2d: the joint has another type")
-	}
-	sim := getJointSim(w, j)
-	if sim.jointType != jointType {
-		panic("dbox2d: the joint sim has another type")
-	}
-	return sim
-}
-
 // createJoint allocates a joint between two bodies, links it into both
 // body lists and picks its solver set. It corresponds to b2CreateJoint in
 // src/joint.c.
@@ -956,10 +940,12 @@ func prepareJoint(js *jointSim, context *stepContext) {
 		prepareWeldJoint(js, context)
 	case MotorJoint:
 		prepareMotorJoint(js, context)
+	case MouseJoint:
+		prepareMouseJoint(js, context)
 	case RevoluteJoint:
 		prepareRevoluteJoint(js, context)
 	default:
-		panic("dbox2d: joint type not ported")
+		panic("dbox2d: unknown joint type")
 	}
 }
 
@@ -977,10 +963,12 @@ func warmStartJoint(js *jointSim, context *stepContext) {
 		warmStartWeldJoint(js, context)
 	case MotorJoint:
 		warmStartMotorJoint(js, context)
+	case MouseJoint:
+		warmStartMouseJoint(js, context)
 	case RevoluteJoint:
 		warmStartRevoluteJoint(js, context)
 	default:
-		panic("dbox2d: joint type not ported")
+		panic("dbox2d: unknown joint type")
 	}
 }
 
@@ -998,10 +986,12 @@ func solveJoint(js *jointSim, context *stepContext, useBias bool) {
 		solveWeldJoint(js, context, useBias)
 	case MotorJoint:
 		solveMotorJoint(js, context, useBias)
+	case MouseJoint:
+		solveMouseJoint(js, context)
 	case RevoluteJoint:
 		solveRevoluteJoint(js, context, useBias)
 	default:
-		panic("dbox2d: joint type not ported")
+		panic("dbox2d: unknown joint type")
 	}
 }
 
