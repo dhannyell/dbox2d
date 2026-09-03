@@ -392,12 +392,12 @@ func TestStepSplitsTheIslandBeforeItSleeps(t *testing.T) {
 }
 
 // The tests below cover the collide block of Step: the touch state changes, the
-// contact events and the move events. The broad-phase has not landed, so
-// each test creates its contact by hand, as the pair update will.
+// contact events and the move events. The pair update of the broadphase
+// creates every contact.
 
 // boxOnGround builds a static ground with its top at y = 0 and a unit box
-// of mass one just above it, with one contact between them. The box sits
-// at the height y, so a small positive height starts a short fall.
+// of mass one above it. The box sits at the height y, so a positive height
+// starts a fall.
 func boxOnGround(t *testing.T, worldId WorldId, height Q) BodyId {
 	t.Helper()
 	w := getWorldFromId(worldId)
@@ -418,7 +418,7 @@ func boxOnGround(t *testing.T, worldId WorldId, height Q) BodyId {
 	unit := MakeBox(fixed.Q32Half(), fixed.Q32Half())
 	CreatePolygonShape(boxId, &shapeDef, &unit)
 
-	createContact(w, firstShape(w, groundId), firstShape(w, boxId))
+	_ = w
 	return boxId
 }
 
@@ -600,18 +600,17 @@ func validateWorld(w *world) {
 	validateContacts(w)
 }
 
-// TestStepReportsAHitEvent pins the hit event: a box that lands faster
-// than the threshold reports one hit on the contact normal. The box starts
-// inside the fat margin with its fall speed, because a contact outside the
-// margin dies before the broad phase can recreate it.
+// TestStepReportsAHitEvent pins the hit event: a box that falls from half
+// a metre and lands faster than the threshold reports one hit on the
+// contact normal. The broadphase creates the contact on the way down.
 func TestStepReportsAHitEvent(t *testing.T) {
 	worldId := createTestWorld(t)
 	w := getWorldFromId(worldId)
-	boxId := boxOnGround(t, worldId, fixed.Q32MustParse("0.05"))
+	boxId := boxOnGround(t, worldId, fixed.Q32Half())
 	getBodyState(w, getBodyFullId(w, boxId)).linearVelocity = Vec2{Y: fixed.Q32FromInt(-3)}
 
 	dt := stepDt()
-	for range 10 {
+	for range 30 {
 		Step(worldId, dt, 4)
 		events := GetContactEvents(worldId)
 		if len(events.HitEvents) == 0 {
@@ -633,7 +632,7 @@ func TestStepReportsAHitEvent(t *testing.T) {
 		validateWorld(w)
 		return
 	}
-	t.Fatal("no hit event in 10 steps")
+	t.Fatal("no hit event in 30 steps")
 }
 
 // TestStepOrdersEventsByContactId pins the event order: begin, hit and end
@@ -653,25 +652,23 @@ func TestStepOrdersEventsByContactId(t *testing.T) {
 
 	unit := MakeBox(fixed.Q32Half(), fixed.Q32Half())
 	// The right box is created first, so the creation order of the
-	// contacts, not the position, decides the event order. Both start
-	// inside the fat margin with their fall speed.
+	// contacts, not the position, decides the event order. Both fall from
+	// half a metre with the same speed, so the broadphase creates their
+	// contacts in one step, in body order.
 	var bodies [2]BodyId
 	var shapes [2]ShapeId
 	for i, x := range []int{3, 0} {
 		boxDef := DefaultBodyDef()
 		boxDef.Type = DynamicBody
-		boxDef.Position = Vec2{X: fixed.Q32FromInt(x), Y: fixed.Q32MustParse("0.55")}
+		boxDef.Position = Vec2{X: fixed.Q32FromInt(x), Y: fixed.Q32One()}
 		bodies[i] = CreateBody(worldId, &boxDef)
 		shapes[i] = CreatePolygonShape(bodies[i], &shapeDef, &unit)
 		getBodyState(w, getBodyFullId(w, bodies[i])).linearVelocity = Vec2{Y: fixed.Q32FromInt(-3)}
 	}
-	for i := range bodies {
-		createContact(w, firstShape(w, groundId), firstShape(w, bodies[i]))
-	}
 
 	dt := stepDt()
 	events := GetContactEvents(worldId)
-	for range 10 {
+	for range 30 {
 		Step(worldId, dt, 4)
 		events = GetContactEvents(worldId)
 		if len(events.BeginEvents) == 2 {
@@ -710,7 +707,6 @@ func TestSmallPyramidStaysStable(t *testing.T) {
 		worldId := createTestWorld(t)
 		w := getWorldFromId(worldId)
 		topId := buildPyramid(worldId, rows)
-		createBruteForcePairs(w)
 		dt := stepDt()
 		for range 100 {
 			Step(worldId, dt, 4)

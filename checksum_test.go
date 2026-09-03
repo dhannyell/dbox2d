@@ -212,11 +212,8 @@ func TestChecksumMatchesDeterministicWitness(t *testing.T) {
 		getBodyState(w, b).angularVelocity = fixed.Q32MustParse("0.1")
 	}
 
-	// Step updates the manifold itself. A manifold filled by hand before the
-	// first step hides the begin-touch transition and skips the solver.
-	w := getWorldFromId(worldId)
-	createContact(w, firstShape(w, bodies[0]), firstShape(w, bodies[1]))
-
+	// Only the boxes 0 and 1 overlap, and the broadphase pairs them on the
+	// first step.
 	dt := stepDt()
 	for range 120 {
 		Step(worldId, dt, 4)
@@ -225,5 +222,35 @@ func TestChecksumMatchesDeterministicWitness(t *testing.T) {
 	const want uint64 = 7856699544564466143
 	if got := Checksum(worldId); got != want {
 		t.Errorf("checksum = %d, want %d", got, want)
+	}
+}
+
+// TestChecksumIgnoresTheTreeTopology pins D-013: a pyramid whose trees
+// are rebuilt from scratch before the first step yields the checksum of
+// the pyramid whose trees grew by insertion, because the pair order does
+// not depend on the tree.
+func TestChecksumIgnoresTheTreeTopology(t *testing.T) {
+	run := func(rebuild bool) uint64 {
+		worldId := createTestWorld(t)
+		w := getWorldFromId(worldId)
+		buildPyramid(worldId, 6)
+		if rebuild {
+			for i := range BodyTypeCount {
+				w.broadPhase.trees[i].rebuild(true)
+				w.broadPhase.trees[i].validate()
+			}
+		}
+		dt := stepDt()
+		for range 60 {
+			Step(worldId, dt, 4)
+		}
+		validateWorld(w)
+		return Checksum(worldId)
+	}
+
+	grown := run(false)
+	rebuilt := run(true)
+	if grown != rebuilt {
+		t.Errorf("the rebuilt trees give %d, the grown trees %d", rebuilt, grown)
 	}
 }

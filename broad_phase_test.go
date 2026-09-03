@@ -6,14 +6,6 @@ import (
 	"github.com/dhannyell/fixed"
 )
 
-// addProxy inserts the first shape of a body in the broadphase by hand.
-func addProxy(w *world, bodyId BodyId, force bool) int {
-	b := getBodyFullId(w, bodyId)
-	s := &w.shapes[b.headShapeId]
-	s.proxyKey = w.broadPhase.createProxy(b.bodyType, s.fatAABB, s.filter.CategoryBits, s.id, force)
-	return s.proxyKey
-}
-
 // TestBroadPhaseBuffersTheMovedProxies pins the move buffer: a dynamic
 // proxy joins it, a static proxy only when forced, a destroy leaves it,
 // and the key packs the type below the id.
@@ -78,13 +70,13 @@ func TestBroadPhasePairsFollowTheRules(t *testing.T) {
 	sc := firstShape(w, c)
 	sc.filter.MaskBits = 0
 
-	for _, id := range []BodyId{a, b, groundA, groundB, c} {
-		addProxy(w, id, false)
+	// Every shape owns a proxy from its creation and sits in the move
+	// buffer: the default definition invokes contact creation, so the
+	// static shapes join the dynamic ones.
+	if len(w.broadPhase.moveArray) != 6 {
+		t.Fatalf("the move buffer holds %d proxies, want 6", len(w.broadPhase.moveArray))
 	}
-	// The head of the shape list of a is the second circle; its first
-	// circle follows it.
-	first := &w.shapes[firstShape(w, a).nextShapeId]
-	first.proxyKey = w.broadPhase.createProxy(DynamicBody, first.fatAABB, first.filter.CategoryBits, first.id, false)
+	_, _, _ = b, groundA, groundB
 
 	updateBroadPhasePairs(w)
 	validateWorld(w)
@@ -135,10 +127,7 @@ func TestBroadPhasePairsAreSortedByShapeId(t *testing.T) {
 			statics = append(statics, addStaticCircle(t, worldId, position))
 		}
 
-		addProxy(w, mover, false)
-		for _, id := range statics {
-			addProxy(w, id, false)
-		}
+		_, _ = mover, statics
 		if rebuild {
 			w.broadPhase.trees[StaticBody].rebuild(true)
 			w.broadPhase.trees[StaticBody].validate()

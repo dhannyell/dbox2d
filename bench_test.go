@@ -747,35 +747,6 @@ func pyramidCenters(rows int) [][2]int {
 	return centers
 }
 
-// createBruteForcePairs creates a contact for every pair of live shapes
-// whose fat bounds overlap. It stands in for the broad phase.
-func createBruteForcePairs(w *world) {
-	for i := range w.shapes {
-		shapeA := &w.shapes[i]
-		if shapeA.id != i {
-			continue
-		}
-		for j := i + 1; j < len(w.shapes); j++ {
-			shapeB := &w.shapes[j]
-			if shapeB.id != j || shapeA.bodyId == shapeB.bodyId {
-				continue
-			}
-			bodyA := &w.bodies[shapeA.bodyId]
-			bodyB := &w.bodies[shapeB.bodyId]
-			if bodyA.setIndex == staticSet && bodyB.setIndex == staticSet {
-				continue
-			}
-			if !AABBOverlaps(shapeA.fatAABB, shapeB.fatAABB) {
-				continue
-			}
-			if w.broadPhase.pairSet.containsKey(shapePairKey(i, j)) {
-				continue
-			}
-			createContact(w, shapeA, shapeB)
-		}
-	}
-}
-
 // buildPyramid creates the ground and the boxes of a pyramid and returns
 // the top box.
 func buildPyramid(worldId WorldId, rows int) BodyId {
@@ -805,9 +776,7 @@ func BenchmarkStepPyramid(b *testing.B) {
 	worldId := CreateWorld(&def)
 	defer DestroyWorld(worldId)
 	buildPyramid(worldId, pyramidRows)
-
 	w := getWorldFromId(worldId)
-	createBruteForcePairs(w)
 
 	dt := fixed.Q32One().Div(fixed.Q32FromInt(60))
 	b.ReportAllocs()

@@ -289,7 +289,8 @@ Numbering is sequential from `D-001` and never reused.
   proxies stays the order of the move array, as upstream. The shape ids
   come from the pair itself: the shape of the smaller proxy key is A, as
   upstream.
-- Test: TestBroadPhasePairsAreSortedByShapeId in broad_phase_test.go
+- Test: TestBroadPhasePairsAreSortedByShapeId in broad_phase_test.go and
+  TestChecksumIgnoresTheTreeTopology in checksum_test.go
 
 ### D-014 A callback with a context becomes a closure
 

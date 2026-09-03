@@ -310,11 +310,12 @@ func DestroyBody(bodyId BodyId) {
 
 	destroyBodyContacts(w, b, wakeBodies)
 
-	// Destroy the attached shapes. Deferred: their broad-phase proxies and
-	// their sensor records.
+	// Destroy the attached shapes. Deferred: their sensor records.
 	shapeId := b.headShapeId
 	for shapeId != nullIndex {
 		s := &w.shapes[shapeId]
+
+		destroyShapeProxy(s, &w.broadPhase)
 
 		// Return shape to free list.
 		w.shapeIdPool.freeId(shapeId)

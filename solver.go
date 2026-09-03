@@ -1,6 +1,10 @@
 package dbox2d
 
-import "github.com/dhannyell/fixed"
+import (
+	"math/bits"
+
+	"github.com/dhannyell/fixed"
+)
 
 // softness holds the soft constraint coefficients of one sub-step. It
 // corresponds to b2Softness in src/solver.h.
@@ -140,13 +144,12 @@ func finalizeBodiesTask(startIndex, endIndex int, context *stepContext) {
 	}
 	moveEvents := w.bodyMoveEvents
 
-	// Deferred: the enlarged body bit set of the reference.
-
 	if endIndex < startIndex {
 		panic("dbox2d: the task range is inverted")
 	}
 
 	taskContext := &w.taskContext
+	enlargedSimBitSet := &taskContext.enlargedSimBitSet
 	awakeIslandBitSet := &taskContext.awakeIslandBitSet
 
 	zero := fixed.Q32Zero()
@@ -248,14 +251,21 @@ func finalizeBodiesTask(startIndex, endIndex int, context *stepContext) {
 			aabb.UpperBound.Y = aabb.UpperBound.Y.Add(speculativeDistance)
 			s.aabb = aabb
 
+			if s.enlargedAABB {
+				panic("dbox2d: the shape is still marked enlarged")
+			}
+
 			if !AABBContains(s.fatAABB, aabb) {
 				fatAABB := AABB{
 					LowerBound: Vec2{X: aabb.LowerBound.X.Sub(aabbMargin), Y: aabb.LowerBound.Y.Sub(aabbMargin)},
 					UpperBound: Vec2{X: aabb.UpperBound.X.Add(aabbMargin), Y: aabb.UpperBound.Y.Add(aabbMargin)},
 				}
 				s.fatAABB = fatAABB
-				// Deferred: the enlargedAABB flag and the enlarged bit set feed
-				// the broad-phase.
+
+				s.enlargedAABB = true
+
+				// Bit-set to keep the move array sorted
+				enlargedSimBitSet.setBit(simIndex)
 			}
 
 			shapeId = s.nextShapeId
@@ -278,7 +288,7 @@ func solve(w *world, context *stepContext) {
 	awake := &w.solverSets[awakeSet]
 	awakeBodyCount := len(awake.bodySims)
 	if awakeBodyCount == 0 {
-		// Deferred: the broad-phase tree task of the reference finishes here.
+		// Nothing to simulate. The tree rebuild already ran in collide.
 		return
 	}
 
@@ -361,9 +371,10 @@ func solve(w *world, context *stepContext) {
 		}
 		w.splitIslandId = nullIndex
 
-		// Prepare the island bit set used in body finalization.
+		// Prepare the enlarged body and island bit sets used in body finalization.
 		awakeIslandCount := len(awake.islandSims)
 		taskContext := &w.taskContext
+		setBitCountAndClear(&taskContext.enlargedSimBitSet, awakeBodyCount)
 		setBitCountAndClear(&taskContext.awakeIslandBitSet, awakeIslandCount)
 		taskContext.splitIslandId = nullIndex
 		taskContext.splitSleepTime = fixed.Q32Zero()
@@ -422,8 +433,50 @@ func solve(w *world, context *stepContext) {
 		}
 	}
 
-	// Deferred: the broad-phase refit and the continuous collision stage
-	// of the reference run here.
+	// Refit the broad-phase. The tree rebuild already ran in collide.
+	{
+		enlargedBodyBitSet := &w.taskContext.enlargedSimBitSet
+
+		// Enlarge broad-phase proxies and build move array
+		// Apply shape AABB changes to broad-phase. This also create the move array which must be
+		// in deterministic order. Sim bodies are tracked because the number of shape ids can be huge.
+		broadPhase := &w.broadPhase
+		bodySimArray := awake.bodySims
+
+		for k := range enlargedBodyBitSet.bits {
+			word := enlargedBodyBitSet.bits[k]
+			for word != 0 {
+				ctz := bits.TrailingZeros64(word)
+				bodySimIndex := 64*k + ctz
+
+				bodySim := &bodySimArray[bodySimIndex]
+
+				b := &w.bodies[bodySim.bodyId]
+
+				// Deferred: a fast bullet body buffers its shapes here and
+				// enlarges them in the continuous stage.
+
+				shapeId := b.headShapeId
+				for shapeId != nullIndex {
+					s := &w.shapes[shapeId]
+
+					// The AABB may not have been enlarged, despite the body being flagged as enlarged.
+					// For example, a body with multiple shapes may have not have all shapes enlarged.
+					if s.enlargedAABB {
+						broadPhase.enlargeProxy(s.proxyKey, s.fatAABB)
+						s.enlargedAABB = false
+					}
+
+					shapeId = s.nextShapeId
+				}
+
+				// Clear the smallest set bit
+				word = word & (word - 1)
+			}
+		}
+	}
+
+	// Deferred: the continuous collision stage of the reference runs here.
 
 	// Island sleeping
 	// This must be done last because putting islands to sleep invalidates the enlarged body bits.

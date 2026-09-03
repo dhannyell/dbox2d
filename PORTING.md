@@ -430,7 +430,18 @@ pair set moves from the world to the broadphase. `shape.go` gains
 - The sensor rule stays, because the shape carries its sensor index. The
   custom filter callback and the joint loop of `b2ShouldBodiesCollide`
   wait for their orders.
-- The shapes do not own a proxy yet; the world wiring follows.
+- The world wiring landed with the broadphase: a shape creates its
+  proxy on creation and destroys it on destruction, `Step` updates the
+  pairs once the world locks, `collide` rebuilds the dynamic and the
+  kinematic trees first, the finalize marks the enlarged shapes and the
+  sims, and the refit after the hit events enlarges the proxies in sim
+  order. The reference runs the rebuild on a task beside the collide
+  pass; one worker runs it before.
+- The default shape definition invokes contact creation, so a static
+  shape joins the move buffer on creation, as upstream.
+- The determinism witness kept its value: the broadphase pairs the same
+  two boxes that the tests paired by hand. The tests that stood in for
+  the broadphase went away.
 
 ## The map
 
@@ -449,19 +460,19 @@ pair set moves from the world to the broadphase. `shape.go` gains
 | `src/hull.c` | `hull.go` | T0/T2 | foundation | 8 | Recursive quickhull. Its tolerances are multiples of the linear slop, so only the `FLT_MAX` seed diverged. See D-009. |
 | `src/geometry.c` | `geometry.go` | T0/T1/T2 | foundation | 9 | Shape constructors, mass data, AABB per shape, point tests, ray casts. The shape casts and the mover collisions wait for order 19. |
 | `include/box2d/types.h`, `src/types.c` | `types.go` | T1 | foundation | 10 | Definition structs and their defaults. |
-| `src/body.h`, `src/body.c` | `body.go` | T0/T2 | foundation | 11 | `body`, `bodySim`, `bodyState`, unexported: `src/body.h` declares them. Layout preserved. The mass update scales the angular velocity by one turn; see D-004. The island hooks landed with order 25; the body events landed with order 28. |
-| `src/shape.h`, `src/shape.c` | `shape.go` | T0 | foundation | 12 | Shape storage and the mass, AABB, centroid and extent dispatchers. The proxies, sensors, chains and cast queries wait for their stages. |
+| `src/body.h`, `src/body.c` | `body.go` | T0/T2 | foundation | 11 | `body`, `bodySim`, `bodyState`, unexported: `src/body.h` declares them. Layout preserved. The mass update scales the angular velocity by one turn; see D-004. The island hooks landed with order 25; the body events landed with order 28; the proxy destroy and the body collision rule landed with order 30. |
+| `src/shape.h`, `src/shape.c` | `shape.go` | T0 | foundation | 12 | Shape storage and the mass, AABB, centroid and extent dispatchers. The proxies and the filter rules landed with order 30. The sensors, chains and cast queries wait for their stages. |
 | `src/solver_set.h`, `src/solver_set.c` | `solver_set.go` | T0 | foundation | 13 | Static, awake, disabled and sleeping sets; body transfer, wake, sleep and set merge. The joint arrays wait. |
-| `src/world.h`, `src/world.c` | `world.go` | T0 | foundation | 14 | Split across stages. The foundation takes the registry, creation, destruction, the validity checks and the trimmed set validation. `b2World_Step` landed with order 16 in `step.go`; the events landed with order 28; the query and cast surface waits. |
+| `src/world.h`, `src/world.c` | `world.go` | T0 | foundation | 14 | Split across stages. The foundation takes the registry, creation, destruction, the validity checks and the trimmed set validation. `b2World_Step` landed with order 16 in `step.go`; the events landed with order 28; the broadphase and the enlarged body bit set landed with order 30; the query and cast surface waits. |
 | `src/array.h`, `src/array.c` | `array.go` | T2 | foundation | 15 | The macro-generated array template becomes a Go slice; `removeSwap` keeps the swap-remove contract. Capacity follows the Go runtime and never enters a result. See D-010. |
-| `src/world.c` (`b2World_Step`), `src/solver.h` (`b2StepContext`) | `step.go` | T1/T2 | foundation | 16 | The step surface: validation, the context, the sub-step split, the locked flag. Assertions become panics per D-003. The softness setup landed with order 24; the collide block and the events landed with order 28. The broad-phase update and the continuous stage wait. |
+| `src/world.c` (`b2World_Step`), `src/solver.h` (`b2StepContext`) | `step.go` | T1/T2 | foundation | 16 | The step surface: validation, the context, the sub-step split, the locked flag. Assertions become panics per D-003. The softness setup landed with order 24; the collide block and the events landed with order 28; the pair update and the tree rebuild landed with order 30. The continuous stage waits. |
 | — | `checksum.go` | T2 | foundation | 17 | Port-only determinism witness over the complete canonical world state, commutative over bodies and shapes. See D-011. |
 | `src/arena_allocator.h`, `src/arena_allocator.c` | `arena.go` | T1 | foundation | 18 | Per-step scratch. It is how the step allocates nothing. |
 | `src/distance.c` (segment distance, proxies) | `distance.go` | T0 | manifolds | 19 | Closed-form part only. |
 | `src/manifold.c` | `manifold.go` | T0/T1 | manifolds | 20 | Nine `FLT_EPSILON` sites become exact zero tests, one T2 entry each. |
 | `src/contact.h`, `src/contact.c` | `contact.go` | T0 | manifolds | 21 | Contact bookkeeping and the collide dispatch table. The island and graph branches landed with orders 25 and 26. |
 | `src/table.h`, `src/table.c` | `table.go` | T0 | manifolds | 22 | Open-addressing set of contact pairs. |
-| `src/solver.h`, `src/solver.c` | `solver.go` | T0/T1/T2 | solver | 23 | Nine ordered stages, from prepare joints to store impulses. `makeSoft` landed with order 24. The integration tasks and the body finalize landed with order 16; the single-worker stage order with the per-color contact stages, the island split and the sleep tail landed with order 23; see D-004 and D-006. |
+| `src/solver.h`, `src/solver.c` | `solver.go` | T0/T1/T2 | solver | 23 | Nine ordered stages, from prepare joints to store impulses. `makeSoft` landed with order 24. The integration tasks and the body finalize landed with order 16; the single-worker stage order with the per-color contact stages, the island split and the sleep tail landed with order 23; the enlarged body bits and the broadphase refit landed with order 30; see D-004 and D-006. |
 | `src/contact_solver.h`, `src/contact_solver.c` | `contact_solver.go` | T0/T1/T2 | solver | 24 | The scalar stages landed and serve every color; see D-004 and D-006. The wide `Task` family is T2 until the second executor exists. |
 | `src/island.h`, `src/island.c` | `island.go` | T0 | solver | 25 | Island linking, merging and splitting landed; the wake calls and the sleep path landed when order 13 completed. The joint lists wait for the joints. |
 | `src/constraint_graph.h`, `src/constraint_graph.c` | `constraint_graph.go` | T0 | solver | 26 | Eleven colors plus the overflow color landed. The color schedule is the parallel contract. The joint functions wait. |

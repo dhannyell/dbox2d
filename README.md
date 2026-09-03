@@ -12,11 +12,11 @@ The port covers its foundation, the closed-form part of the narrowphase and
 the scalar contact solver: worlds, bodies, shapes, mass computation, a
 determinism checksum, contact manifolds for the supported shape pairs, the
 contact bookkeeping, the islands with sleep and wake, the constraint graph,
-the soft-step contact solver and the body and contact events. `Step` updates
-the contacts it has, solves them and puts resting islands to sleep. The
-broadphase is not ported yet, so the library creates no contact pair on its
-own. Chain segments against capsules or polygons still wait for the iterative
-distance solver; joints and continuous collision wait as well.
+the soft-step contact solver, the body and contact events, the dynamic
+trees and the broadphase. `Step` finds the new pairs, updates the contacts,
+solves them and puts resting islands to sleep. Chain segments against
+capsules or polygons still wait for the iterative distance solver; joints,
+sensors and continuous collision wait as well.
 [PORTING.md](PORTING.md) tracks what has landed.
 
 ## Fidelity contract

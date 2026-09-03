@@ -238,6 +238,7 @@ func CreateWorld(def *WorldDef) WorldId {
 	w.splitIslandId = nullIndex
 
 	w.taskContext.contactStateBitSet = createBitSet(1024)
+	w.taskContext.enlargedSimBitSet = createBitSet(256)
 	w.taskContext.awakeIslandBitSet = createBitSet(256)
 	w.taskContext.splitIslandId = nullIndex
 
@@ -582,6 +583,10 @@ type taskContext struct {
 	// the collide pass, by contact id, because the sims move between the
 	// touching and the non-touching arrays.
 	contactStateBitSet bitSet
+
+	// enlargedSimBitSet marks the awake body sims whose shapes grew their
+	// fat bounds in the finalize, so the refit walks them in order.
+	enlargedSimBitSet bitSet
 
 	// awakeIslandBitSet marks the awake islands by local index.
 	awakeIslandBitSet bitSet
