@@ -379,3 +379,80 @@ func TestSolveDistanceJointTracksTheFloat64Mirror(t *testing.T) {
 	checkMirror(t, "upperImpulse", d.upperImpulse, mirror.upperImpulse, limit)
 	checkMirror(t, "motorImpulse", d.motorImpulse, mirror.motorImpulse, limit)
 }
+
+func TestDistanceJointAccessorsRoundTrip(t *testing.T) {
+	worldId := createTestWorld(t)
+	groundDef := DefaultBodyDef()
+	groundId := CreateBody(worldId, &groundDef)
+	bodyDef := DefaultBodyDef()
+	bodyDef.Type = DynamicBody
+	bodyDef.Position = Vec2{X: fixed.Q32FromInt(2)}
+	bodyId := CreateBody(worldId, &bodyDef)
+
+	def := DefaultDistanceJointDef()
+	def.BodyIdA = groundId
+	def.BodyIdB = bodyId
+	jointId := CreateDistanceJoint(worldId, &def)
+	tolerance := fixed.Q32FromRaw(1 << 12)
+
+	qCases := []struct {
+		name string
+		set  func()
+		get  func() Q
+		want Q
+	}{
+		{"length", func() { jointId.SetLength(fixed.Q32FromInt(3)) }, jointId.GetLength, fixed.Q32FromInt(3)},
+		{"spring hertz", func() { jointId.SetSpringHertz(fixed.Q32FromInt(4)) }, jointId.GetSpringHertz, fixed.Q32FromInt(4)},
+		{"spring damping ratio", func() { jointId.SetSpringDampingRatio(fixed.Q32Half()) }, jointId.GetSpringDampingRatio, fixed.Q32Half()},
+		{"length range minimum", func() { jointId.SetLengthRange(fixed.Q32FromInt(3), fixed.Q32FromInt(1)) }, jointId.GetMinLength, fixed.Q32FromInt(1)},
+		{"motor speed", func() { jointId.SetMotorSpeed(fixed.Q32FromInt(2)) }, jointId.GetMotorSpeed, fixed.Q32FromInt(2)},
+		{"maximum motor force", func() { jointId.SetMaxMotorForce(fixed.Q32FromInt(5)) }, jointId.GetMaxMotorForce, fixed.Q32FromInt(5)},
+	}
+	for _, tc := range qCases {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.set()
+			if got := tc.get(); !withinQ(got, tc.want, tolerance) {
+				t.Errorf("got %v, want %v", got, tc.want)
+			}
+		})
+	}
+	if got := jointId.GetMaxLength(); !withinQ(got, fixed.Q32FromInt(3), tolerance) {
+		t.Errorf("maximum length = %v, want 3", got)
+	}
+
+	boolCases := []struct {
+		name string
+		set  func(bool)
+		get  func() bool
+	}{
+		{"spring", jointId.EnableSpring, jointId.IsSpringEnabled},
+		{"limit", jointId.EnableLimit, jointId.IsLimitEnabled},
+		{"motor", jointId.EnableMotor, jointId.IsMotorEnabled},
+	}
+	for _, tc := range boolCases {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.set(true)
+			if got := tc.get(); !got {
+				t.Error("got false, want true")
+			}
+		})
+	}
+}
+
+func TestDistanceJointGetCurrentLength(t *testing.T) {
+	worldId := createTestWorld(t)
+	groundDef := DefaultBodyDef()
+	groundId := CreateBody(worldId, &groundDef)
+	bodyDef := DefaultBodyDef()
+	bodyDef.Type = DynamicBody
+	bodyDef.Position = Vec2{X: fixed.Q32FromInt(2)}
+	bodyId := CreateBody(worldId, &bodyDef)
+
+	def := DefaultDistanceJointDef()
+	def.BodyIdA = groundId
+	def.BodyIdB = bodyId
+	jointId := CreateDistanceJoint(worldId, &def)
+	if got := jointId.GetCurrentLength(); !withinQ(got, fixed.Q32FromInt(2), fixed.Q32FromRaw(1<<12)) {
+		t.Errorf("current length = %v, want 2", got)
+	}
+}

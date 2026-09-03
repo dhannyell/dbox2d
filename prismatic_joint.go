@@ -30,6 +30,70 @@ func getPrismaticJointTorque(w *world, base *jointSim) Q {
 	return w.invH.Mul(base.prismaticJoint.impulse.Y)
 }
 
+// SetTargetTranslation changes the prismatic spring target translation.
+func (jointId JointId) SetTargetTranslation(translation Q) {
+	w := getWorld(jointId.world0)
+	joint := getJointSimCheckType(w, jointId, PrismaticJoint)
+	joint.prismaticJoint.targetTranslation = translation
+}
+
+// GetTargetTranslation reports the prismatic spring target translation.
+func (jointId JointId) GetTargetTranslation() Q {
+	w := getWorld(jointId.world0)
+	joint := getJointSimCheckType(w, jointId, PrismaticJoint)
+	return joint.prismaticJoint.targetTranslation
+}
+
+// GetTranslation reports the current translation along the prismatic axis.
+func (jointId JointId) GetTranslation() Q {
+	w := getWorld(jointId.world0)
+	joint := getJointSimCheckType(w, jointId, PrismaticJoint)
+	transformA := getBodyTransform(w, joint.bodyIdA)
+	transformB := getBodyTransform(w, joint.bodyIdB)
+	axisA := RotateVector(transformA.Q, joint.prismaticJoint.localAxisA)
+	pA := TransformPoint(transformA, joint.localOriginAnchorA)
+	pB := TransformPoint(transformB, joint.localOriginAnchorB)
+	return axisA.Dot(pB.Sub(pA))
+}
+
+// GetSpeed reports the current prismatic translation speed.
+func (jointId JointId) GetSpeed() Q {
+	w := getWorld(jointId.world0)
+	joint := getJointSimCheckType(w, jointId, PrismaticJoint)
+	bodyA := &w.bodies[joint.bodyIdA]
+	bodyB := &w.bodies[joint.bodyIdB]
+	bodySimA := getBodySim(w, bodyA)
+	bodySimB := getBodySim(w, bodyB)
+	bodyStateA := getBodyState(w, bodyA)
+	bodyStateB := getBodyState(w, bodyB)
+
+	transformA := bodySimA.transform
+	transformB := bodySimB.transform
+	prismatic := &joint.prismaticJoint
+	axisA := RotateVector(transformA.Q, prismatic.localAxisA)
+	rA := RotateVector(transformA.Q, joint.localOriginAnchorA.Sub(bodySimA.localCenter))
+	rB := RotateVector(transformB.Q, joint.localOriginAnchorB.Sub(bodySimB.localCenter))
+	d := bodySimB.center.Sub(bodySimA.center).Add(rB.Sub(rA))
+
+	zero := fixed.Q32Zero()
+	vA := Vec2Zero()
+	vB := Vec2Zero()
+	wA := zero
+	wB := zero
+	if bodyStateA != nil {
+		vA = bodyStateA.linearVelocity
+		wA = bodyStateA.angularVelocity
+	}
+	if bodyStateB != nil {
+		vB = bodyStateB.linearVelocity
+		wB = bodyStateB.angularVelocity
+	}
+
+	// D-004: solver angular velocities are turns per second; CrossSV uses radians.
+	vRel := vB.Add(CrossSV(wB.Mul(tau), rB)).Sub(vA.Add(CrossSV(wA.Mul(tau), rA)))
+	return d.Dot(CrossSV(wA.Mul(tau), axisA)).Add(axisA.Dot(vRel))
+}
+
 // Linear constraint (point-to-line)
 // d = p2 - p1 = x2 + r2 - x1 - r1
 // C = dot(perp, d)
