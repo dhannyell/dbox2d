@@ -54,7 +54,7 @@ func TestStepAppliesGravityExactly(t *testing.T) {
 	// The scalar mirror of the loop: velocity gains h*g per sub-step and the
 	// position gains h*v after each velocity update.
 	wantVelocityY := fixed.Q32Zero()
-	wantPositionY := bodyId.Position().Y
+	wantPositionY := bodyId.GetPosition().Y
 	for range stepCount {
 		deltaY := fixed.Q32Zero()
 		for range subStepCount {
@@ -74,11 +74,11 @@ func TestStepAppliesGravityExactly(t *testing.T) {
 	if !state.linearVelocity.Y.Eq(wantVelocityY) {
 		t.Errorf("velocity y = %v, want %v", state.linearVelocity.Y, wantVelocityY)
 	}
-	if !bodyId.Position().Y.Eq(wantPositionY) {
-		t.Errorf("position y = %v, want %v", bodyId.Position().Y, wantPositionY)
+	if !bodyId.GetPosition().Y.Eq(wantPositionY) {
+		t.Errorf("position y = %v, want %v", bodyId.GetPosition().Y, wantPositionY)
 	}
-	if !bodyId.Position().X.Eq(fixed.Q32Zero()) {
-		t.Errorf("position x moved to %v", bodyId.Position().X)
+	if !bodyId.GetPosition().X.Eq(fixed.Q32Zero()) {
+		t.Errorf("position x moved to %v", bodyId.GetPosition().X)
 	}
 }
 

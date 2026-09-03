@@ -341,6 +341,19 @@ func DefaultShapeDef() ShapeDef {
 	}
 }
 
+// ContactData reports the manifold of a touching contact on a body. It
+// corresponds to b2ContactData in include/box2d/types.h.
+type ContactData struct {
+	// ShapeIdA is the first shape in the contact.
+	ShapeIdA ShapeId
+
+	// ShapeIdB is the second shape in the contact.
+	ShapeIdB ShapeId
+
+	// Manifold is the current contact manifold.
+	Manifold Manifold
+}
+
 // ContactBeginTouchEvent reports that two shapes started to touch.
 type ContactBeginTouchEvent struct {
 	// ShapeIdA is the first shape.

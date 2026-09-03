@@ -206,7 +206,7 @@ func TestSensorRejectionLeavesBodyUnchanged(t *testing.T) {
 	if !panicked {
 		t.Fatal("creating a sensor shape did not panic")
 	}
-	if got := bodyId.ShapeCount(); got != 0 {
+	if got := bodyId.GetShapeCount(); got != 0 {
 		t.Errorf("shape count after the panic = %d, want 0", got)
 	}
 	if got := w.shapeIdPool.idCount(); got != 0 {
@@ -260,17 +260,17 @@ func TestCreateAndDestroyOrdersProduceTheSameWorld(t *testing.T) {
 		{"second survivor", b1, b2},
 	}
 	for _, pair := range pairs {
-		if pair.s1.Position() != pair.s2.Position() {
-			t.Errorf("%s: position %v, want %v", pair.name, pair.s2.Position(), pair.s1.Position())
+		if pair.s1.GetPosition() != pair.s2.GetPosition() {
+			t.Errorf("%s: position %v, want %v", pair.name, pair.s2.GetPosition(), pair.s1.GetPosition())
 		}
-		if pair.s1.Rotation() != pair.s2.Rotation() {
-			t.Errorf("%s: rotation %v, want %v", pair.name, pair.s2.Rotation(), pair.s1.Rotation())
+		if pair.s1.GetRotation() != pair.s2.GetRotation() {
+			t.Errorf("%s: rotation %v, want %v", pair.name, pair.s2.GetRotation(), pair.s1.GetRotation())
 		}
-		if !pair.s1.Mass().Eq(pair.s2.Mass()) {
-			t.Errorf("%s: mass %v, want %v", pair.name, pair.s2.Mass(), pair.s1.Mass())
+		if !pair.s1.GetMass().Eq(pair.s2.GetMass()) {
+			t.Errorf("%s: mass %v, want %v", pair.name, pair.s2.GetMass(), pair.s1.GetMass())
 		}
-		if pair.s1.ShapeCount() != pair.s2.ShapeCount() {
-			t.Errorf("%s: shape count %d, want %d", pair.name, pair.s2.ShapeCount(), pair.s1.ShapeCount())
+		if pair.s1.GetShapeCount() != pair.s2.GetShapeCount() {
+			t.Errorf("%s: shape count %d, want %d", pair.name, pair.s2.GetShapeCount(), pair.s1.GetShapeCount())
 		}
 	}
 
@@ -307,8 +307,8 @@ func TestBodyMassComesFromItsShapes(t *testing.T) {
 	CreatePolygonShape(bodyId, &shapeDef, &box)
 
 	wantBox := ComputePolygonMass(&box, shapeDef.Density)
-	if !bodyId.Mass().Eq(wantBox.Mass) {
-		t.Fatalf("mass with one box = %v, want %v", bodyId.Mass(), wantBox.Mass)
+	if !bodyId.GetMass().Eq(wantBox.Mass) {
+		t.Fatalf("mass with one box = %v, want %v", bodyId.GetMass(), wantBox.Mass)
 	}
 
 	// Record the state before the second shape. The box centroid carries a
@@ -329,8 +329,8 @@ func TestBodyMassComesFromItsShapes(t *testing.T) {
 
 	wantCircle := ComputeCircleMass(&welded.circle, shapeDef.Density)
 	wantTotal := wantBox.Mass.Add(wantCircle.Mass)
-	if !bodyId.Mass().Eq(wantTotal) {
-		t.Errorf("mass with two shapes = %v, want %v", bodyId.Mass(), wantTotal)
+	if !bodyId.GetMass().Eq(wantTotal) {
+		t.Errorf("mass with two shapes = %v, want %v", bodyId.GetMass(), wantTotal)
 	}
 
 	// The center of mass moved, so the linear velocity gains the cross of
@@ -349,11 +349,11 @@ func TestBodyMassComesFromItsShapes(t *testing.T) {
 
 	// Destroying the circle with a mass update restores the box mass.
 	DestroyShape(weldedId, true)
-	if !bodyId.Mass().Eq(wantBox.Mass) {
-		t.Errorf("mass after the destroy = %v, want %v", bodyId.Mass(), wantBox.Mass)
+	if !bodyId.GetMass().Eq(wantBox.Mass) {
+		t.Errorf("mass after the destroy = %v, want %v", bodyId.GetMass(), wantBox.Mass)
 	}
-	if bodyId.ShapeCount() != 1 {
-		t.Errorf("shape count after the destroy = %d, want 1", bodyId.ShapeCount())
+	if bodyId.GetShapeCount() != 1 {
+		t.Errorf("shape count after the destroy = %d, want 1", bodyId.GetShapeCount())
 	}
 
 	validateSolverSets(w)
