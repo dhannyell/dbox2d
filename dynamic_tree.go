@@ -72,6 +72,14 @@ type dynamicTree struct {
 
 	// proxyCount is the number of leaves.
 	proxyCount int
+
+	// The rebuild scratch. Its capacity is len(leafIndices). The centers
+	// serve the median split; the boxes and the bins serve the surface
+	// area heuristic.
+	leafIndices []int
+	leafCenters []Vec2
+	leafBoxes   []AABB
+	binIndices  []int
 }
 
 // createTree initializes the node pool. It corresponds to
@@ -1030,4 +1038,662 @@ func (tree *dynamicTree) validateNoEnlarged() {
 			}
 		}
 	}
+}
+
+// treeStackSize is the traversal stack of every tree walk. It corresponds
+// to B2_TREE_STACK_SIZE in src/dynamic_tree.c.
+const treeStackSize = 1024
+
+// treeStats reports the work of one tree walk. It corresponds to
+// b2TreeStats in include/box2d/collision.h.
+type treeStats struct {
+	nodeVisits int
+	leafVisits int
+}
+
+// treeQueryCallback receives each leaf that overlaps the query box. It
+// returns false to stop the query. D-014: the reference passes a context
+// pointer; the port uses a closure.
+type treeQueryCallback func(proxyId int, userData uint64) bool
+
+// treeRayCastCallback receives each leaf whose box the ray reaches. It
+// returns zero to stop the cast, a fraction in (0, maxFraction] to clip
+// the ray, or any other value to continue unchanged. D-014 applies.
+type treeRayCastCallback func(input *RayCastInput, proxyId int, userData uint64) Q
+
+// query calls back every leaf that overlaps the box and passes the mask.
+// It corresponds to b2DynamicTree_Query in src/dynamic_tree.c.
+func (tree *dynamicTree) query(aabb AABB, maskBits uint64, callback treeQueryCallback) treeStats {
+	result := treeStats{}
+
+	if tree.nodeCount == 0 {
+		return result
+	}
+
+	var stack [treeStackSize]int
+	stackCount := 0
+	stack[stackCount] = tree.root
+	stackCount++
+
+	for stackCount > 0 {
+		stackCount--
+		nodeId := stack[stackCount]
+		if nodeId == nullIndex {
+			panic("dbox2d: the tree query popped the null node")
+		}
+
+		node := &tree.nodes[nodeId]
+		result.nodeVisits += 1
+
+		if AABBOverlaps(node.aabb, aabb) && node.categoryBits&maskBits != 0 {
+			if node.isLeaf() {
+				// callback to user code with proxy id
+				proceed := callback(nodeId, node.userData)
+				result.leafVisits += 1
+
+				if !proceed {
+					return result
+				}
+			} else {
+				if stackCount >= treeStackSize-1 {
+					panic("dbox2d: the tree query stack is full")
+				}
+				stack[stackCount] = int(node.child1)
+				stack[stackCount+1] = int(node.child2)
+				stackCount += 2
+			}
+		}
+	}
+
+	return result
+}
+
+// rayCast calls back every leaf whose box the ray reaches, nearest first
+// by centroid. It corresponds to b2DynamicTree_RayCast in
+// src/dynamic_tree.c.
+func (tree *dynamicTree) rayCast(input *RayCastInput, maskBits uint64, callback treeRayCastCallback) treeStats {
+	result := treeStats{}
+
+	if tree.nodeCount == 0 {
+		return result
+	}
+
+	p1 := input.Origin
+	d := input.Translation
+
+	r := d.Normalize()
+
+	// v is perpendicular to the segment.
+	v := CrossSV(fixed.Q32One(), r)
+	absV := Abs(v)
+
+	// Separating axis for segment (Gino, p80).
+	// |dot(v, p1 - c)| > dot(|v|, h)
+
+	maxFraction := input.MaxFraction
+
+	p2 := MulAdd(p1, maxFraction, d)
+
+	// Build a bounding box for the segment.
+	segmentAABB := AABB{LowerBound: Min(p1, p2), UpperBound: Max(p1, p2)}
+
+	var stack [treeStackSize]int
+	stackCount := 0
+	stack[stackCount] = tree.root
+	stackCount++
+
+	nodes := tree.nodes
+
+	subInput := *input
+
+	zero := fixed.Q32Zero()
+
+	for stackCount > 0 {
+		stackCount--
+		nodeId := stack[stackCount]
+		if nodeId == nullIndex {
+			panic("dbox2d: the tree ray cast popped the null node")
+		}
+
+		node := &nodes[nodeId]
+		result.nodeVisits += 1
+
+		nodeAABB := node.aabb
+
+		if node.categoryBits&maskBits == 0 || !AABBOverlaps(nodeAABB, segmentAABB) {
+			continue
+		}
+
+		// Separating axis for segment (Gino, p80).
+		// |dot(v, p1 - c)| > dot(|v|, h)
+		// radius extension is added to the node in this case
+		c := AABBCenter(nodeAABB)
+		h := AABBExtents(nodeAABB)
+		term1 := v.Dot(p1.Sub(c)).Abs()
+		term2 := absV.Dot(h)
+		if term2.Less(term1) {
+			continue
+		}
+
+		if node.isLeaf() {
+			subInput.MaxFraction = maxFraction
+
+			value := callback(&subInput, nodeId, node.userData)
+			result.leafVisits += 1
+
+			// The user may return -1 to indicate this shape should be skipped
+
+			if value.Eq(zero) {
+				// The client has terminated the ray cast.
+				return result
+			}
+
+			if zero.Less(value) && !maxFraction.Less(value) {
+				// Update segment bounding box.
+				maxFraction = value
+				p2 = MulAdd(p1, maxFraction, d)
+				segmentAABB.LowerBound = Min(p1, p2)
+				segmentAABB.UpperBound = Max(p1, p2)
+			}
+		} else {
+			if stackCount >= treeStackSize-1 {
+				panic("dbox2d: the tree ray cast stack is full")
+			}
+			c1 := AABBCenter(nodes[node.child1].aabb)
+			c2 := AABBCenter(nodes[node.child2].aabb)
+			if c1.DistanceSq(p1).Less(c2.DistanceSq(p1)) {
+				stack[stackCount] = int(node.child2)
+				stack[stackCount+1] = int(node.child1)
+			} else {
+				stack[stackCount] = int(node.child1)
+				stack[stackCount+1] = int(node.child2)
+			}
+			stackCount += 2
+		}
+	}
+
+	return result
+}
+
+// b2DynamicTree_ShapeCast waits for the shape cast of the collision
+// module.
+
+// treeHeuristic selects the rebuild partition, as B2_TREE_HEURISTIC in
+// src/dynamic_tree.c: zero is the median split, one is the surface area
+// heuristic.
+const treeHeuristic = 0
+
+// partitionMid splits the centers on the longest axis at the middle of
+// their bounds, with the Hoare scheme. It returns the left count. It
+// corresponds to b2PartitionMid in src/dynamic_tree.c.
+func partitionMid(indices []int, centers []Vec2, count int) int {
+	// Handle trivial case
+	if count <= 2 {
+		return count / 2
+	}
+
+	lowerBound := centers[0]
+	upperBound := centers[0]
+
+	for i := 1; i < count; i++ {
+		lowerBound = Min(lowerBound, centers[i])
+		upperBound = Max(upperBound, centers[i])
+	}
+
+	d := upperBound.Sub(lowerBound)
+	half := fixed.Q32Half()
+	c := Vec2{X: half.Mul(lowerBound.X.Add(upperBound.X)), Y: half.Mul(lowerBound.Y.Add(upperBound.Y))}
+
+	// Partition longest axis using the Hoare partition scheme
+	// https://en.wikipedia.org/wiki/Quicksort
+	// https://nicholasvadivelu.com/2021/01/11/array-partition/
+	i1, i2 := 0, count
+	if d.Y.Less(d.X) {
+		pivot := c.X
+
+		for i1 < i2 {
+			for i1 < i2 && centers[i1].X.Less(pivot) {
+				i1 += 1
+			}
+
+			for i1 < i2 && !centers[i2-1].X.Less(pivot) {
+				i2 -= 1
+			}
+
+			if i1 < i2 {
+				indices[i1], indices[i2-1] = indices[i2-1], indices[i1]
+				centers[i1], centers[i2-1] = centers[i2-1], centers[i1]
+
+				i1 += 1
+				i2 -= 1
+			}
+		}
+	} else {
+		pivot := c.Y
+
+		for i1 < i2 {
+			for i1 < i2 && centers[i1].Y.Less(pivot) {
+				i1 += 1
+			}
+
+			for i1 < i2 && !centers[i2-1].Y.Less(pivot) {
+				i2 -= 1
+			}
+
+			if i1 < i2 {
+				indices[i1], indices[i2-1] = indices[i2-1], indices[i1]
+				centers[i1], centers[i2-1] = centers[i2-1], centers[i1]
+
+				i1 += 1
+				i2 -= 1
+			}
+		}
+	}
+	if i1 != i2 {
+		panic("dbox2d: the median partition did not meet")
+	}
+
+	if i1 > 0 && i1 < count {
+		return i1
+	}
+
+	return count / 2
+}
+
+// treeBinCount is the bin count of the surface area partition.
+const treeBinCount = 8
+
+type treeBin struct {
+	aabb  AABB
+	count int
+}
+
+type treePlane struct {
+	leftAABB   AABB
+	rightAABB  AABB
+	leftCount  int
+	rightCount int
+}
+
+// partitionSAH splits the boxes on the plane of least surface area cost,
+// "On Fast Construction of SAH-based Bounding Volume Hierarchies" by
+// Ingo Wald. It returns the left count. It corresponds to b2PartitionSAH
+// in src/dynamic_tree.c and runs only when treeHeuristic is one.
+func partitionSAH(indices []int, binIndices []int, boxes []AABB, count int) int {
+	if count <= 0 {
+		panic("dbox2d: the surface area partition needs a box")
+	}
+
+	var bins [treeBinCount]treeBin
+	var planes [treeBinCount - 1]treePlane
+
+	center := AABBCenter(boxes[0])
+	centroidAABB := AABB{LowerBound: center, UpperBound: center}
+
+	for i := 1; i < count; i++ {
+		center = AABBCenter(boxes[i])
+		centroidAABB.LowerBound = Min(centroidAABB.LowerBound, center)
+		centroidAABB.UpperBound = Max(centroidAABB.UpperBound, center)
+	}
+
+	d := centroidAABB.UpperBound.Sub(centroidAABB.LowerBound)
+
+	// Find longest axis
+	var axisIndex int
+	var invD Q
+	if d.Y.Less(d.X) {
+		axisIndex = 0
+		invD = d.X
+	} else {
+		axisIndex = 1
+		invD = d.Y
+	}
+
+	zero := fixed.Q32Zero()
+	if zero.Less(invD) {
+		invD = fixed.Q32One().Div(invD)
+	} else {
+		invD = zero
+	}
+
+	// D-009: the seed bounds are the largest values, which no box reaches.
+	maxValue := fixed.Q32MaxValue()
+
+	// Initialize bin bounds and count
+	for i := range treeBinCount {
+		bins[i].aabb.LowerBound = Vec2{X: maxValue, Y: maxValue}
+		bins[i].aabb.UpperBound = Vec2{X: maxValue.Neg(), Y: maxValue.Neg()}
+		bins[i].count = 0
+	}
+
+	// Assign boxes to bins and compute bin boxes
+	binCount := fixed.Q32FromInt(treeBinCount)
+	lowerBoundArray := [2]Q{centroidAABB.LowerBound.X, centroidAABB.LowerBound.Y}
+	minC := lowerBoundArray[axisIndex]
+	for i := range count {
+		c := AABBCenter(boxes[i])
+		cArray := [2]Q{c.X, c.Y}
+		binIndex := binCount.Mul(cArray[axisIndex].Sub(minC)).Mul(invD).Int()
+		binIndex = ClampInt(binIndex, 0, treeBinCount-1)
+		binIndices[i] = binIndex
+		bins[binIndex].count += 1
+		bins[binIndex].aabb = AABBUnion(bins[binIndex].aabb, boxes[i])
+	}
+
+	planeCount := treeBinCount - 1
+
+	// Prepare all the left planes, candidates for left child
+	planes[0].leftCount = bins[0].count
+	planes[0].leftAABB = bins[0].aabb
+	for i := 1; i < planeCount; i++ {
+		planes[i].leftCount = planes[i-1].leftCount + bins[i].count
+		planes[i].leftAABB = AABBUnion(planes[i-1].leftAABB, bins[i].aabb)
+	}
+
+	// Prepare all the right planes, candidates for right child
+	planes[planeCount-1].rightCount = bins[planeCount].count
+	planes[planeCount-1].rightAABB = bins[planeCount].aabb
+	for i := planeCount - 2; i >= 0; i-- {
+		planes[i].rightCount = planes[i+1].rightCount + bins[i+1].count
+		planes[i].rightAABB = AABBUnion(planes[i+1].rightAABB, bins[i+1].aabb)
+	}
+
+	// Find best split to minimize SAH
+	minCost := maxValue
+	bestPlane := 0
+	for i := range planeCount {
+		leftArea := perimeter(planes[i].leftAABB)
+		rightArea := perimeter(planes[i].rightAABB)
+		leftCount := planes[i].leftCount
+		rightCount := planes[i].rightCount
+
+		cost := fixed.Q32FromInt(leftCount).Mul(leftArea).Add(fixed.Q32FromInt(rightCount).Mul(rightArea))
+		if cost.Less(minCost) {
+			bestPlane = i
+			minCost = cost
+		}
+	}
+
+	// Partition node indices and boxes using the Hoare partition scheme
+	// https://en.wikipedia.org/wiki/Quicksort
+	// https://nicholasvadivelu.com/2021/01/11/array-partition/
+	i1, i2 := 0, count
+	for i1 < i2 {
+		for i1 < i2 && binIndices[i1] < bestPlane {
+			i1 += 1
+		}
+
+		for i1 < i2 && binIndices[i2-1] >= bestPlane {
+			i2 -= 1
+		}
+
+		if i1 < i2 {
+			indices[i1], indices[i2-1] = indices[i2-1], indices[i1]
+			boxes[i1], boxes[i2-1] = boxes[i2-1], boxes[i1]
+
+			i1 += 1
+			i2 -= 1
+		}
+	}
+	if i1 != i2 {
+		panic("dbox2d: the surface area partition did not meet")
+	}
+
+	if i1 > 0 && i1 < count {
+		return i1
+	}
+
+	return count / 2
+}
+
+// partition splits the leaves of one rebuild item with the selected
+// heuristic.
+func partition(tree *dynamicTree, startIndex, count int) int {
+	if treeHeuristic == 0 {
+		return partitionMid(tree.leafIndices[startIndex:], tree.leafCenters[startIndex:], count)
+	}
+	return partitionSAH(tree.leafIndices[startIndex:], tree.binIndices[startIndex:], tree.leafBoxes[startIndex:], count)
+}
+
+// rebuildItem tracks the rebuild of one tree node.
+type rebuildItem struct {
+	nodeIndex  int
+	childCount int
+
+	// Leaf indices
+	startIndex int
+	splitIndex int
+	endIndex   int
+}
+
+// buildTree links the gathered leaves into a new tree and returns the
+// root. It corresponds to b2BuildTree in src/dynamic_tree.c.
+func buildTree(tree *dynamicTree, leafCount int) int {
+	leafIndices := tree.leafIndices
+
+	if leafCount == 1 {
+		tree.nodes[leafIndices[0]].parent = nullIndex
+		return leafIndices[0]
+	}
+
+	var stack [treeStackSize]rebuildItem
+	top := 0
+
+	stack[0].nodeIndex = allocateNode(tree)
+	stack[0].childCount = -1
+	stack[0].startIndex = 0
+	stack[0].endIndex = leafCount
+	stack[0].splitIndex = partition(tree, 0, leafCount)
+
+	for {
+		item := &stack[top]
+
+		item.childCount += 1
+
+		if item.childCount == 2 {
+			// This internal node has both children established
+
+			if top == 0 {
+				// all done
+				break
+			}
+
+			// The pool may have grown; take the nodes after every allocation.
+			nodes := tree.nodes
+			parentItem := &stack[top-1]
+			parentNode := &nodes[parentItem.nodeIndex]
+
+			if parentItem.childCount == 0 {
+				if parentNode.child1 != nullIndex {
+					panic("dbox2d: the rebuild set a child twice")
+				}
+				parentNode.child1 = int32(item.nodeIndex)
+			} else {
+				if parentItem.childCount != 1 || parentNode.child2 != nullIndex {
+					panic("dbox2d: the rebuild set a child twice")
+				}
+				parentNode.child2 = int32(item.nodeIndex)
+			}
+
+			node := &nodes[item.nodeIndex]
+
+			if node.parent != nullIndex {
+				panic("dbox2d: the rebuild node already has a parent")
+			}
+			node.parent = int32(parentItem.nodeIndex)
+
+			if node.child1 == nullIndex || node.child2 == nullIndex {
+				panic("dbox2d: the rebuild node lacks a child")
+			}
+			child1 := &nodes[node.child1]
+			child2 := &nodes[node.child2]
+
+			node.aabb = AABBUnion(child1.aabb, child2.aabb)
+			node.height = 1 + max(child1.height, child2.height)
+			node.categoryBits = child1.categoryBits | child2.categoryBits
+
+			// Pop stack
+			top -= 1
+		} else {
+			var startIndex, endIndex int
+			if item.childCount == 0 {
+				startIndex = item.startIndex
+				endIndex = item.splitIndex
+			} else {
+				if item.childCount != 1 {
+					panic("dbox2d: the rebuild item has too many children")
+				}
+				startIndex = item.splitIndex
+				endIndex = item.endIndex
+			}
+
+			count := endIndex - startIndex
+
+			if count == 1 {
+				childIndex := leafIndices[startIndex]
+				nodes := tree.nodes
+				node := &nodes[item.nodeIndex]
+
+				if item.childCount == 0 {
+					if node.child1 != nullIndex {
+						panic("dbox2d: the rebuild set a child twice")
+					}
+					node.child1 = int32(childIndex)
+				} else {
+					if item.childCount != 1 || node.child2 != nullIndex {
+						panic("dbox2d: the rebuild set a child twice")
+					}
+					node.child2 = int32(childIndex)
+				}
+
+				childNode := &nodes[childIndex]
+				if childNode.parent != nullIndex {
+					panic("dbox2d: the rebuild leaf already has a parent")
+				}
+				childNode.parent = int32(item.nodeIndex)
+			} else {
+				if count <= 0 {
+					panic("dbox2d: the rebuild item is empty")
+				}
+				if top >= treeStackSize-1 {
+					panic("dbox2d: the rebuild stack is full")
+				}
+
+				top += 1
+				newItem := &stack[top]
+				newItem.nodeIndex = allocateNode(tree)
+				newItem.childCount = -1
+				newItem.startIndex = startIndex
+				newItem.endIndex = endIndex
+				newItem.splitIndex = partition(tree, startIndex, count)
+				newItem.splitIndex += startIndex
+			}
+		}
+	}
+
+	nodes := tree.nodes
+	rootNode := &nodes[stack[0].nodeIndex]
+	if rootNode.parent != nullIndex || rootNode.child1 == nullIndex || rootNode.child2 == nullIndex {
+		panic("dbox2d: the rebuild root is not linked")
+	}
+
+	child1 := &nodes[rootNode.child1]
+	child2 := &nodes[rootNode.child2]
+
+	rootNode.aabb = AABBUnion(child1.aabb, child2.aabb)
+	rootNode.height = 1 + max(child1.height, child2.height)
+	rootNode.categoryBits = child1.categoryBits | child2.categoryBits
+
+	return stack[0].nodeIndex
+}
+
+// rebuild frees every enlarged internal node and builds a new tree over
+// the leaves and the internal nodes that did not grow. A full build takes
+// every leaf. It returns the leaf count of the build. The tree may grow
+// during the call. It corresponds to b2DynamicTree_Rebuild in
+// src/dynamic_tree.c.
+func (tree *dynamicTree) rebuild(fullBuild bool) int {
+	proxyCount := tree.proxyCount
+	if proxyCount == 0 {
+		return 0
+	}
+
+	// Ensure capacity for rebuild space
+	if proxyCount > len(tree.leafIndices) {
+		newCapacity := proxyCount + proxyCount/2
+
+		tree.leafIndices = make([]int, newCapacity)
+		if treeHeuristic == 0 {
+			tree.leafCenters = make([]Vec2, newCapacity)
+		} else {
+			tree.leafBoxes = make([]AABB, newCapacity)
+			tree.binIndices = make([]int, newCapacity)
+		}
+	}
+
+	leafCount := 0
+	var stack [treeStackSize]int
+	stackCount := 0
+
+	nodeIndex := tree.root
+	nodes := tree.nodes
+	node := &nodes[nodeIndex]
+
+	// These are the nodes that get sorted to rebuild the tree.
+	// I'm using indices because the node pool may grow during the build.
+	leafIndices := tree.leafIndices
+	leafCenters := tree.leafCenters
+	leafBoxes := tree.leafBoxes
+
+	// Gather all proxy nodes that have grown and all internal nodes that haven't grown. Both are
+	// considered leaves in the tree rebuild.
+	// Free all internal nodes that have grown.
+	for {
+		if node.height == 0 || (node.flags&enlargedNode == 0 && !fullBuild) {
+			leafIndices[leafCount] = nodeIndex
+			if treeHeuristic == 0 {
+				leafCenters[leafCount] = AABBCenter(node.aabb)
+			} else {
+				leafBoxes[leafCount] = node.aabb
+			}
+			leafCount += 1
+
+			// Detach
+			node.parent = nullIndex
+		} else {
+			doomedNodeIndex := nodeIndex
+
+			// Handle children
+			nodeIndex = int(node.child1)
+
+			if stackCount >= treeStackSize {
+				panic("dbox2d: the rebuild gather stack is full")
+			}
+			stack[stackCount] = int(node.child2)
+			stackCount++
+
+			node = &nodes[nodeIndex]
+
+			// Remove doomed node
+			freeNode(tree, doomedNodeIndex)
+
+			continue
+		}
+
+		if stackCount == 0 {
+			break
+		}
+
+		stackCount--
+		nodeIndex = stack[stackCount]
+		node = &nodes[nodeIndex]
+	}
+
+	if leafCount > proxyCount {
+		panic("dbox2d: the rebuild gathered more leaves than proxies")
+	}
+
+	tree.root = buildTree(tree, leafCount)
+
+	return leafCount
 }

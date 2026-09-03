@@ -217,3 +217,212 @@ func TestTreeMoveProxyAndCategoryBits(t *testing.T) {
 		t.Errorf("destroyTree left nodes behind")
 	}
 }
+
+// TestTreeQueryReportsTheOverlaps pins query: the callback sees exactly the
+// leaves that overlap the box and pass the mask, and a false return stops
+// the walk after one leaf.
+func TestTreeQueryReportsTheOverlaps(t *testing.T) {
+	tree := createTree()
+	for i := range 10 {
+		bits := uint64(1)
+		if i%2 == 1 {
+			bits = 2
+		}
+		tree.createProxy(box(i*3, 0, i*3+2, 2), bits, uint64(i))
+	}
+
+	seen := map[uint64]bool{}
+	stats := tree.query(box(4, 1, 13, 1), DefaultMaskBits, func(proxyId int, userData uint64) bool {
+		if tree.getUserData(proxyId) != userData {
+			t.Errorf("proxy %d reports user data %d", proxyId, userData)
+		}
+		seen[userData] = true
+		return true
+	})
+	for _, want := range []uint64{1, 2, 3, 4} {
+		if !seen[want] {
+			t.Errorf("the query missed leaf %d", want)
+		}
+	}
+	if len(seen) != 4 || stats.leafVisits != 4 {
+		t.Errorf("the query saw %d leaves with %d leaf visits, want 4 and 4", len(seen), stats.leafVisits)
+	}
+
+	odd := 0
+	tree.query(box(0, 0, 30, 2), 2, func(int, uint64) bool { odd++; return true })
+	if odd != 5 {
+		t.Errorf("the mask let %d leaves through, want 5", odd)
+	}
+
+	stats = tree.query(box(0, 0, 30, 2), DefaultMaskBits, func(int, uint64) bool { return false })
+	if stats.leafVisits != 1 {
+		t.Errorf("a false return let the query visit %d leaves", stats.leafVisits)
+	}
+}
+
+// TestTreeRayCastClipsTheRay pins rayCast: leaves come nearest first, a
+// clipped fraction hides the farther leaves, and a zero return stops the
+// cast.
+func TestTreeRayCastClipsTheRay(t *testing.T) {
+	tree := createTree()
+	for i := range 5 {
+		tree.createProxy(box(i*10, 0, i*10+2, 2), DefaultCategoryBits, uint64(i))
+	}
+
+	input := RayCastInput{Origin: v2(-5, 1), Translation: v2(100, 0), MaxFraction: fixed.Q32One()}
+
+	var order []uint64
+	tree.rayCast(&input, DefaultMaskBits, func(sub *RayCastInput, proxyId int, userData uint64) Q {
+		order = append(order, userData)
+		return sub.MaxFraction
+	})
+	if len(order) != 5 || order[0] != 0 || order[4] != 4 {
+		t.Errorf("the cast visited %v, want the leaves nearest first", order)
+	}
+
+	order = order[:0]
+	stats := tree.rayCast(&input, DefaultMaskBits, func(sub *RayCastInput, proxyId int, userData uint64) Q {
+		order = append(order, userData)
+		p2 := MulAdd(sub.Origin, sub.MaxFraction, sub.Translation)
+		out := aabbRayCast(tree.getAABB(proxyId), sub.Origin, p2)
+		if !out.Hit {
+			t.Fatalf("the ray reached leaf %d without a hit", userData)
+		}
+		return out.Fraction.Mul(sub.MaxFraction)
+	})
+	if len(order) != 1 || order[0] != 0 {
+		t.Errorf("the clipped cast visited %v, want only the first leaf", order)
+	}
+	if stats.leafVisits != 1 {
+		t.Errorf("the clipped cast counts %d leaf visits", stats.leafVisits)
+	}
+
+	visits := 0
+	tree.rayCast(&input, DefaultMaskBits, func(*RayCastInput, int, uint64) Q { visits++; return fixed.Q32Zero() })
+	if visits != 1 {
+		t.Errorf("a zero return let the cast visit %d leaves", visits)
+	}
+
+	visits = 0
+	tree.rayCast(&input, 2, func(*RayCastInput, int, uint64) Q { visits++; return fixed.Q32One() })
+	if visits != 0 {
+		t.Errorf("the mask let %d leaves through", visits)
+	}
+}
+
+// TestTreePartitionMidSplitsTheLongestAxis pins the median split: the
+// centers left of the middle of the x range come first, and a degenerate
+// pair splits in half.
+func TestTreePartitionMidSplitsTheLongestAxis(t *testing.T) {
+	indices := []int{0, 1, 2, 3}
+	centers := []Vec2{v2(0, 0), v2(10, 1), v2(1, 0), v2(11, 1)}
+
+	split := partitionMid(indices, centers, 4)
+	if split != 2 {
+		t.Fatalf("the split is %d, want 2", split)
+	}
+	for i := range split {
+		if !centers[i].X.Less(fixed.Q32FromInt(5)) {
+			t.Errorf("center %d is on the right of the pivot", indices[i])
+		}
+	}
+	for i := split; i < 4; i++ {
+		if centers[i].X.Less(fixed.Q32FromInt(5)) {
+			t.Errorf("center %d is on the left of the pivot", indices[i])
+		}
+	}
+
+	same := []Vec2{v2(1, 1), v2(1, 1), v2(1, 1)}
+	if got := partitionMid([]int{0, 1, 2}, same, 3); got != 1 {
+		t.Errorf("identical centers split at %d, want 1", got)
+	}
+}
+
+// TestTreePartitionSAHPicksTheCheapestPlane pins the surface area split,
+// which the reference keeps under its heuristic switch: eight boxes in a
+// row fill one bin each, plane three costs 176 against 188 for its
+// neighbours, and the three boxes before it come first. Identical boxes
+// split in half without a division.
+func TestTreePartitionSAHPicksTheCheapestPlane(t *testing.T) {
+	boxes := make([]AABB, 8)
+	indices := make([]int, 8)
+	for i := range 8 {
+		// Insert out of order so the partition has work to do.
+		j := (i * 5) % 8
+		boxes[i] = box(3*j, 0, 3*j+1, 1)
+		indices[i] = j
+	}
+	bins := make([]int, 8)
+
+	split := partitionSAH(indices, bins, boxes, 8)
+	if split != 3 {
+		t.Fatalf("the split is %d, want 3", split)
+	}
+	for i := range split {
+		if indices[i] >= 3 || !boxes[i].UpperBound.X.Less(fixed.Q32FromInt(9)) {
+			t.Errorf("box %d sits right of plane three", indices[i])
+		}
+	}
+
+	same := []AABB{box(1, 1, 2, 2), box(1, 1, 2, 2), box(1, 1, 2, 2), box(1, 1, 2, 2)}
+	if got := partitionSAH([]int{0, 1, 2, 3}, make([]int, 4), same, 4); got != 2 {
+		t.Errorf("identical boxes split at %d, want 2", got)
+	}
+}
+
+// TestTreeRebuildKeepsEveryLeaf pins rebuild: a partial build after some
+// enlargements and a full build both keep the proxies, clear the enlarged
+// flags, pass validate and find the same leaves.
+func TestTreeRebuildKeepsEveryLeaf(t *testing.T) {
+	tree := createTree()
+	ids := make([]int, 0, 100)
+	for i := range 100 {
+		x := (i % 10) * 3
+		y := (i / 10) * 3
+		ids = append(ids, tree.createProxy(box(x, y, x+2, y+2), DefaultCategoryBits, uint64(i)))
+	}
+
+	for i := 0; i < 100; i += 7 {
+		aabb := tree.getAABB(ids[i])
+		aabb.UpperBound = aabb.UpperBound.Add(v2(2, 2))
+		tree.enlargeProxy(ids[i], aabb)
+	}
+
+	count := func() int {
+		n := 0
+		tree.query(box(-1, -1, 40, 40), DefaultMaskBits, func(int, uint64) bool { n++; return true })
+		return n
+	}
+
+	leaves := tree.rebuild(false)
+	tree.validate()
+	tree.validateNoEnlarged()
+	if leaves <= 0 || leaves > 100 {
+		t.Errorf("the partial rebuild took %d leaves", leaves)
+	}
+	if tree.getProxyCount() != 100 || tree.nodeCount != 199 || count() != 100 {
+		t.Errorf("the partial rebuild lost proxies: %d proxies, %d nodes, %d found", tree.getProxyCount(), tree.nodeCount, count())
+	}
+
+	heightBefore := tree.getHeight()
+	if leaves = tree.rebuild(true); leaves != 100 {
+		t.Errorf("the full rebuild took %d leaves, want 100", leaves)
+	}
+	tree.validate()
+	if tree.getHeight() > 8 || tree.getHeight() > heightBefore {
+		t.Errorf("the full rebuild has height %d, before %d", tree.getHeight(), heightBefore)
+	}
+	if count() != 100 || tree.getUserData(ids[42]) != 42 {
+		t.Errorf("the full rebuild lost proxies")
+	}
+
+	// The scratch is sized once and the second build reuses it.
+	if cap := len(tree.leafIndices); cap != 150 {
+		t.Errorf("the rebuild scratch holds %d entries, want 150", cap)
+	}
+
+	empty := createTree()
+	if empty.rebuild(true) != 0 {
+		t.Errorf("an empty tree rebuilt leaves")
+	}
+}

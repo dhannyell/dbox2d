@@ -384,10 +384,10 @@ structs.
 - The shape id of an event comes from the shape and its generation; the
   sensor events and the pre-solve callback wait for their orders.
 
-**Order 29 is landing in two parts**: `dynamic_tree.go` gains the node
-pool, the sibling search, the rotations, the leaf insert and remove, the
-proxy create, destroy, move and enlarge, the category bits and the
-validators. The queries and the rebuild follow in the second part.
+**Order 29 has landed**: `dynamic_tree.go` gains the node pool, the
+sibling search, the rotations, the leaf insert and remove, the proxy
+create, destroy, move and enlarge, the category bits, the validators, the
+box query, the ray cast and the rebuild.
 
 - The tree node flags of `constants.h` cross with the tree.
 - The reference overlays the children with the user data, and the parent
@@ -396,8 +396,17 @@ validators. The queries and the rebuild follow in the second part.
 - The sibling search seeds each lower bound with the largest fixed-point
   value, which no perimeter reaches (D-009). The exact tie between two
   internal children falls back to the centroid distance, as upstream.
-- `b2DynamicTree_GetAreaRatio` and `b2DynamicTree_GetByteCount` do not
-  cross. They serve profiling views, not the simulation.
+- The query and the ray cast take a closure instead of a callback and a
+  context pointer (D-014). The stack of each walk is a fixed array, as
+  upstream.
+- The rebuild keeps the heuristic switch of the reference. The median
+  split is live; the surface area split crosses under the same constant
+  and its bin seeds are the largest values (D-009). The reciprocal of the
+  centroid extent is a fixed-point division, and zero when the extent is
+  zero.
+- `b2DynamicTree_ShapeCast` waits for the shape cast of the collision
+  module. `b2DynamicTree_GetAreaRatio` and `b2DynamicTree_GetByteCount`
+  do not cross. They serve profiling views, not the simulation.
 - The validators exist, but only the tests call them. The reference
   compiles them into validation builds only.
 
