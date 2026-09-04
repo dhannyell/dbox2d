@@ -24,7 +24,8 @@ type graphColor struct {
 	// fills it on each step from the arena.
 	contactConstraints []contactConstraint
 
-	// Deferred: the joint sims of the reference.
+	// jointSims of the joints in this color.
+	jointSims []jointSim
 }
 
 // constraintGraph colors the awake constraints so that each color can
@@ -206,5 +207,111 @@ func removeContactFromGraph(w *world, bodyIdA, bodyIdB, colorIndex, localIndex i
 	}
 }
 
-// Deferred: the joint color assignment and the joint graph functions of
-// the reference.
+// assignJointColor picks the first color where neither dynamic body has
+// a constraint. Unlike a contact, a joint with a static body may take
+// color zero. It corresponds to b2AssignJointColor in
+// src/constraint_graph.c.
+func assignJointColor(graph *constraintGraph, bodyIdA, bodyIdB int, staticA, staticB bool) int {
+	if staticA && staticB {
+		panic("dbox2d: two static bodies cannot share a joint color")
+	}
+
+	if !forceOverflow {
+		switch {
+		case !staticA && !staticB:
+			for i := range overflowIndex {
+				color := &graph.colors[i]
+				if color.bodySet.getBit(bodyIdA) || color.bodySet.getBit(bodyIdB) {
+					continue
+				}
+
+				color.bodySet.setBitGrow(bodyIdA)
+				color.bodySet.setBitGrow(bodyIdB)
+				return i
+			}
+		case !staticA:
+			for i := range overflowIndex {
+				color := &graph.colors[i]
+				if color.bodySet.getBit(bodyIdA) {
+					continue
+				}
+
+				color.bodySet.setBitGrow(bodyIdA)
+				return i
+			}
+		case !staticB:
+			for i := range overflowIndex {
+				color := &graph.colors[i]
+				if color.bodySet.getBit(bodyIdB) {
+					continue
+				}
+
+				color.bodySet.setBitGrow(bodyIdB)
+				return i
+			}
+		}
+	}
+
+	return overflowIndex
+}
+
+// createJointInGraph appends a zeroed joint sim to a color and points the
+// joint at it. It corresponds to b2CreateJointInGraph in
+// src/constraint_graph.c.
+func createJointInGraph(w *world, j *joint) *jointSim {
+	graph := &w.constraintGraph
+
+	bodyIdA := j.edges[0].bodyId
+	bodyIdB := j.edges[1].bodyId
+	bodyA := &w.bodies[bodyIdA]
+	bodyB := &w.bodies[bodyIdB]
+	staticA := bodyA.setIndex == staticSet
+	staticB := bodyB.setIndex == staticSet
+
+	colorIndex := assignJointColor(graph, bodyIdA, bodyIdB, staticA, staticB)
+
+	color := &graph.colors[colorIndex]
+	color.jointSims = append(color.jointSims, jointSim{})
+
+	j.colorIndex = colorIndex
+	j.localIndex = len(color.jointSims) - 1
+	return &color.jointSims[j.localIndex]
+}
+
+// addJointToGraph copies a joint sim into the graph. It corresponds to
+// b2AddJointToGraph in src/constraint_graph.c.
+func addJointToGraph(w *world, js *jointSim, j *joint) {
+	jointDst := createJointInGraph(w, j)
+	*jointDst = *js
+}
+
+// removeJointFromGraph takes a joint sim out of its color and fixes the
+// joint that moved into its slot. It corresponds to
+// b2RemoveJointFromGraph in src/constraint_graph.c.
+func removeJointFromGraph(w *world, bodyIdA, bodyIdB, colorIndex, localIndex int) {
+	graph := &w.constraintGraph
+
+	if colorIndex < 0 || colorIndex >= graphColorCount {
+		panic("dbox2d: the color index is out of range")
+	}
+	color := &graph.colors[colorIndex]
+
+	if colorIndex != overflowIndex {
+		// May clear static bodies, no effect
+		color.bodySet.clearBit(bodyIdA)
+		color.bodySet.clearBit(bodyIdB)
+	}
+
+	var movedIndex int
+	color.jointSims, movedIndex = removeSwap(color.jointSims, localIndex)
+	if movedIndex != nullIndex {
+		// Fix moved joint
+		movedJointSim := &color.jointSims[localIndex]
+		movedId := movedJointSim.jointId
+		movedJoint := &w.joints[movedId]
+		if movedJoint.setIndex != awakeSet || movedJoint.colorIndex != colorIndex || movedJoint.localIndex != movedIndex {
+			panic("dbox2d: the moved joint does not point back at its sim")
+		}
+		movedJoint.localIndex = localIndex
+	}
+}

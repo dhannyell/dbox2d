@@ -20,7 +20,9 @@ type island struct {
 	tailContact  int
 	contactCount int
 
-	// Deferred: the joint list of the reference.
+	headJoint  int
+	tailJoint  int
+	jointCount int
 
 	// parentIsland links the island to its union-find parent.
 	parentIsland int
@@ -63,6 +65,9 @@ func createIsland(w *world, setIndex int) *island {
 	isl.headContact = nullIndex
 	isl.tailContact = nullIndex
 	isl.contactCount = 0
+	isl.headJoint = nullIndex
+	isl.tailJoint = nullIndex
+	isl.jointCount = 0
 	isl.parentIsland = nullIndex
 	isl.constraintRemoveCount = 0
 
@@ -269,6 +274,137 @@ func unlinkContact(w *world, c *contact) {
 	c.islandNext = nullIndex
 }
 
+// addJointToIsland pushes a joint at the head of the island list. It
+// corresponds to b2AddJointToIsland in src/island.c.
+func addJointToIsland(w *world, islandId int, j *joint) {
+	if j.islandId != nullIndex || j.islandPrev != nullIndex || j.islandNext != nullIndex {
+		panic("dbox2d: the joint is already in an island")
+	}
+
+	isl := &w.islands[islandId]
+
+	if isl.headJoint != nullIndex {
+		j.islandNext = isl.headJoint
+		headJoint := &w.joints[isl.headJoint]
+		headJoint.islandPrev = j.jointId
+	}
+
+	isl.headJoint = j.jointId
+	if isl.tailJoint == nullIndex {
+		isl.tailJoint = isl.headJoint
+	}
+
+	isl.jointCount += 1
+	j.islandId = islandId
+}
+
+// linkJoint links a joint into the island graph and merges the awake
+// islands at once when asked, so the island graph stays valid. It
+// corresponds to b2LinkJoint in src/island.c.
+func linkJoint(w *world, j *joint, mergeIslands bool) {
+	bodyA := &w.bodies[j.edges[0].bodyId]
+	bodyB := &w.bodies[j.edges[1].bodyId]
+
+	if bodyA.setIndex == awakeSet && bodyB.setIndex >= firstSleepingSet {
+		wakeSolverSet(w, bodyB.setIndex)
+	} else if bodyB.setIndex == awakeSet && bodyA.setIndex >= firstSleepingSet {
+		wakeSolverSet(w, bodyA.setIndex)
+	}
+
+	islandIdA := bodyA.islandId
+	islandIdB := bodyB.islandId
+
+	if islandIdA == nullIndex && islandIdB == nullIndex {
+		panic("dbox2d: a joint links at least one island")
+	}
+
+	if islandIdA == islandIdB {
+		// Joint in same island
+		addJointToIsland(w, islandIdA, j)
+		return
+	}
+
+	// Union-find root of islandA
+	var islandA *island
+	if islandIdA != nullIndex {
+		islandA, islandIdA = findRootIsland(w, islandIdA)
+	}
+
+	// Union-find root of islandB
+	var islandB *island
+	if islandIdB != nullIndex {
+		islandB, islandIdB = findRootIsland(w, islandIdB)
+	}
+
+	// Union-Find link island roots
+	if islandA != islandB && islandA != nil && islandB != nil {
+		if islandB.parentIsland != nullIndex {
+			panic("dbox2d: the root island has a parent")
+		}
+		islandB.parentIsland = islandIdA
+	}
+
+	if islandA != nil {
+		addJointToIsland(w, islandIdA, j)
+	} else {
+		addJointToIsland(w, islandIdB, j)
+	}
+
+	// Joints need to have islands merged immediately when they are created
+	// to keep the island graph valid.
+	// However, when a body type is being changed the merge can be deferred until
+	// all joints are linked.
+	if mergeIslands {
+		mergeAwakeIslands(w)
+	}
+}
+
+// unlinkJoint removes a joint from its island. It corresponds to
+// b2UnlinkJoint in src/island.c.
+func unlinkJoint(w *world, j *joint) {
+	if j.islandId == nullIndex {
+		panic("dbox2d: the joint is not in an island")
+	}
+
+	// remove from island
+	islandId := j.islandId
+	isl := &w.islands[islandId]
+
+	if j.islandPrev != nullIndex {
+		prevJoint := &w.joints[j.islandPrev]
+		if prevJoint.islandNext != j.jointId {
+			panic("dbox2d: the island joint list is not doubly linked")
+		}
+		prevJoint.islandNext = j.islandNext
+	}
+
+	if j.islandNext != nullIndex {
+		nextJoint := &w.joints[j.islandNext]
+		if nextJoint.islandPrev != j.jointId {
+			panic("dbox2d: the island joint list is not doubly linked")
+		}
+		nextJoint.islandPrev = j.islandPrev
+	}
+
+	if isl.headJoint == j.jointId {
+		isl.headJoint = j.islandNext
+	}
+
+	if isl.tailJoint == j.jointId {
+		isl.tailJoint = j.islandPrev
+	}
+
+	if isl.jointCount <= 0 {
+		panic("dbox2d: the island joint count underflows")
+	}
+	isl.jointCount -= 1
+	isl.constraintRemoveCount += 1
+
+	j.islandId = nullIndex
+	j.islandPrev = nullIndex
+	j.islandNext = nullIndex
+}
+
 // mergeIsland merges an island into its root island. The bodies and the
 // contacts of the child append at the tail of the root lists. It
 // corresponds to b2MergeIsland in src/island.c.
@@ -298,7 +434,12 @@ func mergeIsland(w *world, isl *island) {
 		contactId = c.islandNext
 	}
 
-	// Deferred: the joints remap here.
+	jointId := isl.headJoint
+	for jointId != nullIndex {
+		j := &w.joints[jointId]
+		j.islandId = rootId
+		jointId = j.islandNext
+	}
 
 	// connect body lists
 	if rootIsland.tailBody == nullIndex {
@@ -356,7 +497,38 @@ func mergeIsland(w *world, isl *island) {
 		rootIsland.contactCount += isl.contactCount
 	}
 
-	// Deferred: the joint lists connect here.
+	if rootIsland.headJoint == nullIndex {
+		// Root island has no joints
+		if rootIsland.tailJoint != nullIndex || rootIsland.jointCount != 0 {
+			panic("dbox2d: a root island without a head joint has a tail or a count")
+		}
+		rootIsland.headJoint = isl.headJoint
+		rootIsland.tailJoint = isl.tailJoint
+		rootIsland.jointCount = isl.jointCount
+	} else if isl.headJoint != nullIndex {
+		// Both islands have joints
+		if isl.tailJoint == nullIndex || isl.jointCount <= 0 {
+			panic("dbox2d: the child island joint list is broken")
+		}
+		if rootIsland.tailJoint == nullIndex || rootIsland.jointCount <= 0 {
+			panic("dbox2d: the root island joint list is broken")
+		}
+
+		tailJoint := &w.joints[rootIsland.tailJoint]
+		if tailJoint.islandNext != nullIndex {
+			panic("dbox2d: the root tail joint has a next")
+		}
+		tailJoint.islandNext = isl.headJoint
+
+		headJoint := &w.joints[isl.headJoint]
+		if headJoint.islandPrev != nullIndex {
+			panic("dbox2d: the child head joint has a prev")
+		}
+		headJoint.islandPrev = rootIsland.tailJoint
+
+		rootIsland.tailJoint = isl.tailJoint
+		rootIsland.jointCount += isl.jointCount
+	}
 
 	// Track removed constraints
 	rootIsland.constraintRemoveCount += isl.constraintRemoveCount
@@ -466,7 +638,13 @@ func splitIsland(w *world, baseId int) {
 		nextContactId = c.islandNext
 	}
 
-	// Deferred: the joint marks clear here.
+	// Clear joint island flags.
+	nextJoint := baseIsland.headJoint
+	for nextJoint != nullIndex {
+		j := &w.joints[nextJoint]
+		j.isMarked = false
+		nextJoint = j.islandNext
+	}
 
 	// Done with the base split island.
 	destroyIsland(w, baseId)
@@ -579,8 +757,62 @@ func splitIsland(w *world, baseId int) {
 				isl.contactCount += 1
 			}
 
-			// Deferred: the joints connected to this body join the search
-			// here.
+			// Search all joints connect to this body.
+			jointKey := b.headJointKey
+			for jointKey != nullIndex {
+				jointId := jointKey >> 1
+				edgeIndex := jointKey & 1
+
+				j := &w.joints[jointId]
+				if j.jointId != jointId {
+					panic("dbox2d: the joint id does not match its slot")
+				}
+
+				// Next key
+				jointKey = j.edges[edgeIndex].nextKey
+
+				// Has this joint already been added to this island?
+				if j.isMarked {
+					continue
+				}
+
+				j.isMarked = true
+
+				otherEdgeIndex := edgeIndex ^ 1
+				otherBodyId := j.edges[otherEdgeIndex].bodyId
+				otherBody := &bodies[otherBodyId]
+
+				// Don't simulate joints connected to disabled bodies.
+				if otherBody.setIndex == disabledSet {
+					continue
+				}
+
+				// Maybe add other body to stack
+				if !otherBody.isMarked && otherBody.setIndex == awakeSet {
+					if stackCount >= bodyCount {
+						panic("dbox2d: the island stack overflows")
+					}
+					stack[stackCount] = otherBodyId
+					stackCount++
+					otherBody.isMarked = true
+				}
+
+				// Add joint to island
+				j.islandId = islandId
+				if isl.tailJoint != nullIndex {
+					tailJoint := &w.joints[isl.tailJoint]
+					tailJoint.islandNext = jointId
+				}
+				j.islandPrev = isl.tailJoint
+				j.islandNext = nullIndex
+				isl.tailJoint = jointId
+
+				if isl.headJoint == nullIndex {
+					isl.headJoint = jointId
+				}
+
+				isl.jointCount += 1
+			}
 		}
 	}
 
@@ -673,5 +905,39 @@ func validateIsland(w *world, islandId int) {
 		panic("dbox2d: an island without contacts has a tail or a count")
 	}
 
-	// Deferred: the joint list check.
+	if isl.headJoint != nullIndex {
+		if isl.tailJoint == nullIndex {
+			panic("dbox2d: an island with a head joint has no tail joint")
+		}
+		if isl.jointCount <= 0 {
+			panic("dbox2d: an island with joints has a zero count")
+		}
+		if isl.jointCount > 1 && isl.tailJoint == isl.headJoint {
+			panic("dbox2d: an island with several joints has one end")
+		}
+		if isl.jointCount > w.jointIdPool.idCount() {
+			panic("dbox2d: the island joint count exceeds the pool")
+		}
+
+		count := 0
+		jointId := isl.headJoint
+		for jointId != nullIndex {
+			j := &w.joints[jointId]
+			if j.setIndex != isl.setIndex {
+				panic("dbox2d: a joint and its island differ in set")
+			}
+			count += 1
+
+			if count == isl.jointCount && jointId != isl.tailJoint {
+				panic("dbox2d: the island tail joint is wrong")
+			}
+
+			jointId = j.islandNext
+		}
+		if count != isl.jointCount {
+			panic("dbox2d: the island joint count is wrong")
+		}
+	} else if isl.tailJoint != nullIndex || isl.jointCount != 0 {
+		panic("dbox2d: an island without joints has a tail or a count")
+	}
 }

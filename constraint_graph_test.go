@@ -145,3 +145,67 @@ func TestGraphOverflowTakesTheRest(t *testing.T) {
 	}
 	validateSolverSets(w)
 }
+
+// TestJointColorsFollowTheBodies pins the joint color rules: a joint to a
+// static body may take color zero, two joints that share a dynamic body
+// take distinct colors, and the sim moves out of a color with the joint
+// that filled its slot.
+func TestJointColorsFollowTheBodies(t *testing.T) {
+	worldId := createTestWorld(t)
+	w := getWorldFromId(worldId)
+
+	groundDef := DefaultBodyDef()
+	groundId := CreateBody(worldId, &groundDef)
+	idA := addDynamicCircle(t, worldId, v2(0, 1))
+	idB := addDynamicCircle(t, worldId, v2(1, 1))
+	ground := getBodyFullId(w, groundId)
+	bodyA := getBodyFullId(w, idA)
+
+	jGA := linkHandJoint(t, w, groundId, idA)
+	if jGA.colorIndex != 0 {
+		t.Fatalf("the static joint took color %d, want 0", jGA.colorIndex)
+	}
+	if w.constraintGraph.colors[0].bodySet.getBit(ground.id) || !w.constraintGraph.colors[0].bodySet.getBit(bodyA.id) {
+		t.Errorf("color 0 marks the wrong body")
+	}
+
+	jAB := linkHandJoint(t, w, idA, idB)
+	if jAB.colorIndex != 1 {
+		t.Fatalf("the shared joint took color %d, want 1", jAB.colorIndex)
+	}
+	validateSolverSets(w)
+
+	// Remove the first joint of color 0 after a second one enters it.
+	idC := addDynamicCircle(t, worldId, v2(2, 1))
+	jGC := linkHandJoint(t, w, groundId, idC)
+	if jGC.colorIndex != 0 || jGC.localIndex != 1 {
+		t.Fatalf("the third joint took color %d slot %d, want 0 and 1", jGC.colorIndex, jGC.localIndex)
+	}
+	unlinkJoint(w, jGA)
+	removeHandJointEdges(w, jGA)
+	if jGC.localIndex != 0 || getJointSim(w, jGC).jointId != jGC.jointId {
+		t.Errorf("the moved joint sits at slot %d", jGC.localIndex)
+	}
+	validateSolverSets(w)
+}
+
+// TestJointOverflowTakesTheRest pins the joint overflow: a body with more
+// joints than colors sends the rest to the last color.
+func TestJointOverflowTakesTheRest(t *testing.T) {
+	worldId := createTestWorld(t)
+	w := getWorldFromId(worldId)
+
+	hubId := addDynamicCircle(t, worldId, v2(0, 0))
+	for i := range graphColorCount {
+		otherId := addDynamicCircle(t, worldId, v2(i+1, 0))
+		j := linkHandJoint(t, w, hubId, otherId)
+		want := i
+		if i >= overflowIndex {
+			want = overflowIndex
+		}
+		if j.colorIndex != want {
+			t.Fatalf("joint %d took color %d, want %d", i, j.colorIndex, want)
+		}
+	}
+	validateSolverSets(w)
+}

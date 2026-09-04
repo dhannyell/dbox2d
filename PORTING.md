@@ -60,7 +60,8 @@ instead shifts the result by one raw unit. Write `s.Neg().Mul(x)`.
 | `manifolds` | Narrowphase and contact bookkeeping. |
 | `solver` | Soft Step, warm starting, relax, restitution, islands, coloring. |
 | `broadphase` | Dynamic tree, pair finding, and the second executor. |
-| `later` | Joints, sensors, character mover, worker tasks. |
+| `joints` | The seven joint solvers plus the filter joint, their solver stages, islands and colors. |
+| `later` | Sensors, character mover, worker tasks. |
 
 ## What the inventory found
 
@@ -179,14 +180,15 @@ adds no arithmetic divergence.
 - Where the reference creates a broad-phase proxy, the port calls
   `updateShapeAABBs` and leaves `proxyKey` null, so the stored bounds stay
   faithful. The proxy arrives with order 30.
-- A sensor shape panics until the sensor module lands. The chains, joints,
+- A sensor shape panics until the sensor module lands. The chains,
   contacts, islands and events defer the same way: `b2CreateBody`,
   `b2DestroyBody` and `b2DestroyShapeInternal` cross with their deferred
   blocks marked in comments.
 - `b2ValidateSolverSets` crosses trimmed to the bodies and the sets, and
   only the tests call it. The reference compiles it out of release builds.
   `b2ValidateConnectivity` and `b2ValidateContacts` landed with the
-  post-review fixes of the solver stage, without their joint branches.
+  post-review fixes of the solver stage; their joint branches landed with
+  order 33.
 - `b2WakeBody` and the wake, sleep and merge of solver sets landed when
   order 13 completed. The step surface landed with order 16 and the events
   with order 28. `b2ShouldBodiesCollide` landed with order 30, `b2MakeSweep` and the
@@ -299,7 +301,7 @@ from its island first.
 - `validateIsland` exists, but only the tests call it, as with the set
   validation.
 - The wake calls of `linkContact` and the sleep path landed when order 13
-  completed. The joint lists of the island wait for the joints. The `ctz.h`
+  completed. The joint lists of the island landed with order 33. The `ctz.h`
   intrinsics of order 28 landed with the collide block; the bit sets only
   set, clear, test and union in this stage.
 
@@ -311,8 +313,8 @@ sim gains the inverse mass copies that the graph fills.
   10, a pair with a static body scans 1 to 10, and the rest go to the
   overflow color 11, which keeps no body set. The force-overflow switch of
   the reference stays a constant set to false.
-- The joint color assignment and the joint graph functions wait for the
-  joints.
+- The joint color assignment and the joint graph functions landed with
+  order 33.
 
 **Order 13 is complete for the solver**: `solver_set.go` gains
 `wakeSolverSet`, `trySleepIsland` and `mergeSolverSets`; `body.go` gains
@@ -323,7 +325,7 @@ set validation now covers contacts, the graph colors and the pair set.
 - A body that leaves the awake set drops its state; a body that enters it
   starts from the identity state, as the reference does.
 - The body move event of a body that falls asleep and the end touch event
-  landed with order 28. The joint transfers wait for the joints.
+  landed with order 28. The joint transfers landed with order 33.
 
 **Order 24 has landed**: `contact_solver.go` ports the scalar contact
 stages: prepare, warm start, solve, restitution and store impulses. Each
@@ -491,6 +493,32 @@ entries; the determinism witness of D-011 did not move.
   as the reference does; the fat bounds still contain them.
 - `makeSweep` lands in `body.go`.
 
+**Order 33 has landed with the joints**: `joint.go` and one file per joint
+type. D-003, D-004, D-006 and D-009 grew entries; the determinism witness
+of D-011 rebased once, when the joint storage entered the fold.
+
+- The joint keeps the split of the reference: `joint` in the world array,
+  `jointSim` in a solver set or a graph color. Creation links the joint into
+  both body lists, picks the set by the sleep state of the bodies, links
+  the islands and assigns a color when both bodies are awake. Destruction
+  reverses each step. A joint with `collideConnected` false destroys the
+  contacts between its bodies, as the reference does; the filter joint and
+  the mouse joint keep them, as their reference constructors do.
+- The prepare, warm start and solve stages of `solver.c` run over the
+  overflow color and the graph colors before the contact stages, in the
+  order of the reference. The prepare clamps the constraint frequency at a
+  quarter of the sub-step rate.
+- Each type mirrors its file: the same rows in the same order, the same
+  soft, limit and motor branches. The angular velocity of a state is a
+  turn per second and the stages scale it by one turn on load per D-004;
+  the effective masses divide per D-006. The mouse joint solve has no bias
+  flag and the motor joint ignores it, as upstream.
+- A float64 mirror of each solve runs beside it in the tests; the bound is
+  1e-6 where no angle enters and 1e-5 or 1e-4 where the fixed atan2 does.
+- `getBodyTransform` lands in `body.go` for the force reports.
+- The public accessors, the debug draw and the dump of `joint.c` wait for
+  the surface.
+
 ## The map
 
 `Order` is the port sequence. A dash means the file waits for a later stage.
@@ -510,7 +538,7 @@ entries; the determinism witness of D-011 did not move.
 | `include/box2d/types.h`, `src/types.c` | `types.go` | T1 | foundation | 10 | Definition structs and their defaults. |
 | `src/body.h`, `src/body.c` | `body.go` | T0/T2 | foundation | 11 | `body`, `bodySim`, `bodyState`, unexported: `src/body.h` declares them. Layout preserved. The mass update scales the angular velocity by one turn; see D-004. The island hooks landed with order 25; the body events landed with order 28; the proxy destroy and the body collision rule landed with order 30; `makeSweep` landed with order 32. |
 | `src/shape.h`, `src/shape.c` | `shape.go` | T0 | foundation | 12 | Shape storage and the mass, AABB, centroid and extent dispatchers. The proxies and the filter rules landed with order 30; the ray cast dispatcher landed with the public queries. The shape cast dispatcher and the distance proxy landed with order 32. The sensors and chains wait for their stages. |
-| `src/solver_set.h`, `src/solver_set.c` | `solver_set.go` | T0 | foundation | 13 | Static, awake, disabled and sleeping sets; body transfer, wake, sleep and set merge. The joint arrays wait. |
+| `src/solver_set.h`, `src/solver_set.c` | `solver_set.go` | T0 | foundation | 13 | Static, awake, disabled and sleeping sets; body transfer, wake, sleep and set merge. The joint arrays and transfers landed with order 33. |
 | `src/world.h`, `src/world.c` | `world.go` | T0 | foundation | 14 | Split across stages. The foundation takes the registry, creation, destruction, the validity checks and the trimmed set validation. `b2World_Step` landed with order 16 in `step.go`; the events landed with order 28; the broadphase and the enlarged body bit set landed with order 30; `OverlapAABB` and `CastRay` landed with the public queries. `OverlapShape`, `CastShape`, `CastMover` and `CastRayClosest` landed with order 32. |
 | `src/array.h`, `src/array.c` | `array.go` | T2 | foundation | 15 | The macro-generated array template becomes a Go slice; `removeSwap` keeps the swap-remove contract. Capacity follows the Go runtime and never enters a result. See D-010. |
 | `src/world.c` (`b2World_Step`), `src/solver.h` (`b2StepContext`) | `step.go` | T1/T2 | foundation | 16 | The step surface: validation, the context, the sub-step split, the locked flag. Assertions become panics per D-003. The softness setup landed with order 24; the collide block and the events landed with order 28; the pair update and the tree rebuild landed with order 30; the bullet buffer landed with order 32. |
@@ -520,18 +548,18 @@ entries; the determinism witness of D-011 did not move.
 | `src/manifold.c` | `manifold.go` | T0/T1 | manifolds | 20 | Nine `FLT_EPSILON` sites become exact zero tests, one T2 entry each. The chain segment colliders landed with order 32. |
 | `src/contact.h`, `src/contact.c` | `contact.go` | T0 | manifolds | 21 | Contact bookkeeping and the collide dispatch table. The island and graph branches landed with orders 25 and 26. |
 | `src/table.h`, `src/table.c` | `table.go` | T0 | manifolds | 22 | Open-addressing set of contact pairs. |
-| `src/solver.h`, `src/solver.c` | `solver.go` | T0/T1/T2 | solver | 23 | Nine ordered stages, from prepare joints to store impulses. `makeSoft` landed with order 24. The integration tasks and the body finalize landed with order 16; the single-worker stage order with the per-color contact stages, the island split and the sleep tail landed with order 23; the enlarged body bits and the broadphase refit landed with order 30; the continuous stage landed with order 32; see D-004 and D-006. |
+| `src/solver.h`, `src/solver.c` | `solver.go` | T0/T1/T2 | solver | 23 | Nine ordered stages, from prepare joints to store impulses. `makeSoft` landed with order 24. The integration tasks and the body finalize landed with order 16; the single-worker stage order with the per-color contact stages, the island split and the sleep tail landed with order 23; the enlarged body bits and the broadphase refit landed with order 30; the continuous stage landed with order 32; the joint stages landed with order 33; see D-004 and D-006. |
 | `src/contact_solver.h`, `src/contact_solver.c` | `contact_solver.go` | T0/T1/T2 | solver | 24 | The scalar stages landed and serve every color; see D-004 and D-006. The wide `Task` family is T2 until the second executor exists. |
-| `src/island.h`, `src/island.c` | `island.go` | T0 | solver | 25 | Island linking, merging and splitting landed; the wake calls and the sleep path landed when order 13 completed. The joint lists wait for the joints. |
-| `src/constraint_graph.h`, `src/constraint_graph.c` | `constraint_graph.go` | T0 | solver | 26 | Eleven colors plus the overflow color landed. The color schedule is the parallel contract. The joint functions wait. |
+| `src/island.h`, `src/island.c` | `island.go` | T0 | solver | 25 | Island linking, merging and splitting landed; the wake calls and the sleep path landed when order 13 completed. The joint lists landed with order 33. |
+| `src/constraint_graph.h`, `src/constraint_graph.c` | `constraint_graph.go` | T0 | solver | 26 | Eleven colors plus the overflow color landed. The color schedule is the parallel contract. The joint functions landed with order 33. |
 | `src/bitset.h`, `src/bitset.c` | `bitset.go` | T0 | broadphase | 27 | Set, clear, test, grow and union landed. Backs the constraint graph and the contact state of the step. |
 | `src/ctz.h` | `math/bits` | T2 | broadphase | 28 | The standard library replaces the compiler intrinsics. Landed with the collide block in `step.go`. |
 | `src/dynamic_tree.c` | `dynamic_tree.go` | T0/T2 | broadphase | 29 | Landed. Fattened AABBs, surface-area heuristic, rotation rebalance, box query, ray cast, shape cast, partial rebuild. See D-009 and D-014. |
 | `src/broad_phase.h`, `src/broad_phase.c` | `broad_phase.go` | T0/T2 | broadphase | 30 | Landed. Three trees, the move buffer, the pair query and the pair set. The pair list of each moved proxy is sorted by shape id, so any equivalent tree gives the same world. See D-010 and D-013. |
 | `src/atomic.h` | `sync/atomic` | T2 | broadphase | 31 | Needed only when a second executor exists. The pair index of the broadphase is the length of the pair slice for one worker. |
 | `include/box2d/box2d.h` | public API | T0 | all stages | — | The public surface arrives file by file with its owner. |
-| `src/joint.h`, `src/joint.c` | `joint.go` | T3 | later | — | Eight joint types follow it. |
-| `src/distance_joint.c`, `src/motor_joint.c`, `src/mouse_joint.c`, `src/prismatic_joint.c`, `src/revolute_joint.c`, `src/weld_joint.c`, `src/wheel_joint.c` | one file each | T3 | later | — | Ports after the solver is proven. |
+| `src/joint.h`, `src/joint.c` | `joint.go` | T0/T2 | joints | 33 | Landed. Types, definitions, storage, creation, destruction, the island and graph hooks, the set transfers and the prepare, warm start and solve dispatch. Accessors, debug draw and dump wait for the surface. See D-003, D-004 and D-006. |
+| `src/distance_joint.c`, `src/motor_joint.c`, `src/mouse_joint.c`, `src/prismatic_joint.c`, `src/revolute_joint.c`, `src/weld_joint.c`, `src/wheel_joint.c` | one file each | T0/T2 | joints | 33 | Landed. Force and torque reports, prepare, warm start and solve of each type; the filter joint has no solver. Accessors, debug draw and dump wait for the surface. See D-004, D-006 and D-009. |
 | `src/distance.c` (simplex solver, shape cast, time of impact), `src/solver.c` (continuous stage) | `distance.go`, `solver.go` | T0/T2 | manifolds | 32 | Landed. The only iterative geometry in the library. Each stopping criterion keeps its form; the tests pin the iteration bounds, a float64 mirror and a bit witness. |
 | `src/sensor.h`, `src/sensor.c` | `sensor.go` | T3 | later | — | Sensor overlap events. |
 | `src/mover.c` | `mover.go` | T3 | later | — | Character movement helpers, built on shape casts. |

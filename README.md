@@ -15,9 +15,10 @@ casts and the time of impact, the contact bookkeeping, the islands with
 sleep and wake, the constraint graph, the soft-step contact solver, the
 body and contact events, the dynamic trees, the broadphase and the AABB,
 ray, shape and mover queries of the world. `Step` finds the new pairs,
-updates the contacts, solves them, sweeps the fast bodies and the bullets
-against the world so they stop at their first time of impact, and puts
-resting islands to sleep. Joints, sensors and the character mover wait.
+updates the contacts, solves the joints and the contacts, sweeps the fast
+bodies and the bullets against the world so they stop at their first time
+of impact, and puts resting islands to sleep. Sensors and the character
+mover wait.
 [PORTING.md](PORTING.md) tracks what has landed.
 
 ## Fidelity contract

@@ -13,8 +13,8 @@ const (
 
 // world manages all physics entities and the dynamic simulation.
 type world struct {
-	// Deferred: the broad-phase, the joint, chain and sensor storage, the
-	// events, the callbacks and the task system of the reference.
+	// Deferred: the chain and sensor storage, the callbacks and the task
+	// system of the reference.
 
 	// constraintGraph colors the awake touching contacts.
 	constraintGraph constraintGraph
@@ -46,6 +46,12 @@ type world struct {
 	// contacts maps a contact id to the cold contact data. The sims live in
 	// the solver sets.
 	contacts []contact
+
+	jointIdPool idPool
+
+	// joints maps a joint id to the cold joint data. The sims live in the
+	// solver sets and in the graph colors.
+	joints []joint
 
 	islandIdPool idPool
 
@@ -228,6 +234,8 @@ func CreateWorld(def *WorldDef) WorldId {
 
 	w.contactIdPool = createIdPool()
 	w.contacts = make([]contact, 0, 16)
+	w.jointIdPool = createIdPool()
+	w.joints = make([]joint, 0, 16)
 	createBroadPhase(&w.broadPhase)
 
 	w.islandIdPool = createIdPool()
@@ -290,6 +298,7 @@ func DestroyWorld(worldId WorldId) {
 	w.bodyIdPool.destroy()
 	w.shapeIdPool.destroy()
 	w.contactIdPool.destroy()
+	w.jointIdPool.destroy()
 	w.islandIdPool.destroy()
 	w.solverSetIdPool.destroy()
 
@@ -403,11 +412,15 @@ func validateSolverSets(w *world) {
 	if w.contactIdPool.idCapacity() != len(w.contacts) {
 		panic("dbox2d: the contact pool and the contact array disagree")
 	}
+	if w.jointIdPool.idCapacity() != len(w.joints) {
+		panic("dbox2d: the joint pool and the joint array disagree")
+	}
 
 	activeSetCount := 0
 	totalBodyCount := 0
 	totalContactCount := 0
 	totalIslandCount := 0
+	totalJointCount := 0
 
 	// Validate all solver sets
 	for setIndex := range w.solverSets {
@@ -423,6 +436,9 @@ func validateSolverSets(w *world) {
 			case awakeSet:
 				if len(set.bodySims) != len(set.bodyStates) {
 					panic("dbox2d: the awake sims and states differ in length")
+				}
+				if len(set.jointSims) != 0 {
+					panic("dbox2d: the awake set holds joints outside the graph")
 				}
 			case disabledSet:
 				if len(set.islandSims) != 0 || len(set.bodyStates) != 0 {
@@ -483,6 +499,48 @@ func validateSolverSets(w *world) {
 					}
 					contactKey = c.edges[edgeIndex].nextKey
 				}
+
+				// Validate body joints
+				jointKey := b.headJointKey
+				for jointKey != nullIndex {
+					jointId := jointKey >> 1
+					edgeIndex := jointKey & 1
+
+					j := &w.joints[jointId]
+
+					otherEdgeIndex := edgeIndex ^ 1
+
+					otherBody := &w.bodies[j.edges[otherEdgeIndex].bodyId]
+
+					switch {
+					case setIndex == disabledSet || otherBody.setIndex == disabledSet:
+						if j.setIndex != disabledSet {
+							panic("dbox2d: a joint of a disabled body is not disabled")
+						}
+					case setIndex == staticSet && otherBody.setIndex == staticSet:
+						if j.setIndex != staticSet {
+							panic("dbox2d: a joint of two static bodies is not static")
+						}
+					case setIndex == awakeSet:
+						if j.setIndex != awakeSet {
+							panic("dbox2d: a joint of an awake body is not awake")
+						}
+					case setIndex >= firstSleepingSet:
+						if j.setIndex != setIndex {
+							panic("dbox2d: a joint of a sleeping body is in another set")
+						}
+					}
+
+					js := getJointSim(w, j)
+					if js.jointId != jointId {
+						panic("dbox2d: a joint sim does not point back at its joint")
+					}
+					if js.bodyIdA != j.edges[0].bodyId || js.bodyIdB != j.edges[1].bodyId {
+						panic("dbox2d: a joint sim and its joint differ in bodies")
+					}
+
+					jointKey = j.edges[edgeIndex].nextKey
+				}
 			}
 
 			// Validate contacts
@@ -502,6 +560,16 @@ func validateSolverSets(w *world) {
 				}
 			}
 
+			// Validate joints
+			totalJointCount += len(set.jointSims)
+			for i := range set.jointSims {
+				js := &set.jointSims[i]
+				j := &w.joints[js.jointId]
+				if j.setIndex != setIndex || j.colorIndex != nullIndex || j.localIndex != i {
+					panic("dbox2d: a joint does not point back at its sim")
+				}
+			}
+
 			// Validate islands
 			totalIslandCount += len(set.islandSims)
 			for i := range set.islandSims {
@@ -515,7 +583,7 @@ func validateSolverSets(w *world) {
 				}
 			}
 		} else {
-			if len(set.bodySims) != 0 || len(set.contactSims) != 0 || len(set.islandSims) != 0 || len(set.bodyStates) != 0 {
+			if len(set.bodySims) != 0 || len(set.contactSims) != 0 || len(set.islandSims) != 0 || len(set.bodyStates) != 0 || len(set.jointSims) != 0 {
 				panic("dbox2d: an unused set is not empty")
 			}
 		}
@@ -562,6 +630,29 @@ func validateSolverSets(w *world) {
 				}
 			}
 		}
+
+		totalJointCount += len(color.jointSims)
+		for i := range color.jointSims {
+			js := &color.jointSims[i]
+			j := &w.joints[js.jointId]
+			if j.setIndex != awakeSet || j.colorIndex != colorIndex || j.localIndex != i {
+				panic("dbox2d: a graph joint does not point back at its sim")
+			}
+
+			bodyIdA := j.edges[0].bodyId
+			bodyIdB := j.edges[1].bodyId
+
+			if colorIndex < overflowIndex {
+				bodyA := &w.bodies[bodyIdA]
+				bodyB := &w.bodies[bodyIdB]
+				if color.bodySet.getBit(bodyIdA) != (bodyA.bodyType != StaticBody) {
+					panic("dbox2d: the color bit of joint body A is wrong")
+				}
+				if color.bodySet.getBit(bodyIdB) != (bodyB.bodyType != StaticBody) {
+					panic("dbox2d: the color bit of joint body B is wrong")
+				}
+			}
+		}
 	}
 
 	if totalContactCount != w.contactIdPool.idCount() {
@@ -569,6 +660,10 @@ func validateSolverSets(w *world) {
 	}
 	if totalContactCount != w.broadPhase.pairSet.count {
 		panic("dbox2d: the contact count and the pair set disagree")
+	}
+
+	if totalJointCount != w.jointIdPool.idCount() {
+		panic("dbox2d: the joint count and the joint pool disagree")
 	}
 }
 
@@ -677,7 +772,35 @@ func validateConnectivity(w *world) {
 			contactKey = c.edges[edgeIndex].nextKey
 		}
 
-		// Deferred: the joint edges of the reference.
+		jointKey := b.headJointKey
+		for jointKey != nullIndex {
+			jointId := jointKey >> 1
+			edgeIndex := jointKey & 1
+
+			j := &w.joints[jointId]
+
+			otherEdgeIndex := edgeIndex ^ 1
+
+			otherBody := &w.bodies[j.edges[otherEdgeIndex].bodyId]
+
+			switch {
+			case bodySetIndex == disabledSet || otherBody.setIndex == disabledSet:
+				if j.islandId != nullIndex {
+					panic("dbox2d: a joint of a disabled body has an island")
+				}
+			case bodySetIndex == staticSet:
+				if otherBody.setIndex == staticSet && j.islandId != nullIndex {
+					panic("dbox2d: a joint of two static bodies has an island")
+				}
+			default:
+				_, jointIslandId := findRootIsland(w, j.islandId)
+				if jointIslandId != bodyIslandId {
+					panic("dbox2d: a joint and its body are in different islands")
+				}
+			}
+
+			jointKey = j.edges[edgeIndex].nextKey
+		}
 	}
 }
 

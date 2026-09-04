@@ -2145,3 +2145,71 @@ func BenchmarkStepBullets(b *testing.B) {
 		b.Fatalf("%d fast bodies, want at least %d", fast, 3*bulletLaneCount/4)
 	}
 }
+
+// BenchmarkStepRevoluteChain measures the joint stages inside the whole
+// pipeline: a chain of 32 unit boxes hangs from a static body by revolute
+// joints and swings under gravity. Step must not allocate.
+func BenchmarkStepRevoluteChain(b *testing.B) {
+	def := DefaultWorldDef()
+	worldId := CreateWorld(&def)
+	defer DestroyWorld(worldId)
+
+	groundDef := DefaultBodyDef()
+	prevId := CreateBody(worldId, &groundDef)
+
+	boxDef := DefaultBodyDef()
+	boxDef.Type = DynamicBody
+	boxDef.EnableSleep = false
+	shapeDef := DefaultShapeDef()
+	box := MakeBox(fixed.Q32Half(), fixed.Q32Half())
+	jointDef := DefaultRevoluteJointDef()
+	jointDef.LocalAnchorA = Vec2{X: fixed.Q32Half()}
+	jointDef.LocalAnchorB = Vec2{X: fixed.Q32Half().Neg()}
+	for i := range 32 {
+		boxDef.Position = Vec2{X: fixed.Q32FromInt(i + 1)}
+		bodyId := CreateBody(worldId, &boxDef)
+		CreatePolygonShape(bodyId, &shapeDef, &box)
+		jointDef.BodyIdA = prevId
+		jointDef.BodyIdB = bodyId
+		CreateRevoluteJoint(worldId, &jointDef)
+		prevId = bodyId
+	}
+
+	dt := fixed.Q32One().Div(fixed.Q32FromInt(60))
+
+	// Warm up through the first swing so every buffer has grown.
+	for range 120 {
+		Step(worldId, dt, 4)
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		Step(worldId, dt, 4)
+	}
+}
+
+// BenchmarkSolveRevoluteJointQ runs one biased solve of the revolute mirror
+// case. The states reset before each iteration so the impulses stay
+// bounded.
+func BenchmarkSolveRevoluteJointQ(b *testing.B) {
+	c := makeRevoluteMirrorCase(b)
+	stateA, stateB := *c.stateA, *c.stateB
+	b.ResetTimer()
+	for range b.N {
+		*c.stateA, *c.stateB = stateA, stateB
+		solveRevoluteJoint(c.js, c.context, true)
+	}
+}
+
+// BenchmarkSolveRevoluteJointF64 runs the float64 mirror over the same
+// case.
+func BenchmarkSolveRevoluteJointF64(b *testing.B) {
+	c := makeRevoluteMirrorCase(b)
+	h, invH := qToF64(c.context.h), qToF64(c.context.invH)
+	b.ResetTimer()
+	for range b.N {
+		fA, fB := c.fA, c.fB
+		f64SolveRevoluteJoint(c.mirror, &fA, &fB, h, invH, true)
+	}
+}

@@ -47,8 +47,8 @@ Numbering is sequential from `D-001` and never reused.
 ### D-003 An assertion becomes a panic
 
 - Files: id_pool.go, aabb.go, math.go, hull.go, geometry.go, step.go,
-  solver.go, manifold.go, table.go, contact.go, distance.go, world.go
-  (upstream `B2_ASSERT`)
+  solver.go, manifold.go, table.go, contact.go, distance.go, world.go,
+  joint.go and the seven joint files (upstream `B2_ASSERT`)
 - Tier: T2
 - Reason: `B2_ASSERT` compiles out in a release build. Go has no such switch,
   and a silent corruption costs more than a stop.
@@ -62,14 +62,20 @@ Numbering is sequential from `D-001` and never reused.
   TestStepRejectsInvalidInput in step_test.go,
   TestCollideCapsulesRejectsADegenerateCapsule and
   TestCollideSegmentAndPolygonRejectsADegenerateSegment in manifold_test.go,
-  and TestIterativeGeometryRejectsInvalidInput in distance_test.go
+  TestIterativeGeometryRejectsInvalidInput in distance_test.go, and
+  TestRevoluteRejectsAFullTurnLimit in joint_test.go
 
 ### D-004 An angle is a turn
 
-- Files: math.go, body.go, solver.go, contact_solver.go (upstream
+- Files: math.go, body.go, solver.go, contact_solver.go, joint.go and the
+  seven joint files (upstream
   include/box2d/math_functions.h; src/body.c `b2UpdateBodyMassData`;
   src/solver.c `b2IntegrateVelocitiesTask`, `b2FinalizeBodiesTask`;
-  src/solver.h `b2MakeSoft`; src/contact_solver.c the `Overflow` family)
+  src/solver.h `b2MakeSoft`; src/contact_solver.c the `Overflow` family;
+  src/joint.c `b2CreateRevoluteJoint` limit check; the prepare, warm start
+  and solve of src/revolute_joint.c, src/prismatic_joint.c,
+  src/wheel_joint.c, src/weld_joint.c, src/motor_joint.c,
+  src/mouse_joint.c and src/distance_joint.c)
 - Tier: T2
 - Reason: a turn reduces to its range by an exact subtraction. A radian needs
   a rounded pi, and the rounding enters every reduction.
@@ -86,13 +92,22 @@ Numbering is sequential from `D-001` and never reused.
   `makeSoft` multiplies the frequency by one turn where the reference
   multiplies by two pi. Each stage of the contact solver scales the
   angular velocity by one turn on load and divides it by one turn on
-  store, so the cross products with the anchors stay in radians.
+  store, so the cross products with the anchors stay in radians. The joint
+  stages do the same. A reference angle, a limit, a target angle and an
+  angular offset are turns, and each enters a constraint error or a bias
+  multiplied by one turn; a motor speed is turns per second and multiplies
+  by one turn before the motor row. The revolute limit check bounds the
+  angles at 0.495 turns, the `0.99 * pi` of the reference.
 - Test: TestIntegrateRotationCompletesATurn,
   TestComputeAngularVelocityInvertsIntegration and
   TestUnwindAngleReducesToHalfTurn in math_test.go,
   TestBodyMassComesFromItsShapes in world_test.go,
-  TestStepConvertsTorqueAndArcSpeedToTurns in step_test.go, and
-  TestFrictionSaturatesAtTheNormalImpulse in contact_solver_test.go
+  TestStepConvertsTorqueAndArcSpeedToTurns in step_test.go,
+  TestFrictionSaturatesAtTheNormalImpulse in contact_solver_test.go,
+  TestRevoluteRejectsAFullTurnLimit in joint_test.go,
+  TestMotorTurnsTowardTheAngularOffset in motor_joint_test.go, and
+  TestSolveRevoluteJointTracksTheFloat64Mirror in
+  revolute_joint_internal_test.go
 
 ### D-005 Validity is a range check
 
@@ -107,7 +122,7 @@ Numbering is sequential from `D-001` and never reused.
 ### D-006 A reciprocal becomes a division
 
 - Files: math.go, aabb.go, geometry.go, solver.go, manifold.go,
-  contact_solver.go (upstream
+  contact_solver.go, joint.go and the seven joint files (upstream
   include/box2d/math_functions.h `b2GetInverse22`, `b2Solve22`,
   `b2Normalize`, `b2NormalizeRot`; src/aabb.c `b2AABB_RayCast` `inv_d`;
   src/geometry.c `b2ComputePolygonCentroid` and `b2ComputePolygonMass`
@@ -118,7 +133,14 @@ Numbering is sequential from `D-001` and never reused.
   src/solver.h `b2MakeSoft` `a3`;
   src/contact_solver.c `b2PrepareOverflowContacts` effective masses;
   src/distance.c `b2SolveSimplex2` `inv_d12` and `b2SolveSimplex3`
-  `inv_d12`, `inv_d13`, `inv_d23`, `inv_d123`)
+  `inv_d12`, `inv_d13`, `inv_d23`, `inv_d123`; src/distance.c
+  `b2ShapeDistance` `0.1f * B2_LINEAR_SLOP`, `b2ShapeCast` and
+  `b2TimeOfImpact` `0.25f * B2_LINEAR_SLOP`; src/world.c
+  `b2World_OverlapShape` `0.1f * B2_LINEAR_SLOP`; src/manifold.c
+  `b2CollideChainSegmentAndPolygon` `0.1f * B2_LINEAR_SLOP`; src/joint.c
+  `b2PrepareJointsTask` `0.25f * context->inv_h`; the prepare of each
+  joint file, the `axialMass`, `perpMass`, `motorMass` and `angularMass`
+  reciprocals)
 - Tier: T2
 - Reason: a Q32.32 reciprocal keeps only the leading bits of a large value.
   Multiplying by it discards the precision that a division keeps.
@@ -141,7 +163,14 @@ Numbering is sequential from `D-001` and never reused.
   zero mass scale, because the reference divides by that scale and a Q
   division by zero panics. The simplex solvers divide each barycentric
   weight by its denominator; the denominator is exactly positive on the
-  branch that reaches it.
+  branch that reaches it. The slop fractions of the distance queries are
+  divisions as well: `ShapeDistance` divides the slop by ten for its radius
+  guard, `ShapeCast` and `TimeOfImpact` divide it by four for their
+  tolerance, and `OverlapShape` and `CollideChainSegmentAndPolygon` divide
+  it by ten. The joint prepare divides the sub-step rate by four for the
+  frequency clamp. The effective masses of a joint follow the contact
+  point: the prepare divides one by the denominator once, guarded by an
+  exact test against zero, and the stages read the stored mass.
 - Test: TestSolve22SolvesTheSystem, TestNormalizeKeepsAShortVector and
   TestNormalizeRotKeepsAZeroRotation in math_test.go,
   TestAABBRayCastHitsTheNearFace in aabb_test.go,
@@ -150,8 +179,9 @@ Numbering is sequential from `D-001` and never reused.
   TestStepAppliesDampingByDivision in step_test.go, and
   TestMakeSoftSplitsTheUnit and TestPrepareOverflowContactsBuildsTheMasses
   in contact_solver_test.go, TestStepKeepsAZeroContactFrequencyFinite
-  in step_test.go, and TestShapeDistanceMatchesHandCases in
-  distance_test.go
+  in step_test.go, TestShapeDistanceMatchesHandCases in
+  distance_test.go, TestRevoluteHoldsTheAnchor in revolute_joint_test.go,
+  and TestWheelLineHoldsTheBox in wheel_joint_test.go
 
 ### D-007 The normalization tolerance is in raw units
 
@@ -185,17 +215,23 @@ Numbering is sequential from `D-001` and never reused.
 
 ### D-009 An infinite sentinel becomes the largest representable value
 
-- Files: aabb.go, hull.go, manifold.go, dynamic_tree.go (upstream
+- Files: aabb.go, hull.go, manifold.go, dynamic_tree.go, types.go (upstream
   src/aabb.c `b2AABB_RayCast`, src/hull.c `b2ComputeHull`, src/manifold.c
   `b2CollidePolygonAndCircle`, `b2FindMaxSeparation` and `b2CollidePolygons`
-  search seeds, src/dynamic_tree.c `b2FindBestSibling` lower bounds and
-  `b2PartitionSAH` bin bounds and cost seed)
+  search seeds, `b2CollideChainSegmentAndPolygon` SAT seeds
+  `edgeSeparation`, `s0`, `s2` (`FLT_MAX` at lines 1525, 1540, 1563) and
+  `polygonSeparation` (`-FLT_MAX` at line 1585), src/dynamic_tree.c `b2FindBestSibling` lower bounds and
+  `b2PartitionSAH` bin bounds and cost seed; src/types.c
+  `b2DefaultDistanceJointDef` `maxLength`)
 - Tier: T2
 - Reason: the reference seeds a search with `FLT_MAX`, which no coordinate
   reaches. Q32.32 has no infinity and it saturates instead.
 - Behaviour: the seeds are the largest and the smallest representable values.
   Those values sit outside the valid input range: `IsValidQ` rejects a
-  coordinate that equals either seed.
+  coordinate that equals either seed. The default `MaxLength` of a distance
+  joint is `huge`, the `B2_HUGE` of the reference: a length that no world
+  reaches and that the range checks accept, so the rope stays slack until
+  a definition lowers it.
 - Test: TestAABBRayCastHitsTheNearFace in aabb_test.go,
   TestComputeHullDropsAnInteriorPoint in hull_test.go, and
   TestTreeSeedNeverWins in dynamic_tree_test.go
@@ -252,7 +288,12 @@ Numbering is sequential from `D-001` and never reused.
   to split on the next step while no body or contact field shows it; the
   island id itself stays out. The witness contains a real contact that the
   step itself detects and solves, and re-baselines in the same commit that
-  grows the fold or changes the solved state.
+  grows the fold or changes the solved state. The joints entered the fold
+  with their storage: the world folds the joint count and a wrapping sum
+  over the joints, each joint by the canonical state of its two bodies,
+  its type and its solver data. The witness rebased once in that commit
+  because the count entered the hash; the joint solvers did not move it,
+  since the witness world has no joint.
 - Test: TestChecksumIsOrderIndependent,
   TestChecksumContactsIgnoreCreationOrder, TestChecksumSeesContactState,
   TestChecksumSeesAStateChange, TestChecksumSeesFutureBehaviour,

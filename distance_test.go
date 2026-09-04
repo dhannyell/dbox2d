@@ -639,3 +639,39 @@ func TestIterativeGeometryRejectsInvalidInput(t *testing.T) {
 		expectPanic(t, func() { dbox2d.TimeOfImpact(&input) })
 	})
 }
+
+// TestShapeCastNeverPanicsOnAGrid sweeps a rounded box against a fixed
+// box from a grid of starts in four directions. The cast must return a
+// fraction in [0, 1] and must not panic on any start.
+func TestShapeCastNeverPanicsOnAGrid(t *testing.T) {
+	one := fixed.Q32One()
+	rounded := dbox2d.MakeRoundedBox(one, one, fixed.Q32FromRatio(1, 10))
+	fixedBox := dbox2d.MakeBox(one, one)
+	proxyA := dbox2d.MakeProxy(fixedBox.Vertices[:fixedBox.Count], fixedBox.Radius)
+	proxyB := dbox2d.MakeProxy(rounded.Vertices[:rounded.Count], rounded.Radius)
+
+	directions := []dbox2d.Vec2{vec(10, 0), vec(-10, 0), vec(0, 10), vec(0, -10)}
+	step := fixed.Q32FromRatio(3, 10)
+	for i := range 21 {
+		for j := range 21 {
+			start := dbox2d.Vec2{
+				X: fixed.Q32FromInt(-3).Add(step.Mul(fixed.Q32FromInt(i))),
+				Y: fixed.Q32FromInt(-3).Add(step.Mul(fixed.Q32FromInt(j))),
+			}
+			for _, direction := range directions {
+				input := dbox2d.ShapeCastPairInput{
+					ProxyA:       proxyA,
+					ProxyB:       proxyB,
+					TransformA:   dbox2d.TransformIdentity(),
+					TransformB:   dbox2d.Transform{P: start, Q: dbox2d.RotIdentity()},
+					TranslationB: direction,
+					MaxFraction:  one,
+				}
+				out := dbox2d.ShapeCast(&input)
+				if out.Fraction.Less(fixed.Q32Zero()) || one.Less(out.Fraction) {
+					t.Fatalf("start %v direction %v: fraction %v", start, direction, out.Fraction)
+				}
+			}
+		}
+	}
+}

@@ -140,6 +140,13 @@ func getBodyTransformQuick(w *world, b *body) Transform {
 	return set.bodySims[b.localIndex].transform
 }
 
+// getBodyTransform returns the transform of a body by raw id. It corresponds
+// to b2GetBodyTransform in src/body.c.
+func getBodyTransform(w *world, bodyId int) Transform {
+	b := &w.bodies[bodyId]
+	return getBodyTransformQuick(w, b)
+}
+
 // makeBodyId builds a BodyId from a raw id.
 func makeBodyId(w *world, bodyId int) BodyId {
 	b := &w.bodies[bodyId]
@@ -306,8 +313,20 @@ func DestroyBody(bodyId BodyId) {
 	// Wake bodies attached to this body, even if this body is static.
 	wakeBodies := true
 
-	// Deferred: the joints attached to the body go away here.
+	// Destroy the attached joints
+	edgeKey := b.headJointKey
+	for edgeKey != nullIndex {
+		jointId := edgeKey >> 1
+		edgeIndex := edgeKey & 1
 
+		j := &w.joints[jointId]
+		edgeKey = j.edges[edgeIndex].nextKey
+
+		// Careful because this modifies the list being traversed
+		destroyJointInternal(w, j, wakeBodies)
+	}
+
+	// Destroy all contacts attached to this body.
 	destroyBodyContacts(w, b, wakeBodies)
 
 	// Destroy the attached shapes. Deferred: their sensor records.
@@ -595,9 +614,28 @@ func shouldBodiesCollide(w *world, bodyA, bodyB *body) bool {
 		return false
 	}
 
-	// Deferred: the joints of the reference; a joint with collideConnected
-	// false rejects the pair.
-	_ = w
+	var jointKey int
+	var otherBodyId int
+	if bodyA.jointCount < bodyB.jointCount {
+		jointKey = bodyA.headJointKey
+		otherBodyId = bodyB.id
+	} else {
+		jointKey = bodyB.headJointKey
+		otherBodyId = bodyA.id
+	}
+
+	for jointKey != nullIndex {
+		jointId := jointKey >> 1
+		edgeIndex := jointKey & 1
+		otherEdgeIndex := edgeIndex ^ 1
+
+		j := &w.joints[jointId]
+		if !j.collideConnected && j.edges[otherEdgeIndex].bodyId == otherBodyId {
+			return false
+		}
+
+		jointKey = j.edges[edgeIndex].nextKey
+	}
 
 	return true
 }

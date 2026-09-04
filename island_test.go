@@ -184,3 +184,164 @@ func TestDestroyContactLeavesTheIsland(t *testing.T) {
 	validateIsland(w, islandId)
 	validateSolverSets(w)
 }
+
+// linkHandJoint builds a filter joint by hand between two bodies, wires it
+// into the body lists and the graph, and links it into the island graph.
+// The creation path lands with the joint API; the test needs only the
+// bookkeeping.
+func linkHandJoint(t *testing.T, w *world, idA, idB BodyId) *joint {
+	t.Helper()
+	bodyA := getBodyFullId(w, idA)
+	bodyB := getBodyFullId(w, idB)
+
+	jointId := w.jointIdPool.allocId()
+	if jointId == len(w.joints) {
+		w.joints = append(w.joints, joint{})
+	}
+	j := &w.joints[jointId]
+	*j = joint{
+		jointId:    jointId,
+		setIndex:   awakeSet,
+		colorIndex: nullIndex,
+		localIndex: nullIndex,
+		islandId:   nullIndex,
+		islandPrev: nullIndex,
+		islandNext: nullIndex,
+		jointType:  FilterJoint,
+	}
+
+	j.edges[0] = jointEdge{bodyId: bodyA.id, prevKey: nullIndex, nextKey: bodyA.headJointKey}
+	keyA := jointId << 1
+	if bodyA.headJointKey != nullIndex {
+		head := &w.joints[bodyA.headJointKey>>1]
+		head.edges[bodyA.headJointKey&1].prevKey = keyA
+	}
+	bodyA.headJointKey = keyA
+	bodyA.jointCount += 1
+
+	j.edges[1] = jointEdge{bodyId: bodyB.id, prevKey: nullIndex, nextKey: bodyB.headJointKey}
+	keyB := jointId<<1 | 1
+	if bodyB.headJointKey != nullIndex {
+		head := &w.joints[bodyB.headJointKey>>1]
+		head.edges[bodyB.headJointKey&1].prevKey = keyB
+	}
+	bodyB.headJointKey = keyB
+	bodyB.jointCount += 1
+
+	js := createJointInGraph(w, j)
+	js.jointId = jointId
+	js.bodyIdA = bodyA.id
+	js.bodyIdB = bodyB.id
+	js.jointType = FilterJoint
+
+	linkJoint(w, j, true)
+	return j
+}
+
+// TestLinkJointJoinsIslands pins the joint rule: a joint merges the
+// islands of its bodies at once, and a joint to a static body stays in
+// the island of the dynamic body.
+func TestLinkJointJoinsIslands(t *testing.T) {
+	worldId := createTestWorld(t)
+	w := getWorldFromId(worldId)
+
+	idA := addDynamicCircle(t, worldId, v2(0, 0))
+	idB := addDynamicCircle(t, worldId, v2(1, 0))
+	groundDef := DefaultBodyDef()
+	groundId := CreateBody(worldId, &groundDef)
+	bodyA := getBodyFullId(w, idA)
+	bodyB := getBodyFullId(w, idB)
+
+	jAB := linkHandJoint(t, w, idA, idB)
+	if bodyA.islandId != bodyB.islandId {
+		t.Fatalf("A and B stay apart: islands %d and %d", bodyA.islandId, bodyB.islandId)
+	}
+	if jAB.islandId != bodyA.islandId {
+		t.Errorf("the joint sits in island %d, want %d", jAB.islandId, bodyA.islandId)
+	}
+
+	jGA := linkHandJoint(t, w, groundId, idA)
+	isl := &w.islands[bodyA.islandId]
+	if isl.jointCount != 2 || isl.headJoint != jGA.jointId || isl.tailJoint != jAB.jointId {
+		t.Errorf("the island lists %d joints with head %d and tail %d", isl.jointCount, isl.headJoint, isl.tailJoint)
+	}
+	if w.islandIdPool.idCount() != 1 {
+		t.Errorf("%d islands survive the merge, want 1", w.islandIdPool.idCount())
+	}
+	validateIsland(w, bodyA.islandId)
+	validateConnectivity(w)
+	validateSolverSets(w)
+}
+
+// TestUnlinkJointSplitsTheIsland pins the split over joints: an unlinked
+// joint counts as a removed constraint, and the search follows the joints
+// that remain.
+func TestUnlinkJointSplitsTheIsland(t *testing.T) {
+	worldId := createTestWorld(t)
+	w := getWorldFromId(worldId)
+
+	idA := addDynamicCircle(t, worldId, v2(0, 0))
+	idB := addDynamicCircle(t, worldId, v2(1, 0))
+	idC := addDynamicCircle(t, worldId, v2(2, 0))
+	bodyA := getBodyFullId(w, idA)
+	bodyB := getBodyFullId(w, idB)
+	bodyC := getBodyFullId(w, idC)
+
+	jAB := linkHandJoint(t, w, idA, idB)
+	jBC := linkHandJoint(t, w, idB, idC)
+	baseId := bodyA.islandId
+
+	unlinkJoint(w, jBC)
+	isl := &w.islands[baseId]
+	if isl.constraintRemoveCount != 1 || isl.jointCount != 1 {
+		t.Fatalf("the unlink left %d removed and %d live joints, want 1 and 1", isl.constraintRemoveCount, isl.jointCount)
+	}
+	validateIsland(w, baseId)
+
+	// The split walks the body joint lists, so the unlinked joint leaves
+	// them first.
+	removeHandJointEdges(w, jBC)
+
+	splitIsland(w, baseId)
+
+	if w.islandIdPool.idCount() != 2 {
+		t.Fatalf("%d islands survive the split, want 2", w.islandIdPool.idCount())
+	}
+	if bodyA.islandId != bodyB.islandId {
+		t.Errorf("A and B split apart: islands %d and %d", bodyA.islandId, bodyB.islandId)
+	}
+	if bodyC.islandId == bodyA.islandId {
+		t.Errorf("C stays in the island of A")
+	}
+	if jAB.islandId != bodyA.islandId {
+		t.Errorf("the joint A-B sits in island %d, want %d", jAB.islandId, bodyA.islandId)
+	}
+	validateIsland(w, bodyA.islandId)
+	validateIsland(w, bodyC.islandId)
+}
+
+// removeHandJointEdges takes a hand-built joint out of the body lists,
+// the graph and the pool.
+func removeHandJointEdges(w *world, j *joint) {
+	for edgeIndex := range 2 {
+		edge := &j.edges[edgeIndex]
+		b := &w.bodies[edge.bodyId]
+		key := j.jointId<<1 | edgeIndex
+		if edge.prevKey != nullIndex {
+			prev := &w.joints[edge.prevKey>>1]
+			prev.edges[edge.prevKey&1].nextKey = edge.nextKey
+		}
+		if edge.nextKey != nullIndex {
+			next := &w.joints[edge.nextKey>>1]
+			next.edges[edge.nextKey&1].prevKey = edge.prevKey
+		}
+		if b.headJointKey == key {
+			b.headJointKey = edge.nextKey
+		}
+		b.jointCount -= 1
+	}
+	removeJointFromGraph(w, j.edges[0].bodyId, j.edges[1].bodyId, j.colorIndex, j.localIndex)
+	w.jointIdPool.freeId(j.jointId)
+	j.jointId = nullIndex
+	j.setIndex = nullIndex
+}

@@ -599,8 +599,8 @@ func solve(w *world, context *stepContext) {
 
 		w.bodyMoveEvents = resizeMoveEvents(w.bodyMoveEvents, awakeBodyCount)
 
-		// Deferred: the contact pointers, the joints and the stage blocks
-		// serve the parallel executor.
+		// Deferred: the constraint pointers per color and the stage
+		// blocks serve the parallel executor.
 
 		// One contiguous scratch serves every color, as the SIMD scratch of
 		// the reference does.
@@ -617,8 +617,13 @@ func solve(w *world, context *stepContext) {
 		}
 
 		// The reference runs the overflow color first in each stage, then
-		// the active colors in order. Joint stages run beside each contact
-		// stage and wait for the joints.
+		// the active colors in order. In each stage the joints go before
+		// the contacts, as the joint stage of the reference finishes
+		// before the contact stage starts.
+		prepareJoints(context, overflowIndex)
+		for i := range overflowIndex {
+			prepareJoints(context, i)
+		}
 		prepareContacts(context, overflowIndex)
 		for i := range overflowIndex {
 			prepareContacts(context, i)
@@ -627,22 +632,28 @@ func solve(w *world, context *stepContext) {
 		for range context.subStepCount {
 			integrateVelocitiesTask(0, awakeBodyCount, context)
 
+			warmStartJoints(context, overflowIndex)
 			warmStartContacts(context, overflowIndex)
 			for i := range overflowIndex {
+				warmStartJoints(context, i)
 				warmStartContacts(context, i)
 			}
 
 			useBias := true
+			solveJoints(context, overflowIndex, useBias)
 			solveContacts(context, overflowIndex, useBias)
 			for i := range overflowIndex {
+				solveJoints(context, i, useBias)
 				solveContacts(context, i, useBias)
 			}
 
 			integratePositionsTask(0, awakeBodyCount, context)
 
 			useBias = false
+			solveJoints(context, overflowIndex, useBias)
 			solveContacts(context, overflowIndex, useBias)
 			for i := range overflowIndex {
+				solveJoints(context, i, useBias)
 				solveContacts(context, i, useBias)
 			}
 		}

@@ -214,3 +214,132 @@ func TestMergeSolverSetsMovesTheSmallerSet(t *testing.T) {
 	}
 	validateSolverSets(w)
 }
+
+// TestJointSleepsAndWakesWithTheIsland pins the joint sections of
+// trySleepIsland and wakeSolverSet: the joint sim leaves its color for the
+// sleeping set, the color frees the body bits, and the wake returns the
+// sim to a color.
+func TestJointSleepsAndWakesWithTheIsland(t *testing.T) {
+	worldDef := DefaultWorldDef()
+	worldDef.Gravity = Vec2Zero()
+	worldId := CreateWorld(&worldDef)
+	t.Cleanup(func() { DestroyWorld(worldId) })
+	w := getWorldFromId(worldId)
+
+	idA := addDynamicCircle(t, worldId, v2(0, 0))
+	idB := addDynamicCircle(t, worldId, v2(3, 0))
+	def := DefaultRevoluteJointDef()
+	def.BodyIdA, def.BodyIdB = idA, idB
+	jointId := CreateRevoluteJoint(worldId, &def)
+	j := getJointFullId(w, jointId)
+	bodyA := getBodyFullId(w, idA)
+	colorIndex := j.colorIndex
+
+	// The bodies rest; the island sleeps after timeToSleep.
+	dt := stepDt()
+	for range 40 {
+		Step(worldId, dt, 4)
+	}
+	sleepIndex := bodyA.setIndex
+	if sleepIndex < firstSleepingSet {
+		t.Fatalf("the island is in set %d, want a sleeping set", sleepIndex)
+	}
+	sleepSet := &w.solverSets[sleepIndex]
+	if j.setIndex != sleepIndex || j.colorIndex != nullIndex || j.localIndex != 0 {
+		t.Errorf("the joint is in set %d color %d at %d", j.setIndex, j.colorIndex, j.localIndex)
+	}
+	if len(sleepSet.jointSims) != 1 || sleepSet.jointSims[0].jointId != j.jointId {
+		t.Errorf("the sleeping set holds %d joints", len(sleepSet.jointSims))
+	}
+	color := &w.constraintGraph.colors[colorIndex]
+	if len(color.jointSims) != 0 || color.bodySet.getBit(bodyA.id) {
+		t.Errorf("color %d keeps the sleeping joint", colorIndex)
+	}
+	validateWorld(w)
+
+	wakeSolverSet(w, sleepIndex)
+	if j.setIndex != awakeSet || j.colorIndex == nullIndex {
+		t.Errorf("the woken joint is in set %d color %d", j.setIndex, j.colorIndex)
+	}
+	js := getJointSim(w, j)
+	if js.jointId != j.jointId || js.jointType != RevoluteJoint {
+		t.Errorf("the woken sim has id %d and type %d", js.jointId, js.jointType)
+	}
+	validateWorld(w)
+}
+
+// TestJointBetweenSleepingSetsMergesThem pins the joint section of
+// mergeSolverSets: a joint between two sleeping islands moves one set into
+// the other, and the joint sim lands in the merged set.
+func TestJointBetweenSleepingSetsMergesThem(t *testing.T) {
+	worldId := createTestWorld(t)
+	w := getWorldFromId(worldId)
+
+	idA1, _, set1 := sleepPair(t, w, worldId)
+	groundId := addStaticCircle(t, worldId, v2(0, -3))
+	holdDef := DefaultRevoluteJointDef()
+	holdDef.BodyIdA, holdDef.BodyIdB = groundId, idA1
+	holdId := CreateRevoluteJoint(worldId, &holdDef)
+
+	idA2 := addDynamicCircle(t, worldId, v2(5, 0))
+	bodyA2 := getBodyFullId(w, idA2)
+	trySleepIsland(w, bodyA2.islandId)
+	set2 := bodyA2.setIndex
+
+	def := DefaultDistanceJointDef()
+	def.BodyIdA, def.BodyIdB = idA1, idA2
+	jointId := CreateDistanceJoint(worldId, &def)
+
+	j := getJointFullId(w, jointId)
+	hold := getJointFullId(w, holdId)
+	bodyA1 := getBodyFullId(w, idA1)
+	if bodyA1.setIndex != bodyA2.setIndex || bodyA1.setIndex < firstSleepingSet {
+		t.Fatalf("the bodies are in sets %d and %d", bodyA1.setIndex, bodyA2.setIndex)
+	}
+	merged := &w.solverSets[bodyA1.setIndex]
+	if j.setIndex != bodyA1.setIndex || hold.setIndex != bodyA1.setIndex {
+		t.Errorf("the joints are in sets %d and %d, want %d", j.setIndex, hold.setIndex, bodyA1.setIndex)
+	}
+	if len(merged.jointSims) != 2 || merged.jointSims[j.localIndex].jointId != j.jointId || merged.jointSims[hold.localIndex].jointId != hold.jointId {
+		t.Errorf("the merged set holds %d joints with broken indices", len(merged.jointSims))
+	}
+	if w.solverSets[set1].setIndex == set1 && w.solverSets[set2].setIndex == set2 {
+		t.Errorf("both sets survive the merge")
+	}
+	validateWorld(w)
+}
+
+// TestTransferJointMovesBetweenSets pins transferJoint in both directions:
+// from a color into a set and back into a color.
+func TestTransferJointMovesBetweenSets(t *testing.T) {
+	worldId := createTestWorld(t)
+	w := getWorldFromId(worldId)
+
+	_, _, sleepIndex := sleepPair(t, w, worldId)
+	idA := addDynamicCircle(t, worldId, v2(5, 0))
+	idB := addDynamicCircle(t, worldId, v2(8, 0))
+	def := DefaultWeldJointDef()
+	def.BodyIdA, def.BodyIdB = idA, idB
+	jointId := CreateWeldJoint(worldId, &def)
+	j := getJointFullId(w, jointId)
+	colorIndex := j.colorIndex
+
+	awake := &w.solverSets[awakeSet]
+	sleepSet := &w.solverSets[sleepIndex]
+	transferJoint(w, sleepSet, awake, j)
+	if j.setIndex != sleepIndex || j.colorIndex != nullIndex || j.localIndex != 0 {
+		t.Fatalf("the joint is in set %d color %d at %d", j.setIndex, j.colorIndex, j.localIndex)
+	}
+	if len(sleepSet.jointSims) != 1 || len(w.constraintGraph.colors[colorIndex].jointSims) != 0 {
+		t.Errorf("the sim did not move")
+	}
+
+	transferJoint(w, awake, sleepSet, j)
+	if j.setIndex != awakeSet || j.colorIndex == nullIndex || len(sleepSet.jointSims) != 0 {
+		t.Fatalf("the joint is in set %d color %d", j.setIndex, j.colorIndex)
+	}
+	if getJointSim(w, j).jointId != j.jointId {
+		t.Errorf("the color sim has another id")
+	}
+	validateWorld(w)
+}

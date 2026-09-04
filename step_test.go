@@ -257,16 +257,23 @@ func TestStepTracksSleepTime(t *testing.T) {
 // TestStepAllocatesNothing pins the hot-path contract: after the first
 // step that activates a contact, a step allocates nothing. The first step
 // grows the graph colors, the arena and the event buffers once, as the
-// reference does. Sleep stays off so the contact keeps solving.
+// reference does. Sleep stays off so the contact and the joint keep
+// solving.
 func TestStepAllocatesNothing(t *testing.T) {
 	def := DefaultWorldDef()
 	def.EnableSleep = false
 	worldId := CreateWorld(&def)
 	t.Cleanup(func() { DestroyWorld(worldId) })
 	boxOnGround(t, worldId, fixed.Q32Zero())
+	var boxIds [8]BodyId
 	for i := range 8 {
-		addDynamicBox(t, worldId, v2(10+i*3, 0))
+		boxIds[i] = addDynamicBox(t, worldId, v2(10+i*3, 0))
 	}
+	jointDef := DefaultRevoluteJointDef()
+	jointDef.BodyIdA, jointDef.BodyIdB = boxIds[0], boxIds[1]
+	jointDef.LocalAnchorA = Vec2{X: fixed.Q32FromInt(2)}
+	jointDef.LocalAnchorB = Vec2{X: fixed.Q32FromInt(-1)}
+	CreateRevoluteJoint(worldId, &jointDef)
 	w := getWorldFromId(worldId)
 
 	dt := stepDt()
@@ -907,4 +914,355 @@ func TestStepBulletStopsAtADynamicPlate(t *testing.T) {
 			t.Fatalf("x %v, want past the plate", x)
 		}
 	})
+}
+
+// TestStepFastBodyCrossesAChainJunction pins the side test of the
+// continuous stage: a fast box that lands on a chain from above stops at
+// the floor, then slides across the junction of two collinear segments.
+// A wrong sign in the side test lets the box tunnel through the floor.
+func TestStepFastBodyCrossesAChainJunction(t *testing.T) {
+	worldId := continuousWorld(t, true)
+	w := getWorldFromId(worldId)
+
+	// The chain normal points to the right of p1->p2, so each floor
+	// segment runs from right to left to face up. The junction is x = 8.
+	groundDef := DefaultBodyDef()
+	groundId := CreateBody(worldId, &groundDef)
+	ground := getBodyFullId(w, groundId)
+	shapeDef := DefaultShapeDef()
+	xf := getBodyTransformQuick(w, ground)
+	right := ChainSegment{
+		Ghost1:  Vec2{X: fixed.Q32FromInt(30)},
+		Segment: Segment{Point1: Vec2{X: fixed.Q32FromInt(20)}, Point2: Vec2{X: fixed.Q32FromInt(8)}},
+		Ghost2:  Vec2{X: fixed.Q32FromInt(-10)},
+	}
+	left := ChainSegment{
+		Ghost1:  Vec2{X: fixed.Q32FromInt(20)},
+		Segment: Segment{Point1: Vec2{X: fixed.Q32FromInt(8)}, Point2: Vec2{X: fixed.Q32FromInt(-10)}},
+		Ghost2:  Vec2{X: fixed.Q32FromInt(-20)},
+	}
+	createShapeInternal(w, ground, xf, &shapeDef, &right, ChainSegmentShape)
+	createShapeInternal(w, ground, xf, &shapeDef, &left, ChainSegmentShape)
+
+	// The box has a half extent of 0.1. It crosses more than three metres
+	// and falls one metre per step, so it reaches the floor two metres
+	// before the junction.
+	bodyDef := DefaultBodyDef()
+	bodyDef.Type = DynamicBody
+	bodyDef.Position = Vec2{X: fixed.Q32FromInt(6), Y: fixed.Q32MustParse("0.6")}
+	bodyDef.LinearVelocity = v2(200, -60)
+	boxId := CreateBody(worldId, &bodyDef)
+	boxShape := MakeSquare(fixed.Q32FromRatio(1, 10))
+	CreatePolygonShape(boxId, &shapeDef, &boxShape)
+	box := getBodyFullId(w, boxId)
+
+	junction := fixed.Q32FromInt(8)
+	for range 3 {
+		Step(worldId, stepDt(), 4)
+		validateWorld(w)
+	}
+
+	if x := bodyX(worldId, boxId); !junction.Less(x) {
+		t.Fatalf("x %v, want past the junction at %v", x, junction)
+	}
+	if y := getBodyTransformQuick(w, box).P.Y; !fixed.Q32Zero().Less(y) {
+		t.Fatalf("y %v, want the box above the floor", y)
+	}
+	state := getBodyState(w, box)
+	if !fixed.Q32FromInt(100).Less(state.linearVelocity.X) {
+		t.Fatalf("velocity x %v, want the box still moving", state.linearVelocity.X)
+	}
+}
+
+// TestStepSwingsAPendulum pins the joint stages inside Step: a box on a
+// revolute joint one unit from a static pivot swings under gravity, the
+// arm keeps its length within two linear slops on every step, and no
+// operation saturates.
+func TestStepSwingsAPendulum(t *testing.T) {
+	worldId := createTestWorld(t)
+	w := getWorldFromId(worldId)
+
+	pivotDef := DefaultBodyDef()
+	pivotId := CreateBody(worldId, &pivotDef)
+
+	bobDef := DefaultBodyDef()
+	bobDef.Type = DynamicBody
+	bobDef.Position = Vec2{X: fixed.Q32One()}
+	bobId := CreateBody(worldId, &bobDef)
+	shapeDef := DefaultShapeDef()
+	bob := MakeSquare(fixed.Q32MustParse("0.1"))
+	CreatePolygonShape(bobId, &shapeDef, &bob)
+
+	def := DefaultRevoluteJointDef()
+	def.BodyIdA = pivotId
+	def.BodyIdB = bobId
+	def.LocalAnchorB = Vec2{X: fixed.Q32One().Neg()}
+	CreateRevoluteJoint(worldId, &def)
+
+	fixed.ResetSaturationCount()
+	body := getBodyFullId(w, bobId)
+	slack := linearSlop.Add(linearSlop)
+	one := fixed.Q32One()
+	lowest := fixed.Q32Zero()
+	dt := stepDt()
+	for i := range 120 {
+		Step(worldId, dt, 4)
+		center := getBodySim(w, body).center
+		arm := center.Len()
+		if !withinQ(arm, one, slack) {
+			t.Fatalf("step %d: the arm is %v long, want 1", i, arm)
+		}
+		lowest = lowest.Min(center.Y)
+	}
+	if !lowest.Less(fixed.Q32MustParse("-0.9")) {
+		t.Errorf("the bob only fell to y = %v", lowest)
+	}
+	if n := fixed.SaturationCount(); n != 0 {
+		t.Errorf("%d operations saturated", n)
+	}
+	validateWorld(w)
+}
+
+// TestStepPullsTheRopeTight pins the distance joint inside Step: two
+// circles two units apart on a rigid rope of length one converge to one
+// unit and no operation saturates.
+func TestStepPullsTheRopeTight(t *testing.T) {
+	worldDef := DefaultWorldDef()
+	worldDef.Gravity = Vec2Zero()
+	worldId := CreateWorld(&worldDef)
+	t.Cleanup(func() { DestroyWorld(worldId) })
+	w := getWorldFromId(worldId)
+
+	idA := addDynamicCircle(t, worldId, v2(0, 0))
+	idB := addDynamicCircle(t, worldId, v2(2, 0))
+	def := DefaultDistanceJointDef()
+	def.BodyIdA = idA
+	def.BodyIdB = idB
+	def.Length = fixed.Q32One()
+	CreateDistanceJoint(worldId, &def)
+
+	fixed.ResetSaturationCount()
+	bodyA := getBodyFullId(w, idA)
+	bodyB := getBodyFullId(w, idB)
+	dt := stepDt()
+	for range 60 {
+		Step(worldId, dt, 4)
+	}
+	gap := getBodySim(w, bodyB).center.Sub(getBodySim(w, bodyA).center).Len()
+	if !withinQ(gap, fixed.Q32One(), linearSlop.Add(linearSlop)) {
+		t.Errorf("the rope is %v long, want 1", gap)
+	}
+	if n := fixed.SaturationCount(); n != 0 {
+		t.Errorf("%d operations saturated", n)
+	}
+	validateWorld(w)
+}
+
+// TestStepSlidesToTheStop pins the prismatic joint inside Step: a box on
+// the x axis of a static ground, limited to [0, 1], slides under a lateral
+// gravity and stops at one, still on the axis, and no operation saturates.
+func TestStepSlidesToTheStop(t *testing.T) {
+	worldDef := DefaultWorldDef()
+	worldDef.Gravity = Vec2{X: fixed.Q32FromInt(10)}
+	worldId := CreateWorld(&worldDef)
+	t.Cleanup(func() { DestroyWorld(worldId) })
+	w := getWorldFromId(worldId)
+
+	groundDef := DefaultBodyDef()
+	groundId := CreateBody(worldId, &groundDef)
+	boxId := addDynamicCircle(t, worldId, v2(0, 0))
+
+	def := DefaultPrismaticJointDef()
+	def.BodyIdA = groundId
+	def.BodyIdB = boxId
+	def.EnableLimit = true
+	def.LowerTranslation = fixed.Q32Zero()
+	def.UpperTranslation = fixed.Q32One()
+	CreatePrismaticJoint(worldId, &def)
+
+	fixed.ResetSaturationCount()
+	body := getBodyFullId(w, boxId)
+	slack := linearSlop.Add(linearSlop)
+	dt := stepDt()
+	for range 120 {
+		Step(worldId, dt, 4)
+	}
+	center := getBodySim(w, body).center
+	if !withinQ(center.X, fixed.Q32One(), slack) || !withinQ(center.Y, fixed.Q32Zero(), slack) {
+		t.Errorf("the box rests at %v, want (1, 0)", center)
+	}
+	if n := fixed.SaturationCount(); n != 0 {
+		t.Errorf("%d operations saturated", n)
+	}
+	validateWorld(w)
+}
+
+// TestStepSettlesTheSuspension pins the wheel joint inside Step: a circle
+// half a unit above the ground origin, on a vertical spring of two hertz
+// without gravity, settles back onto the anchor within two linear slops,
+// and no operation saturates.
+func TestStepSettlesTheSuspension(t *testing.T) {
+	worldDef := DefaultWorldDef()
+	worldDef.Gravity = Vec2Zero()
+	worldId := CreateWorld(&worldDef)
+	t.Cleanup(func() { DestroyWorld(worldId) })
+	w := getWorldFromId(worldId)
+
+	groundDef := DefaultBodyDef()
+	groundId := CreateBody(worldId, &groundDef)
+	wheelId := addDynamicCircle(t, worldId, Vec2{Y: fixed.Q32Half()})
+
+	def := DefaultWheelJointDef()
+	def.BodyIdA = groundId
+	def.BodyIdB = wheelId
+	def.Hertz = fixed.Q32FromInt(2)
+	CreateWheelJoint(worldId, &def)
+
+	fixed.ResetSaturationCount()
+	body := getBodyFullId(w, wheelId)
+	slack := linearSlop.Add(linearSlop)
+	dt := stepDt()
+	for range 240 {
+		Step(worldId, dt, 4)
+	}
+	center := getBodySim(w, body).center
+	if !withinQ(center.X, fixed.Q32Zero(), slack) || !withinQ(center.Y, fixed.Q32Zero(), slack) {
+		t.Errorf("the wheel rests at %v, want (0, 0)", center)
+	}
+	if n := fixed.SaturationCount(); n != 0 {
+		t.Errorf("%d operations saturated", n)
+	}
+	validateWorld(w)
+}
+
+// TestStepWeldsTwoBoxes pins the weld joint inside Step: two small boxes
+// welded side by side fall together while the second one starts with a
+// spin. After 60 steps the relative angle is below 1e-4 turn, the centers
+// stay one unit apart within two linear slops, and no operation saturates.
+func TestStepWeldsTwoBoxes(t *testing.T) {
+	worldId := createTestWorld(t)
+	w := getWorldFromId(worldId)
+
+	makeBox := func(position Vec2) BodyId {
+		def := DefaultBodyDef()
+		def.Type = DynamicBody
+		def.Position = position
+		id := CreateBody(worldId, &def)
+		shapeDef := DefaultShapeDef()
+		box := MakeSquare(fixed.Q32MustParse("0.25"))
+		CreatePolygonShape(id, &shapeDef, &box)
+		return id
+	}
+	idA := makeBox(v2(0, 0))
+	idB := makeBox(v2(1, 0))
+
+	def := DefaultWeldJointDef()
+	def.BodyIdA = idA
+	def.BodyIdB = idB
+	def.LocalAnchorA = Vec2{X: fixed.Q32Half()}
+	def.LocalAnchorB = Vec2{X: fixed.Q32Half().Neg()}
+	CreateWeldJoint(worldId, &def)
+
+	bodyA := getBodyFullId(w, idA)
+	bodyB := getBodyFullId(w, idB)
+	getBodyState(w, bodyB).angularVelocity = fixed.Q32Half()
+
+	fixed.ResetSaturationCount()
+	dt := stepDt()
+	for range 60 {
+		Step(worldId, dt, 4)
+	}
+	simA := getBodySim(w, bodyA)
+	simB := getBodySim(w, bodyB)
+	angle := RelativeAngle(simB.transform.Q, simA.transform.Q).Abs()
+	if !angle.Less(fixed.Q32MustParse("0.0001")) {
+		t.Errorf("the relative angle is %v turn, want below 1e-4", angle)
+	}
+	gap := simB.center.Sub(simA.center).Len()
+	if !withinQ(gap, fixed.Q32One(), linearSlop.Add(linearSlop)) {
+		t.Errorf("the centers are %v apart, want 1", gap)
+	}
+	if n := fixed.SaturationCount(); n != 0 {
+		t.Errorf("%d operations saturated", n)
+	}
+	validateWorld(w)
+}
+
+// TestStepDrivesToTheOffset pins the motor joint inside Step: a circle on
+// a motor joint to the ground with the linear offset (1, 0) and the
+// default correction factor converges to x = 1 within two linear slops in
+// 120 steps, and no operation saturates.
+func TestStepDrivesToTheOffset(t *testing.T) {
+	worldDef := DefaultWorldDef()
+	worldDef.Gravity = Vec2Zero()
+	worldId := CreateWorld(&worldDef)
+	t.Cleanup(func() { DestroyWorld(worldId) })
+	w := getWorldFromId(worldId)
+
+	groundDef := DefaultBodyDef()
+	groundId := CreateBody(worldId, &groundDef)
+	circleId := addDynamicCircle(t, worldId, v2(0, 0))
+
+	def := DefaultMotorJointDef()
+	def.BodyIdA = groundId
+	def.BodyIdB = circleId
+	def.LinearOffset = Vec2{X: fixed.Q32One()}
+	def.MaxForce = fixed.Q32FromInt(1000)
+	def.MaxTorque = fixed.Q32FromInt(1000)
+	CreateMotorJoint(worldId, &def)
+
+	fixed.ResetSaturationCount()
+	body := getBodyFullId(w, circleId)
+	dt := stepDt()
+	for range 120 {
+		Step(worldId, dt, 4)
+	}
+	center := getBodySim(w, body).center
+	slack := linearSlop.Add(linearSlop)
+	if !withinQ(center.X, fixed.Q32One(), slack) || !withinQ(center.Y, fixed.Q32Zero(), slack) {
+		t.Errorf("the circle rests at %v, want (1, 0)", center)
+	}
+	if n := fixed.SaturationCount(); n != 0 {
+		t.Errorf("%d operations saturated", n)
+	}
+	validateWorld(w)
+}
+
+// TestStepDragsToTheTarget pins the mouse joint inside Step: a five hertz
+// mouse joint grabs a circle at its center, the target moves to (1, 0),
+// and the circle gets within 0.05 of it in 60 steps without saturation.
+func TestStepDragsToTheTarget(t *testing.T) {
+	worldDef := DefaultWorldDef()
+	worldDef.Gravity = Vec2Zero()
+	worldId := CreateWorld(&worldDef)
+	t.Cleanup(func() { DestroyWorld(worldId) })
+	w := getWorldFromId(worldId)
+
+	groundDef := DefaultBodyDef()
+	groundId := CreateBody(worldId, &groundDef)
+	circleId := addDynamicCircle(t, worldId, v2(0, 0))
+
+	def := DefaultMouseJointDef()
+	def.BodyIdA = groundId
+	def.BodyIdB = circleId
+	def.Hertz = fixed.Q32FromInt(5)
+	def.MaxForce = fixed.Q32FromInt(1000)
+	jointId := CreateMouseJoint(worldId, &def)
+	target := Vec2{X: fixed.Q32One()}
+	getJointSim(w, getJointFullId(w, jointId)).mouseJoint.targetA = target
+
+	fixed.ResetSaturationCount()
+	body := getBodyFullId(w, circleId)
+	dt := stepDt()
+	for range 60 {
+		Step(worldId, dt, 4)
+	}
+	center := getBodySim(w, body).center
+	if gap := center.Sub(target).Len(); !gap.Less(fixed.Q32MustParse("0.05")) {
+		t.Errorf("the circle rests at %v, %v from the target", center, gap)
+	}
+	if n := fixed.SaturationCount(); n != 0 {
+		t.Errorf("%d operations saturated", n)
+	}
+	validateWorld(w)
 }
