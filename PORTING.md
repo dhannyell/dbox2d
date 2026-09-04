@@ -61,7 +61,8 @@ instead shifts the result by one raw unit. Write `s.Neg().Mul(x)`.
 | `solver` | Soft Step, warm starting, relax, restitution, islands, coloring. |
 | `broadphase` | Dynamic tree, pair finding, and the second executor. |
 | `joints` | The seven joint solvers plus the filter joint, their solver stages, islands and colors. |
-| `later` | Sensors, character mover, worker tasks. |
+| `later` | Worker tasks. |
+| `surface` | The rest of the public surface: accessors, chains, sensors, the mover, explosions and the closure-based callbacks. |
 
 ## What the inventory found
 
@@ -142,9 +143,11 @@ D-009, and D-003 and D-006 grew new entries.
 
 - The distance, the time of impact and the character mover own their types.
   The distance and time of impact types landed with order 32. `PlaneResult`,
-  `CollisionPlane` and `PlaneSolverResult` wait for the mover.
-- `b2PointInPolygon` and the four `b2CollideMoverAnd` functions do not cross
-  yet; they wait for the mover. The shape casts landed with order 32.
+  `CollisionPlane` and `PlaneSolverResult` landed with the mover, order 34.
+- The four `b2CollideMoverAnd` functions landed with the mover, order 34.
+  `b2PointInPolygon` does not cross; `ShapeId.TestPoint` and the per-shape
+  point tests already cover its callers. The shape casts landed with
+  order 32.
 - `RayCastPolygon` ports the closed-form branch for a zero radius; the
   rounded branch calls the shape cast since order 32.
 - `B2_MAX_POLYGON_VERTICES` becomes `MaxPolygonVertices`. A shape keeps the
@@ -379,7 +382,8 @@ structs.
 - The hit events read the manifold after the impulse store and keep the
   points whose total normal impulse is positive.
 - The shape id of an event comes from the shape and its generation; the
-  sensor events and the pre-solve callback wait for their orders.
+  sensor events landed with order 34 in `sensor.go`, and the pre-solve
+  callback landed with order 34 as `WorldId.SetPreSolveCallback`.
 
 **Order 29 has landed**: `dynamic_tree.go` gains the node pool, the
 sibling search, the rotations, the leaf insert and remove, the proxy
@@ -425,8 +429,9 @@ pair set moves from the world to the broadphase. `shape.go` gains
   pair, so any tree with the same leaves creates the same contacts in the
   same order (D-013).
 - The sensor rule stays, because the shape carries its sensor index. The
-  custom filter callback and the joint loop of `b2ShouldBodiesCollide`
-  wait for their orders.
+  joint loop of `b2ShouldBodiesCollide` landed with the joints, order 33.
+  The custom filter callback landed with order 34 as
+  `WorldId.SetCustomFilterCallback`.
 - The world wiring landed with the broadphase: a shape creates its
   proxy on creation and destroys it on destruction, `Step` updates the
   pairs once the world locks, `collide` rebuilds the dynamic and the
@@ -516,8 +521,49 @@ of D-011 rebased once, when the joint storage entered the fold.
 - A float64 mirror of each solve runs beside it in the tests; the bound is
   1e-6 where no angle enters and 1e-5 or 1e-4 where the fixed atan2 does.
 - `getBodyTransform` lands in `body.go` for the force reports.
-- The public accessors, the debug draw and the dump of `joint.c` wait for
-  the surface.
+- The public accessors of `joint.c` landed with order 34. The debug draw
+  and the dump do not cross; see the surface note below.
+
+**Order 34 has landed with the surface**: the whole public surface of
+`box2d.h` is now ported. D-003, D-004, D-006, D-009, D-010, D-012 and
+D-014 grew entries.
+
+- `b2<Type>_<Name>(id, ...)` becomes the method `func (id <Type>Id)
+  <Name>(...)`, keeping the name whole with its `Get` or `Set`. Every
+  `WorldId`, `BodyId`, `ShapeId`, `ChainId` and `JointId` accessor of the
+  reference, including the per-joint-type ones, crosses this way.
+  `Create*`, `Destroy*`, `Default*Def` and `Make*` stay free functions:
+  they carry no handle in the reference name.
+- Chains land in `shape.go`: `CreateChain` builds the segment shapes of a
+  `ChainDef`, panicking below four points or on a material count that
+  matches neither one nor the point count, per D-003; the segment ids sit
+  in a `shapeIndices` slice per D-010.
+- Sensors land in `sensor.go`: the double-buffered overlap sets, the
+  begin and end touch events and `WorldId.GetSensorEvents`. The overlap
+  test is an exact zero distance, per D-012.
+- The mover lands in `mover.go`: `SolvePlanes`, `ClipVector`, the four
+  `CollideMoverAnd*` functions and `WorldId.CollideMover`, which takes a
+  `PlaneResultFcn` closure per D-014. The rigid push limit is `Huge`, not
+  `FLT_MAX`, per D-009.
+- The custom filter and pre-solve callbacks land on `WorldId`:
+  `SetCustomFilterCallback` and `SetPreSolveCallback` take closures per
+  D-014, filling the two points that order 30 and order 21 left marked.
+- `WorldId.Explode` lands with `ExplosionDef` and `DefaultExplosionDef`;
+  its falloff scale is a division per D-006, and its direction and
+  angular-impulse conversion follow D-012 and D-004.
+- `FrictionCallback` and `RestitutionCallback` land on `WorldId` beside
+  the friction callback that order 24 wired in; both drop the reference's
+  `void* context` per D-014.
+- Three deliberate cuts close the surface instead of crossing it:
+  `b2World_Draw` and `b2DebugDraw` do not cross, because rendering
+  belongs to the host, not the solver; `b2World_GetProfile` and
+  `b2Profile` do not cross, because the port carries no timers to report;
+  `b2World_DumpMemoryStats` does not cross, because the port has no
+  allocation hooks to walk. The `byteCount` and `taskCount` fields of
+  `b2Counters`, the task fields of `b2WorldDef`, and the `void* context`
+  parameter of every callback function type do not cross either: the
+  first two serve the task system that never crossed, and the callback
+  context is the job a Go closure already does, per D-014.
 
 ## The map
 
@@ -534,12 +580,12 @@ of D-011 rebased once, when the joint storage entered the fold.
 | `include/box2d/collision.h` | `collision.go` | T0 | foundation | 7 | Shape structs, manifold structs, cast input and output. |
 | `src/aabb.c` | `aabb.go` | T0/T2 | foundation | 7 | AABB ray cast, unexported: `src/aabb.h` declares it, `include/box2d/` does not. `IsValidAABB` landed with order 4. See D-006, D-008 and D-009. |
 | `src/hull.c` | `hull.go` | T0/T2 | foundation | 8 | Recursive quickhull. Its tolerances are multiples of the linear slop, so only the `FLT_MAX` seed diverged. See D-009. |
-| `src/geometry.c` | `geometry.go` | T0/T1/T2 | foundation | 9 | Shape constructors, mass data, AABB per shape, point tests, ray casts. The shape casts landed with order 32; the mover collisions wait for the mover. |
+| `src/geometry.c` | `geometry.go` | T0/T1/T2 | foundation | 9 | Shape constructors, mass data, AABB per shape, point tests, ray casts. The shape casts landed with order 32; the mover collisions landed with order 34. |
 | `include/box2d/types.h`, `src/types.c` | `types.go` | T1 | foundation | 10 | Definition structs and their defaults. |
 | `src/body.h`, `src/body.c` | `body.go` | T0/T2 | foundation | 11 | `body`, `bodySim`, `bodyState`, unexported: `src/body.h` declares them. Layout preserved. The mass update scales the angular velocity by one turn; see D-004. The island hooks landed with order 25; the body events landed with order 28; the proxy destroy and the body collision rule landed with order 30; `makeSweep` landed with order 32. |
-| `src/shape.h`, `src/shape.c` | `shape.go` | T0 | foundation | 12 | Shape storage and the mass, AABB, centroid and extent dispatchers. The proxies and the filter rules landed with order 30; the ray cast dispatcher landed with the public queries. The shape cast dispatcher and the distance proxy landed with order 32. The sensors and chains wait for their stages. |
+| `src/shape.h`, `src/shape.c` | `shape.go` | T0/T2 | foundation | 12 | Shape storage and the mass, AABB, centroid and extent dispatchers. The proxies and the filter rules landed with order 30; the ray cast dispatcher landed with the public queries. The shape cast dispatcher and the distance proxy landed with order 32. The sensors and chains landed with order 34; see D-003, D-010 and D-012. |
 | `src/solver_set.h`, `src/solver_set.c` | `solver_set.go` | T0 | foundation | 13 | Static, awake, disabled and sleeping sets; body transfer, wake, sleep and set merge. The joint arrays and transfers landed with order 33. |
-| `src/world.h`, `src/world.c` | `world.go` | T0 | foundation | 14 | Split across stages. The foundation takes the registry, creation, destruction, the validity checks and the trimmed set validation. `b2World_Step` landed with order 16 in `step.go`; the events landed with order 28; the broadphase and the enlarged body bit set landed with order 30; `OverlapAABB` and `CastRay` landed with the public queries. `OverlapShape`, `CastShape`, `CastMover` and `CastRayClosest` landed with order 32. |
+| `src/world.h`, `src/world.c` | `world.go` | T0/T2 | foundation | 14 | Split across stages. The foundation takes the registry, creation, destruction, the validity checks and the trimmed set validation. `b2World_Step` landed with order 16 in `step.go`; the events landed with order 28; the broadphase and the enlarged body bit set landed with order 30; `OverlapAABB` and `CastRay` landed with the public queries. `OverlapShape`, `CastShape`, `CastMover` and `CastRayClosest` landed with order 32. `Explode`, `SetCustomFilterCallback`, `SetPreSolveCallback`, `SetRestitutionCallback` and `CollideMover` landed with order 34; `b2World_Draw`, `b2World_GetProfile` and `b2World_DumpMemoryStats` do not cross. See D-004, D-006, D-012 and D-014. |
 | `src/array.h`, `src/array.c` | `array.go` | T2 | foundation | 15 | The macro-generated array template becomes a Go slice; `removeSwap` keeps the swap-remove contract. Capacity follows the Go runtime and never enters a result. See D-010. |
 | `src/world.c` (`b2World_Step`), `src/solver.h` (`b2StepContext`) | `step.go` | T1/T2 | foundation | 16 | The step surface: validation, the context, the sub-step split, the locked flag. Assertions become panics per D-003. The softness setup landed with order 24; the collide block and the events landed with order 28; the pair update and the tree rebuild landed with order 30; the bullet buffer landed with order 32. |
 | — | `checksum.go` | T2 | foundation | 17 | Port-only determinism witness over the complete canonical world state, commutative over bodies and shapes. See D-011. |
@@ -557,12 +603,12 @@ of D-011 rebased once, when the joint storage entered the fold.
 | `src/dynamic_tree.c` | `dynamic_tree.go` | T0/T2 | broadphase | 29 | Landed. Fattened AABBs, surface-area heuristic, rotation rebalance, box query, ray cast, shape cast, partial rebuild. See D-009 and D-014. |
 | `src/broad_phase.h`, `src/broad_phase.c` | `broad_phase.go` | T0/T2 | broadphase | 30 | Landed. Three trees, the move buffer, the pair query and the pair set. The pair list of each moved proxy is sorted by shape id, so any equivalent tree gives the same world. See D-010 and D-013. |
 | `src/atomic.h` | `sync/atomic` | T2 | broadphase | 31 | Needed only when a second executor exists. The pair index of the broadphase is the length of the pair slice for one worker. |
-| `include/box2d/box2d.h` | public API | T0 | all stages | — | The public surface arrives file by file with its owner. |
-| `src/joint.h`, `src/joint.c` | `joint.go` | T0/T2 | joints | 33 | Landed. Types, definitions, storage, creation, destruction, the island and graph hooks, the set transfers and the prepare, warm start and solve dispatch. Accessors, debug draw and dump wait for the surface. See D-003, D-004 and D-006. |
-| `src/distance_joint.c`, `src/motor_joint.c`, `src/mouse_joint.c`, `src/prismatic_joint.c`, `src/revolute_joint.c`, `src/weld_joint.c`, `src/wheel_joint.c` | one file each | T0/T2 | joints | 33 | Landed. Force and torque reports, prepare, warm start and solve of each type; the filter joint has no solver. Accessors, debug draw and dump wait for the surface. See D-004, D-006 and D-009. |
+| `include/box2d/box2d.h` | public API | T0/T2 | all stages | 34 | Landed. The whole 3.1.1 surface is ported except draw, profile and dump; see the surface note above and D-014. |
+| `src/joint.h`, `src/joint.c` | `joint.go` | T0/T2 | joints | 33 | Landed. Types, definitions, storage, creation, destruction, the island and graph hooks, the set transfers and the prepare, warm start and solve dispatch. Accessors landed with order 34; debug draw and dump do not cross. See D-003, D-004 and D-006. |
+| `src/distance_joint.c`, `src/motor_joint.c`, `src/mouse_joint.c`, `src/prismatic_joint.c`, `src/revolute_joint.c`, `src/weld_joint.c`, `src/wheel_joint.c` | one file each | T0/T2 | joints | 33 | Landed. Force and torque reports, prepare, warm start and solve of each type; the filter joint has no solver. Accessors landed with order 34; debug draw and dump do not cross. See D-004, D-006 and D-009. |
 | `src/distance.c` (simplex solver, shape cast, time of impact), `src/solver.c` (continuous stage) | `distance.go`, `solver.go` | T0/T2 | manifolds | 32 | Landed. The only iterative geometry in the library. Each stopping criterion keeps its form; the tests pin the iteration bounds, a float64 mirror and a bit witness. |
-| `src/sensor.h`, `src/sensor.c` | `sensor.go` | T3 | later | — | Sensor overlap events. |
-| `src/mover.c` | `mover.go` | T3 | later | — | Character movement helpers, built on shape casts. |
+| `src/sensor.h`, `src/sensor.c` | `sensor.go` | T0/T2 | surface | 34 | Landed. Double-buffered overlap sets, begin and end touch events, `WorldId.GetSensorEvents`. The overlap test is an exact zero distance; see D-012. |
+| `src/mover.c` | `mover.go` | T0/T2 | surface | 34 | Landed. `SolvePlanes`, `ClipVector`, the four `CollideMoverAnd*` functions and `WorldId.CollideMover`. The rigid push limit is `Huge`, not `FLT_MAX`; see D-009 and D-014. |
 | `src/timer.c` | dropped | T2 | — | — | Platform timers serve profiling. Timing never enters a deterministic result. |
 | `src/CMakeLists.txt`, `src/box2d.natvis` | none | — | — | — | Build system and debugger visualizers do not apply. |
 

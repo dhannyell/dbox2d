@@ -262,7 +262,14 @@ func (ctx *queryPairContext) pairQueryCallback(proxyId int, userData uint64) boo
 		return true
 	}
 
-	// Deferred: the custom filter callback of the reference.
+	// Custom user filter
+	if w.customFilterFcn != nil {
+		idA := ShapeId{index1: int32(shapeA.id) + 1, world0: w.worldId, generation: shapeA.generation}
+		idB := ShapeId{index1: int32(shapeB.id) + 1, world0: w.worldId, generation: shapeB.generation}
+		if !w.customFilterFcn(idA, idB) {
+			return true
+		}
+	}
 
 	// D-010: the arena slice grows by append when the sixteen pairs per
 	// moved proxy run out; the reference takes those from the heap.

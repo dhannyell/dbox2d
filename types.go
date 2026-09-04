@@ -40,8 +40,13 @@ type WorldDef struct {
 	// Maximum linear speed, usually in meters per second.
 	MaximumLinearSpeed Q
 
-	// Deferred: the mixing callbacks and the task system fields of the
-	// reference.
+	// FrictionCallback customizes friction mixing for new contacts.
+	FrictionCallback FrictionCallback
+
+	// RestitutionCallback customizes restitution mixing for new contacts.
+	RestitutionCallback RestitutionCallback
+
+	// Deferred: the task system fields of the reference.
 
 	// Enable sleeping to improve performance.
 	EnableSleep bool
@@ -55,6 +60,26 @@ type WorldDef struct {
 	// internalValue proves that DefaultWorldDef ran. upstream internalValue
 	internalValue int
 }
+
+// Counters reports world sizes and solver storage usage for diagnostics.
+type Counters struct {
+	BodyCount, ShapeCount, ContactCount, JointCount, IslandCount, StackUsed, StaticTreeHeight, TreeHeight int
+	ColorCounts                                                                                           [graphColorCount]int
+}
+
+// FrictionCallback mixes the friction values of two shapes.
+type FrictionCallback func(frictionA Q, userMaterialIdA int, frictionB Q, userMaterialIdB int) Q
+
+// RestitutionCallback mixes the restitution values of two shapes.
+type RestitutionCallback func(restitutionA Q, userMaterialIdA int, restitutionB Q, userMaterialIdB int) Q
+
+// CustomFilterFcn decides whether two shapes may collide. It corresponds to
+// b2CustomFilterFcn; return false to reject the pair.
+type CustomFilterFcn func(shapeIdA, shapeIdB ShapeId) bool
+
+// PreSolveFcn inspects a contact manifold before the solver runs. It
+// corresponds to b2PreSolveFcn; return false to disable the contact this step.
+type PreSolveFcn func(shapeIdA, shapeIdB ShapeId, manifold *Manifold) bool
 
 // DefaultWorldDef returns the default world definition.
 func DefaultWorldDef() WorldDef {
@@ -212,6 +237,26 @@ func DefaultQueryFilter() QueryFilter {
 	return QueryFilter{CategoryBits: DefaultCategoryBits, MaskBits: DefaultMaskBits}
 }
 
+// ExplosionDef configures an explosion. It corresponds to b2ExplosionDef in
+// include/box2d/types.h.
+type ExplosionDef struct {
+	// MaskBits filters the shapes the explosion reaches.
+	MaskBits uint64
+
+	// Position is the center of the explosion in world space.
+	Position Vec2
+
+	// Radius is the full-impulse radius of the explosion.
+	Radius Q
+
+	// Falloff is the distance beyond Radius where the impulse fades to zero.
+	Falloff Q
+
+	// ImpulsePerLength scales the impulse by the perimeter facing the
+	// explosion. It may be negative for an implosion.
+	ImpulsePerLength Q
+}
+
 // ShapeType identifies the geometry of a shape.
 type ShapeType int
 
@@ -280,8 +325,6 @@ type ShapeDef struct {
 	Filter Filter
 
 	// A sensor generates overlap events and never a collision response.
-	// Warning: sensors are not ported yet. Creating a shape with IsSensor set
-	// panics.
 	IsSensor bool
 
 	// Enable sensor events for this shape. False by default, even for
@@ -322,6 +365,53 @@ func DefaultShapeDef() ShapeDef {
 		UpdateBodyMass:        true,
 		internalValue:         secretCookie,
 	}
+}
+
+// ChainDef configures a chain shape. It corresponds to b2ChainDef.
+type ChainDef struct {
+	// Application data attached to the chain's segments.
+	UserData any
+
+	// An array of at least four points. The points are copied during creation.
+	Points []Vec2
+
+	// One material for every segment, or one material shared by all segments.
+	Materials []SurfaceMaterial
+
+	// Collision filtering data.
+	Filter Filter
+
+	// Enable sensors to detect this chain.
+	EnableSensorEvents bool
+
+	// Connect the last point back to the first point.
+	IsLoop bool
+
+	// internalValue proves that DefaultChainDef ran. upstream internalValue
+	internalValue int
+}
+
+// DefaultChainDef returns the default chain definition. It corresponds to
+// b2DefaultChainDef.
+func DefaultChainDef() ChainDef {
+	return ChainDef{
+		Materials:     []SurfaceMaterial{DefaultSurfaceMaterial()},
+		Filter:        DefaultFilter(),
+		internalValue: secretCookie,
+	}
+}
+
+// ContactData reports the manifold of a touching contact on a body. It
+// corresponds to b2ContactData in include/box2d/types.h.
+type ContactData struct {
+	// ShapeIdA is the first shape in the contact.
+	ShapeIdA ShapeId
+
+	// ShapeIdB is the second shape in the contact.
+	ShapeIdB ShapeId
+
+	// Manifold is the current contact manifold.
+	Manifold Manifold
 }
 
 // ContactBeginTouchEvent reports that two shapes started to touch.
@@ -378,6 +468,26 @@ type ContactEvents struct {
 	HitEvents   []ContactHitEvent
 }
 
+// SensorBeginTouchEvent reports that a shape started to overlap a sensor.
+// It corresponds to b2SensorBeginTouchEvent in include/box2d/types.h.
+type SensorBeginTouchEvent struct {
+	SensorShapeId, VisitorShapeId ShapeId
+}
+
+// SensorEndTouchEvent reports that a shape stopped overlapping a sensor.
+// It corresponds to b2SensorEndTouchEvent in include/box2d/types.h.
+type SensorEndTouchEvent struct {
+	SensorShapeId, VisitorShapeId ShapeId
+}
+
+// SensorEvents holds the sensor events of the last step. The slices stay
+// valid until the next step. It corresponds to b2SensorEvents in
+// include/box2d/types.h.
+type SensorEvents struct {
+	BeginEvents []SensorBeginTouchEvent
+	EndEvents   []SensorEndTouchEvent
+}
+
 // BodyMoveEvent reports a body that the simulation moved. A body that the
 // user moves does not report one. FellAsleep tells the application that
 // it can sleep the object of the body. With sleep disabled, every dynamic
@@ -407,6 +517,12 @@ type OverlapResultFcn func(shapeId ShapeId) bool
 // 1 to continue. It corresponds to b2CastResultFcn in
 // include/box2d/types.h; the closure carries the context.
 type CastResultFcn func(shapeId ShapeId, point, normal Vec2, fraction Q) Q
+
+// PlaneResultFcn receives each collision plane a mover query finds.
+// Return true to keep gathering planes. It corresponds to
+// b2PlaneResultFcn in include/box2d/types.h; the closure carries the
+// context.
+type PlaneResultFcn func(shapeId ShapeId, result *PlaneResult) bool
 
 // RayResult is the answer of CastRayClosest. On an initial overlap the
 // fraction and the normal are zero and the point is an arbitrary point of
@@ -500,7 +616,7 @@ type DistanceJointDef struct {
 func DefaultDistanceJointDef() DistanceJointDef {
 	return DistanceJointDef{
 		Length:        fixed.Q32One(),
-		MaxLength:     huge,
+		MaxLength:     Huge,
 		internalValue: secretCookie,
 	}
 }

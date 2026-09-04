@@ -31,6 +31,82 @@ func v2(x, y int) Vec2 {
 	return Vec2{X: fixed.Q32FromInt(x), Y: fixed.Q32FromInt(y)}
 }
 
+func TestWorldAccessorsRoundTrip(t *testing.T) {
+	worldId := createTestWorld(t)
+	worldId.SetGravity(v2(3, -4))
+	worldId.SetRestitutionThreshold(fixed.Q32FromInt(2))
+	worldId.SetHitEventThreshold(fixed.Q32FromInt(3))
+	worldId.SetContactTuning(fixed.Q32FromInt(4), fixed.Q32Half(), fixed.Q32FromInt(5))
+	worldId.SetMaximumLinearSpeed(fixed.Q32FromInt(6))
+	worldId.SetUserData("world")
+	worldId.EnableSleeping(false)
+	worldId.EnableContinuous(false)
+	worldId.EnableWarmStarting(false)
+	worldId.EnableSpeculative(false)
+
+	checks := []struct {
+		name string
+		got  Q
+		want Q
+	}{
+		{"restitution threshold", worldId.GetRestitutionThreshold(), fixed.Q32FromInt(2)},
+		{"hit event threshold", worldId.GetHitEventThreshold(), fixed.Q32FromInt(3)},
+		{"maximum linear speed", worldId.GetMaximumLinearSpeed(), fixed.Q32FromInt(6)},
+	}
+	for _, check := range checks {
+		if !check.got.Eq(check.want) {
+			t.Errorf("%s = %v, want %v", check.name, check.got, check.want)
+		}
+	}
+	if got := worldId.GetGravity(); got != v2(3, -4) {
+		t.Errorf("gravity = %v, want %v", got, v2(3, -4))
+	}
+	if worldId.IsSleepingEnabled() || worldId.IsContinuousEnabled() || worldId.IsWarmStartingEnabled() {
+		t.Error("one of the boolean accessors remained enabled")
+	}
+	if got := worldId.GetUserData(); got != "world" {
+		t.Errorf("user data = %v, want world", got)
+	}
+}
+
+func TestWorldGetCounters(t *testing.T) {
+	worldId := createTestWorld(t)
+	bodyA := addDynamicBox(t, worldId, v2(0, 0))
+	bodyB := addDynamicBox(t, worldId, v2(1, 0))
+	addDynamicBox(t, worldId, v2(2, 0))
+
+	jointDef := DefaultDistanceJointDef()
+	jointDef.BodyIdA = bodyA
+	jointDef.BodyIdB = bodyB
+	CreateDistanceJoint(worldId, &jointDef)
+	worldId.Step(stepDt(), 4)
+
+	counters := worldId.GetCounters()
+	if counters.BodyCount == 0 || counters.ShapeCount == 0 || counters.JointCount == 0 || counters.ContactCount == 0 {
+		t.Fatalf("counters = %+v, want bodies, shapes, joints and contacts", counters)
+	}
+	if counters.IslandCount == 0 || counters.TreeHeight == 0 {
+		t.Fatalf("counters = %+v, want islands and a dynamic tree", counters)
+	}
+}
+
+func TestSetFrictionCallbackAffectsNextContact(t *testing.T) {
+	worldId := createTestWorld(t)
+	constant := fixed.Q32MustParse("0.75")
+	worldId.SetFrictionCallback(func(Q, int, Q, int) Q { return constant })
+	addDynamicCircle(t, worldId, v2(0, 0))
+	addDynamicCircle(t, worldId, v2(1, 0))
+	worldId.Step(stepDt(), 4)
+
+	w := getWorldFromId(worldId)
+	if len(w.contacts) == 0 {
+		t.Fatal("the overlapping circles created no contact")
+	}
+	if got := getContactSim(w, &w.contacts[0]).friction; !got.Eq(constant) {
+		t.Errorf("contact friction = %v, want %v", got, constant)
+	}
+}
+
 // TestIdReuseInvalidatesTheOldHandle pins the generation scheme: a destroyed
 // id never validates again, even after its slot is reused.
 func TestIdReuseInvalidatesTheOldHandle(t *testing.T) {
@@ -106,42 +182,6 @@ func TestIdReuseInvalidatesTheOldHandle(t *testing.T) {
 	})
 }
 
-// TestSensorRejectionLeavesBodyUnchanged guards the unsupported sensor path.
-// A recovered panic must not leave an unreachable shape attached to the body.
-func TestSensorRejectionLeavesBodyUnchanged(t *testing.T) {
-	worldId := createTestWorld(t)
-
-	bodyDef := DefaultBodyDef()
-	bodyId := CreateBody(worldId, &bodyDef)
-	w := getWorldFromId(worldId)
-
-	shapeDef := DefaultShapeDef()
-	shapeDef.IsSensor = true
-	circle := Circle{Radius: fixed.Q32One()}
-
-	panicked := false
-	func() {
-		defer func() {
-			panicked = recover() != nil
-		}()
-		CreateCircleShape(bodyId, &shapeDef, &circle)
-	}()
-
-	if !panicked {
-		t.Fatal("creating a sensor shape did not panic")
-	}
-	if got := bodyId.ShapeCount(); got != 0 {
-		t.Errorf("shape count after the panic = %d, want 0", got)
-	}
-	if got := w.shapeIdPool.idCount(); got != 0 {
-		t.Errorf("allocated shape ids after the panic = %d, want 0", got)
-	}
-	if got := len(w.shapes); got != 0 {
-		t.Errorf("shape slots after the panic = %d, want 0", got)
-	}
-	validateSolverSets(w)
-}
-
 // TestCreateAndDestroyOrdersProduceTheSameWorld builds the same survivors
 // through two different creation and destruction orders. Every observable of
 // each survivor must match, and both worlds must pass validation.
@@ -184,17 +224,17 @@ func TestCreateAndDestroyOrdersProduceTheSameWorld(t *testing.T) {
 		{"second survivor", b1, b2},
 	}
 	for _, pair := range pairs {
-		if pair.s1.Position() != pair.s2.Position() {
-			t.Errorf("%s: position %v, want %v", pair.name, pair.s2.Position(), pair.s1.Position())
+		if pair.s1.GetPosition() != pair.s2.GetPosition() {
+			t.Errorf("%s: position %v, want %v", pair.name, pair.s2.GetPosition(), pair.s1.GetPosition())
 		}
-		if pair.s1.Rotation() != pair.s2.Rotation() {
-			t.Errorf("%s: rotation %v, want %v", pair.name, pair.s2.Rotation(), pair.s1.Rotation())
+		if pair.s1.GetRotation() != pair.s2.GetRotation() {
+			t.Errorf("%s: rotation %v, want %v", pair.name, pair.s2.GetRotation(), pair.s1.GetRotation())
 		}
-		if !pair.s1.Mass().Eq(pair.s2.Mass()) {
-			t.Errorf("%s: mass %v, want %v", pair.name, pair.s2.Mass(), pair.s1.Mass())
+		if !pair.s1.GetMass().Eq(pair.s2.GetMass()) {
+			t.Errorf("%s: mass %v, want %v", pair.name, pair.s2.GetMass(), pair.s1.GetMass())
 		}
-		if pair.s1.ShapeCount() != pair.s2.ShapeCount() {
-			t.Errorf("%s: shape count %d, want %d", pair.name, pair.s2.ShapeCount(), pair.s1.ShapeCount())
+		if pair.s1.GetShapeCount() != pair.s2.GetShapeCount() {
+			t.Errorf("%s: shape count %d, want %d", pair.name, pair.s2.GetShapeCount(), pair.s1.GetShapeCount())
 		}
 	}
 
@@ -231,8 +271,8 @@ func TestBodyMassComesFromItsShapes(t *testing.T) {
 	CreatePolygonShape(bodyId, &shapeDef, &box)
 
 	wantBox := ComputePolygonMass(&box, shapeDef.Density)
-	if !bodyId.Mass().Eq(wantBox.Mass) {
-		t.Fatalf("mass with one box = %v, want %v", bodyId.Mass(), wantBox.Mass)
+	if !bodyId.GetMass().Eq(wantBox.Mass) {
+		t.Fatalf("mass with one box = %v, want %v", bodyId.GetMass(), wantBox.Mass)
 	}
 
 	// Record the state before the second shape. The box centroid carries a
@@ -253,8 +293,8 @@ func TestBodyMassComesFromItsShapes(t *testing.T) {
 
 	wantCircle := ComputeCircleMass(&welded.circle, shapeDef.Density)
 	wantTotal := wantBox.Mass.Add(wantCircle.Mass)
-	if !bodyId.Mass().Eq(wantTotal) {
-		t.Errorf("mass with two shapes = %v, want %v", bodyId.Mass(), wantTotal)
+	if !bodyId.GetMass().Eq(wantTotal) {
+		t.Errorf("mass with two shapes = %v, want %v", bodyId.GetMass(), wantTotal)
 	}
 
 	// The center of mass moved, so the linear velocity gains the cross of
@@ -273,11 +313,11 @@ func TestBodyMassComesFromItsShapes(t *testing.T) {
 
 	// Destroying the circle with a mass update restores the box mass.
 	DestroyShape(weldedId, true)
-	if !bodyId.Mass().Eq(wantBox.Mass) {
-		t.Errorf("mass after the destroy = %v, want %v", bodyId.Mass(), wantBox.Mass)
+	if !bodyId.GetMass().Eq(wantBox.Mass) {
+		t.Errorf("mass after the destroy = %v, want %v", bodyId.GetMass(), wantBox.Mass)
 	}
-	if bodyId.ShapeCount() != 1 {
-		t.Errorf("shape count after the destroy = %d, want 1", bodyId.ShapeCount())
+	if bodyId.GetShapeCount() != 1 {
+		t.Errorf("shape count after the destroy = %d, want 1", bodyId.GetShapeCount())
 	}
 
 	validateSolverSets(w)
@@ -368,7 +408,7 @@ func TestOverlapAABBReportsTheFatBounds(t *testing.T) {
 	}
 
 	got := map[ShapeId]bool{}
-	stats := OverlapAABB(worldId, query, DefaultQueryFilter(), func(id ShapeId) bool {
+	stats := worldId.OverlapAABB(query, DefaultQueryFilter(), func(id ShapeId) bool {
 		got[id] = true
 		return true
 	})
@@ -384,7 +424,7 @@ func TestOverlapAABBReportsTheFatBounds(t *testing.T) {
 	// A false return ends the current tree; the next tree still runs, so
 	// the two dynamic boxes yield one call and the trees three in total.
 	calls := 0
-	OverlapAABB(worldId, query, DefaultQueryFilter(), func(ShapeId) bool {
+	worldId.OverlapAABB(query, DefaultQueryFilter(), func(ShapeId) bool {
 		calls++
 		return false
 	})
@@ -394,13 +434,13 @@ func TestOverlapAABBReportsTheFatBounds(t *testing.T) {
 
 	filter := DefaultQueryFilter()
 	filter.MaskBits = 0
-	OverlapAABB(worldId, query, filter, func(ShapeId) bool {
+	worldId.OverlapAABB(query, filter, func(ShapeId) bool {
 		t.Errorf("an empty mask reported a shape")
 		return true
 	})
 
 	w.locked = true
-	requirePanic(t, func() { OverlapAABB(worldId, query, DefaultQueryFilter(), func(ShapeId) bool { return true }) })
+	requirePanic(t, func() { worldId.OverlapAABB(query, DefaultQueryFilter(), func(ShapeId) bool { return true }) })
 	w.locked = false
 }
 
@@ -426,7 +466,7 @@ func TestCastRayClipsAcrossTheTrees(t *testing.T) {
 		hit, point = id, p
 		return fraction
 	}
-	stats := CastRay(worldId, origin, translation, filter, closest)
+	stats := worldId.CastRay(origin, translation, filter, closest)
 	if hit != near || stats.LeafVisits < 2 {
 		t.Fatalf("the closest hit is not the near box (%d leaf visits)", stats.LeafVisits)
 	}
@@ -438,7 +478,7 @@ func TestCastRayClipsAcrossTheTrees(t *testing.T) {
 	}
 
 	hit = ShapeId{}
-	CastRay(worldId, origin, translation, filter, func(id ShapeId, p, n Vec2, fraction Q) Q {
+	worldId.CastRay(origin, translation, filter, func(id ShapeId, p, n Vec2, fraction Q) Q {
 		if id == near {
 			return fixed.Q32One().Neg()
 		}
@@ -450,13 +490,13 @@ func TestCastRayClipsAcrossTheTrees(t *testing.T) {
 
 	masked := DefaultQueryFilter()
 	masked.MaskBits = 0
-	CastRay(worldId, origin, translation, masked, func(ShapeId, Vec2, Vec2, Q) Q {
+	worldId.CastRay(origin, translation, masked, func(ShapeId, Vec2, Vec2, Q) Q {
 		t.Errorf("an empty mask reported a hit")
 		return fixed.Q32One()
 	})
 
 	calls := 0
-	CastRay(worldId, v2(8, 0), translation, filter, func(id ShapeId, _, _ Vec2, fraction Q) Q {
+	worldId.CastRay(v2(8, 0), translation, filter, func(id ShapeId, _, _ Vec2, fraction Q) Q {
 		calls++
 		if id != static || !fraction.Eq(fixed.Q32Zero()) {
 			t.Errorf("the inside origin did not report the static circle at fraction zero")
@@ -468,7 +508,7 @@ func TestCastRayClipsAcrossTheTrees(t *testing.T) {
 	}
 
 	w.locked = true
-	requirePanic(t, func() { CastRay(worldId, origin, translation, filter, closest) })
+	requirePanic(t, func() { worldId.CastRay(origin, translation, filter, closest) })
 	w.locked = false
 }
 
@@ -550,7 +590,7 @@ func TestShapeQueriesMatchBruteForce(t *testing.T) {
 		}
 
 		gotOverlap := map[ShapeId]bool{}
-		OverlapShape(worldId, &proxy, filter, func(id ShapeId) bool {
+		worldId.OverlapShape(&proxy, filter, func(id ShapeId) bool {
 			gotOverlap[id] = true
 			return true
 		})
@@ -565,7 +605,7 @@ func TestShapeQueriesMatchBruteForce(t *testing.T) {
 
 		gotCast := ShapeId{}
 		gotCastFraction := one
-		CastShape(worldId, &proxy, translation, filter, func(id ShapeId, _, _ Vec2, fraction Q) Q {
+		worldId.CastShape(&proxy, translation, filter, func(id ShapeId, _, _ Vec2, fraction Q) Q {
 			if fraction.Less(gotCastFraction) {
 				gotCast, gotCastFraction = id, fraction
 			}
@@ -575,7 +615,7 @@ func TestShapeQueriesMatchBruteForce(t *testing.T) {
 			t.Fatalf("CastShape from %v by %v found %v at %v, brute force %v at %v", origin, translation, gotCast, gotCastFraction, wantCast, wantCastFraction)
 		}
 
-		ray := CastRayClosest(worldId, origin, translation, filter)
+		ray := worldId.CastRayClosest(origin, translation, filter)
 		if ray.Hit != (wantRay != ShapeId{}) || (ray.Hit && (ray.ShapeId != wantRay || !ray.Fraction.Eq(wantRayFraction))) {
 			t.Fatalf("CastRayClosest from %v by %v found %+v, brute force %v at %v", origin, translation, ray, wantRay, wantRayFraction)
 		}
@@ -595,7 +635,7 @@ func TestCastMoverStopsAtTheWall(t *testing.T) {
 	CreatePolygonShape(wall, &shapeDef, &wallBox)
 
 	mover := Capsule{Center1: v2(0, -1), Center2: v2(0, 1), Radius: fixed.Q32Half()}
-	fraction := CastMover(worldId, &mover, v2(20, 0), DefaultQueryFilter())
+	fraction := worldId.CastMover(&mover, v2(20, 0), DefaultQueryFilter())
 
 	// The capsule surface reaches the face at x = 9 after 8.5 units of
 	// the 20; the sweep targets the radius less a slop.
@@ -606,11 +646,163 @@ func TestCastMoverStopsAtTheWall(t *testing.T) {
 
 	// A circle around the start overlaps the mover and does not stop it.
 	addStaticCircle(t, worldId, v2(0, 0))
-	if again := CastMover(worldId, &mover, v2(20, 0), DefaultQueryFilter()); !again.Eq(fraction) {
+	if again := worldId.CastMover(&mover, v2(20, 0), DefaultQueryFilter()); !again.Eq(fraction) {
 		t.Fatalf("an overlapping shape changed the fraction to %v", again)
 	}
 
 	thin := mover
 	thin.Radius = linearSlop
-	requirePanic(t, func() { CastMover(worldId, &thin, v2(20, 0), DefaultQueryFilter()) })
+	requirePanic(t, func() { worldId.CastMover(&thin, v2(20, 0), DefaultQueryFilter()) })
+}
+
+// TestCustomFilterRejectsPair locks down that a callback returning false
+// keeps the pair from ever becoming a contact.
+func TestCustomFilterRejectsPair(t *testing.T) {
+	worldId := createTestWorld(t)
+	worldId.SetCustomFilterCallback(func(ShapeId, ShapeId) bool { return false })
+
+	addDynamicBox(t, worldId, v2(0, 0))
+	addDynamicBox(t, worldId, v2(0, 0))
+
+	dt := stepDt()
+	for range 10 {
+		worldId.Step(dt, 4)
+	}
+
+	if events := worldId.GetContactEvents(); len(events.BeginEvents) != 0 {
+		t.Fatalf("got %d begin-touch events, want 0", len(events.BeginEvents))
+	}
+	if got := worldId.GetCounters().ContactCount; got != 0 {
+		t.Fatalf("contact count = %d, want 0", got)
+	}
+}
+
+// TestCustomFilterAcceptingKeepsWitness locks down that an always-true
+// callback does not perturb the simulation: the checksum of a scene run
+// with the callback matches the same scene run with no callback at all.
+func TestCustomFilterAcceptingKeepsWitness(t *testing.T) {
+	buildScene := func(worldId WorldId) {
+		addDynamicBox(t, worldId, v2(0, 5))
+		addDynamicBox(t, worldId, v2(0, 6))
+	}
+
+	dt := stepDt()
+
+	plainId := createTestWorld(t)
+	buildScene(plainId)
+	for range 30 {
+		plainId.Step(dt, 4)
+	}
+	want := Checksum(plainId)
+
+	filteredId := createTestWorld(t)
+	filteredId.SetCustomFilterCallback(func(ShapeId, ShapeId) bool { return true })
+	buildScene(filteredId)
+	for range 30 {
+		filteredId.Step(dt, 4)
+	}
+	if got := Checksum(filteredId); got != want {
+		t.Fatalf("checksum with an always-true filter = %d, want %d", got, want)
+	}
+}
+
+// TestExplodeImpulseByDistance pins the falloff shape of b2World_Explode.
+// Every case uses addDynamicBox: a unit half-width square, density 1, so
+// mass = 4 and invMass = 0.25. The box sits on the x-axis so its closest
+// edge faces the explosion head-on, giving getShapeProjectedPerimeter a
+// perimeter of exactly 2 (the two y-extents, no polygon radius).
+func TestExplodeImpulseByDistance(t *testing.T) {
+	radius := fixed.Q32FromInt(4)
+	falloff := fixed.Q32FromInt(2)
+	impulsePerLength := fixed.Q32FromInt(8)
+
+	def := func() ExplosionDef {
+		return ExplosionDef{
+			MaskBits:         DefaultMaskBits,
+			Position:         v2(0, 0),
+			Radius:           radius,
+			Falloff:          falloff,
+			ImpulsePerLength: impulsePerLength,
+		}
+	}
+
+	t.Run("full impulse inside the radius", func(t *testing.T) {
+		// distance = radius/2 = 2, closest edge at x=1: box center at x=3.
+		// magnitude = impulsePerLength * perimeter * scale = 8*2*1 = 16.
+		// velocity = invMass * magnitude = 0.25*16 = 4, along +x.
+		worldId := createTestWorld(t)
+		bodyId := addDynamicBox(t, worldId, v2(3, 0))
+
+		explosionDef := def()
+		worldId.Explode(&explosionDef)
+
+		want := v2(4, 0)
+		if v := bodyId.GetLinearVelocity(); !v.X.Eq(want.X) || !v.Y.Eq(want.Y) {
+			t.Fatalf("velocity at half radius = %v, want %v", v, want)
+		}
+	})
+
+	t.Run("half impulse in the falloff band", func(t *testing.T) {
+		// distance = radius + falloff/2 = 5, closest edge at x=5: center at x=6.
+		// scale = (radius+falloff-distance)/falloff = (6-5)/2 = 0.5.
+		// magnitude = 8*2*0.5 = 8. velocity = 0.25*8 = 2, along +x.
+		worldId := createTestWorld(t)
+		bodyId := addDynamicBox(t, worldId, v2(6, 0))
+
+		explosionDef := def()
+		worldId.Explode(&explosionDef)
+
+		want := v2(2, 0)
+		if v := bodyId.GetLinearVelocity(); !v.X.Eq(want.X) || !v.Y.Eq(want.Y) {
+			t.Fatalf("velocity in the falloff band = %v, want %v", v, want)
+		}
+	})
+
+	t.Run("no impulse beyond the falloff, sleeper stays asleep", func(t *testing.T) {
+		// distance = radius+falloff+1 = 7, closest edge at x=7: center at x=8.
+		worldId := createTestWorld(t)
+		bodyId := addDynamicBox(t, worldId, v2(8, 0))
+		bodyId.SetAwake(false)
+
+		explosionDef := def()
+		worldId.Explode(&explosionDef)
+
+		if v := bodyId.GetLinearVelocity(); !v.X.Eq(fixed.Q32Zero()) || !v.Y.Eq(fixed.Q32Zero()) {
+			t.Fatalf("velocity beyond the falloff = %v, want zero", v)
+		}
+		if bodyId.IsAwake() {
+			t.Fatalf("a shape beyond the falloff should not wake its body")
+		}
+	})
+
+	t.Run("a sleeper inside the radius wakes up", func(t *testing.T) {
+		worldId := createTestWorld(t)
+		bodyId := addDynamicBox(t, worldId, v2(3, 0))
+		bodyId.SetAwake(false)
+
+		explosionDef := def()
+		worldId.Explode(&explosionDef)
+
+		if !bodyId.IsAwake() {
+			t.Fatalf("a shape inside the radius should wake its sleeping body")
+		}
+	})
+
+	t.Run("center on the explosion point falls back to +x", func(t *testing.T) {
+		// The box's local centroid is its body origin, so the D-012
+		// zero-distance branch picks a closest point equal to the
+		// explosion position: the direction is zero-length too, and
+		// b2World_Explode falls back to (1, 0) rather than the shape
+		// centroid direction.
+		worldId := createTestWorld(t)
+		bodyId := addDynamicBox(t, worldId, v2(0, 0))
+
+		explosionDef := def()
+		worldId.Explode(&explosionDef)
+
+		v := bodyId.GetLinearVelocity()
+		if !v.Y.Eq(fixed.Q32Zero()) || !fixed.Q32Zero().Less(v.X) {
+			t.Fatalf("velocity at the explosion center = %v, want a positive x and zero y", v)
+		}
+	})
 }

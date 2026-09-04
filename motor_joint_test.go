@@ -34,6 +34,108 @@ func drivenBox(t *testing.T, worldId WorldId, def *MotorJointDef) (*body, *joint
 	return getBodyFullId(w, boxId), getJointFullId(w, jointId)
 }
 
+// TestMotorJointAccessorsRoundTrip pins the motor joint settings through
+// their public setters and getters without involving the solver.
+func TestMotorJointAccessorsRoundTrip(t *testing.T) {
+	worldId := createTestWorld(t)
+	w := getWorldFromId(worldId)
+	def := DefaultMotorJointDef()
+	_, j := drivenBox(t, worldId, &def)
+	jointId := makeJointId(w, jointPair{joint: j, jointSim: getJointSim(w, j)})
+
+	linearOffset := Vec2{X: fixed.Q32FromRatio(3, 2), Y: fixed.Q32FromRatio(-2, 3)}
+	tests := []struct {
+		name string
+		set  func()
+		get  func() any
+		want any
+	}{
+		{
+			name: "linear offset",
+			set:  func() { jointId.SetLinearOffset(linearOffset) },
+			get:  func() any { return jointId.GetLinearOffset() },
+			want: linearOffset,
+		},
+		{
+			name: "angular offset",
+			set:  func() { jointId.SetAngularOffset(fixed.Q32FromRatio(1, 4)) },
+			get:  func() any { return jointId.GetAngularOffset() },
+			want: fixed.Q32FromRatio(1, 4),
+		},
+		{
+			name: "max force",
+			set:  func() { jointId.SetMaxForce(fixed.Q32FromInt(7)) },
+			get:  func() any { return jointId.GetMaxForce() },
+			want: fixed.Q32FromInt(7),
+		},
+		{
+			name: "max torque",
+			set:  func() { jointId.SetMaxTorque(fixed.Q32FromInt(11)) },
+			get:  func() any { return jointId.GetMaxTorque() },
+			want: fixed.Q32FromInt(11),
+		},
+		{
+			name: "correction factor",
+			set:  func() { jointId.SetCorrectionFactor(fixed.Q32FromRatio(2, 5)) },
+			get:  func() any { return jointId.GetCorrectionFactor() },
+			want: fixed.Q32FromRatio(2, 5),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.set()
+			switch want := tt.want.(type) {
+			case Vec2:
+				got, ok := tt.get().(Vec2)
+				if !ok || !got.X.Eq(want.X) || !got.Y.Eq(want.Y) {
+					t.Errorf("got %v, want %v", got, want)
+				}
+			case Q:
+				got, ok := tt.get().(Q)
+				if !ok || !got.Eq(want) {
+					t.Errorf("got %v, want %v", got, want)
+				}
+			default:
+				t.Fatalf("unsupported accessor type %T", want)
+			}
+		})
+	}
+
+	t.Run("mouse max force dispatch", func(t *testing.T) {
+		groundDef := DefaultBodyDef()
+		groundId := CreateBody(worldId, &groundDef)
+		bodyDef := DefaultBodyDef()
+		bodyDef.Type = DynamicBody
+		bodyId := CreateBody(worldId, &bodyDef)
+		mouseDef := DefaultMouseJointDef()
+		mouseDef.BodyIdA = groundId
+		mouseDef.BodyIdB = bodyId
+		mouseDef.Target = Vec2Zero()
+		mouseId := CreateMouseJoint(worldId, &mouseDef)
+		want := fixed.Q32FromInt(13)
+		mouseId.SetMaxForce(want)
+		if got := mouseId.GetMaxForce(); !got.Eq(want) {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	})
+}
+
+// TestMotorJointAngularOffsetClampsToHalfTurn pins the port's half-turn
+// bound for angular offsets.
+func TestMotorJointAngularOffsetClampsToHalfTurn(t *testing.T) {
+	worldId := createTestWorld(t)
+	w := getWorldFromId(worldId)
+	def := DefaultMotorJointDef()
+	_, j := drivenBox(t, worldId, &def)
+	jointId := makeJointId(w, jointPair{joint: j, jointSim: getJointSim(w, j)})
+
+	jointId.SetAngularOffset(fixed.Q32FromRatio(3, 4))
+	if got := jointId.GetAngularOffset(); !got.Eq(fixed.Q32Half()) {
+		t.Errorf("got %v, want %v", got, fixed.Q32Half())
+	}
+}
+
 // TestMotorDrivesTowardTheOffset pins the linear row and the force clamp:
 // the offset (1, 0) gives the separation (-1, 0) and the bias
 // 240 * 0.3 * (-1, 0) = (-72, 0), so the impulse asks for (72, 0) and the

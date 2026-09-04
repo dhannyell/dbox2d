@@ -21,6 +21,154 @@ func getRevoluteJointTorque(w *world, base *jointSim) Q {
 	return torque
 }
 
+// SetTargetAngle changes the revolute spring target angle in turns.
+func (jointId JointId) SetTargetAngle(angle Q) {
+	w := getWorld(jointId.world0)
+	joint := getJointSimCheckType(w, jointId, RevoluteJoint)
+	// D-004: the target angle is stored in turns and is bounded to half a turn.
+	halfTurn := fixed.Q32Half()
+	joint.revoluteJoint.targetAngle = angle.Clamp(halfTurn.Neg(), halfTurn)
+}
+
+// GetTargetAngle reports the revolute spring target angle in turns.
+func (jointId JointId) GetTargetAngle() Q {
+	w := getWorld(jointId.world0)
+	joint := getJointSimCheckType(w, jointId, RevoluteJoint)
+	// D-004: the target angle is stored in turns.
+	return joint.revoluteJoint.targetAngle
+}
+
+// GetAngle reports the revolute joint angle relative to its reference angle,
+// in turns.
+func (jointId JointId) GetAngle() Q {
+	w := getWorld(jointId.world0)
+	joint := getJointSimCheckType(w, jointId, RevoluteJoint)
+	transformA := getBodyTransform(w, joint.bodyIdA)
+	transformB := getBodyTransform(w, joint.bodyIdB)
+	// D-004: RelativeAngle and the stored reference angle are in turns.
+	angle := RelativeAngle(transformB.Q, transformA.Q).Sub(joint.revoluteJoint.referenceAngle)
+	return UnwindAngle(angle)
+}
+
+// GetLowerLimit reports the lower angular or linear joint limit.
+func (jointId JointId) GetLowerLimit() Q {
+	w := getWorld(jointId.world0)
+	j := getJointFullId(w, jointId)
+	joint := getJointSim(w, j)
+	switch j.jointType {
+	case RevoluteJoint:
+		// D-004: revolute limits are stored in turns.
+		return joint.revoluteJoint.lowerAngle
+	case PrismaticJoint:
+		return joint.prismaticJoint.lowerTranslation
+	case WheelJoint:
+		return joint.wheelJoint.lowerTranslation
+	default:
+		panic("dbox2d: joint type does not support lower limits")
+	}
+}
+
+// GetUpperLimit reports the upper angular or linear joint limit.
+func (jointId JointId) GetUpperLimit() Q {
+	w := getWorld(jointId.world0)
+	j := getJointFullId(w, jointId)
+	joint := getJointSim(w, j)
+	switch j.jointType {
+	case RevoluteJoint:
+		// D-004: revolute limits are stored in turns.
+		return joint.revoluteJoint.upperAngle
+	case PrismaticJoint:
+		return joint.prismaticJoint.upperTranslation
+	case WheelJoint:
+		return joint.wheelJoint.upperTranslation
+	default:
+		panic("dbox2d: joint type does not support upper limits")
+	}
+}
+
+// SetLimits changes the angular or linear joint limits.
+func (jointId JointId) SetLimits(lower, upper Q) {
+	w := getWorld(jointId.world0)
+	j := getJointFullId(w, jointId)
+	joint := getJointSim(w, j)
+	switch j.jointType {
+	case RevoluteJoint:
+		// D-004: convert the reference +/- pi bound to +/- half a turn.
+		halfTurn := fixed.Q32Half()
+		lower = lower.Clamp(halfTurn.Neg(), halfTurn)
+		upper = upper.Clamp(halfTurn.Neg(), halfTurn)
+		lowerAngle := lower.Min(upper)
+		upperAngle := lower.Max(upper)
+		if !lowerAngle.Eq(joint.revoluteJoint.lowerAngle) || !upperAngle.Eq(joint.revoluteJoint.upperAngle) {
+			joint.revoluteJoint.lowerAngle = lowerAngle
+			joint.revoluteJoint.upperAngle = upperAngle
+			joint.revoluteJoint.lowerImpulse = fixed.Q32Zero()
+			joint.revoluteJoint.upperImpulse = fixed.Q32Zero()
+		}
+	case PrismaticJoint:
+		if !lower.Eq(joint.prismaticJoint.lowerTranslation) || !upper.Eq(joint.prismaticJoint.upperTranslation) {
+			joint.prismaticJoint.lowerTranslation = lower.Min(upper)
+			joint.prismaticJoint.upperTranslation = lower.Max(upper)
+			joint.prismaticJoint.lowerImpulse = fixed.Q32Zero()
+			joint.prismaticJoint.upperImpulse = fixed.Q32Zero()
+		}
+	case WheelJoint:
+		if !lower.Eq(joint.wheelJoint.lowerTranslation) || !upper.Eq(joint.wheelJoint.upperTranslation) {
+			joint.wheelJoint.lowerTranslation = lower.Min(upper)
+			joint.wheelJoint.upperTranslation = lower.Max(upper)
+			joint.wheelJoint.lowerImpulse = fixed.Q32Zero()
+			joint.wheelJoint.upperImpulse = fixed.Q32Zero()
+		}
+	default:
+		panic("dbox2d: joint type does not support limits")
+	}
+}
+
+// GetMotorTorque reports the last revolute or wheel motor torque.
+func (jointId JointId) GetMotorTorque() Q {
+	w := getWorld(jointId.world0)
+	j := getJointFullId(w, jointId)
+	joint := getJointSim(w, j)
+	switch j.jointType {
+	case RevoluteJoint:
+		return w.invH.Mul(joint.revoluteJoint.motorImpulse)
+	case WheelJoint:
+		return w.invH.Mul(joint.wheelJoint.motorImpulse)
+	default:
+		panic("dbox2d: joint type does not support motor torque")
+	}
+}
+
+// SetMaxMotorTorque changes the maximum revolute or wheel motor torque.
+func (jointId JointId) SetMaxMotorTorque(torque Q) {
+	w := getWorld(jointId.world0)
+	j := getJointFullId(w, jointId)
+	joint := getJointSim(w, j)
+	switch j.jointType {
+	case RevoluteJoint:
+		joint.revoluteJoint.maxMotorTorque = torque
+	case WheelJoint:
+		joint.wheelJoint.maxMotorTorque = torque
+	default:
+		panic("dbox2d: joint type does not support motor torque")
+	}
+}
+
+// GetMaxMotorTorque reports the maximum revolute or wheel motor torque.
+func (jointId JointId) GetMaxMotorTorque() Q {
+	w := getWorld(jointId.world0)
+	j := getJointFullId(w, jointId)
+	joint := getJointSim(w, j)
+	switch j.jointType {
+	case RevoluteJoint:
+		return joint.revoluteJoint.maxMotorTorque
+	case WheelJoint:
+		return joint.wheelJoint.maxMotorTorque
+	default:
+		panic("dbox2d: joint type does not support motor torque")
+	}
+}
+
 // Point-to-point constraint
 // C = p2 - p1
 // Cdot = v2 - v1

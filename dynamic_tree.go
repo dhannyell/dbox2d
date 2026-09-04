@@ -708,11 +708,11 @@ func removeLeaf(tree *dynamicTree, leaf int) {
 // checkTreeBox panics when a coordinate of the box leaves the huge range.
 // D-003 and D-005: the reference asserts against B2_HUGE.
 func checkTreeBox(aabb AABB) {
-	negHuge := huge.Neg()
-	ok := negHuge.Less(aabb.LowerBound.X) && aabb.LowerBound.X.Less(huge)
-	ok = ok && negHuge.Less(aabb.LowerBound.Y) && aabb.LowerBound.Y.Less(huge)
-	ok = ok && negHuge.Less(aabb.UpperBound.X) && aabb.UpperBound.X.Less(huge)
-	ok = ok && negHuge.Less(aabb.UpperBound.Y) && aabb.UpperBound.Y.Less(huge)
+	negHuge := Huge.Neg()
+	ok := negHuge.Less(aabb.LowerBound.X) && aabb.LowerBound.X.Less(Huge)
+	ok = ok && negHuge.Less(aabb.LowerBound.Y) && aabb.LowerBound.Y.Less(Huge)
+	ok = ok && negHuge.Less(aabb.UpperBound.X) && aabb.UpperBound.X.Less(Huge)
+	ok = ok && negHuge.Less(aabb.UpperBound.Y) && aabb.UpperBound.Y.Less(Huge)
 	if !ok {
 		panic("dbox2d: the proxy box is out of the huge range")
 	}
@@ -723,7 +723,7 @@ func checkTreeExtent(aabb AABB) {
 	if !IsValidAABB(aabb) {
 		panic("dbox2d: the proxy box is not valid")
 	}
-	if !aabb.UpperBound.X.Sub(aabb.LowerBound.X).Less(huge) || !aabb.UpperBound.Y.Sub(aabb.LowerBound.Y).Less(huge) {
+	if !aabb.UpperBound.X.Sub(aabb.LowerBound.X).Less(Huge) || !aabb.UpperBound.Y.Sub(aabb.LowerBound.Y).Less(Huge) {
 		panic("dbox2d: the proxy box is wider than the huge range")
 	}
 }

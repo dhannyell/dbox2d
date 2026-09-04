@@ -1248,7 +1248,7 @@ func runReference() probeRun {
 	dt := fixed.Q32One().Div(fixed.Q32FromInt(60))
 	var run probeRun
 	for i := range probeSteps {
-		Step(worldId, dt, 4)
+		worldId.Step(dt, 4)
 		if i >= probeSteps-probeTailSteps {
 			for _, state := range w.solverSets[awakeSet].bodyStates {
 				run.maxSpeed = math.Max(run.maxSpeed, qFloat(state.linearVelocity.Len()))

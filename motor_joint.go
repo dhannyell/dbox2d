@@ -219,3 +219,115 @@ func solveMotorJoint(base *jointSim, context *stepContext, _ bool) {
 	bodyB.linearVelocity = vB
 	bodyB.angularVelocity = wB.Div(tau)
 }
+
+// SetLinearOffset changes the motor joint's linear offset (b2MotorJoint_SetLinearOffset).
+func (jointId JointId) SetLinearOffset(linearOffset Vec2) {
+	if !IsValidVec2(linearOffset) {
+		panic("dbox2d: SetLinearOffset needs a valid vector")
+	}
+	w := getWorld(jointId.world0)
+	js := getJointSimCheckType(w, jointId, MotorJoint)
+	js.motorJoint.linearOffset = linearOffset
+}
+
+// GetLinearOffset reports the motor joint's linear offset (b2MotorJoint_GetLinearOffset).
+func (jointId JointId) GetLinearOffset() Vec2 {
+	w := getWorld(jointId.world0)
+	js := getJointSimCheckType(w, jointId, MotorJoint)
+	return js.motorJoint.linearOffset
+}
+
+// SetAngularOffset changes the motor joint's angular offset in turns (b2MotorJoint_SetAngularOffset).
+func (jointId JointId) SetAngularOffset(angularOffset Q) {
+	if !IsValidQ(angularOffset) {
+		panic("dbox2d: SetAngularOffset needs a valid angle")
+	}
+	w := getWorld(jointId.world0)
+	js := getJointSimCheckType(w, jointId, MotorJoint)
+	halfTurn := fixed.Q32Half()
+	// D-004: the port bounds turns to a half turn; the reference leaves radians unbounded.
+	angularOffset = angularOffset.Clamp(halfTurn.Neg(), halfTurn) // D-004
+	js.motorJoint.angularOffset = angularOffset
+}
+
+// GetAngularOffset reports the motor joint's angular offset in turns (b2MotorJoint_GetAngularOffset).
+func (jointId JointId) GetAngularOffset() Q {
+	w := getWorld(jointId.world0)
+	js := getJointSimCheckType(w, jointId, MotorJoint)
+	return js.motorJoint.angularOffset
+}
+
+// SetMaxForce changes the maximum force of a motor or mouse joint (b2MotorJoint_SetMaxForce, b2MouseJoint_SetMaxForce).
+func (jointId JointId) SetMaxForce(maxForce Q) {
+	if !IsValidQ(maxForce) {
+		panic("dbox2d: SetMaxForce needs a valid value")
+	}
+	zero := fixed.Q32Zero()
+	if maxForce.Less(zero) {
+		maxForce = zero
+	}
+	w := getWorld(jointId.world0)
+	j := getJointFullId(w, jointId)
+	js := getJointSim(w, j)
+	switch j.jointType {
+	case MotorJoint:
+		js.motorJoint.maxForce = maxForce
+	case MouseJoint:
+		js.mouseJoint.maxForce = maxForce
+	default:
+		panic("dbox2d: SetMaxForce needs a motor or mouse joint")
+	}
+}
+
+// GetMaxForce reports the maximum force of a motor or mouse joint (b2MotorJoint_GetMaxForce, b2MouseJoint_GetMaxForce).
+func (jointId JointId) GetMaxForce() Q {
+	w := getWorld(jointId.world0)
+	j := getJointFullId(w, jointId)
+	js := getJointSim(w, j)
+	switch j.jointType {
+	case MotorJoint:
+		return js.motorJoint.maxForce
+	case MouseJoint:
+		return js.mouseJoint.maxForce
+	default:
+		panic("dbox2d: GetMaxForce needs a motor or mouse joint")
+	}
+}
+
+// SetMaxTorque changes the motor joint's maximum torque (b2MotorJoint_SetMaxTorque).
+func (jointId JointId) SetMaxTorque(maxTorque Q) {
+	if !IsValidQ(maxTorque) {
+		panic("dbox2d: SetMaxTorque needs a valid value")
+	}
+	zero := fixed.Q32Zero()
+	if maxTorque.Less(zero) {
+		maxTorque = zero
+	}
+	w := getWorld(jointId.world0)
+	js := getJointSimCheckType(w, jointId, MotorJoint)
+	js.motorJoint.maxTorque = maxTorque
+}
+
+// GetMaxTorque reports the motor joint's maximum torque (b2MotorJoint_GetMaxTorque).
+func (jointId JointId) GetMaxTorque() Q {
+	w := getWorld(jointId.world0)
+	js := getJointSimCheckType(w, jointId, MotorJoint)
+	return js.motorJoint.maxTorque
+}
+
+// SetCorrectionFactor changes the motor joint's correction factor (b2MotorJoint_SetCorrectionFactor).
+func (jointId JointId) SetCorrectionFactor(correctionFactor Q) {
+	if !IsValidQ(correctionFactor) {
+		panic("dbox2d: SetCorrectionFactor needs a valid value")
+	}
+	w := getWorld(jointId.world0)
+	js := getJointSimCheckType(w, jointId, MotorJoint)
+	js.motorJoint.correctionFactor = correctionFactor.Clamp(fixed.Q32Zero(), fixed.Q32One())
+}
+
+// GetCorrectionFactor reports the motor joint's correction factor (b2MotorJoint_GetCorrectionFactor).
+func (jointId JointId) GetCorrectionFactor() Q {
+	w := getWorld(jointId.world0)
+	js := getJointSimCheckType(w, jointId, MotorJoint)
+	return js.motorJoint.correctionFactor
+}

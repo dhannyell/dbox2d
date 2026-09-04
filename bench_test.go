@@ -292,7 +292,7 @@ func BenchmarkStep(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
-		Step(worldId, dt, 4)
+		worldId.Step(dt, 4)
 	}
 }
 
@@ -781,12 +781,70 @@ func BenchmarkStepPyramid(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
-		Step(worldId, dt, 4)
+		worldId.Step(dt, 4)
 	}
 	b.StopTimer()
 	if len(w.contacts) == 0 || len(w.constraintGraph.colors[0].contactSims) == 0 {
 		b.Fatal("the pyramid lost its contacts")
 	}
+}
+
+// buildPyramidWithSensor lays out the same pyramid as buildPyramid, plus one
+// wide static sensor over the ground and sensor events enabled on the boxes.
+func buildPyramidWithSensor(worldId WorldId, rows int) {
+	half := fixed.Q32Half()
+	groundDef := DefaultBodyDef()
+	groundDef.Position = Vec2{Y: half.Neg()}
+	groundId := CreateBody(worldId, &groundDef)
+	shapeDef := DefaultShapeDef()
+	ground := MakeBox(fixed.Q32FromInt(rows), half)
+	CreatePolygonShape(groundId, &shapeDef, &ground)
+
+	sensorDef := DefaultBodyDef()
+	sensorId := CreateBody(worldId, &sensorDef)
+	sensorShapeDef := DefaultShapeDef()
+	sensorShapeDef.IsSensor = true
+	sensorShapeDef.EnableSensorEvents = true
+	sensor := MakeBox(fixed.Q32FromInt(rows), fixed.Q32MustParse("0.05"))
+	CreatePolygonShape(sensorId, &sensorShapeDef, &sensor)
+
+	bodyDef := DefaultBodyDef()
+	bodyDef.Type = DynamicBody
+	boxShapeDef := DefaultShapeDef()
+	boxShapeDef.EnableSensorEvents = true
+	box := MakeSquare(half)
+	for _, c := range pyramidCenters(rows) {
+		bodyDef.Position = Vec2{X: half.Mul(fixed.Q32FromInt(c[0])), Y: half.Mul(fixed.Q32FromInt(c[1]))}
+		bodyId := CreateBody(worldId, &bodyDef)
+		CreatePolygonShape(bodyId, &boxShapeDef, &box)
+	}
+}
+
+// BenchmarkStepSensors measures the added cost of a sensor pass over the
+// pyramid scene: the sensor system tests every eligible box against the
+// sensor's fattened bounds each step.
+func BenchmarkStepSensors(b *testing.B) {
+	def := DefaultWorldDef()
+	def.EnableSleep = false
+	worldId := CreateWorld(&def)
+	defer DestroyWorld(worldId)
+	buildPyramidWithSensor(worldId, pyramidRows)
+
+	dt := fixed.Q32One().Div(fixed.Q32FromInt(60))
+
+	// Warm up so the stack has settled and every buffer has grown.
+	for range 120 {
+		worldId.Step(dt, 4)
+	}
+
+	var events SensorEvents
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		worldId.Step(dt, 4)
+		events = worldId.GetSensorEvents()
+	}
+	runtime.KeepAlive(events)
 }
 
 // f64Softness mirrors softness.
@@ -2123,13 +2181,13 @@ func BenchmarkStepBullets(b *testing.B) {
 
 	// Warm up through several bounces so every buffer has grown.
 	for range 120 {
-		Step(worldId, dt, 4)
+		worldId.Step(dt, 4)
 	}
 
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
-		Step(worldId, dt, 4)
+		worldId.Step(dt, 4)
 	}
 	b.StopTimer()
 
@@ -2179,13 +2237,13 @@ func BenchmarkStepRevoluteChain(b *testing.B) {
 
 	// Warm up through the first swing so every buffer has grown.
 	for range 120 {
-		Step(worldId, dt, 4)
+		worldId.Step(dt, 4)
 	}
 
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
-		Step(worldId, dt, 4)
+		worldId.Step(dt, 4)
 	}
 }
 
@@ -2212,4 +2270,24 @@ func BenchmarkSolveRevoluteJointF64(b *testing.B) {
 		fA, fB := c.fA, c.fB
 		f64SolveRevoluteJoint(c.mirror, &fA, &fB, h, invH, true)
 	}
+}
+
+// BenchmarkSolvePlanes measures one call of the mover's plane solver against
+// four rigid planes boxing in the target translation.
+func BenchmarkSolvePlanes(b *testing.B) {
+	planes := []CollisionPlane{
+		{Plane: Plane{Normal: Vec2{Y: fixed.Q32One()}, Offset: fixed.Q32FromInt(-5)}, PushLimit: Huge},
+		{Plane: Plane{Normal: Vec2{X: fixed.Q32One()}, Offset: fixed.Q32FromInt(-5)}, PushLimit: Huge},
+		{Plane: Plane{Normal: Vec2{X: fixed.Q32One().Neg()}, Offset: fixed.Q32FromInt(-5)}, PushLimit: Huge},
+		{Plane: Plane{Normal: Vec2{Y: fixed.Q32One().Neg()}, Offset: fixed.Q32FromInt(-5)}, PushLimit: Huge},
+	}
+	target := Vec2{X: fixed.Q32FromInt(1), Y: fixed.Q32FromInt(-8)}
+
+	var result PlaneSolverResult
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		result = SolvePlanes(target, planes)
+	}
+	runtime.KeepAlive(result)
 }

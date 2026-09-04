@@ -302,6 +302,437 @@ func getJointSim(w *world, j *joint) *jointSim {
 	return &set.jointSims[j.localIndex]
 }
 
+// getJointSimCheckType returns joint simulation data after checking its type.
+func getJointSimCheckType(w *world, jointId JointId, jointType JointType) *jointSim {
+	j := getJointFullId(w, jointId)
+	if j.jointType != jointType {
+		panic("dbox2d: the joint type does not match")
+	}
+
+	js := getJointSim(w, j)
+	if js.jointType != jointType {
+		panic("dbox2d: the joint sim type does not match")
+	}
+	return js
+}
+
+// IsValid reports whether the id references a live joint (b2Joint_IsValid).
+func (jointId JointId) IsValid() bool {
+	if maxWorlds <= jointId.world0 {
+		// invalid world
+		return false
+	}
+
+	w := &worlds[jointId.world0]
+	if w.worldId != jointId.world0 {
+		// world is free
+		return false
+	}
+
+	if jointId.index1 < 1 || len(w.joints) < int(jointId.index1) {
+		// invalid index
+		return false
+	}
+
+	j := &w.joints[jointId.index1-1]
+	if j.setIndex == nullIndex {
+		// this was freed
+		return false
+	}
+
+	if j.localIndex == nullIndex {
+		panic("dbox2d: a live joint has no local index")
+	}
+
+	if j.generation != jointId.generation {
+		// this id is orphaned
+		return false
+	}
+
+	return true
+}
+
+// GetType reports the joint type (b2Joint_GetType).
+func (jointId JointId) GetType() JointType {
+	w := getWorld(jointId.world0)
+	return getJointFullId(w, jointId).jointType
+}
+
+// GetBodyA reports the first attached body (b2Joint_GetBodyA).
+func (jointId JointId) GetBodyA() BodyId {
+	w := getWorld(jointId.world0)
+	j := getJointFullId(w, jointId)
+	return makeBodyId(w, j.edges[0].bodyId)
+}
+
+// GetBodyB reports the second attached body (b2Joint_GetBodyB).
+func (jointId JointId) GetBodyB() BodyId {
+	w := getWorld(jointId.world0)
+	j := getJointFullId(w, jointId)
+	return makeBodyId(w, j.edges[1].bodyId)
+}
+
+// GetWorld reports the world containing the joint (b2Joint_GetWorld).
+func (jointId JointId) GetWorld() WorldId {
+	w := getWorld(jointId.world0)
+	return WorldId{index1: jointId.world0 + 1, generation: w.generation}
+}
+
+// SetLocalAnchorA changes the local anchor on body A (b2Joint_SetLocalAnchorA).
+func (jointId JointId) SetLocalAnchorA(localAnchor Vec2) {
+	if !IsValidVec2(localAnchor) {
+		panic("dbox2d: SetLocalAnchorA needs a valid vector")
+	}
+	w := getWorld(jointId.world0)
+	j := getJointFullId(w, jointId)
+	getJointSim(w, j).localOriginAnchorA = localAnchor
+}
+
+// GetLocalAnchorA reports the local anchor on body A (b2Joint_GetLocalAnchorA).
+func (jointId JointId) GetLocalAnchorA() Vec2 {
+	w := getWorld(jointId.world0)
+	j := getJointFullId(w, jointId)
+	return getJointSim(w, j).localOriginAnchorA
+}
+
+// SetLocalAnchorB changes the local anchor on body B (b2Joint_SetLocalAnchorB).
+func (jointId JointId) SetLocalAnchorB(localAnchor Vec2) {
+	if !IsValidVec2(localAnchor) {
+		panic("dbox2d: SetLocalAnchorB needs a valid vector")
+	}
+	w := getWorld(jointId.world0)
+	j := getJointFullId(w, jointId)
+	getJointSim(w, j).localOriginAnchorB = localAnchor
+}
+
+// GetLocalAnchorB reports the local anchor on body B (b2Joint_GetLocalAnchorB).
+func (jointId JointId) GetLocalAnchorB() Vec2 {
+	w := getWorld(jointId.world0)
+	j := getJointFullId(w, jointId)
+	return getJointSim(w, j).localOriginAnchorB
+}
+
+// SetReferenceAngle changes the reference angle in turns (b2Joint_SetReferenceAngle).
+func (jointId JointId) SetReferenceAngle(angle Q) {
+	if !IsValidQ(angle) {
+		panic("dbox2d: SetReferenceAngle needs a valid angle")
+	}
+	w := getWorld(jointId.world0)
+	j := getJointFullId(w, jointId)
+	js := getJointSim(w, j)
+	halfTurn := fixed.Q32Half()
+	angle = angle.Clamp(halfTurn.Neg(), halfTurn)
+
+	switch j.jointType {
+	case PrismaticJoint:
+		js.prismaticJoint.referenceAngle = angle
+	case RevoluteJoint:
+		js.revoluteJoint.referenceAngle = angle
+	case WeldJoint:
+		js.weldJoint.referenceAngle = angle
+	}
+}
+
+// GetReferenceAngle reports the reference angle in turns (b2Joint_GetReferenceAngle).
+func (jointId JointId) GetReferenceAngle() Q {
+	w := getWorld(jointId.world0)
+	j := getJointFullId(w, jointId)
+	js := getJointSim(w, j)
+
+	switch j.jointType {
+	case PrismaticJoint:
+		return js.prismaticJoint.referenceAngle
+	case RevoluteJoint:
+		return js.revoluteJoint.referenceAngle
+	case WeldJoint:
+		return js.weldJoint.referenceAngle
+	default:
+		return fixed.Q32Zero()
+	}
+}
+
+// SetLocalAxisA changes the local axis on an applicable joint (b2Joint_SetLocalAxisA).
+func (jointId JointId) SetLocalAxisA(axis Vec2) {
+	if !IsValidVec2(axis) {
+		panic("dbox2d: SetLocalAxisA needs a valid vector")
+	}
+	if !IsNormalized(axis) {
+		panic("dbox2d: SetLocalAxisA needs a normalized vector")
+	}
+	w := getWorld(jointId.world0)
+	j := getJointFullId(w, jointId)
+	js := getJointSim(w, j)
+
+	switch j.jointType {
+	case PrismaticJoint:
+		js.prismaticJoint.localAxisA = axis
+	case WheelJoint:
+		js.wheelJoint.localAxisA = axis
+	}
+}
+
+// GetLocalAxisA reports the local axis on an applicable joint (b2Joint_GetLocalAxisA).
+func (jointId JointId) GetLocalAxisA() Vec2 {
+	w := getWorld(jointId.world0)
+	j := getJointFullId(w, jointId)
+	js := getJointSim(w, j)
+
+	switch j.jointType {
+	case PrismaticJoint:
+		return js.prismaticJoint.localAxisA
+	case WheelJoint:
+		return js.wheelJoint.localAxisA
+	default:
+		return Vec2Zero()
+	}
+}
+
+// SetCollideConnected changes whether the attached bodies collide (b2Joint_SetCollideConnected).
+func (jointId JointId) SetCollideConnected(shouldCollide bool) {
+	w := getWorldLocked(jointId.world0)
+	j := getJointFullId(w, jointId)
+	if j.collideConnected == shouldCollide {
+		return
+	}
+
+	j.collideConnected = shouldCollide
+	bodyA := &w.bodies[j.edges[0].bodyId]
+	bodyB := &w.bodies[j.edges[1].bodyId]
+
+	if shouldCollide {
+		body := bodyA
+		if bodyA.shapeCount >= bodyB.shapeCount {
+			body = bodyB
+		}
+		for shapeId := body.headShapeId; shapeId != nullIndex; shapeId = w.shapes[shapeId].nextShapeId {
+			s := &w.shapes[shapeId]
+			if s.proxyKey != nullIndex {
+				w.broadPhase.bufferMove(s.proxyKey)
+			}
+		}
+		return
+	}
+
+	destroyContactsBetweenBodies(w, bodyA, bodyB)
+}
+
+// GetCollideConnected reports whether the attached bodies collide (b2Joint_GetCollideConnected).
+func (jointId JointId) GetCollideConnected() bool {
+	w := getWorld(jointId.world0)
+	return getJointFullId(w, jointId).collideConnected
+}
+
+// SetUserData attaches application data to the joint (b2Joint_SetUserData).
+func (jointId JointId) SetUserData(userData any) {
+	w := getWorld(jointId.world0)
+	getJointFullId(w, jointId).userData = userData
+}
+
+// GetUserData reports the data attached to the joint (b2Joint_GetUserData).
+func (jointId JointId) GetUserData() any {
+	w := getWorld(jointId.world0)
+	return getJointFullId(w, jointId).userData
+}
+
+// WakeBodies wakes both bodies attached to the joint (b2Joint_WakeBodies).
+func (jointId JointId) WakeBodies() {
+	w := getWorldLocked(jointId.world0)
+	j := getJointFullId(w, jointId)
+	wakeBody(w, &w.bodies[j.edges[0].bodyId])
+	wakeBody(w, &w.bodies[j.edges[1].bodyId])
+}
+
+// GetConstraintForce reports the constraint force from the last step (b2Joint_GetConstraintForce).
+func (jointId JointId) GetConstraintForce() Vec2 {
+	w := getWorld(jointId.world0)
+	j := getJointFullId(w, jointId)
+	base := getJointSim(w, j)
+
+	switch j.jointType {
+	case DistanceJoint:
+		return getDistanceJointForce(w, base)
+	case MotorJoint:
+		return getMotorJointForce(w, base)
+	case MouseJoint:
+		return getMouseJointForce(w, base)
+	case FilterJoint:
+		return Vec2Zero()
+	case PrismaticJoint:
+		return getPrismaticJointForce(w, base)
+	case RevoluteJoint:
+		return getRevoluteJointForce(w, base)
+	case WeldJoint:
+		return getWeldJointForce(w, base)
+	case WheelJoint:
+		return getWheelJointForce(w, base)
+	default:
+		panic("dbox2d: unknown joint type")
+	}
+}
+
+// GetConstraintTorque reports the constraint torque from the last step (b2Joint_GetConstraintTorque).
+func (jointId JointId) GetConstraintTorque() Q {
+	w := getWorld(jointId.world0)
+	j := getJointFullId(w, jointId)
+	base := getJointSim(w, j)
+
+	switch j.jointType {
+	case DistanceJoint, FilterJoint:
+		return fixed.Q32Zero()
+	case MotorJoint:
+		return getMotorJointTorque(w, base)
+	case MouseJoint:
+		return getMouseJointTorque(w, base)
+	case PrismaticJoint:
+		return getPrismaticJointTorque(w, base)
+	case RevoluteJoint:
+		return getRevoluteJointTorque(w, base)
+	case WeldJoint:
+		return getWeldJointTorque(w, base)
+	case WheelJoint:
+		return getWheelJointTorque(w, base)
+	default:
+		panic("dbox2d: unknown joint type")
+	}
+}
+
+// GetLinearSeparation reports the joint's linear separation (b2Joint_GetLinearSeparation).
+func (jointId JointId) GetLinearSeparation() Q {
+	w := getWorld(jointId.world0)
+	j := getJointFullId(w, jointId)
+	base := getJointSim(w, j)
+
+	xfA := getBodyTransform(w, j.edges[0].bodyId)
+	xfB := getBodyTransform(w, j.edges[1].bodyId)
+	pA := TransformPoint(xfA, base.localOriginAnchorA)
+	pB := TransformPoint(xfB, base.localOriginAnchorB)
+	dp := pB.Sub(pA)
+	zero := fixed.Q32Zero()
+
+	switch j.jointType {
+	case DistanceJoint:
+		distance := &base.distanceJoint
+		length := dp.Len()
+		if distance.enableSpring {
+			if distance.enableLimit {
+				if length.Less(distance.minLength) {
+					return distance.minLength.Sub(length)
+				}
+				if distance.maxLength.Less(length) {
+					return length.Sub(distance.maxLength)
+				}
+			}
+			return zero
+		}
+		return length.Sub(distance.length).Abs()
+	case MotorJoint, MouseJoint, FilterJoint:
+		return zero
+	case PrismaticJoint:
+		prismatic := &base.prismaticJoint
+		axisA := RotateVector(xfA.Q, prismatic.localAxisA)
+		perpendicularSeparation := LeftPerp(axisA).Dot(dp).Abs()
+		limitSeparation := zero
+		if prismatic.enableLimit {
+			translation := axisA.Dot(dp)
+			if translation.Less(prismatic.lowerTranslation) {
+				limitSeparation = prismatic.lowerTranslation.Sub(translation)
+			}
+			if prismatic.upperTranslation.Less(translation) {
+				limitSeparation = translation.Sub(prismatic.upperTranslation)
+			}
+		}
+		return Vec2{X: perpendicularSeparation, Y: limitSeparation}.Len()
+	case RevoluteJoint:
+		return dp.Len()
+	case WeldJoint:
+		if base.weldJoint.linearHertz.Eq(zero) {
+			return dp.Len()
+		}
+		return zero
+	case WheelJoint:
+		wheel := &base.wheelJoint
+		axisA := RotateVector(xfA.Q, wheel.localAxisA)
+		perpendicularSeparation := LeftPerp(axisA).Dot(dp).Abs()
+		limitSeparation := zero
+		if wheel.enableLimit {
+			translation := axisA.Dot(dp)
+			if translation.Less(wheel.lowerTranslation) {
+				limitSeparation = wheel.lowerTranslation.Sub(translation)
+			}
+			if wheel.upperTranslation.Less(translation) {
+				limitSeparation = translation.Sub(wheel.upperTranslation)
+			}
+		}
+		return Vec2{X: perpendicularSeparation, Y: limitSeparation}.Len()
+	default:
+		panic("dbox2d: unknown joint type")
+	}
+}
+
+// GetAngularSeparation reports angular separation in turns (b2Joint_GetAngularSeparation).
+func (jointId JointId) GetAngularSeparation() Q {
+	// D-004: angles are turns here, not radians.
+	w := getWorld(jointId.world0)
+	j := getJointFullId(w, jointId)
+	base := getJointSim(w, j)
+
+	xfA := getBodyTransform(w, j.edges[0].bodyId)
+	xfB := getBodyTransform(w, j.edges[1].bodyId)
+	relativeAngle := RelativeAngle(xfB.Q, xfA.Q)
+	zero := fixed.Q32Zero()
+
+	switch j.jointType {
+	case DistanceJoint, MotorJoint, MouseJoint, FilterJoint, WheelJoint:
+		return zero
+	case PrismaticJoint:
+		return UnwindAngle(relativeAngle.Sub(base.prismaticJoint.referenceAngle))
+	case RevoluteJoint:
+		revolute := &base.revoluteJoint
+		if revolute.enableLimit {
+			angle := UnwindAngle(relativeAngle.Sub(revolute.referenceAngle))
+			if angle.Less(revolute.lowerAngle) {
+				return revolute.lowerAngle.Sub(angle)
+			}
+			if revolute.upperAngle.Less(angle) {
+				return angle.Sub(revolute.upperAngle)
+			}
+		}
+		return zero
+	case WeldJoint:
+		weld := &base.weldJoint
+		if weld.angularHertz.Eq(zero) {
+			return UnwindAngle(relativeAngle.Sub(weld.referenceAngle))
+		}
+		return zero
+	default:
+		panic("dbox2d: unknown joint type")
+	}
+}
+
+// SetConstraintTuning changes the joint constraint tuning (b2Joint_SetConstraintTuning).
+func (jointId JointId) SetConstraintTuning(hertz, dampingRatio Q) {
+	zero := fixed.Q32Zero()
+	if !IsValidQ(hertz) || hertz.Less(zero) {
+		panic("dbox2d: SetConstraintTuning hertz is invalid")
+	}
+	if !IsValidQ(dampingRatio) || dampingRatio.Less(zero) {
+		panic("dbox2d: SetConstraintTuning damping ratio is invalid")
+	}
+	w := getWorld(jointId.world0)
+	j := getJointFullId(w, jointId)
+	base := getJointSim(w, j)
+	base.constraintHertz = hertz
+	base.constraintDampingRatio = dampingRatio
+}
+
+// GetConstraintTuning reports the joint constraint tuning (b2Joint_GetConstraintTuning).
+func (jointId JointId) GetConstraintTuning() (hertz, dampingRatio Q) {
+	w := getWorld(jointId.world0)
+	j := getJointFullId(w, jointId)
+	base := getJointSim(w, j)
+	return base.constraintHertz, base.constraintDampingRatio
+}
+
 // createJoint allocates a joint between two bodies, links it into both
 // body lists and picks its solver set. It corresponds to b2CreateJoint in
 // src/joint.c.
@@ -1026,4 +1457,10 @@ func solveJoints(context *stepContext, colorIndex int, useBias bool) {
 	for i := range joints {
 		solveJoint(&joints[i], context, useBias)
 	}
+}
+
+// DefaultExplosionDef returns an explosion definition with every mask bit
+// set and every other field zero. It corresponds to b2DefaultExplosionDef.
+func DefaultExplosionDef() ExplosionDef {
+	return ExplosionDef{MaskBits: DefaultMaskBits}
 }

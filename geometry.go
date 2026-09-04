@@ -5,7 +5,7 @@ import "github.com/dhannyell/fixed"
 // IsValidRay reports whether a ray cast input is usable.
 func IsValidRay(input *RayCastInput) bool {
 	isValid := IsValidVec2(input.Origin) && IsValidVec2(input.Translation) &&
-		IsValidQ(input.MaxFraction) && !input.MaxFraction.Less(fixed.Q32Zero()) && input.MaxFraction.Less(huge)
+		IsValidQ(input.MaxFraction) && !input.MaxFraction.Less(fixed.Q32Zero()) && input.MaxFraction.Less(Huge)
 	return isValid
 }
 
@@ -857,4 +857,103 @@ func ShapeCastSegment(input *ShapeCastInput, shape *Segment) CastOutput {
 func ShapeCastPolygon(input *ShapeCastInput, shape *Polygon) CastOutput {
 	pairInput := shapeCastPair(input, MakeProxy(shape.Vertices[:shape.Count], shape.Radius))
 	return ShapeCast(&pairInput)
+}
+
+// CollideMoverAndCircle ports b2CollideMoverAndCircle.
+func CollideMoverAndCircle(mover *Capsule, shape *Circle) PlaneResult {
+	zero := fixed.Q32Zero()
+	distanceInput := DistanceInput{
+		ProxyA:     MakeProxy([]Vec2{shape.Center}, zero),
+		ProxyB:     MakeProxy([]Vec2{mover.Center1, mover.Center2}, mover.Radius),
+		TransformA: TransformIdentity(),
+		TransformB: TransformIdentity(),
+		UseRadii:   false,
+	}
+	totalRadius := mover.Radius.Add(shape.Radius)
+
+	var cache SimplexCache
+	distanceOutput := ShapeDistance(&distanceInput, &cache, nil)
+	if !totalRadius.Less(distanceOutput.Distance) {
+		return PlaneResult{
+			Plane: Plane{Normal: distanceOutput.Normal, Offset: totalRadius.Sub(distanceOutput.Distance)},
+			Point: distanceOutput.PointA,
+			Hit:   true,
+		}
+	}
+
+	return PlaneResult{}
+}
+
+// CollideMoverAndCapsule ports b2CollideMoverAndCapsule.
+func CollideMoverAndCapsule(mover *Capsule, shape *Capsule) PlaneResult {
+	zero := fixed.Q32Zero()
+	distanceInput := DistanceInput{
+		ProxyA:     MakeProxy([]Vec2{shape.Center1, shape.Center2}, zero),
+		ProxyB:     MakeProxy([]Vec2{mover.Center1, mover.Center2}, mover.Radius),
+		TransformA: TransformIdentity(),
+		TransformB: TransformIdentity(),
+		UseRadii:   false,
+	}
+	totalRadius := mover.Radius.Add(shape.Radius)
+
+	var cache SimplexCache
+	distanceOutput := ShapeDistance(&distanceInput, &cache, nil)
+	if !totalRadius.Less(distanceOutput.Distance) {
+		return PlaneResult{
+			Plane: Plane{Normal: distanceOutput.Normal, Offset: totalRadius.Sub(distanceOutput.Distance)},
+			Point: distanceOutput.PointA,
+			Hit:   true,
+		}
+	}
+
+	return PlaneResult{}
+}
+
+// CollideMoverAndPolygon ports b2CollideMoverAndPolygon.
+func CollideMoverAndPolygon(mover *Capsule, shape *Polygon) PlaneResult {
+	distanceInput := DistanceInput{
+		ProxyA:     MakeProxy(shape.Vertices[:shape.Count], shape.Radius),
+		ProxyB:     MakeProxy([]Vec2{mover.Center1, mover.Center2}, mover.Radius),
+		TransformA: TransformIdentity(),
+		TransformB: TransformIdentity(),
+		UseRadii:   false,
+	}
+	totalRadius := mover.Radius.Add(shape.Radius)
+
+	var cache SimplexCache
+	distanceOutput := ShapeDistance(&distanceInput, &cache, nil)
+	if !totalRadius.Less(distanceOutput.Distance) {
+		return PlaneResult{
+			Plane: Plane{Normal: distanceOutput.Normal, Offset: totalRadius.Sub(distanceOutput.Distance)},
+			Point: distanceOutput.PointA,
+			Hit:   true,
+		}
+	}
+
+	return PlaneResult{}
+}
+
+// CollideMoverAndSegment ports b2CollideMoverAndSegment.
+func CollideMoverAndSegment(mover *Capsule, shape *Segment) PlaneResult {
+	zero := fixed.Q32Zero()
+	distanceInput := DistanceInput{
+		ProxyA:     MakeProxy([]Vec2{shape.Point1, shape.Point2}, zero),
+		ProxyB:     MakeProxy([]Vec2{mover.Center1, mover.Center2}, mover.Radius),
+		TransformA: TransformIdentity(),
+		TransformB: TransformIdentity(),
+		UseRadii:   false,
+	}
+	totalRadius := mover.Radius
+
+	var cache SimplexCache
+	distanceOutput := ShapeDistance(&distanceInput, &cache, nil)
+	if !totalRadius.Less(distanceOutput.Distance) {
+		return PlaneResult{
+			Plane: Plane{Normal: distanceOutput.Normal, Offset: totalRadius.Sub(distanceOutput.Distance)},
+			Point: distanceOutput.PointA,
+			Hit:   true,
+		}
+	}
+
+	return PlaneResult{}
 }

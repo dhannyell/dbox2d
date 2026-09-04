@@ -13,8 +13,9 @@ const (
 
 // world manages all physics entities and the dynamic simulation.
 type world struct {
-	// Deferred: the chain and sensor storage, the callbacks and the task
-	// system of the reference.
+	// Deferred: the task system of the reference.
+	sensors            []sensor
+	sensorTaskContexts [1]sensorTaskContext
 
 	// constraintGraph colors the awake touching contacts.
 	constraintGraph constraintGraph
@@ -40,6 +41,11 @@ type world struct {
 
 	// shapes maps a shape id to the shape data.
 	shapes []shape
+
+	chainIdPool idPool
+
+	// chainShapes maps a chain id to the chain data.
+	chainShapes []chainShape
 
 	contactIdPool idPool
 
@@ -75,8 +81,8 @@ type world struct {
 	contactEndEvents   [2][]ContactEndTouchEvent
 	contactHitEvents   []ContactHitEvent
 	endEventArrayIndex int
-
-	// Deferred: the sensor events of the reference.
+	sensorBeginEvents  []SensorBeginTouchEvent
+	sensorEndEvents    [2][]SensorEndTouchEvent
 
 	// broadPhase holds the trees, the move buffer and the pair set.
 	broadPhase broadPhase
@@ -106,8 +112,13 @@ type world struct {
 
 	// The mixing callbacks combine the material values of two shapes into
 	// the effective contact values.
-	frictionCallback    mixingCallback
-	restitutionCallback mixingCallback
+	frictionCallback    FrictionCallback
+	restitutionCallback RestitutionCallback
+
+	// customFilterFcn and preSolveFcn are nil unless the caller sets them,
+	// matching the reference's NULL default (no context: D-014).
+	customFilterFcn CustomFilterFcn
+	preSolveFcn     PreSolveFcn
 
 	worldId uint16
 
@@ -118,10 +129,6 @@ type world struct {
 	enableSpeculative  bool
 	inUse              bool
 }
-
-// mixingCallback combines the material values of two shapes. It corresponds
-// to b2FrictionCallback and b2RestitutionCallback in include/box2d/types.h.
-type mixingCallback func(valueA Q, userMaterialIdA int, valueB Q, userMaterialIdB int) Q
 
 // defaultFrictionCallback is the geometric mean. It corresponds to
 // b2DefaultFrictionCallback in src/world.c.
@@ -231,6 +238,8 @@ func CreateWorld(def *WorldDef) WorldId {
 
 	w.shapeIdPool = createIdPool()
 	w.shapes = make([]shape, 0, 16)
+	w.chainIdPool = createIdPool()
+	w.chainShapes = make([]chainShape, 0, 16)
 
 	w.contactIdPool = createIdPool()
 	w.contacts = make([]contact, 0, 16)
@@ -257,10 +266,19 @@ func CreateWorld(def *WorldDef) WorldId {
 	w.contactEndEvents[0] = make([]ContactEndTouchEvent, 0, 16)
 	w.contactEndEvents[1] = make([]ContactEndTouchEvent, 0, 16)
 	w.contactHitEvents = make([]ContactHitEvent, 0, 16)
+	w.sensorBeginEvents = make([]SensorBeginTouchEvent, 0, 16)
+	w.sensorEndEvents[0] = make([]SensorEndTouchEvent, 0, 16)
+	w.sensorEndEvents[1] = make([]SensorEndTouchEvent, 0, 16)
 	w.endEventArrayIndex = 0
 
-	w.frictionCallback = defaultFrictionCallback
-	w.restitutionCallback = defaultRestitutionCallback
+	w.frictionCallback = def.FrictionCallback
+	if w.frictionCallback == nil {
+		w.frictionCallback = defaultFrictionCallback
+	}
+	w.restitutionCallback = def.RestitutionCallback
+	if w.restitutionCallback == nil {
+		w.restitutionCallback = defaultRestitutionCallback
+	}
 
 	w.stepIndex = 0
 	w.gravity = def.Gravity
@@ -667,11 +685,208 @@ func validateSolverSets(w *world) {
 	}
 }
 
-// Gravity returns the gravity vector of the world.
-func (id WorldId) Gravity() Vec2 {
-	w := getWorldFromId(id)
+// GetGravity returns the gravity vector. It corresponds to b2World_GetGravity.
+func (worldId WorldId) GetGravity() Vec2 {
+	w := getWorldFromId(worldId)
 	return w.gravity
 }
+
+// EnableSleeping changes sleeping and wakes sleeping sets when disabled.
+// It corresponds to b2World_EnableSleeping in src/world.c.
+func (worldId WorldId) EnableSleeping(flag bool) {
+	w := getWorldFromId(worldId)
+	if w.locked || flag == w.enableSleep {
+		return
+	}
+	w.enableSleep = flag
+	if !flag {
+		for setIndex := firstSleepingSet; setIndex < len(w.solverSets); setIndex++ {
+			if w.solverSets[setIndex].setIndex != nullIndex && len(w.solverSets[setIndex].bodySims) > 0 {
+				wakeSolverSet(w, setIndex)
+			}
+		}
+	}
+}
+
+// IsSleepingEnabled reports whether sleeping is enabled.
+// It corresponds to b2World_IsSleepingEnabled in src/world.c.
+func (worldId WorldId) IsSleepingEnabled() bool { return getWorldFromId(worldId).enableSleep }
+
+// EnableContinuous changes continuous collision detection.
+// It corresponds to b2World_EnableContinuous in src/world.c.
+func (worldId WorldId) EnableContinuous(flag bool) {
+	w := getWorldFromId(worldId)
+	if w.locked {
+		panic("dbox2d: the world is locked")
+	}
+	w.enableContinuous = flag
+}
+
+// IsContinuousEnabled reports whether continuous collision is enabled.
+// It corresponds to b2World_IsContinuousEnabled in src/world.c.
+func (worldId WorldId) IsContinuousEnabled() bool { return getWorldFromId(worldId).enableContinuous }
+
+// SetRestitutionThreshold limits the speed threshold to the valid Q range.
+// It corresponds to b2World_SetRestitutionThreshold in src/world.c.
+func (worldId WorldId) SetRestitutionThreshold(value Q) {
+	w := getWorldFromId(worldId)
+	if w.locked {
+		panic("dbox2d: the world is locked")
+	}
+	w.restitutionThreshold = value.Max(fixed.Q32Zero()).Min(fixed.Q32MaxValue())
+}
+
+// GetRestitutionThreshold returns the restitution speed threshold.
+// It corresponds to b2World_GetRestitutionThreshold in src/world.c.
+func (worldId WorldId) GetRestitutionThreshold() Q {
+	return getWorldFromId(worldId).restitutionThreshold
+}
+
+// SetHitEventThreshold limits the hit-event threshold to the valid Q range.
+// It corresponds to b2World_SetHitEventThreshold in src/world.c.
+func (worldId WorldId) SetHitEventThreshold(value Q) {
+	w := getWorldFromId(worldId)
+	if w.locked {
+		panic("dbox2d: the world is locked")
+	}
+	w.hitEventThreshold = value.Max(fixed.Q32Zero()).Min(fixed.Q32MaxValue())
+}
+
+// GetHitEventThreshold returns the hit-event threshold.
+// It corresponds to b2World_GetHitEventThreshold in src/world.c.
+func (worldId WorldId) GetHitEventThreshold() Q { return getWorldFromId(worldId).hitEventThreshold }
+
+// SetGravity changes the world gravity vector.
+// It corresponds to b2World_SetGravity in src/world.c.
+func (worldId WorldId) SetGravity(gravity Vec2) { getWorldFromId(worldId).gravity = gravity }
+
+// SetContactTuning changes contact softness and push speed.
+// It corresponds to b2World_SetContactTuning in src/world.c.
+func (worldId WorldId) SetContactTuning(hertz, dampingRatio, pushSpeed Q) {
+	w := getWorldFromId(worldId)
+	if w.locked {
+		panic("dbox2d: the world is locked")
+	}
+	zero, maxValue := fixed.Q32Zero(), fixed.Q32MaxValue()
+	w.contactHertz = hertz.Max(zero).Min(maxValue)
+	w.contactDampingRatio = dampingRatio.Max(zero).Min(maxValue)
+	w.maxContactPushSpeed = pushSpeed.Max(zero).Min(maxValue)
+}
+
+// SetMaximumLinearSpeed changes the velocity cap.
+// It corresponds to b2World_SetMaximumLinearSpeed in src/world.c.
+func (worldId WorldId) SetMaximumLinearSpeed(maximumLinearSpeed Q) {
+	w := getWorldFromId(worldId)
+	if w.locked {
+		panic("dbox2d: the world is locked")
+	}
+	w.maxLinearSpeed = maximumLinearSpeed
+}
+
+// GetMaximumLinearSpeed returns the velocity cap.
+// It corresponds to b2World_GetMaximumLinearSpeed in src/world.c.
+func (worldId WorldId) GetMaximumLinearSpeed() Q { return getWorldFromId(worldId).maxLinearSpeed }
+
+// EnableWarmStarting changes impulse warm starting.
+// It corresponds to b2World_EnableWarmStarting in src/world.c.
+func (worldId WorldId) EnableWarmStarting(flag bool) {
+	w := getWorldFromId(worldId)
+	if w.locked {
+		panic("dbox2d: the world is locked")
+	}
+	w.enableWarmStarting = flag
+}
+
+// IsWarmStartingEnabled reports whether warm starting is enabled.
+// It corresponds to b2World_IsWarmStartingEnabled in src/world.c.
+func (worldId WorldId) IsWarmStartingEnabled() bool {
+	return getWorldFromId(worldId).enableWarmStarting
+}
+
+// GetAwakeBodyCount returns the number of bodies in the awake set.
+// It corresponds to b2World_GetAwakeBodyCount in src/world.c.
+func (worldId WorldId) GetAwakeBodyCount() int {
+	return len(getWorldFromId(worldId).solverSets[awakeSet].bodySims)
+}
+
+// GetCounters reports entity, tree, arena and graph counts.
+// It corresponds to b2World_GetCounters in src/world.c.
+func (worldId WorldId) GetCounters() Counters {
+	w := getWorldFromId(worldId)
+	result := Counters{
+		BodyCount: w.bodyIdPool.idCount(), ShapeCount: w.shapeIdPool.idCount(), ContactCount: w.contactIdPool.idCount(),
+		JointCount: w.jointIdPool.idCount(), IslandCount: w.islandIdPool.idCount(), StackUsed: getMaxArenaAllocation(&w.arena),
+		StaticTreeHeight: w.broadPhase.trees[StaticBody].getHeight(),
+	}
+	result.TreeHeight = max(w.broadPhase.trees[DynamicBody].getHeight(), w.broadPhase.trees[KinematicBody].getHeight())
+	for i := range graphColorCount {
+		color := &w.constraintGraph.colors[i]
+		result.ColorCounts[i] = len(color.contactSims) + len(color.jointSims)
+	}
+	return result
+}
+
+// SetUserData attaches application data to the world.
+// It corresponds to b2World_SetUserData in src/world.c.
+func (worldId WorldId) SetUserData(userData any) { getWorldFromId(worldId).userData = userData }
+
+// GetUserData returns the data attached to the world.
+// It corresponds to b2World_GetUserData in src/world.c.
+func (worldId WorldId) GetUserData() any { return getWorldFromId(worldId).userData }
+
+// SetFrictionCallback changes friction mixing for future contacts.
+// It corresponds to b2World_SetFrictionCallback in src/world.c.
+func (worldId WorldId) SetFrictionCallback(callback FrictionCallback) {
+	w := getWorldFromId(worldId)
+	if w.locked {
+		panic("dbox2d: the world is locked")
+	}
+	if callback == nil {
+		callback = defaultFrictionCallback
+	}
+	w.frictionCallback = callback
+}
+
+// SetRestitutionCallback changes restitution mixing for future contacts.
+// It corresponds to b2World_SetRestitutionCallback in src/world.c.
+func (worldId WorldId) SetRestitutionCallback(callback RestitutionCallback) {
+	w := getWorldFromId(worldId)
+	if w.locked {
+		panic("dbox2d: the world is locked")
+	}
+	if callback == nil {
+		callback = defaultRestitutionCallback
+	}
+	w.restitutionCallback = callback
+}
+
+// SetCustomFilterCallback sets the pair filter run during collision.
+// It corresponds to b2World_SetCustomFilterCallback in src/world.c; the
+// reference also stores a void* context, dropped here per D-014.
+func (worldId WorldId) SetCustomFilterCallback(fcn CustomFilterFcn) {
+	getWorldFromId(worldId).customFilterFcn = fcn
+}
+
+// SetPreSolveCallback sets the callback run after a contact's manifold is
+// updated, before the solver sees it. It corresponds to
+// b2World_SetPreSolveCallback in src/world.c.
+func (worldId WorldId) SetPreSolveCallback(fcn PreSolveFcn) {
+	getWorldFromId(worldId).preSolveFcn = fcn
+}
+
+// RebuildStaticTree rebuilds the static broad-phase tree.
+// It corresponds to b2World_RebuildStaticTree in src/world.c.
+func (worldId WorldId) RebuildStaticTree() {
+	w := getWorldFromId(worldId)
+	if w.locked {
+		panic("dbox2d: the world is locked")
+	}
+	w.broadPhase.trees[StaticBody].rebuild(true)
+}
+
+// EnableSpeculative changes speculative collision handling.
+// It corresponds to b2World_EnableSpeculative in src/world.c.
+func (worldId WorldId) EnableSpeculative(flag bool) { getWorldFromId(worldId).enableSpeculative = flag }
 
 // taskContext is the scratch that the body finalize fills for the island
 // sleep. It corresponds to b2TaskContext in src/world.h.
@@ -698,7 +913,7 @@ type taskContext struct {
 
 // GetBodyEvents returns the move events of the last step. It corresponds
 // to b2World_GetBodyEvents in src/world.c.
-func GetBodyEvents(worldId WorldId) BodyEvents {
+func (worldId WorldId) GetBodyEvents() BodyEvents {
 	w := getWorldFromId(worldId)
 	if w.locked {
 		panic("dbox2d: the world is locked")
@@ -708,7 +923,7 @@ func GetBodyEvents(worldId WorldId) BodyEvents {
 
 // GetContactEvents returns the contact events of the last step. It
 // corresponds to b2World_GetContactEvents in src/world.c.
-func GetContactEvents(worldId WorldId) ContactEvents {
+func (worldId WorldId) GetContactEvents() ContactEvents {
 	w := getWorldFromId(worldId)
 	if w.locked {
 		panic("dbox2d: the world is locked")
@@ -721,6 +936,23 @@ func GetContactEvents(worldId WorldId) ContactEvents {
 		BeginEvents: w.contactBeginEvents,
 		EndEvents:   w.contactEndEvents[endEventArrayIndex],
 		HitEvents:   w.contactHitEvents,
+	}
+}
+
+// GetSensorEvents returns the sensor events of the last step. It
+// corresponds to b2World_GetSensorEvents in src/world.c.
+func (worldId WorldId) GetSensorEvents() SensorEvents {
+	w := getWorldFromId(worldId)
+	if w.locked {
+		panic("dbox2d: the world is locked")
+	}
+
+	// Careful to use previous buffer
+	endEventArrayIndex := 1 - w.endEventArrayIndex
+
+	return SensorEvents{
+		BeginEvents: w.sensorBeginEvents,
+		EndEvents:   w.sensorEndEvents[endEventArrayIndex],
 	}
 }
 
@@ -874,7 +1106,7 @@ func validateContacts(w *world) {
 // the dynamic tree in that order; a false result ends only the current
 // tree, as in the reference. A locked world panics. It corresponds to
 // b2World_OverlapAABB in src/world.c.
-func OverlapAABB(worldId WorldId, aabb AABB, filter QueryFilter, fcn OverlapResultFcn) TreeStats {
+func (worldId WorldId) OverlapAABB(aabb AABB, filter QueryFilter, fcn OverlapResultFcn) TreeStats {
 	w := getWorldFromId(worldId)
 	if w.locked {
 		panic("dbox2d: the world is locked")
@@ -903,7 +1135,7 @@ func OverlapAABB(worldId WorldId, aabb AABB, filter QueryFilter, fcn OverlapResu
 // CastRay reports the shapes a ray hits, tree by tree. The callback
 // clips the ray for the next tree; a zero return stops the cast. A
 // locked world panics. It corresponds to b2World_CastRay in src/world.c.
-func CastRay(worldId WorldId, origin, translation Vec2, filter QueryFilter, fcn CastResultFcn) TreeStats {
+func (worldId WorldId) CastRay(origin, translation Vec2, filter QueryFilter, fcn CastResultFcn) TreeStats {
 	w := getWorldFromId(worldId)
 	if w.locked {
 		panic("dbox2d: the world is locked")
@@ -957,7 +1189,7 @@ func CastRay(worldId WorldId, origin, translation Vec2, filter QueryFilter, fcn 
 // current tree. The distance solver decides the overlap, so the report is
 // exact, not a bounds test. A locked world panics. It corresponds to
 // b2World_OverlapShape in src/world.c.
-func OverlapShape(worldId WorldId, proxy *ShapeProxy, filter QueryFilter, fcn OverlapResultFcn) TreeStats {
+func (worldId WorldId) OverlapShape(proxy *ShapeProxy, filter QueryFilter, fcn OverlapResultFcn) TreeStats {
 	w := getWorldFromId(worldId)
 	if w.locked {
 		panic("dbox2d: the world is locked")
@@ -1004,7 +1236,7 @@ func OverlapShape(worldId WorldId, proxy *ShapeProxy, filter QueryFilter, fcn Ov
 // in games. An initial overlap does not count as a hit. A locked world
 // panics. It corresponds to b2World_CastRayClosest in src/world.c; the
 // closure replaces b2RayCastClosestFcn.
-func CastRayClosest(worldId WorldId, origin, translation Vec2, filter QueryFilter) RayResult {
+func (worldId WorldId) CastRayClosest(origin, translation Vec2, filter QueryFilter) RayResult {
 	var result RayResult
 
 	w := getWorldFromId(worldId)
@@ -1072,7 +1304,7 @@ func CastRayClosest(worldId WorldId, origin, translation Vec2, filter QueryFilte
 // CastShape sweeps a proxy through the world and reports each hit, tree
 // by tree. The callback returns as for CastRay. A locked world panics. It
 // corresponds to b2World_CastShape in src/world.c.
-func CastShape(worldId WorldId, proxy *ShapeProxy, translation Vec2, filter QueryFilter, fcn CastResultFcn) TreeStats {
+func (worldId WorldId) CastShape(proxy *ShapeProxy, translation Vec2, filter QueryFilter, fcn CastResultFcn) TreeStats {
 	w := getWorldFromId(worldId)
 	if w.locked {
 		panic("dbox2d: the world is locked")
@@ -1132,7 +1364,7 @@ func CastShape(worldId WorldId, proxy *ShapeProxy, translation Vec2, filter Quer
 // stop it; a capsule that already touches may move a little closer. A
 // locked world panics. It corresponds to b2World_CastMover in
 // src/world.c.
-func CastMover(worldId WorldId, mover *Capsule, translation Vec2, filter QueryFilter) Q {
+func (worldId WorldId) CastMover(mover *Capsule, translation Vec2, filter QueryFilter) Q {
 	if !IsValidVec2(translation) {
 		panic("dbox2d: CastMover needs a valid translation")
 	}
@@ -1187,4 +1419,145 @@ func CastMover(worldId WorldId, mover *Capsule, translation Vec2, filter QueryFi
 	}
 
 	return fraction
+}
+
+// CollideMover reports the collision plane of every shape the mover
+// capsule touches, tree by tree. The callback returns false to stop the
+// walk. A locked world panics. It corresponds to b2World_CollideMover in
+// src/world.c.
+func (worldId WorldId) CollideMover(mover *Capsule, filter QueryFilter, fcn PlaneResultFcn) {
+	w := getWorldFromId(worldId)
+	if w.locked {
+		panic("dbox2d: the world is locked")
+	}
+
+	lower := Min(mover.Center1, mover.Center2)
+	upper := Max(mover.Center1, mover.Center2)
+	aabb := AABB{
+		LowerBound: Vec2{X: lower.X.Sub(mover.Radius), Y: lower.Y.Sub(mover.Radius)},
+		UpperBound: Vec2{X: upper.X.Add(mover.Radius), Y: upper.Y.Add(mover.Radius)},
+	}
+
+	callback := func(_ int, userData uint64) bool {
+		s := &w.shapes[int(userData)]
+		if !shouldQueryCollide(s.filter, filter) {
+			return true
+		}
+
+		transform := getBodyTransformQuick(w, &w.bodies[s.bodyId])
+		result := collideMover(mover, s, transform)
+
+		if result.Hit && IsNormalized(result.Plane.Normal) {
+			return fcn(shapeIdOf(w, s), &result)
+		}
+
+		return true
+	}
+
+	for i := range w.broadPhase.trees {
+		w.broadPhase.trees[i].query(aabb, filter.MaskBits, callback)
+	}
+}
+
+// explosionContext carries the explosion parameters to explosionCallback. It
+// corresponds to the reference's ExplosionContext in src/world.c.
+type explosionContext struct {
+	w                *world
+	position         Vec2
+	radius           Q
+	falloff          Q
+	impulsePerLength Q
+}
+
+// explosionCallback applies the impulse of one explosion to one shape's
+// body. It corresponds to ExplosionCallback in src/world.c.
+func (ctx *explosionContext) explosionCallback(_ int, userData uint64) bool {
+	w := ctx.w
+	s := &w.shapes[int(userData)]
+	b := &w.bodies[s.bodyId]
+
+	transform := getBodyTransformQuick(w, b)
+
+	zero := fixed.Q32Zero()
+	one := fixed.Q32One()
+
+	input := DistanceInput{
+		ProxyA:     makeShapeDistanceProxy(s),
+		ProxyB:     MakeProxy([]Vec2{ctx.position}, zero),
+		TransformA: transform,
+		TransformB: TransformIdentity(),
+		UseRadii:   true,
+	}
+	cache := SimplexCache{}
+	output := ShapeDistance(&input, &cache, nil)
+
+	if output.Distance.Greater(ctx.radius.Add(ctx.falloff)) {
+		return true
+	}
+
+	wakeBody(w, b)
+	if b.setIndex != awakeSet {
+		return true
+	}
+
+	closestPoint := output.PointA
+	// D-012: the reference's exact zero-distance check.
+	if output.Distance.Eq(zero) {
+		closestPoint = TransformPoint(transform, getShapeCentroid(s))
+	}
+
+	direction := closestPoint.Sub(ctx.position)
+	// D-012: the reference's epsilon guard becomes an exact zero test.
+	if direction.LenSq().Eq(zero) {
+		direction = Vec2{X: one}
+	} else {
+		direction = direction.Normalize()
+	}
+
+	localLine := InvRotateVector(transform.Q, LeftPerp(direction))
+	perimeter := getShapeProjectedPerimeter(s, localLine)
+
+	scale := one
+	if output.Distance.Greater(ctx.radius) && ctx.falloff.Greater(zero) {
+		// D-006: the reference's division stays a division.
+		scale = ctx.radius.Add(ctx.falloff).Sub(output.Distance).Div(ctx.falloff).Clamp(zero, one)
+	}
+
+	magnitude := ctx.impulsePerLength.Mul(perimeter).Mul(scale)
+	impulse := direction.Mul(magnitude)
+
+	state := getBodyState(w, b)
+	sim := getBodySim(w, b)
+	state.linearVelocity = MulAdd(state.linearVelocity, sim.invMass, impulse)
+	// D-004: convert the reference's radian angular impulse to turns.
+	state.angularVelocity = state.angularVelocity.Add(sim.invInertia.Mul(Cross(closestPoint.Sub(sim.center), impulse)).Div(tau))
+
+	return true
+}
+
+// Explode applies an impulse to every dynamic body near an explosion
+// center, scaled by distance and by the shape perimeter facing the
+// center. A locked world is a no-op. It corresponds to b2World_Explode in
+// src/world.c.
+func (worldId WorldId) Explode(def *ExplosionDef) {
+	w := getWorldFromId(worldId)
+	if w.locked {
+		panic("dbox2d: the world is locked")
+	}
+
+	ctx := explosionContext{
+		w:                w,
+		position:         def.Position,
+		radius:           def.Radius,
+		falloff:          def.Falloff,
+		impulsePerLength: def.ImpulsePerLength,
+	}
+
+	reach := def.Radius.Add(def.Falloff)
+	aabb := AABB{
+		LowerBound: Vec2{X: def.Position.X.Sub(reach), Y: def.Position.Y.Sub(reach)},
+		UpperBound: Vec2{X: def.Position.X.Add(reach), Y: def.Position.Y.Add(reach)},
+	}
+
+	w.broadPhase.trees[DynamicBody].query(aabb, def.MaskBits, ctx.explosionCallback)
 }
