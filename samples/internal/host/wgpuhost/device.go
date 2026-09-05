@@ -1,10 +1,8 @@
-//go:build js && wasm
+//go:build cgo || js
 
-// Package wasm hosts the samples module in a browser tab: it implements
-// the gpu seam over the js backend of github.com/dhannyell/webgpu/wgpu,
-// drives App.Frame from requestAnimationFrame, and routes canvas and
-// keyboard events into it.
-package wasm
+// Package wgpuhost implements the gpu seam over github.com/dhannyell/webgpu/wgpu,
+// for both the cgo backend and the js backend.
+package wgpuhost
 
 import (
 	"fmt"
@@ -14,9 +12,9 @@ import (
 	"github.com/dhannyell/dbox2d/samples/internal/gpu"
 )
 
-// device implements gpu.Device over one wgpu.Device and the canvas surface
-// it was configured against.
-type device struct {
+// Device implements gpu.Device over one wgpu.Device and the surface it was
+// configured against.
+type Device struct {
 	dev           *wgpu.Device
 	queue         *wgpu.Queue
 	surface       *wgpu.Surface
@@ -24,9 +22,15 @@ type device struct {
 	format        gpu.TextureFormat
 	sampler       *wgpu.Sampler
 	width, height int
+
+	// OnSurfaceOutdated is called when the surface texture status is
+	// Outdated or Lost, so a host can reconfigure before the next frame.
+	// The js backend never reports either status.
+	OnSurfaceOutdated func()
 }
 
-func newDevice(dev *wgpu.Device, surface *wgpu.Surface, wgpuFormat wgpu.TextureFormat) (*device, error) {
+// NewDevice builds a Device against an already-configured surface.
+func NewDevice(dev *wgpu.Device, surface *wgpu.Surface, wgpuFormat wgpu.TextureFormat) (*Device, error) {
 	sampler, err := dev.TryCreateSampler(&wgpu.SamplerDescriptor{
 		AddressModeU:  wgpu.AddressModeClampToEdge,
 		AddressModeV:  wgpu.AddressModeClampToEdge,
@@ -37,17 +41,17 @@ func newDevice(dev *wgpu.Device, surface *wgpu.Surface, wgpuFormat wgpu.TextureF
 		MaxAnisotropy: 1, // the browser rejects the zero value
 	})
 	if err != nil {
-		return nil, fmt.Errorf("wasm: create sampler: %w", err)
+		return nil, fmt.Errorf("wgpuhost: create sampler: %w", err)
 	}
-	return &device{
+	return &Device{
 		dev: dev, queue: dev.GetQueue(), surface: surface,
 		wgpuFormat: wgpuFormat, format: fromWgpuFormat(wgpuFormat), sampler: sampler,
 	}, nil
 }
 
-// resize updates the pixel size Frame.Size reports; the caller has already
+// Resize updates the pixel size Frame.Size reports; the caller has already
 // reconfigured the surface at this size.
-func (d *device) resize(width, height int) { d.width, d.height = width, height }
+func (d *Device) Resize(width, height int) { d.width, d.height = width, height }
 
 type whBuffer struct{ buf *wgpu.Buffer }
 
@@ -75,17 +79,17 @@ type whBindGroup struct{ group *wgpu.BindGroup }
 
 func (g *whBindGroup) Release() { g.group.Release() }
 
-func (d *device) CreateBuffer(label string, usage gpu.BufferUsage, size int) gpu.Buffer {
+func (d *Device) CreateBuffer(label string, usage gpu.BufferUsage, size int) gpu.Buffer {
 	buf, err := d.dev.TryCreateBuffer(&wgpu.BufferDescriptor{
 		Label: label, Usage: toBufferUsage(usage), Size: uint64(size),
 	})
 	if err != nil {
-		panic(fmt.Errorf("wasm: create buffer %q: %w", label, err))
+		panic(fmt.Errorf("wgpuhost: create buffer %q: %w", label, err))
 	}
 	return &whBuffer{buf}
 }
 
-func (d *device) CreateTexture(label string, width, height int, format gpu.TextureFormat) gpu.Texture {
+func (d *Device) CreateTexture(label string, width, height int, format gpu.TextureFormat) gpu.Texture {
 	tex, err := d.dev.TryCreateTexture(&wgpu.TextureDescriptor{
 		Label:         label,
 		Usage:         wgpu.TextureUsageTextureBinding | wgpu.TextureUsageCopyDst,
@@ -96,26 +100,26 @@ func (d *device) CreateTexture(label string, width, height int, format gpu.Textu
 		SampleCount:   1,
 	})
 	if err != nil {
-		panic(fmt.Errorf("wasm: create texture %q: %w", label, err))
+		panic(fmt.Errorf("wgpuhost: create texture %q: %w", label, err))
 	}
 	view, err := tex.TryCreateView(nil)
 	if err != nil {
-		panic(fmt.Errorf("wasm: create texture view %q: %w", label, err))
+		panic(fmt.Errorf("wgpuhost: create texture view %q: %w", label, err))
 	}
 	return &whTexture{tex: tex, view: view}
 }
 
-func (d *device) CreateShader(label, wgsl string) gpu.Shader {
+func (d *Device) CreateShader(label, wgsl string) gpu.Shader {
 	mod, err := d.dev.TryCreateShaderModule(&wgpu.ShaderModuleDescriptor{
 		Label: label, WGSLSource: &wgpu.ShaderSourceWGSL{Code: wgsl},
 	})
 	if err != nil {
-		panic(fmt.Errorf("wasm: compile shader %q: %w", label, err))
+		panic(fmt.Errorf("wgpuhost: compile shader %q: %w", label, err))
 	}
 	return &whShader{mod}
 }
 
-func (d *device) CreatePipeline(desc gpu.PipelineDesc) gpu.Pipeline {
+func (d *Device) CreatePipeline(desc gpu.PipelineDesc) gpu.Pipeline {
 	buffers := make([]wgpu.VertexBufferLayout, len(desc.Buffers))
 	for i, b := range desc.Buffers {
 		attrs := make([]wgpu.VertexAttribute, len(b.Attributes))
@@ -142,12 +146,12 @@ func (d *device) CreatePipeline(desc gpu.PipelineDesc) gpu.Pipeline {
 		},
 	})
 	if err != nil {
-		panic(fmt.Errorf("wasm: create pipeline %q: %w", desc.Label, err))
+		panic(fmt.Errorf("wgpuhost: create pipeline %q: %w", desc.Label, err))
 	}
 	return &whPipeline{pipeline}
 }
 
-func (d *device) CreateBindGroup(desc gpu.BindGroupDesc) gpu.BindGroup {
+func (d *Device) CreateBindGroup(desc gpu.BindGroupDesc) gpu.BindGroup {
 	layout := desc.Pipeline.(*whPipeline).pipeline.GetBindGroupLayout(0)
 	entries := make([]wgpu.BindGroupEntry, len(desc.Entries))
 	for i, e := range desc.Entries {
@@ -164,19 +168,20 @@ func (d *device) CreateBindGroup(desc gpu.BindGroupDesc) gpu.BindGroup {
 		entries[i] = entry
 	}
 	group, err := d.dev.TryCreateBindGroup(&wgpu.BindGroupDescriptor{Label: desc.Label, Layout: layout, Entries: entries})
+	layout.Release()
 	if err != nil {
-		panic(fmt.Errorf("wasm: create bind group %q: %w", desc.Label, err))
+		panic(fmt.Errorf("wgpuhost: create bind group %q: %w", desc.Label, err))
 	}
 	return &whBindGroup{group}
 }
 
-func (d *device) WriteBuffer(b gpu.Buffer, offset int, data []byte) {
+func (d *Device) WriteBuffer(b gpu.Buffer, offset int, data []byte) {
 	if err := d.queue.TryWriteBuffer(b.(*whBuffer).buf, uint64(offset), data); err != nil {
-		panic(fmt.Errorf("wasm: write buffer: %w", err))
+		panic(fmt.Errorf("wgpuhost: write buffer: %w", err))
 	}
 }
 
-func (d *device) WriteTexture(t gpu.Texture, width, height int, bytesPerRow int, data []byte) {
+func (d *Device) WriteTexture(t gpu.Texture, width, height int, bytesPerRow int, data []byte) {
 	tex := t.(*whTexture).tex
 	err := d.queue.TryWriteTexture(
 		&wgpu.TexelCopyTextureInfo{Texture: tex},
@@ -185,13 +190,13 @@ func (d *device) WriteTexture(t gpu.Texture, width, height int, bytesPerRow int,
 		&wgpu.Extent3D{Width: uint32(width), Height: uint32(height), DepthOrArrayLayers: 1},
 	)
 	if err != nil {
-		panic(fmt.Errorf("wasm: write texture: %w", err))
+		panic(fmt.Errorf("wgpuhost: write texture: %w", err))
 	}
 }
 
-func (d *device) SurfaceFormat() gpu.TextureFormat { return d.format }
+func (d *Device) SurfaceFormat() gpu.TextureFormat { return d.format }
 
-func (d *device) BeginFrame() (gpu.Frame, bool) {
+func (d *Device) BeginFrame() (gpu.Frame, bool) {
 	if d.width == 0 || d.height == 0 {
 		return nil, false
 	}
@@ -201,6 +206,16 @@ func (d *device) BeginFrame() (gpu.Frame, bool) {
 	}
 	tex, ok := surfaceTexture.Get()
 	if !ok {
+		// wgpu-native may still hand out a texture with a failed status.
+		if tex != nil {
+			tex.Release()
+		}
+		switch surfaceTexture.Status {
+		case wgpu.SurfaceGetCurrentTextureStatusOutdated, wgpu.SurfaceGetCurrentTextureStatusLost:
+			if d.OnSurfaceOutdated != nil {
+				d.OnSurfaceOutdated()
+			}
+		}
 		return nil, false
 	}
 	view, err := tex.TryCreateView(nil)

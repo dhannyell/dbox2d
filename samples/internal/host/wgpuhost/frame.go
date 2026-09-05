@@ -1,6 +1,6 @@
-//go:build js && wasm
+//go:build cgo || js
 
-package wasm
+package wgpuhost
 
 import (
 	"github.com/dhannyell/webgpu/wgpu"
@@ -11,7 +11,7 @@ import (
 // frame is one surface frame: at most one pass, then End submits and
 // presents it.
 type frame struct {
-	d       *device
+	d       *Device
 	tex     *wgpu.Texture
 	view    *wgpu.TextureView
 	encoder *wgpu.CommandEncoder
@@ -42,6 +42,7 @@ func (f *frame) End() {
 	f.d.surface.Present()
 
 	cmdBuffer.Release()
+	f.encoder.Release()
 	f.view.Release()
 	f.tex.Release()
 }
@@ -71,4 +72,7 @@ func (p *pass) Draw(vertexCount, instanceCount int) {
 	p.encoder.Draw(uint32(vertexCount), uint32(instanceCount), 0, 0)
 }
 
-func (p *pass) End() { p.encoder.End() }
+func (p *pass) End() {
+	p.encoder.End()
+	p.encoder.Release()
+}

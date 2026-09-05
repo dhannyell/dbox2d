@@ -9,6 +9,7 @@ import (
 
 	"github.com/dhannyell/dbox2d/samples"
 	"github.com/dhannyell/dbox2d/samples/internal/app"
+	"github.com/dhannyell/dbox2d/samples/internal/host/wgpuhost"
 )
 
 // canvasButton maps a PointerEvent.button to the sample's mouse button;
@@ -27,7 +28,7 @@ func canvasButton(jsButton int) (samples.MouseButton, bool) {
 // bindEvents wires the canvas and the window to a. The funcs it creates
 // with js.FuncOf are kept alive for the page's lifetime, matching Run's own
 // requestAnimationFrame func.
-func bindEvents(canvas js.Value, a *app.App, dev *device, surface *wgpu.Surface, configure func(w, h int), dpr float64) {
+func bindEvents(canvas js.Value, a *app.App, dev *wgpuhost.Device, surface *wgpu.Surface, configure func(w, h int), dpr float64) {
 	pointerPos := func(e js.Value) (float64, float64) {
 		return e.Get("offsetX").Float() * dpr, e.Get("offsetY").Float() * dpr
 	}
@@ -107,7 +108,7 @@ func bindEvents(canvas js.Value, a *app.App, dev *device, surface *wgpu.Surface,
 		canvas.Set("width", width)
 		canvas.Set("height", height)
 		configure(width, height)
-		dev.resize(width, height)
+		dev.Resize(width, height)
 		a.Resize(width, height)
 		return nil
 	})

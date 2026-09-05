@@ -1,6 +1,6 @@
-//go:build js && wasm
+//go:build cgo || js
 
-package wasm
+package wgpuhost
 
 import (
 	"github.com/dhannyell/webgpu/wgpu"

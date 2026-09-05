@@ -2,8 +2,8 @@ github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/dhannyell/fixed v0.5.0 h1:BF+ATUfFRyk3icTeQTd6BLQxmcVOp8OLsXEIJlMRx/Q=
 github.com/dhannyell/fixed v0.5.0/go.mod h1:Z9rHDf6OmyqFf3EZLp3+VvXzn8a1hyCfAdiAi7zXQ+Y=
-github.com/dhannyell/webgpu v1.35.1 h1:VG7YD6HA//G5OGX1hDzmrQzVIXanLmJIADJ5GhiHvDg=
-github.com/dhannyell/webgpu v1.35.1/go.mod h1:zYTVxa7F/vfuZeay/YhLyBJt5qjHQzPhu6WlQ8xpmH8=
+github.com/dhannyell/webgpu v1.35.2 h1:byjVg6STPUtVetuLtslakZgYLsrbYPwBwaK1th7Ejio=
+github.com/dhannyell/webgpu v1.35.2/go.mod h1:zYTVxa7F/vfuZeay/YhLyBJt5qjHQzPhu6WlQ8xpmH8=
 github.com/dhannyell/webgpu/libs-android v0.0.0-20260905020343-c4069cac051c h1:yhPBR+j0CIh74k9UsN+xkmCbI+sKysZLfPGPoDSIwwo=
 github.com/dhannyell/webgpu/libs-android v0.0.0-20260905020343-c4069cac051c/go.mod h1:ieewCHGEzpRrXMBX2h81X1SaHIgRuJzqZdiUOZzEh2E=
 github.com/dhannyell/webgpu/libs-darwin v0.0.0-20260905020352-092624e3a385 h1:GkVUxaj+ABft2kpYJsh6oUK2VdTlLfjOUlZveWJA6Vs=
@@ -14,6 +14,8 @@ github.com/dhannyell/webgpu/libs-linux v0.0.0-20260905020403-4ea5c475cbbd h1:jnL
 github.com/dhannyell/webgpu/libs-linux v0.0.0-20260905020403-4ea5c475cbbd/go.mod h1:5BveLwWsd8j+N6wtcDCrprQcHsM3ORaVxnnfwmQyjMY=
 github.com/dhannyell/webgpu/libs-windows v0.0.0-20260905020407-128027db48f4 h1:XRl/oX7XImBTTDnHWEv+E9ybfL4/ZZDXx1Tm08j+0ks=
 github.com/dhannyell/webgpu/libs-windows v0.0.0-20260905020407-128027db48f4/go.mod h1:M3bWCAnYw5rz9pIjCRogxNpaFPqZmx0+n1+kmTfAOe4=
+github.com/go-gl/glfw/v3.4/glfw v0.1.0-pre.1.0.20260628091122-0bd588dc30cf h1:F3qluraUahVF1QyZcPaeqavaUMr65eQnR4AH4VmDojc=
+github.com/go-gl/glfw/v3.4/glfw v0.1.0-pre.1.0.20260628091122-0bd588dc30cf/go.mod h1:T5Dn0JwIJOX1euPZ/iT4tq6nFYtmukjcYa7937HuYK8=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu7U=

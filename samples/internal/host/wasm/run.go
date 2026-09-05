@@ -9,6 +9,7 @@ import (
 
 	"github.com/dhannyell/dbox2d/samples/internal/app"
 	"github.com/dhannyell/dbox2d/samples/internal/draw"
+	"github.com/dhannyell/dbox2d/samples/internal/host/wgpuhost"
 	"github.com/dhannyell/dbox2d/samples/internal/render"
 )
 
@@ -61,12 +62,12 @@ func Run() {
 	}
 	configure(width, height)
 
-	dev, err := newDevice(wgpuDevice, surface, surfaceFormat)
+	dev, err := wgpuhost.NewDevice(wgpuDevice, surface, surfaceFormat)
 	if err != nil {
 		println("wasm: " + err.Error())
 		return
 	}
-	dev.resize(width, height)
+	dev.Resize(width, height)
 
 	// The atlas is rasterized once at a fixed pixel size; it is not
 	// rescaled by devicePixelRatio, so text is soft on high-DPI displays.
