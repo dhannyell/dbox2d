@@ -75,5 +75,22 @@ func TestTumblerChecksum(t *testing.T) {
 func ExampleEntries() {
 	e := samples.Entries()[0]
 	fmt.Printf("%s / %s\n", e.Category, e.Name)
-	// Output: Benchmark / Tumbler
+	// Output: Benchmark / Barrel
+}
+
+// largePyramidChecksum pins the world state after 60 steps of Large Pyramid;
+// a change here means the physics changed.
+const largePyramidChecksum uint64 = 0x0e249d83448947f5
+
+func TestLargePyramidChecksum(t *testing.T) {
+	ctx := samples.NewSampleContext()
+	sample := samples.NewLargePyramid(ctx).(*samples.LargePyramid)
+	for range 60 {
+		sample.Step()
+	}
+	got := dbox2d.Checksum(sample.WorldId)
+	if got != largePyramidChecksum {
+		t.Fatalf("got checksum 0x%x, want 0x%x", got, largePyramidChecksum)
+	}
+	sample.Destroy()
 }
