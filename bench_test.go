@@ -2235,15 +2235,22 @@ func BenchmarkStepRevoluteChain(b *testing.B) {
 
 	dt := fixed.Q32One().Div(fixed.Q32FromInt(60))
 
-	// Warm up through the first swing so every buffer has grown.
-	for range 120 {
+	// Warm up through later self-contacts so contact buffers reach capacity.
+	for range 20000 {
 		worldId.Step(dt, 4)
 	}
 
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
 		worldId.Step(dt, 4)
+	}
+	b.StopTimer()
+	runtime.ReadMemStats(&after)
+	if after.Mallocs != before.Mallocs {
+		b.Fatalf("Step allocated %d times (%d bytes) after warmup", after.Mallocs-before.Mallocs, after.TotalAlloc-before.TotalAlloc)
 	}
 }
 
