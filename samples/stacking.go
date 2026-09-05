@@ -58,5 +58,5 @@ func (s *SingleBox) Step() {
 	s.Base.Step()
 
 	position := s.bodyId.GetPosition()
-	s.DrawTextLine("(x, y) = (%.2g, %.2g)", floatFromQ(position.X), floatFromQ(position.Y))
+	s.DrawTextLine("(x, y) = (%.2g, %.2g)", ToFloat64(position.X), ToFloat64(position.Y))
 }

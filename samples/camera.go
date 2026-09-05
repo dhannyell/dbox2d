@@ -13,11 +13,16 @@ import (
 // between the simulation's fixed point and the camera's float64 math.
 const q32FractionBits = 32
 
-func qFromFloat64(f float64) dbox2d.Q {
+// FromFloat64 and ToFloat64 are presentation helpers; the simulation never
+// calls them.
+
+// FromFloat64 converts a float64 to the simulation's fixed-point type.
+func FromFloat64(f float64) dbox2d.Q {
 	return fixed.Q32FromRaw(int64(f * (1 << q32FractionBits)))
 }
 
-func floatFromQ(q dbox2d.Q) float64 {
+// ToFloat64 converts the simulation's fixed-point type to a float64.
+func ToFloat64(q dbox2d.Q) float64 {
 	return float64(q.Raw()) / (1 << q32FractionBits)
 }
 
@@ -86,14 +91,43 @@ func (c *Camera) ConvertWorldToScreen(pw Vec2f) Vec2f {
 
 // GetViewBounds returns the world-space box the camera currently frames. It
 // only gates what Draw draws; it carries no simulation meaning.
-//
-// BuildProjectionMatrix is not ported here: a rendering host adds it
-// alongside its own GPU pipeline.
 func (c *Camera) GetViewBounds() dbox2d.AABB {
 	lower := c.ConvertScreenToWorld(Vec2f{X: 0, Y: float64(c.Height)})
 	upper := c.ConvertScreenToWorld(Vec2f{X: float64(c.Width), Y: 0})
 	return dbox2d.AABB{
-		LowerBound: dbox2d.Vec2{X: qFromFloat64(lower.X), Y: qFromFloat64(lower.Y)},
-		UpperBound: dbox2d.Vec2{X: qFromFloat64(upper.X), Y: qFromFloat64(upper.Y)},
+		LowerBound: dbox2d.Vec2{X: FromFloat64(lower.X), Y: FromFloat64(lower.Y)},
+		UpperBound: dbox2d.Vec2{X: FromFloat64(upper.X), Y: FromFloat64(upper.Y)},
 	}
+}
+
+// BuildProjectionMatrix returns the reference's column-major orthographic
+// projection for the current view (draw.cpp Camera::BuildProjectionMatrix).
+// zBias becomes clip z as is; the hosts render without a depth attachment
+// and rely on the flush order, like the reference.
+func (c *Camera) BuildProjectionMatrix(zBias float32) [16]float32 {
+	ratio := float32(c.Width) / float32(c.Height)
+	zoom := float32(c.Zoom)
+	ex, ey := zoom*ratio, zoom
+	cx, cy := float32(c.Center.X), float32(c.Center.Y)
+
+	lowerX, lowerY := cx-ex, cy-ey
+	upperX, upperY := cx+ex, cy+ey
+	w := upperX - lowerX
+	h := upperY - lowerY
+
+	var m [16]float32
+	m[0] = 2.0 / w
+	m[5] = 2.0 / h
+	m[10] = -1.0
+	m[12] = -2.0 * cx / w
+	m[13] = -2.0 * cy / h
+	m[14] = zBias
+	m[15] = 1.0
+	return m
+}
+
+// PixelScale is the pixelScale uniform of the reference shaders:
+// height / zoom, which is twice the pixels per world unit.
+func (c *Camera) PixelScale() float32 {
+	return float32(c.Height) / float32(c.Zoom)
 }
