@@ -40,8 +40,6 @@ stay free functions: they carry no handle in the reference name.
 
 A few pieces of the reference surface do not cross, by design:
 
-- `b2World_Draw` and `b2DebugDraw`: rendering belongs to the host
-  application, not the solver.
 - `b2World_GetProfile` and `b2Profile`: the port carries no timers to
   report.
 - `b2World_DumpMemoryStats`: the port has no allocation hooks to walk.
@@ -54,6 +52,10 @@ A few pieces of the reference surface do not cross, by design:
 See [PORTING.md](PORTING.md) for the full map and
 [DIVERGENCES.md](DIVERGENCES.md) for what changed shape to survive fixed
 point.
+
+`DefaultDebugDraw` supplies no-op callbacks, so a host can implement only the
+operations it needs and call `worldId.Draw(&draw)`. The library walks the
+world; rendering remains the host's responsibility.
 
 ## Fidelity contract
 

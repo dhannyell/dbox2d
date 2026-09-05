@@ -2,6 +2,26 @@ package dbox2d
 
 import "github.com/dhannyell/fixed"
 
+func drawPrismaticJoint(draw *DebugDraw, base *jointSim, transformA, transformB Transform) {
+	joint := &base.prismaticJoint
+	pA := TransformPoint(transformA, base.localOriginAnchorA)
+	pB := TransformPoint(transformB, base.localOriginAnchorB)
+	axis := RotateVector(transformA.Q, joint.localAxisA)
+	draw.DrawSegment(pA, pB, ColorDimGray)
+	if joint.enableLimit {
+		lower := MulAdd(pA, joint.lowerTranslation, axis)
+		upper := MulAdd(pA, joint.upperTranslation, axis)
+		perp := LeftPerp(axis).Mul(fixed.Q32MustParse("0.1"))
+		draw.DrawSegment(lower, upper, ColorGray)
+		draw.DrawSegment(lower.Sub(perp), lower.Add(perp), ColorGreen)
+		draw.DrawSegment(upper.Sub(perp), upper.Add(perp), ColorRed)
+	} else {
+		draw.DrawSegment(pA.Sub(axis), pA.Add(axis), ColorGray)
+	}
+	draw.DrawPoint(pA, fixed.Q32FromInt(5), ColorGray)
+	draw.DrawPoint(pB, fixed.Q32FromInt(5), ColorBlue)
+}
+
 // This file corresponds to src/prismatic_joint.c of the reference. The
 // angles are turns (D-004); the angular error enters C in radians.
 
