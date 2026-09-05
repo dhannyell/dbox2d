@@ -103,6 +103,25 @@ func bindEvents(canvas js.Value, a *app.App, dev *wgpuhost.Device, surface *wgpu
 	})
 	js.Global().Call("addEventListener", "keydown", keyDownFn)
 
+	keyUpFn := js.FuncOf(func(_ js.Value, args []js.Value) any {
+		e := args[0]
+		code := e.Get("code").String()
+		key, ok := keyCodes[code]
+		if !ok {
+			return nil
+		}
+		e.Call("preventDefault")
+		a.KeyUp(key)
+		return nil
+	})
+	js.Global().Call("addEventListener", "keyup", keyUpFn)
+
+	blurFn := js.FuncOf(func(_ js.Value, _ []js.Value) any {
+		a.ReleaseKeys()
+		return nil
+	})
+	js.Global().Call("addEventListener", "blur", blurFn)
+
 	resizeFn := js.FuncOf(func(_ js.Value, _ []js.Value) any {
 		width, height := canvasSize(dpr)
 		canvas.Set("width", width)

@@ -89,6 +89,9 @@ func (a *App) MouseUp(x, y float64, button samples.MouseButton) {
 // Wheel zooms the camera. dy follows the browser convention (negative is
 // wheel-up), the opposite of the reference's GLFW dy.
 func (a *App) Wheel(dy float64) {
+	if dy == 0 {
+		return
+	}
 	a.mu.InputScroll(0, int(dy))
 	if a.uiCaptured() {
 		return
@@ -107,6 +110,7 @@ const panStep = 0.5
 // (the port has no window to close on Escape, and ShiftOrigin's Ctrl
 // variant is a no-op here as in the reference note).
 func (a *App) KeyDown(key samples.Key, mod samples.Modifier) {
+	a.held[key] = true
 	s := &a.ctx.Settings
 	entries := samples.Entries()
 
@@ -138,4 +142,15 @@ func (a *App) KeyDown(key samples.Key, mod samples.Modifier) {
 	default:
 		a.sample.Keyboard(key)
 	}
+}
+
+// KeyUp clears a key from the held-key state.
+func (a *App) KeyUp(key samples.Key) {
+	delete(a.held, key)
+}
+
+// ReleaseKeys clears every held key. Hosts call it on focus loss, where the
+// platform sends no release events.
+func (a *App) ReleaseKeys() {
+	clear(a.held)
 }

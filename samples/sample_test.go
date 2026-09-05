@@ -26,6 +26,7 @@ func TestSamplesStepWithoutPanic(t *testing.T) {
 // singleBoxChecksum pins the world state after 60 steps of Single Box; a
 // change here means the physics changed.
 const singleBoxChecksum uint64 = 0x59758871b1c2509e
+const verticalStackChecksum uint64 = 0xa4e992a5474561dd
 
 func TestSingleBoxChecksum(t *testing.T) {
 	ctx := samples.NewSampleContext()
@@ -36,6 +37,19 @@ func TestSingleBoxChecksum(t *testing.T) {
 	got := dbox2d.Checksum(sample.WorldId)
 	if got != singleBoxChecksum {
 		t.Fatalf("got checksum 0x%x, want 0x%x", got, singleBoxChecksum)
+	}
+	sample.Destroy()
+}
+
+func TestVerticalStackChecksum(t *testing.T) {
+	ctx := samples.NewSampleContext()
+	sample := samples.NewVerticalStack(ctx).(*samples.VerticalStack)
+	for range 60 {
+		sample.Step()
+	}
+	got := dbox2d.Checksum(sample.WorldId)
+	if got != verticalStackChecksum {
+		t.Fatalf("got checksum 0x%x, want 0x%x", got, verticalStackChecksum)
 	}
 	sample.Destroy()
 }

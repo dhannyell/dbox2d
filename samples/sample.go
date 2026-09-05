@@ -15,12 +15,16 @@ import (
 type SampleContext struct {
 	Camera   Camera
 	Settings Settings
+	// Gui is the scene widget set; a headless host uses NopGui.
+	Gui Gui
 	// Draw is what the world draws into; the host renders it.
 	Draw dbox2d.DebugDraw
 	// TextLine receives one line of overlay text per call, at the pixel
 	// position the reference's DrawString(5, m_textLine, ...) would use. A
 	// headless host leaves it nil.
 	TextLine func(x, y int, line string)
+	// IsKeyDown reports whether a key is currently held. A headless host leaves it nil.
+	IsKeyDown func(Key) bool
 }
 
 // NewSampleContext returns a context with the reference's startup defaults.
@@ -29,6 +33,7 @@ func NewSampleContext() *SampleContext {
 		Camera:   NewCamera(),
 		Settings: DefaultSettings(),
 		Draw:     dbox2d.DefaultDebugDraw(),
+		Gui:      NopGui{},
 	}
 }
 
@@ -60,9 +65,10 @@ type Base struct {
 }
 
 // NewBase builds the world and returns the shared state for a new sample.
-// The reference also seeds a task scheduler and a random generator; this
-// port steps on one worker and leaves randomness to the scene.
+// Like the reference constructor it reseeds the shared random generator, so
+// every scene starts from the same sequence. This port steps on one worker.
 func NewBase(ctx *SampleContext) Base {
+	randomSeed = randSeed
 	b := Base{
 		Context:       ctx,
 		textLine:      30,
@@ -123,6 +129,13 @@ func (b *Base) UpdateGui() {}
 
 // Keyboard does nothing by default; a scene overrides it to react to keys.
 func (b *Base) Keyboard(Key) {}
+
+func (b *Base) keyDown(k Key) bool {
+	if b.Context.IsKeyDown == nil {
+		return false
+	}
+	return b.Context.IsKeyDown(k)
+}
 
 type queryContext struct {
 	point  dbox2d.Vec2

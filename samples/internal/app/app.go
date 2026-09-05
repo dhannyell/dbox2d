@@ -29,6 +29,7 @@ type App struct {
 	measurer TextMeasurer
 	drawer   *draw.Draw
 	mu       *microui.Context
+	held     map[samples.Key]bool
 
 	sample    samples.Sample
 	selection int
@@ -66,7 +67,9 @@ func New(measurer TextMeasurer) *App {
 	mu.TextWidth = func(_ microui.Font, s string) int { return measurer.TextWidth(s) }
 	mu.TextHeight = func(_ microui.Font) int { return measurer.TextHeight() }
 
-	a := &App{ctx: ctx, measurer: measurer, drawer: d, mu: mu, selection: start, showUI: true}
+	a := &App{ctx: ctx, measurer: measurer, drawer: d, mu: mu, held: make(map[samples.Key]bool), selection: start, showUI: true}
+	ctx.Gui = gui{mu: a.mu}
+	ctx.IsKeyDown = func(key samples.Key) bool { return a.held[key] }
 	a.sample = entries[start].Create(ctx)
 	return a
 }

@@ -72,8 +72,20 @@ func registerCallbacks(window *glfw.Window, a *app.App, fbDirty *bool, scale fun
 		a.Wheel(-yoffset * wheelStep)
 	})
 
+	window.SetFocusCallback(func(_ *glfw.Window, focused bool) {
+		if !focused {
+			a.ReleaseKeys()
+		}
+	})
+
 	window.SetKeyCallback(func(w *glfw.Window, key glfw.Key, _ int, action glfw.Action, mods glfw.ModifierKey) {
-		if action == glfw.Repeat || action == glfw.Release {
+		if action == glfw.Repeat {
+			return
+		}
+		if action == glfw.Release {
+			if k, ok := keyOf(key); ok {
+				a.KeyUp(k)
+			}
 			return
 		}
 		if key == glfw.KeyEscape {
