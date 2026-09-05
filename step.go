@@ -2,9 +2,25 @@ package dbox2d
 
 import (
 	"math/bits"
+	"time"
 
 	"github.com/dhannyell/fixed"
 )
+
+// millisecondsSince returns the elapsed wall-clock time since start, in
+// milliseconds. It never feeds the simulation.
+func millisecondsSince(start time.Time) float64 {
+	return float64(time.Since(start)) / 1e6
+}
+
+// millisecondsAndReset returns the elapsed wall-clock time since *t and
+// resets *t to now, mirroring b2GetMillisecondsAndReset.
+func millisecondsAndReset(t *time.Time) float64 {
+	now := time.Now()
+	elapsed := float64(now.Sub(*t)) / 1e6
+	*t = now
+	return elapsed
+}
 
 // stepContext carries the per-step data that the solver stages share. It
 // corresponds to b2StepContext in src/solver.h.
@@ -74,6 +90,8 @@ func (worldId WorldId) Step(timeStep Q, subStepCount int) {
 	w.contactHitEvents = w.contactHitEvents[:0]
 	w.sensorBeginEvents = w.sensorBeginEvents[:0]
 
+	w.profile = Profile{}
+
 	zero := fixed.Q32Zero()
 	if timeStep.Eq(zero) {
 		// Swap end event array buffers
@@ -85,8 +103,12 @@ func (worldId WorldId) Step(timeStep Q, subStepCount int) {
 
 	w.locked = true
 
+	stepStart := time.Now()
+
 	// Update collision pairs and create contacts
+	pairsStart := time.Now()
 	updateBroadPhasePairs(w)
+	w.profile.Pairs = millisecondsSince(pairsStart)
 
 	context := stepContext{}
 	context.world = w
@@ -120,14 +142,22 @@ func (worldId WorldId) Step(timeStep Q, subStepCount int) {
 	context.enableWarmStarting = w.enableWarmStarting
 
 	// Update contacts
+	collideStart := time.Now()
 	collide(&context)
+	w.profile.Collide = millisecondsSince(collideStart)
 
 	// Integrate velocities, solve velocity constraints, and integrate positions.
 	if zero.Less(context.dt) {
+		solveStart := time.Now()
 		solve(w, &context)
+		w.profile.Solve = millisecondsSince(solveStart)
 	}
 
+	sensorsStart := time.Now()
 	overlapSensors(w)
+	w.profile.Sensors = millisecondsSince(sensorsStart)
+
+	w.profile.Step = millisecondsSince(stepStart)
 
 	if getArenaAllocation(&w.arena) != 0 {
 		panic("dbox2d: the arena is not empty after the step")

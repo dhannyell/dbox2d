@@ -75,6 +75,9 @@ type world struct {
 	// nullIndex.
 	splitIslandId int
 
+	// profile times the last Step. The clock never feeds the simulation.
+	profile Profile
+
 	// taskContext is the per-worker scratch of the reference. The port has
 	// one worker.
 	taskContext taskContext
@@ -831,6 +834,10 @@ func (worldId WorldId) GetCounters() Counters {
 	}
 	return result
 }
+
+// GetProfile returns the timing of the last Step.
+// It corresponds to b2World_GetProfile in src/world.c.
+func (id WorldId) GetProfile() Profile { return getWorldFromId(id).profile }
 
 // SetUserData attaches application data to the world.
 // It corresponds to b2World_SetUserData in src/world.c.
