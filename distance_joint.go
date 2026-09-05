@@ -4,6 +4,33 @@ import "github.com/dhannyell/fixed"
 
 // This file corresponds to src/distance_joint.c of the reference.
 
+func drawDistanceJoint(draw *DebugDraw, base *jointSim, transformA, transformB Transform) {
+	joint := &base.distanceJoint
+	pA := TransformPoint(transformA, base.localOriginAnchorA)
+	pB := TransformPoint(transformB, base.localOriginAnchorB)
+	axis := pB.Sub(pA).Normalize()
+	if joint.enableLimit && joint.minLength.Less(joint.maxLength) {
+		pMin := MulAdd(pA, joint.minLength, axis)
+		pMax := MulAdd(pA, joint.maxLength, axis)
+		offset := RightPerp(axis).Mul(fixed.Q32MustParse("0.05"))
+		if linearSlop.Less(joint.minLength) {
+			draw.DrawSegment(pMin.Sub(offset), pMin.Add(offset), ColorLightGreen)
+		}
+		if joint.maxLength.Less(Huge) {
+			draw.DrawSegment(pMax.Sub(offset), pMax.Add(offset), ColorRed)
+		}
+		if linearSlop.Less(joint.minLength) && joint.maxLength.Less(Huge) {
+			draw.DrawSegment(pMin, pMax, ColorGray)
+		}
+	}
+	draw.DrawSegment(pA, pB, ColorWhite)
+	draw.DrawPoint(pA, fixed.Q32FromInt(4), ColorWhite)
+	draw.DrawPoint(pB, fixed.Q32FromInt(4), ColorWhite)
+	if joint.enableSpring && (Q{}).Less(joint.hertz) {
+		draw.DrawPoint(MulAdd(pA, joint.length, axis), fixed.Q32FromInt(4), ColorBlue)
+	}
+}
+
 // getDistanceJointForce reports the constraint force of the last step. It
 // corresponds to b2GetDistanceJointForce in src/distance_joint.c.
 func getDistanceJointForce(w *world, base *jointSim) Vec2 {

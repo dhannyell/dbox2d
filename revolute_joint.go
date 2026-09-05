@@ -6,6 +6,38 @@ import "github.com/dhannyell/fixed"
 // angles are turns (D-004); an angle turns into radians by tau at the
 // single point where it enters an error C.
 
+func drawRevoluteJoint(draw *DebugDraw, base *jointSim, transformA, transformB Transform, drawSize Q) {
+	joint := &base.revoluteJoint
+	pA := TransformPoint(transformA, base.localOriginAnchorA)
+	pB := TransformPoint(transformB, base.localOriginAnchorB)
+	angle := RelativeAngle(transformB.Q, transformA.Q)
+	rot := MakeRot(angle)
+	pC := pB.Add(Vec2{X: drawSize.Mul(rot.Cos), Y: drawSize.Mul(rot.Sin)})
+	draw.DrawCircle(pB, drawSize, ColorGray)
+	draw.DrawSegment(pB, pC, ColorGray)
+	if draw.DrawJointExtras {
+		degrees := UnwindAngle(angle.Sub(joint.referenceAngle)).Mul(fixed.Q32FromInt(360))
+		draw.DrawString(pC, " "+drawNumber(degrees, 1)+" deg", ColorWhite)
+	}
+	if joint.enableLimit {
+		for _, limit := range []struct {
+			angle Q
+			color HexColor
+		}{
+			{joint.lowerAngle.Add(joint.referenceAngle), ColorGreen},
+			{joint.upperAngle.Add(joint.referenceAngle), ColorRed},
+			{joint.referenceAngle, ColorBlue},
+		} {
+			r := MakeRot(limit.angle)
+			end := pB.Add(Vec2{X: drawSize.Mul(r.Cos), Y: drawSize.Mul(r.Sin)})
+			draw.DrawSegment(pB, end, limit.color)
+		}
+	}
+	draw.DrawSegment(transformA.P, pA, ColorGold)
+	draw.DrawSegment(pA, pB, ColorGold)
+	draw.DrawSegment(transformB.P, pB, ColorGold)
+}
+
 // getRevoluteJointForce reports the constraint force of the last step. It
 // corresponds to b2GetRevoluteJointForce in src/revolute_joint.c.
 func getRevoluteJointForce(w *world, base *jointSim) Vec2 {

@@ -2,6 +2,26 @@ package dbox2d
 
 import "github.com/dhannyell/fixed"
 
+func drawWheelJoint(draw *DebugDraw, base *jointSim, transformA, transformB Transform) {
+	joint := &base.wheelJoint
+	pA := TransformPoint(transformA, base.localOriginAnchorA)
+	pB := TransformPoint(transformB, base.localOriginAnchorB)
+	axis := RotateVector(transformA.Q, joint.localAxisA)
+	draw.DrawSegment(pA, pB, ColorBlue)
+	if joint.enableLimit {
+		lower := MulAdd(pA, joint.lowerTranslation, axis)
+		upper := MulAdd(pA, joint.upperTranslation, axis)
+		perp := LeftPerp(axis).Mul(fixed.Q32MustParse("0.1"))
+		draw.DrawSegment(lower, upper, ColorGray)
+		draw.DrawSegment(lower.Sub(perp), lower.Add(perp), ColorGreen)
+		draw.DrawSegment(upper.Sub(perp), upper.Add(perp), ColorRed)
+	} else {
+		draw.DrawSegment(pA.Sub(axis), pA.Add(axis), ColorGray)
+	}
+	draw.DrawPoint(pA, fixed.Q32FromInt(5), ColorGray)
+	draw.DrawPoint(pB, fixed.Q32FromInt(5), ColorDimGray)
+}
+
 // This file corresponds to src/wheel_joint.c of the reference. The motor
 // speed is turns per second (D-004).
 

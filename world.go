@@ -1,6 +1,12 @@
 package dbox2d
 
-import "github.com/dhannyell/fixed"
+import (
+	"math/bits"
+	"strconv"
+	"strings"
+
+	"github.com/dhannyell/fixed"
+)
 
 // The solver set positions of src/world.h. The first sets have fixed
 // indices; every later index is a sleeping island set.
@@ -1560,4 +1566,351 @@ func (worldId WorldId) Explode(def *ExplosionDef) {
 	}
 
 	w.broadPhase.trees[DynamicBody].query(aabb, def.MaskBits, ctx.explosionCallback)
+}
+
+// drawShape forwards one shape's geometry to the backend-neutral drawer.
+func drawShape(draw *DebugDraw, shape *shape, transform Transform, color HexColor) {
+	switch shape.shapeType {
+	case CapsuleShape:
+		draw.DrawSolidCapsule(TransformPoint(transform, shape.capsule.Center1), TransformPoint(transform, shape.capsule.Center2), shape.capsule.Radius, color)
+	case CircleShape:
+		transform.P = TransformPoint(transform, shape.circle.Center)
+		draw.DrawSolidCircle(transform, shape.circle.Radius, color)
+	case PolygonShape:
+		draw.DrawSolidPolygon(transform, shape.polygon.Vertices[:shape.polygon.Count], shape.polygon.Radius, color)
+	case SegmentShape:
+		draw.DrawSegment(TransformPoint(transform, shape.segment.Point1), TransformPoint(transform, shape.segment.Point2), color)
+	case ChainSegmentShape:
+		segment := shape.chainSegment.Segment
+		draw.DrawSegment(TransformPoint(transform, segment.Point1), TransformPoint(transform, segment.Point2), color)
+	}
+}
+
+func drawBodyColor(body *body, sim *bodySim, shape *shape) HexColor {
+	if shape.customColor != 0 {
+		return HexColor(shape.customColor)
+	}
+	if body.bodyType == DynamicBody && body.mass == (Q{}) {
+		return ColorRed
+	}
+	if body.setIndex == disabledSet {
+		return ColorSlateGray
+	}
+	if shape.sensorIndex != nullIndex {
+		return ColorWheat
+	}
+	if sim.isBullet && body.setIndex == awakeSet {
+		return ColorTurquoise
+	}
+	if body.isSpeedCapped {
+		return ColorYellow
+	}
+	if sim.isFast {
+		return ColorSalmon
+	}
+	switch body.bodyType {
+	case StaticBody:
+		return ColorPaleGreen
+	case KinematicBody:
+		return ColorRoyalBlue
+	}
+	if body.setIndex == awakeSet {
+		return ColorPink
+	}
+	return ColorGray
+}
+
+func drawAABB(draw *DebugDraw, aabb AABB, color HexColor) {
+	draw.DrawPolygon([]Vec2{
+		aabb.LowerBound,
+		{X: aabb.UpperBound.X, Y: aabb.LowerBound.Y},
+		aabb.UpperBound,
+		{X: aabb.LowerBound.X, Y: aabb.UpperBound.Y},
+	}, color)
+}
+
+func drawWorldBounds(draw *DebugDraw, w *world) {
+	for setIndex := range w.solverSets {
+		for simIndex := range w.solverSets[setIndex].bodySims {
+			sim := &w.solverSets[setIndex].bodySims[simIndex]
+			body := &w.bodies[sim.bodyId]
+			draw.DrawString(sim.center, strconv.Itoa(sim.bodyId), ColorWhite)
+			for shapeID := body.headShapeId; shapeID != nullIndex; shapeID = w.shapes[shapeID].nextShapeId {
+				drawAABB(draw, w.shapes[shapeID].fatAABB, ColorGold)
+			}
+		}
+	}
+}
+
+func drawWorldNames(draw *DebugDraw, w *world) {
+	offset := Vec2{X: fixed.Q32MustParse("0.05"), Y: fixed.Q32MustParse("0.05")}
+	for i := range w.bodies {
+		body := &w.bodies[i]
+		if body.setIndex == nullIndex || body.name[0] == 0 {
+			continue
+		}
+		sim := &w.solverSets[body.setIndex].bodySims[body.localIndex]
+		transform := Transform{P: sim.center, Q: sim.transform.Q}
+		draw.DrawString(TransformPoint(transform, offset), string(body.name[:bytesIndex(body.name[:])]), ColorBlueViolet)
+	}
+}
+
+func bytesIndex(name []byte) int {
+	for i, b := range name {
+		if b == 0 {
+			return i
+		}
+	}
+	return len(name)
+}
+
+func drawWorldMass(draw *DebugDraw, w *world) {
+	offset := Vec2{X: fixed.Q32MustParse("0.1"), Y: fixed.Q32MustParse("0.1")}
+	for setIndex := range w.solverSets {
+		for simIndex := range w.solverSets[setIndex].bodySims {
+			sim := &w.solverSets[setIndex].bodySims[simIndex]
+			transform := Transform{P: sim.center, Q: sim.transform.Q}
+			draw.DrawTransform(transform)
+			mass := Q{}
+			if !(sim.invMass == (Q{})) {
+				mass = fixed.Q32One().Div(sim.invMass)
+			}
+			draw.DrawString(TransformPoint(transform, offset), "  "+drawNumber(mass, 2), ColorWhite)
+		}
+	}
+}
+
+var graphColors = [graphColorCount]HexColor{
+	ColorRed, ColorOrange, ColorYellow, ColorGreen, ColorCyan, ColorBlue,
+	ColorViolet, ColorPink, ColorChocolate, ColorGoldenRod, ColorCoral, ColorBlack,
+}
+
+// drawNumber keeps the reference's decimal labels without converting Q to float.
+func drawNumber(value Q, places int) string {
+	text := value.String()
+	negative := strings.HasPrefix(text, "-")
+	text = strings.TrimPrefix(text, "-")
+	whole, fraction, _ := strings.Cut(text, ".")
+	fraction += strings.Repeat("0", places+1)
+	digits, _ := strconv.ParseUint(whole+fraction[:places], 10, 64)
+	// Round ties to even, as the reference's default printf rounding does.
+	if fraction[places] > '5' || fraction[places] == '5' &&
+		(digits%2 != 0 || strings.Trim(fraction[places+1:], "0") != "") {
+		digits++
+	}
+	text = strconv.FormatUint(digits, 10)
+	if len(text) <= places {
+		text = strings.Repeat("0", places+1-len(text)) + text
+	}
+	if places > 0 {
+		text = text[:len(text)-places] + "." + text[len(text)-places:]
+	}
+	if negative {
+		text = "-" + text
+	}
+	return text
+}
+
+func drawContactManifold(draw *DebugDraw, manifold *Manifold, colorIndex int, bounded bool) {
+	axisScale := fixed.Q32MustParse("0.3")
+	for pointIndex := range manifold.PointCount {
+		point := &manifold.Points[pointIndex]
+		if draw.DrawGraphColors {
+			size := fixed.Q32FromInt(5)
+			if colorIndex == overflowIndex {
+				size = fixed.Q32MustParse("7.5")
+			}
+			draw.DrawPoint(point.Point, size, graphColors[colorIndex])
+		} else if linearSlop.Less(point.Separation) {
+			color := ColorLightGray
+			if bounded {
+				color = ColorGainsboro
+			}
+			draw.DrawPoint(point.Point, fixed.Q32FromInt(5), color)
+		} else if point.Persisted {
+			draw.DrawPoint(point.Point, fixed.Q32FromInt(5), ColorBlue)
+		} else {
+			draw.DrawPoint(point.Point, fixed.Q32FromInt(10), ColorGreen)
+		}
+		if draw.DrawContactNormals {
+			draw.DrawSegment(point.Point, MulAdd(point.Point, axisScale, manifold.Normal), ColorDimGray)
+		} else if draw.DrawContactImpulses {
+			impulse, places := point.TotalNormalImpulse, 2
+			if bounded {
+				impulse, places = point.NormalImpulse, 1
+			}
+			draw.DrawSegment(point.Point, MulAdd(point.Point, impulse, manifold.Normal), ColorMagenta)
+			draw.DrawString(point.Point, drawNumber(impulse.Mul(fixed.Q32FromInt(1000)), places), ColorWhite)
+		}
+		if draw.DrawContactFeatures {
+			draw.DrawString(point.Point, strconv.Itoa(int(point.Id)), ColorOrange)
+		}
+		if draw.DrawFrictionImpulses {
+			draw.DrawSegment(point.Point, MulAdd(point.Point, point.TangentImpulse, RightPerp(manifold.Normal)), ColorYellow)
+			impulse, places := point.TangentImpulse, 2
+			if bounded {
+				impulse, places = impulse.Mul(fixed.Q32FromInt(1000)), 1
+			}
+			draw.DrawString(point.Point, drawNumber(impulse, places), ColorWhite)
+		}
+	}
+}
+
+func drawContacts(draw *DebugDraw, w *world) {
+	for colorIndex := range w.constraintGraph.colors {
+		for i := range w.constraintGraph.colors[colorIndex].contactSims {
+			drawContactManifold(draw, &w.constraintGraph.colors[colorIndex].contactSims[i].manifold, colorIndex, false)
+		}
+	}
+}
+
+// Scratch stays local so drawing cannot change the world's stored state.
+type drawContext struct {
+	world                         *world
+	draw                          *DebugDraw
+	bodySet, jointSet, contactSet bitSet
+}
+
+func (ctx *drawContext) drawQueryCallback(_ int, userData uint64) bool {
+	w, draw := ctx.world, ctx.draw
+	shape := &w.shapes[int(userData)]
+	ctx.bodySet.setBit(shape.bodyId)
+	if draw.DrawShapes {
+		body := &w.bodies[shape.bodyId]
+		sim := &w.solverSets[body.setIndex].bodySims[body.localIndex]
+		drawShape(draw, shape, sim.transform, drawBodyColor(body, sim, shape))
+	}
+	if draw.DrawBounds {
+		drawAABB(draw, shape.fatAABB, ColorGold)
+	}
+	return true
+}
+
+func drawWithBounds(draw *DebugDraw, w *world) {
+	if !IsValidAABB(draw.DrawingBounds) {
+		panic("dbox2d: invalid drawing bounds")
+	}
+	ctx := drawContext{world: w, draw: draw}
+	setBitCountAndClear(&ctx.bodySet, len(w.bodies))
+	setBitCountAndClear(&ctx.jointSet, len(w.joints))
+	setBitCountAndClear(&ctx.contactSet, len(w.contacts))
+	for i := range w.broadPhase.trees {
+		w.broadPhase.trees[i].query(draw.DrawingBounds, DefaultMaskBits, ctx.drawQueryCallback)
+	}
+	for blockIndex, word := range ctx.bodySet.bits {
+		for word != 0 {
+			bodyID := 64*blockIndex + bits.TrailingZeros64(word)
+			body := &w.bodies[bodyID]
+			sim := &w.solverSets[body.setIndex].bodySims[body.localIndex]
+			transform := Transform{P: sim.center, Q: sim.transform.Q}
+			offset := Vec2{X: fixed.Q32MustParse("0.1"), Y: fixed.Q32MustParse("0.1")}
+			if draw.DrawBodyNames && body.name[0] != 0 {
+				draw.DrawString(TransformPoint(transform, offset), string(body.name[:bytesIndex(body.name[:])]), ColorBlueViolet)
+			}
+			if draw.DrawMass && body.bodyType == DynamicBody {
+				draw.DrawTransform(transform)
+				draw.DrawString(TransformPoint(transform, offset), "  "+drawNumber(body.mass, 2), ColorWhite)
+			}
+			if draw.DrawJoints {
+				for key := body.headJointKey; key != nullIndex; {
+					jointID, edgeIndex := key>>1, key&1
+					joint := &w.joints[jointID]
+					if !ctx.jointSet.getBit(jointID) {
+						drawJoint(draw, w, joint)
+						ctx.jointSet.setBit(jointID)
+					}
+					key = joint.edges[edgeIndex].nextKey
+				}
+			}
+			if draw.DrawContacts && body.bodyType == DynamicBody && body.setIndex == awakeSet {
+				for key := body.headContactKey; key != nullIndex; {
+					contactID, edgeIndex := key>>1, key&1
+					contact := &w.contacts[contactID]
+					key = contact.edges[edgeIndex].nextKey
+					if contact.setIndex != awakeSet || contact.colorIndex == nullIndex || ctx.contactSet.getBit(contactID) {
+						continue
+					}
+					cs := &w.constraintGraph.colors[contact.colorIndex].contactSims[contact.localIndex]
+					drawContactManifold(draw, &cs.manifold, contact.colorIndex, true)
+					ctx.contactSet.setBit(contactID)
+				}
+			}
+			word &= word - 1
+		}
+	}
+}
+
+func drawIslands(draw *DebugDraw, w *world) {
+	for i := range w.islands {
+		island := &w.islands[i]
+		if island.setIndex == nullIndex {
+			continue
+		}
+		var bounds AABB
+		shapeCount := 0
+		for bodyID := island.headBody; bodyID != nullIndex; bodyID = w.bodies[bodyID].islandNext {
+			for shapeID := w.bodies[bodyID].headShapeId; shapeID != nullIndex; shapeID = w.shapes[shapeID].nextShapeId {
+				if shapeCount == 0 {
+					bounds = w.shapes[shapeID].fatAABB
+				} else {
+					bounds = AABBUnion(bounds, w.shapes[shapeID].fatAABB)
+				}
+				shapeCount++
+			}
+		}
+		if shapeCount != 0 {
+			drawAABB(draw, bounds, ColorOrangeRed)
+		}
+	}
+}
+
+// Draw walks the world and invokes the callbacks selected by draw's flags.
+func (worldId WorldId) Draw(draw *DebugDraw) {
+	w := getWorldFromId(worldId)
+	if w.locked {
+		panic("dbox2d: the world is locked")
+	}
+	if draw == nil {
+		panic("dbox2d: DebugDraw is nil")
+	}
+	if draw.UseDrawingBounds {
+		drawWithBounds(draw, w)
+		return
+	}
+	if draw.DrawShapes {
+		for setIndex := range w.solverSets {
+			set := &w.solverSets[setIndex]
+			for simIndex := range set.bodySims {
+				sim := &set.bodySims[simIndex]
+				body := &w.bodies[sim.bodyId]
+				for shapeID := body.headShapeId; shapeID != nullIndex; shapeID = w.shapes[shapeID].nextShapeId {
+					shape := &w.shapes[shapeID]
+					drawShape(draw, shape, sim.transform, drawBodyColor(body, sim, shape))
+				}
+			}
+		}
+	}
+	if draw.DrawJoints {
+		for i := range w.joints {
+			joint := &w.joints[i]
+			if joint.setIndex != nullIndex {
+				drawJoint(draw, w, joint)
+			}
+		}
+	}
+	if draw.DrawBounds {
+		drawWorldBounds(draw, w)
+	}
+	if draw.DrawBodyNames {
+		drawWorldNames(draw, w)
+	}
+	if draw.DrawMass {
+		drawWorldMass(draw, w)
+	}
+	if draw.DrawContacts {
+		drawContacts(draw, w)
+	}
+	if draw.DrawIslands {
+		drawIslands(draw, w)
+	}
 }

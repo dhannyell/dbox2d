@@ -38,6 +38,7 @@ type joint struct {
 	islandNext int
 
 	jointType JointType
+	drawSize  Q
 
 	generation uint16
 
@@ -271,6 +272,42 @@ type jointSim struct {
 type jointPair struct {
 	joint    *joint
 	jointSim *jointSim
+}
+
+func drawJoint(draw *DebugDraw, w *world, joint *joint) {
+	bodyA := &w.bodies[joint.edges[0].bodyId]
+	bodyB := &w.bodies[joint.edges[1].bodyId]
+	if bodyA.setIndex == disabledSet || bodyB.setIndex == disabledSet {
+		return
+	}
+	base := getJointSim(w, joint)
+	transformA := getBodyTransformQuick(w, bodyA)
+	transformB := getBodyTransformQuick(w, bodyB)
+	pA := TransformPoint(transformA, base.localOriginAnchorA)
+	pB := TransformPoint(transformB, base.localOriginAnchorB)
+	switch joint.jointType {
+	case DistanceJoint:
+		drawDistanceJoint(draw, base, transformA, transformB)
+	case MouseJoint:
+		draw.DrawPoint(base.mouseJoint.targetA, fixed.Q32FromInt(4), ColorGreen)
+		draw.DrawPoint(pB, fixed.Q32FromInt(4), ColorGreen)
+		draw.DrawSegment(base.mouseJoint.targetA, pB, ColorLightGray)
+	case FilterJoint:
+		draw.DrawSegment(pA, pB, ColorGold)
+	case PrismaticJoint:
+		drawPrismaticJoint(draw, base, transformA, transformB)
+	case RevoluteJoint:
+		drawRevoluteJoint(draw, base, transformA, transformB, joint.drawSize)
+	case WheelJoint:
+		drawWheelJoint(draw, base, transformA, transformB)
+	default:
+		draw.DrawSegment(transformA.P, pA, ColorDarkSeaGreen)
+		draw.DrawSegment(pA, pB, ColorDarkSeaGreen)
+		draw.DrawSegment(transformB.P, pB, ColorDarkSeaGreen)
+	}
+	if draw.DrawGraphColors && joint.colorIndex != nullIndex {
+		draw.DrawPoint(Lerp(pA, pB, fixed.Q32Half()), fixed.Q32FromInt(5), graphColors[joint.colorIndex])
+	}
 }
 
 // getJointFullId returns a validated joint from an id. It panics on an
@@ -736,7 +773,7 @@ func (jointId JointId) GetConstraintTuning() (hertz, dampingRatio Q) {
 // createJoint allocates a joint between two bodies, links it into both
 // body lists and picks its solver set. It corresponds to b2CreateJoint in
 // src/joint.c.
-func createJoint(w *world, bodyA, bodyB *body, userData any, jointType JointType, collideConnected bool) jointPair {
+func createJoint(w *world, bodyA, bodyB *body, userData any, drawSize Q, jointType JointType, collideConnected bool) jointPair {
 	bodyIdA := bodyA.id
 	bodyIdB := bodyB.id
 	maxSetIndex := max(bodyA.setIndex, bodyB.setIndex)
@@ -758,6 +795,7 @@ func createJoint(w *world, bodyA, bodyB *body, userData any, jointType JointType
 	j.islandPrev = nullIndex
 	j.islandNext = nullIndex
 	j.jointType = jointType
+	j.drawSize = drawSize
 	j.collideConnected = collideConnected
 	j.isMarked = false
 
@@ -967,7 +1005,7 @@ func CreateFilterJoint(worldId WorldId, def *FilterJointDef) JointId {
 	w, bodyA, bodyB := getJointWorld(worldId, def.BodyIdA, def.BodyIdB)
 
 	collideConnected := false
-	pair := createJoint(w, bodyA, bodyB, def.UserData, FilterJoint, collideConnected)
+	pair := createJoint(w, bodyA, bodyB, def.UserData, Q{}, FilterJoint, collideConnected)
 
 	js := pair.jointSim
 	js.jointType = FilterJoint
@@ -987,7 +1025,7 @@ func CreateDistanceJoint(worldId WorldId, def *DistanceJointDef) JointId {
 	}
 	w, bodyA, bodyB := getJointWorld(worldId, def.BodyIdA, def.BodyIdB)
 
-	pair := createJoint(w, bodyA, bodyB, def.UserData, DistanceJoint, def.CollideConnected)
+	pair := createJoint(w, bodyA, bodyB, def.UserData, Q{}, DistanceJoint, def.CollideConnected)
 
 	js := pair.jointSim
 	js.jointType = DistanceJoint
@@ -1024,7 +1062,7 @@ func CreateMotorJoint(worldId WorldId, def *MotorJointDef) JointId {
 	checkDef(def.internalValue)
 	w, bodyA, bodyB := getJointWorld(worldId, def.BodyIdA, def.BodyIdB)
 
-	pair := createJoint(w, bodyA, bodyB, def.UserData, MotorJoint, def.CollideConnected)
+	pair := createJoint(w, bodyA, bodyB, def.UserData, Q{}, MotorJoint, def.CollideConnected)
 	js := pair.jointSim
 
 	js.jointType = MotorJoint
@@ -1054,7 +1092,7 @@ func CreateMouseJoint(worldId WorldId, def *MouseJointDef) JointId {
 	transformA := getBodyTransformQuick(w, bodyA)
 	transformB := getBodyTransformQuick(w, bodyB)
 
-	pair := createJoint(w, bodyA, bodyB, def.UserData, MouseJoint, def.CollideConnected)
+	pair := createJoint(w, bodyA, bodyB, def.UserData, Q{}, MouseJoint, def.CollideConnected)
 
 	js := pair.jointSim
 	js.jointType = MouseJoint
@@ -1079,7 +1117,7 @@ func CreatePrismaticJoint(worldId WorldId, def *PrismaticJointDef) JointId {
 	}
 	w, bodyA, bodyB := getJointWorld(worldId, def.BodyIdA, def.BodyIdB)
 
-	pair := createJoint(w, bodyA, bodyB, def.UserData, PrismaticJoint, def.CollideConnected)
+	pair := createJoint(w, bodyA, bodyB, def.UserData, Q{}, PrismaticJoint, def.CollideConnected)
 
 	js := pair.jointSim
 	js.jointType = PrismaticJoint
@@ -1127,7 +1165,7 @@ func CreateRevoluteJoint(worldId WorldId, def *RevoluteJointDef) JointId {
 
 	w, bodyA, bodyB := getJointWorld(worldId, def.BodyIdA, def.BodyIdB)
 
-	pair := createJoint(w, bodyA, bodyB, def.UserData, RevoluteJoint, def.CollideConnected)
+	pair := createJoint(w, bodyA, bodyB, def.UserData, def.DrawSize, RevoluteJoint, def.CollideConnected)
 
 	js := pair.jointSim
 	js.jointType = RevoluteJoint
@@ -1163,7 +1201,7 @@ func CreateWeldJoint(worldId WorldId, def *WeldJointDef) JointId {
 	checkDef(def.internalValue)
 	w, bodyA, bodyB := getJointWorld(worldId, def.BodyIdA, def.BodyIdB)
 
-	pair := createJoint(w, bodyA, bodyB, def.UserData, WeldJoint, def.CollideConnected)
+	pair := createJoint(w, bodyA, bodyB, def.UserData, Q{}, WeldJoint, def.CollideConnected)
 
 	js := pair.jointSim
 	js.jointType = WeldJoint
@@ -1196,7 +1234,7 @@ func CreateWheelJoint(worldId WorldId, def *WheelJointDef) JointId {
 	}
 	w, bodyA, bodyB := getJointWorld(worldId, def.BodyIdA, def.BodyIdB)
 
-	pair := createJoint(w, bodyA, bodyB, def.UserData, WheelJoint, def.CollideConnected)
+	pair := createJoint(w, bodyA, bodyB, def.UserData, Q{}, WheelJoint, def.CollideConnected)
 
 	js := pair.jointSim
 	js.jointType = WheelJoint
