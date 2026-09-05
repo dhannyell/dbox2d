@@ -6,6 +6,7 @@ package samples
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/dhannyell/dbox2d"
 	"github.com/dhannyell/fixed"
@@ -398,4 +399,10 @@ func scaleProfile(a dbox2d.Profile, scale float64) dbox2d.Profile {
 		SleepIslands:        scale * a.SleepIslands,
 		Sensors:             scale * a.Sensors,
 	}
+}
+
+// radiansToTurns converts a reference value in radians, or radians per
+// second, to the turns this port uses for angles.
+func radiansToTurns(radians float64) dbox2d.Q {
+	return FromFloat64(radians / (2 * math.Pi))
 }

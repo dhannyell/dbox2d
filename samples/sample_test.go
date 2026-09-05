@@ -94,3 +94,37 @@ func TestLargePyramidChecksum(t *testing.T) {
 	}
 	sample.Destroy()
 }
+
+// bridgeChecksum pins the world state after 60 steps of Bridge; a change
+// here means the physics changed.
+const bridgeChecksum uint64 = 0xa3b4b42d3965e7a1
+
+func TestBridgeChecksum(t *testing.T) {
+	ctx := samples.NewSampleContext()
+	sample := samples.NewBridge(ctx).(*samples.Bridge)
+	for range 60 {
+		sample.Step()
+	}
+	got := dbox2d.Checksum(sample.WorldId)
+	if got != bridgeChecksum {
+		t.Fatalf("got checksum 0x%x, want 0x%x", got, bridgeChecksum)
+	}
+	sample.Destroy()
+}
+
+// ragdollChecksum pins the world state after 60 steps of Ragdoll; a change
+// here means the physics changed.
+const ragdollChecksum uint64 = 0x7f9c4d6a592c96f7
+
+func TestRagdollChecksum(t *testing.T) {
+	ctx := samples.NewSampleContext()
+	sample := samples.NewRagdoll(ctx).(*samples.Ragdoll)
+	for range 60 {
+		sample.Step()
+	}
+	got := dbox2d.Checksum(sample.WorldId)
+	if got != ragdollChecksum {
+		t.Fatalf("got checksum 0x%x, want 0x%x", got, ragdollChecksum)
+	}
+	sample.Destroy()
+}
