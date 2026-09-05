@@ -521,8 +521,8 @@ of D-011 rebased once, when the joint storage entered the fold.
 - A float64 mirror of each solve runs beside it in the tests; the bound is
   1e-6 where no angle enters and 1e-5 or 1e-4 where the fixed atan2 does.
 - `getBodyTransform` lands in `body.go` for the force reports.
-- The public accessors of `joint.c` landed with order 34. The debug draw
-  and the dump do not cross; see the surface note below.
+- The public accessors of `joint.c` landed with order 34. Debug draw now
+  crosses as host callbacks; only profile and memory dump remain cut.
 
 **Order 34 has landed with the surface**: the whole public surface of
 `box2d.h` is now ported. D-003, D-004, D-006, D-009, D-010, D-012 and
@@ -554,10 +554,9 @@ D-014 grew entries.
 - `FrictionCallback` and `RestitutionCallback` land on `WorldId` beside
   the friction callback that order 24 wired in; both drop the reference's
   `void* context` per D-014.
-- Three deliberate cuts close the surface instead of crossing it:
-  `b2World_Draw` and `b2DebugDraw` do not cross, because rendering
-  belongs to the host, not the solver; `b2World_GetProfile` and
-  `b2Profile` do not cross, because the port carries no timers to report;
+`DebugDraw` and `WorldId.Draw` cross as closure-based host callbacks. Two
+deliberate cuts close the remaining surface instead: `b2World_GetProfile` and
+`b2Profile` do not cross, because the port carries no timers to report;
   `b2World_DumpMemoryStats` does not cross, because the port has no
   allocation hooks to walk. The `byteCount` and `taskCount` fields of
   `b2Counters`, the task fields of `b2WorldDef`, and the `void* context`
@@ -585,7 +584,7 @@ D-014 grew entries.
 | `src/body.h`, `src/body.c` | `body.go` | T0/T2 | foundation | 11 | `body`, `bodySim`, `bodyState`, unexported: `src/body.h` declares them. Layout preserved. The mass update scales the angular velocity by one turn; see D-004. The island hooks landed with order 25; the body events landed with order 28; the proxy destroy and the body collision rule landed with order 30; `makeSweep` landed with order 32. |
 | `src/shape.h`, `src/shape.c` | `shape.go` | T0/T2 | foundation | 12 | Shape storage and the mass, AABB, centroid and extent dispatchers. The proxies and the filter rules landed with order 30; the ray cast dispatcher landed with the public queries. The shape cast dispatcher and the distance proxy landed with order 32. The sensors and chains landed with order 34; see D-003, D-010 and D-012. |
 | `src/solver_set.h`, `src/solver_set.c` | `solver_set.go` | T0 | foundation | 13 | Static, awake, disabled and sleeping sets; body transfer, wake, sleep and set merge. The joint arrays and transfers landed with order 33. |
-| `src/world.h`, `src/world.c` | `world.go` | T0/T2 | foundation | 14 | Split across stages. The foundation takes the registry, creation, destruction, the validity checks and the trimmed set validation. `b2World_Step` landed with order 16 in `step.go`; the events landed with order 28; the broadphase and the enlarged body bit set landed with order 30; `OverlapAABB` and `CastRay` landed with the public queries. `OverlapShape`, `CastShape`, `CastMover` and `CastRayClosest` landed with order 32. `Explode`, `SetCustomFilterCallback`, `SetPreSolveCallback`, `SetRestitutionCallback` and `CollideMover` landed with order 34; `b2World_Draw`, `b2World_GetProfile` and `b2World_DumpMemoryStats` do not cross. See D-004, D-006, D-012 and D-014. |
+| `src/world.h`, `src/world.c` | `world.go` | T0/T2 | foundation | 14 | Split across stages. The foundation takes the registry, creation, destruction, the validity checks and the trimmed set validation. `b2World_Step` landed with order 16 in `step.go`; the events landed with order 28; the broadphase and the enlarged body bit set landed with order 30; `OverlapAABB` and `CastRay` landed with the public queries. `OverlapShape`, `CastShape`, `CastMover` and `CastRayClosest` landed with order 32. `Explode`, `SetCustomFilterCallback`, `SetPreSolveCallback`, `SetRestitutionCallback`, `CollideMover`, and debug draw landed; only `b2World_GetProfile` and `b2World_DumpMemoryStats` remain outside. See D-004, D-006, D-012 and D-014. |
 | `src/array.h`, `src/array.c` | `array.go` | T2 | foundation | 15 | The macro-generated array template becomes a Go slice; `removeSwap` keeps the swap-remove contract. Capacity follows the Go runtime and never enters a result. See D-010. |
 | `src/world.c` (`b2World_Step`), `src/solver.h` (`b2StepContext`) | `step.go` | T1/T2 | foundation | 16 | The step surface: validation, the context, the sub-step split, the locked flag. Assertions become panics per D-003. The softness setup landed with order 24; the collide block and the events landed with order 28; the pair update and the tree rebuild landed with order 30; the bullet buffer landed with order 32. |
 | — | `checksum.go` | T2 | foundation | 17 | Port-only determinism witness over the complete canonical world state, commutative over bodies and shapes. See D-011. |

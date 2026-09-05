@@ -117,6 +117,8 @@ Numbering is sequential from `D-001` and never reused.
   `WorldId.Explode` divides by `tau` as well, converting the angular
   impulse of each struck body from the reference's radians to turns per
   second.
+  Debug-draw revolute limits also pass their stored turn angles directly to
+  `MakeRot`; no radians conversion is introduced by presentation.
 - Test: TestIntegrateRotationCompletesATurn,
   TestComputeAngularVelocityInvertsIntegration and
   TestUnwindAngleReducesToHalfTurn in math_test.go,
@@ -416,6 +418,10 @@ Numbering is sequential from `D-001` and never reused.
   proxies stays the order of the move array, as upstream. The shape ids
   come from the pair itself: the shape of the smaller proxy key is A, as
   upstream.
+  When one moved proxy finds several new pairs in the same step, this
+  ascending order can still differ from the reference's prepend order, so
+  the contact ids and the graph colors that `WorldId.Draw` emits can diverge
+  from the reference for that step. The golden draw scene avoids this case.
 - Test: TestBroadPhasePairsAreSortedByShapeId in broad_phase_test.go and
   TestChecksumIgnoresTheTreeTopology in checksum_test.go
 
@@ -428,7 +434,7 @@ Numbering is sequential from `D-001` and never reused.
   (upstream src/world.c `WorldQueryContext`, `WorldRayCastContext`,
   `WorldMoverCastContext` and `b2RayCastClosestFcn`), solver.go (upstream
   src/solver.c `b2ContinuousContext` and `b2ContinuousQueryCallback`),
-  types.go (upstream include/box2d/types.h `b2FrictionCallback`,
+  types.go (upstream include/box2d/types.h `b2DebugDraw`, `b2FrictionCallback`,
   `b2RestitutionCallback`, `b2CustomFilterFcn`, `b2PreSolveFcn` and
   `b2PlaneResultFcn`)
 - Tier: T2
@@ -438,7 +444,8 @@ Numbering is sequential from `D-001` and never reused.
 - Behaviour: the tree walks take a closure with the proxy id and the user
   data. The public `OverlapResultFcn` and `CastResultFcn` drop the
   `void*` context of the reference as well; the caller closes over its
-  state. The shape queries of the world and the closest ray hit close over
+  state. `DebugDraw` uses the same closure rule for its nine host callbacks.
+  The shape queries of the world and the closest ray hit close over
   their result as well. The continuous stage passes a method value of its
   context to the tree walks. A closure that does not escape allocates
   nothing; the step and bullet benchmarks pin zero allocations.
