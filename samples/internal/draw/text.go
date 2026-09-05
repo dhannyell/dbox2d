@@ -6,14 +6,21 @@
 package draw
 
 import (
-	_ "embed"
 	"image"
+	"image/color"
 	imagedraw "image/draw"
+
+	_ "embed"
 
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/opentype"
 	"golang.org/x/image/math/fixed"
 )
+
+// whiteBlockSize is the side, in pixels, of the opaque texel block reserved
+// at the top-left of the atlas so the text pipeline also draws solid UI
+// quads, with no second pipeline.
+const whiteBlockSize = 2
 
 //go:embed data/droid_sans.ttf
 var droidSansTTF []byte
@@ -46,7 +53,10 @@ type Atlas struct {
 	Width, Height      int
 	Pixels             []uint8 // r8unorm, row-major
 	Ascent, LineHeight int
-	glyphs             [glyphCount]glyph
+	// WhiteU, WhiteV address the opaque texel block reserved at the atlas
+	// origin, so UI rects sample it and share the text pipeline.
+	WhiteU, WhiteV float32
+	glyphs         [glyphCount]glyph
 }
 
 // NewAtlas rasterizes droid_sans.ttf at the given pixel size (the
@@ -69,25 +79,24 @@ func NewAtlas(pixelSize int) (*Atlas, error) {
 	type placed struct {
 		r       rune
 		dr      image.Rectangle
-		mask    image.Image
-		maskp   image.Point
 		advance int
 		x, y    int
 	}
 	placedGlyphs := make([]placed, 0, glyphCount)
 	for i := range glyphCount {
 		r := rune(firstGlyphRune + i)
-		dr, mask, maskp, advance, ok := face.Glyph(fixed.P(0, 0), r)
+		dr, _, _, advance, ok := face.Glyph(fixed.P(0, 0), r)
 		if !ok {
 			continue
 		}
-		placedGlyphs = append(placedGlyphs, placed{r: r, dr: dr, mask: mask, maskp: maskp, advance: advance.Round()})
+		placedGlyphs = append(placedGlyphs, placed{r: r, dr: dr, advance: advance.Round()})
 	}
 
 	// Shelf-pack the glyphs left to right, wrapping rows at atlasWidth. The
 	// one-pixel gutter keeps a linear sampler from bleeding neighbours.
 	const gutter = 1
-	x, y, rowHeight := 0, 0, 0
+	whiteX, whiteY := 0, 0
+	x, y, rowHeight := whiteBlockSize+gutter, 0, whiteBlockSize
 	for i := range placedGlyphs {
 		w := placedGlyphs[i].dr.Dx()
 		if x+w > atlasWidth {
@@ -104,10 +113,18 @@ func NewAtlas(pixelSize int) (*Atlas, error) {
 	height := nextPowerOfTwo(y + rowHeight)
 
 	img := image.NewAlpha(image.Rect(0, 0, atlasWidth, height))
+	for wy := range whiteBlockSize {
+		for wx := range whiteBlockSize {
+			img.SetAlpha(whiteX+wx, whiteY+wy, color.Alpha{A: 255})
+		}
+	}
 	var glyphs [glyphCount]glyph
 	for _, g := range placedGlyphs {
+		// The face reuses one mask buffer across Glyph calls, so each
+		// glyph is rasterized again right before it is copied.
+		_, mask, maskp, _, _ := face.Glyph(fixed.P(0, 0), g.r)
 		dst := image.Rect(g.x, g.y, g.x+g.dr.Dx(), g.y+g.dr.Dy())
-		imagedraw.Draw(img, dst, g.mask, g.maskp, imagedraw.Src)
+		imagedraw.Draw(img, dst, mask, maskp, imagedraw.Src)
 
 		glyphs[g.r-firstGlyphRune] = glyph{
 			U0:       float32(g.x) / float32(atlasWidth),
@@ -129,6 +146,8 @@ func NewAtlas(pixelSize int) (*Atlas, error) {
 		Pixels:     img.Pix,
 		Ascent:     metrics.Ascent.Round(),
 		LineHeight: metrics.Height.Round(),
+		WhiteU:     (float32(whiteX) + 0.5*whiteBlockSize) / float32(atlasWidth),
+		WhiteV:     (float32(whiteY) + 0.5*whiteBlockSize) / float32(height),
 		glyphs:     glyphs,
 	}, nil
 }
@@ -161,6 +180,21 @@ func (a *Atlas) TextWidth(s string) int {
 
 // TextHeight returns the line height, in pixels.
 func (a *Atlas) TextHeight() int { return a.LineHeight }
+
+// AppendRectQuad appends one solid-colour quad sampling the atlas's white
+// texel, for the text pipeline to also draw UI rects.
+func (a *Atlas) AppendRectQuad(out []TextVertex, x, y, w, h float32, c RGBA8) []TextVertex {
+	x0, y0, x1, y1 := x, y, x+w, y+h
+	u, v := a.WhiteU, a.WhiteV
+	return append(out,
+		TextVertex{X: x0, Y: y0, U: u, V: v, Color: c},
+		TextVertex{X: x1, Y: y0, U: u, V: v, Color: c},
+		TextVertex{X: x1, Y: y1, U: u, V: v, Color: c},
+		TextVertex{X: x0, Y: y0, U: u, V: v, Color: c},
+		TextVertex{X: x1, Y: y1, U: u, V: v, Color: c},
+		TextVertex{X: x0, Y: y1, U: u, V: v, Color: c},
+	)
+}
 
 // AppendQuads appends six TextVertex per glyph of item to out, positioned
 // in pixels with y down and item.Y at the text's top.

@@ -17,9 +17,10 @@ type SampleContext struct {
 	Settings Settings
 	// Draw is what the world draws into; the host renders it.
 	Draw dbox2d.DebugDraw
-	// TextLine receives one line of overlay text per call. A headless host
-	// leaves it nil.
-	TextLine func(line string)
+	// TextLine receives one line of overlay text per call, at the pixel
+	// position the reference's DrawString(5, m_textLine, ...) would use. A
+	// headless host leaves it nil.
+	TextLine func(x, y int, line string)
 }
 
 // NewSampleContext returns a context with the reference's startup defaults.
@@ -92,7 +93,7 @@ func (b *Base) Destroy() {
 // DrawTitle draws the scene title on its own reserved line.
 func (b *Base) DrawTitle(title string) {
 	if b.Context.TextLine != nil {
-		b.Context.TextLine(title)
+		b.Context.TextLine(5, 5, title)
 	}
 	b.textLine = 26
 }
@@ -100,10 +101,15 @@ func (b *Base) DrawTitle(title string) {
 // DrawTextLine formats one overlay line and advances the cursor.
 func (b *Base) DrawTextLine(format string, args ...any) {
 	if b.Context.TextLine != nil {
-		b.Context.TextLine(fmt.Sprintf(format, args...))
+		b.Context.TextLine(5, b.textLine, fmt.Sprintf(format, args...))
 	}
 	b.textLine += b.textIncrement
 }
+
+// World returns the sample's world id. Sample hides it behind Step and the
+// input methods; a host that needs it (memory stats, checksums) type-asserts
+// for this method instead of widening the interface.
+func (b *Base) World() dbox2d.WorldId { return b.WorldId }
 
 // ResetProfile clears the accumulated profile and the step counter.
 func (b *Base) ResetProfile() {

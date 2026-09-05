@@ -1,0 +1,15 @@
+version: "2"
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - misspell
+    - staticcheck
+    - unused
+  exclusions:
+    paths:
+      # Vendored verbatim from github.com/zeozeozeo/microui-go; see its doc.go.
+      - internal/microui

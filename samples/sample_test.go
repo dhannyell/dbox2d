@@ -40,9 +40,26 @@ func TestSingleBoxChecksum(t *testing.T) {
 	sample.Destroy()
 }
 
+// tumblerChecksum pins the world state after 60 steps of Tumbler; a change
+// here means the physics changed.
+const tumblerChecksum uint64 = 0x19424e411cbc3122
+
+func TestTumblerChecksum(t *testing.T) {
+	ctx := samples.NewSampleContext()
+	sample := samples.NewTumbler(ctx).(*samples.Tumbler)
+	for range 60 {
+		sample.Step()
+	}
+	got := dbox2d.Checksum(sample.WorldId)
+	if got != tumblerChecksum {
+		t.Fatalf("got checksum 0x%x, want 0x%x", got, tumblerChecksum)
+	}
+	sample.Destroy()
+}
+
 // ExampleEntries prints the first registered sample.
 func ExampleEntries() {
 	e := samples.Entries()[0]
 	fmt.Printf("%s / %s\n", e.Category, e.Name)
-	// Output: Stacking / Single Box
+	// Output: Benchmark / Tumbler
 }

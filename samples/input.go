@@ -61,6 +61,9 @@ const (
 	KeyPageDown    Key = 267
 	KeyLeftShift   Key = 340
 	KeyLeftControl Key = 341
+
+	KeyLeftBracket  Key = 91
+	KeyRightBracket Key = 93
 )
 
 // MouseButton identifies a mouse button, numbered like GLFW.

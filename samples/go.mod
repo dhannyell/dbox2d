@@ -8,6 +8,15 @@ require (
 )
 
 require (
+	github.com/dhannyell/webgpu v1.35.1
+	github.com/dhannyell/webgpu/libs-android v0.0.0-20260905020343-c4069cac051c // indirect
+	github.com/dhannyell/webgpu/libs-darwin v0.0.0-20260905020352-092624e3a385 // indirect
+	github.com/dhannyell/webgpu/libs-ios v0.0.0-20260905020358-fb13dc722108 // indirect
+	github.com/dhannyell/webgpu/libs-linux v0.0.0-20260905020403-4ea5c475cbbd // indirect
+	github.com/dhannyell/webgpu/libs-windows v0.0.0-20260905020407-128027db48f4 // indirect
+)
+
+require (
 	golang.org/x/image v0.45.0
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.41.0 // indirect
