@@ -339,28 +339,36 @@ func drawTextMatches(got, want string) bool {
 	return errA == nil && errB == nil && math.Abs(a-b) <= 1e-3
 }
 
-func TestDrawShapeCallsOneCallbackPerType(t *testing.T) {
+func TestDrawShapeCallbacksPerType(t *testing.T) {
 	transform := Transform{P: Vec2{X: fixed.Q32FromInt(3), Y: fixed.Q32FromInt(4)}, Q: MakeRot(fixed.Q32MustParse("0.25"))}
 	segment := Segment{Point1: Vec2{X: fixed.Q32One()}, Point2: Vec2{X: fixed.Q32FromInt(2)}}
 	cases := []struct {
 		name  string
 		shape shape
-		kind  string
+		kinds []string
 	}{
-		{"circle", shape{shapeType: CircleShape, circle: Circle{Center: segment.Point1, Radius: fixed.Q32Half()}}, "solidCircle"},
-		{"capsule", shape{shapeType: CapsuleShape, capsule: Capsule{Center1: segment.Point1, Center2: segment.Point2, Radius: fixed.Q32Half()}}, "capsule"},
-		{"polygon", shape{shapeType: PolygonShape, polygon: MakeSquare(fixed.Q32Half())}, "solidPolygon"},
-		{"segment", shape{shapeType: SegmentShape, segment: segment}, "segment"},
-		{"chain", shape{shapeType: ChainSegmentShape, chainSegment: ChainSegment{Segment: segment}}, "segment"},
+		{"circle", shape{shapeType: CircleShape, circle: Circle{Center: segment.Point1, Radius: fixed.Q32Half()}}, []string{"solidCircle"}},
+		{"capsule", shape{shapeType: CapsuleShape, capsule: Capsule{Center1: segment.Point1, Center2: segment.Point2, Radius: fixed.Q32Half()}}, []string{"capsule"}},
+		{"polygon", shape{shapeType: PolygonShape, polygon: MakeSquare(fixed.Q32Half())}, []string{"solidPolygon"}},
+		{"segment", shape{shapeType: SegmentShape, segment: segment}, []string{"segment"}},
+		{"chain", shape{shapeType: ChainSegmentShape, chainSegment: ChainSegment{Segment: segment}}, []string{"segment", "point", "segment"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			draw, calls := recordDraw()
 			drawShape(draw, &tc.shape, transform, ColorCoral)
-			if len(*calls) != 1 || (*calls)[0].kind != tc.kind || (*calls)[0].color != ColorCoral {
+			if len(*calls) != len(tc.kinds) {
 				t.Fatalf("callbacks = %+v", *calls)
 			}
-			if tc.kind == "segment" || tc.kind == "capsule" || tc.kind == "solidCircle" {
+			for i, kind := range tc.kinds {
+				if (*calls)[i].kind != kind {
+					t.Fatalf("callbacks = %+v", *calls)
+				}
+			}
+			if (*calls)[0].color != ColorCoral {
+				t.Fatalf("callbacks = %+v", *calls)
+			}
+			if tc.kinds[0] == "segment" || tc.kinds[0] == "capsule" || tc.kinds[0] == "solidCircle" {
 				if (*calls)[0].values[0] != 3 || (*calls)[0].values[1] != 5 {
 					t.Fatalf("transformed first point = %v", (*calls)[0].values)
 				}

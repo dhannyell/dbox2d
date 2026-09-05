@@ -859,7 +859,7 @@ type RevoluteJointDef struct {
 	// The desired motor speed in turns per second.
 	MotorSpeed Q
 
-	/// Scale the debug draw
+	// DrawSize scales the debug draw of the joint.
 	DrawSize Q
 
 	// Set this flag to true if the attached bodies should collide.
@@ -1311,32 +1311,57 @@ type DrawPointFcn func(p Vec2, size Q, color HexColor)
 type DrawStringFcn func(p Vec2, s string, color HexColor)
 
 // DebugDraw holds the callbacks and options used by WorldId.Draw.
+// Set the option fields to choose what the callbacks receive.
 type DebugDraw struct {
-	DrawPolygon      DrawPolygonFcn
+	// DrawPolygon draws a closed polygon provided in CCW order.
+	DrawPolygon DrawPolygonFcn
+	// DrawSolidPolygon draws a solid closed polygon provided in CCW order.
 	DrawSolidPolygon DrawSolidPolygonFcn
-	DrawCircle       DrawCircleFcn
-	DrawSolidCircle  DrawSolidCircleFcn
+	// DrawCircle draws a circle.
+	DrawCircle DrawCircleFcn
+	// DrawSolidCircle draws a solid circle.
+	DrawSolidCircle DrawSolidCircleFcn
+	// DrawSolidCapsule draws a solid capsule.
 	DrawSolidCapsule DrawSolidCapsuleFcn
-	DrawSegment      DrawSegmentFcn
-	DrawTransform    DrawTransformFcn
-	DrawPoint        DrawPointFcn
-	DrawString       DrawStringFcn
+	// DrawSegment draws a line segment.
+	DrawSegment DrawSegmentFcn
+	// DrawTransform draws a transform at a host-chosen length scale.
+	DrawTransform DrawTransformFcn
+	// DrawPoint draws a point.
+	DrawPoint DrawPointFcn
+	// DrawString draws a string in world space.
+	DrawString DrawStringFcn
 
-	DrawingBounds        AABB
-	UseDrawingBounds     bool
-	DrawShapes           bool
-	DrawJoints           bool
-	DrawJointExtras      bool
-	DrawBounds           bool
-	DrawMass             bool
-	DrawBodyNames        bool
-	DrawContacts         bool
-	DrawGraphColors      bool
-	DrawContactNormals   bool
-	DrawContactImpulses  bool
-	DrawContactFeatures  bool
+	// DrawingBounds is the region used when UseDrawingBounds restricts drawing.
+	DrawingBounds AABB
+	// UseDrawingBounds restricts drawing to DrawingBounds; depth sorting may be unstable.
+	UseDrawingBounds bool
+	// DrawShapes draws shapes.
+	DrawShapes bool
+	// DrawJoints draws joints.
+	DrawJoints bool
+	// DrawJointExtras draws additional information for joints.
+	DrawJointExtras bool
+	// DrawBounds draws the bounding boxes for shapes.
+	DrawBounds bool
+	// DrawMass draws the mass and center of mass of dynamic bodies.
+	DrawMass bool
+	// DrawBodyNames draws body names.
+	DrawBodyNames bool
+	// DrawContacts draws contact points.
+	DrawContacts bool
+	// DrawGraphColors visualizes the graph coloring used for contacts and joints.
+	DrawGraphColors bool
+	// DrawContactNormals draws contact normals.
+	DrawContactNormals bool
+	// DrawContactImpulses draws contact normal impulses.
+	DrawContactImpulses bool
+	// DrawContactFeatures draws contact feature ids.
+	DrawContactFeatures bool
+	// DrawFrictionImpulses draws contact friction impulses.
 	DrawFrictionImpulses bool
-	DrawIslands          bool
+	// DrawIslands draws islands as bounding boxes.
+	DrawIslands bool
 }
 
 // DefaultDebugDraw returns a debug drawer whose callbacks are safe no-ops.

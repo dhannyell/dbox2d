@@ -1582,7 +1582,11 @@ func drawShape(draw *DebugDraw, shape *shape, transform Transform, color HexColo
 		draw.DrawSegment(TransformPoint(transform, shape.segment.Point1), TransformPoint(transform, shape.segment.Point2), color)
 	case ChainSegmentShape:
 		segment := shape.chainSegment.Segment
-		draw.DrawSegment(TransformPoint(transform, segment.Point1), TransformPoint(transform, segment.Point2), color)
+		p1 := TransformPoint(transform, segment.Point1)
+		p2 := TransformPoint(transform, segment.Point2)
+		draw.DrawSegment(p1, p2, color)
+		draw.DrawPoint(p2, fixed.Q32FromInt(4), color)
+		draw.DrawSegment(p1, Lerp(p1, p2, fixed.Q32MustParse("0.1")), ColorPaleGreen)
 	}
 }
 

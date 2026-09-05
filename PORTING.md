@@ -554,9 +554,9 @@ D-014 grew entries.
 - `FrictionCallback` and `RestitutionCallback` land on `WorldId` beside
   the friction callback that order 24 wired in; both drop the reference's
   `void* context` per D-014.
-`DebugDraw` and `WorldId.Draw` cross as closure-based host callbacks. Two
-deliberate cuts close the remaining surface instead: `b2World_GetProfile` and
-`b2Profile` do not cross, because the port carries no timers to report;
+- `DebugDraw` and `WorldId.Draw` cross as closure-based host callbacks. Two
+  deliberate cuts close the remaining surface instead: `b2World_GetProfile` and
+  `b2Profile` do not cross, because the port carries no timers to report;
   `b2World_DumpMemoryStats` does not cross, because the port has no
   allocation hooks to walk. The `byteCount` and `taskCount` fields of
   `b2Counters`, the task fields of `b2WorldDef`, and the `void* context`
