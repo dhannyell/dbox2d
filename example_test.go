@@ -110,6 +110,23 @@ func ExampleCreateChain() {
 	// Output: 2
 }
 
+func ExampleWorldId_Draw() {
+	worldId, _, _ := exampleWorld()
+	defer dbox2d.DestroyWorld(worldId)
+
+	// Every callback defaults to a no-op; wire up only the shapes callbacks
+	// used here and count how many shapes the world hands back.
+	shapeCount := 0
+	draw := dbox2d.DefaultDebugDraw()
+	draw.DrawShapes = true
+	draw.DrawSolidPolygon = func(dbox2d.Transform, []dbox2d.Vec2, dbox2d.Q, dbox2d.HexColor) { shapeCount++ }
+
+	worldId.Draw(&draw)
+
+	fmt.Println(shapeCount)
+	// Output: 1
+}
+
 func ExampleWorldId_GetSensorEvents() {
 	worldDef := dbox2d.DefaultWorldDef()
 	worldId := dbox2d.CreateWorld(&worldDef)
