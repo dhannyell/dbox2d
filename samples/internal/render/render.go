@@ -239,8 +239,8 @@ func (r *Renderer) buildVertexPipeline(dev gpu.Device, label, wgsl string, topol
 	return vertexPipeline{pipeline: pipeline, uniform: uniform, bindGroup: bindGroup}
 }
 
-// textBytesPerRowAlign is WebGPU's row-padding requirement for
-// WriteTexture; the atlas is padded to it before the one-time upload.
+// textBytesPerRowAlign pads the atlas rows to the alignment a buffer
+// copy would need, so a host may upload through either path.
 const textBytesPerRowAlign = 256
 
 func (r *Renderer) buildText(dev gpu.Device, atlas *draw.Atlas) error {
@@ -315,7 +315,7 @@ func ensureCapacity(dev gpu.Device, label string, usage gpu.BufferUsage, b gpu.B
 // pipeline, from the camera's projection at kind's z bias.
 func projectionUniform(camera *samples.Camera, zBias float32) []byte {
 	u := uniforms80{projection: camera.BuildProjectionMatrix(zBias), pixelScale: camera.PixelScale()}
-	return append([]byte(nil), asBytes([]uniforms80{u})...)
+	return asBytes([]uniforms80{u})
 }
 
 // pixelProjection builds a pixel-space orthographic matrix for the text/UI

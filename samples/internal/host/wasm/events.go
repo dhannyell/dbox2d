@@ -63,6 +63,15 @@ func bindEvents(canvas js.Value, a *app.App, dev *device, surface *wgpu.Surface,
 	})
 	canvas.Call("addEventListener", "pointerup", upFn)
 
+	// A lost capture ends both drags, so a button never stays down.
+	cancelFn := js.FuncOf(func(_ js.Value, args []js.Value) any {
+		x, y := pointerPos(args[0])
+		a.MouseUp(x, y, samples.MouseButtonLeft)
+		a.MouseUp(x, y, samples.MouseButtonRight)
+		return nil
+	})
+	canvas.Call("addEventListener", "pointercancel", cancelFn)
+
 	wheelFn := js.FuncOf(func(_ js.Value, args []js.Value) any {
 		e := args[0]
 		e.Call("preventDefault")

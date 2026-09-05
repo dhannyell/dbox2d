@@ -36,16 +36,14 @@ func (a *App) worldPoint(x, y float64) dbox2d.Vec2 {
 	return dbox2d.Vec2{X: samples.FromFloat64(pw.X), Y: samples.FromFloat64(pw.Y)}
 }
 
-// MouseMove forwards a pointer move: to microui always, and to the sample's
-// drag (or the right-button camera pan) unless microui captured the click
-// that started it.
+// MouseMove forwards a pointer move to microui and to the sample, always:
+// a drag that started in the world must keep its target while the pointer
+// crosses a window, as the reference's MouseMotionCallback does.
 func (a *App) MouseMove(x, y float64) {
 	a.mu.InputMouseMove(int(x), int(y))
 
 	pw := a.ctx.Camera.ConvertScreenToWorld(samples.Vec2f{X: x, Y: y})
-	if !a.uiCaptured() {
-		a.sample.MouseMove(dbox2d.Vec2{X: samples.FromFloat64(pw.X), Y: samples.FromFloat64(pw.Y)})
-	}
+	a.sample.MouseMove(dbox2d.Vec2{X: samples.FromFloat64(pw.X), Y: samples.FromFloat64(pw.Y)})
 
 	if a.rightMouseDown {
 		a.ctx.Camera.Center.X -= pw.X - a.rightMouseAt.X
