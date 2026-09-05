@@ -46,6 +46,12 @@ func (pool *idPool) freeId(id int) {
 	pool.freeArray = append(pool.freeArray, id)
 }
 
+// byteCount returns the storage reserved by the free list. It corresponds
+// to b2GetIdBytes in src/id_pool.h.
+func (pool *idPool) byteCount() int {
+	return sliceBytes(pool.freeArray)
+}
+
 // idCount returns how many indices are in use.
 func (pool *idPool) idCount() int {
 	return pool.nextIndex - len(pool.freeArray)

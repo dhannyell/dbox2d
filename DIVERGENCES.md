@@ -463,3 +463,22 @@ Numbering is sequential from `D-001` and never reused.
   TestPreSolveFalseLetsTheBoxThrough and TestMoverStopsOnTheGround in
   step_test.go; TestSetFrictionCallbackAffectsNextContact and
   TestCustomFilterRejectsPair in world_test.go
+
+### D-015 The memory dump writes to an io.Writer
+
+- Files: world.go (upstream src/world.c `b2World_DumpMemoryStats`)
+- Tier: T2
+- Reason: Go has no reason to open a fixed file name; the caller chooses
+  the sink.
+- Behaviour: `WorldId.DumpMemoryStats` takes an `io.Writer` in place of
+  opening `box2d_memory.txt`, and writes the same six sections with the
+  same labels: id pools, world arrays, broad-phase, solver sets,
+  constraint graph and the stack allocator. Byte counts come from slice
+  capacity times element size, the hash set and bit set backing storage,
+  and the dynamic tree's struct size plus its nodes and rebuild scratch.
+  The reference's `island sim` line multiplies the summed capacity by
+  `sizeof(int)`, a bug from reusing an accumulator variable name as the
+  sizeof argument; the port multiplies by the actual island sim size
+  instead. The reference's trailing chain shapes section is left as
+  `todo` and stays absent here.
+- Test: TestDumpMemoryStatsListsEverySection in world_test.go

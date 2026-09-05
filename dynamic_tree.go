@@ -1,6 +1,10 @@
 package dbox2d
 
-import "github.com/dhannyell/fixed"
+import (
+	"unsafe"
+
+	"github.com/dhannyell/fixed"
+)
 
 // The tree node flags of src/constants.h.
 const (
@@ -103,6 +107,21 @@ func createTree() dynamicTree {
 	tree.proxyCount = 0
 
 	return tree
+}
+
+// byteCount returns the struct size plus the node pool plus the rebuild
+// scratch, sized by leafIndices capacity. It corresponds to
+// b2DynamicTree_GetByteCount in src/dynamic_tree.c.
+func (tree *dynamicTree) byteCount() int {
+	var t dynamicTree
+	var n treeNode
+	var i int
+	var box AABB
+	var v Vec2
+	size := int(unsafe.Sizeof(t)) + int(unsafe.Sizeof(n))*len(tree.nodes)
+	rebuildCapacity := cap(tree.leafIndices)
+	size += rebuildCapacity * (int(unsafe.Sizeof(i)) + int(unsafe.Sizeof(box)) + int(unsafe.Sizeof(v)) + int(unsafe.Sizeof(i)))
+	return size
 }
 
 // destroyTree releases the node pool.

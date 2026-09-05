@@ -1,5 +1,15 @@
 package dbox2d
 
+import "unsafe"
+
+// sliceBytes returns the storage reserved by a slice, capacity times
+// element size. It corresponds to the PREFIX##Array_ByteCount macro in
+// src/array.h.
+func sliceBytes[T any](s []T) int {
+	var zero T
+	return cap(s) * int(unsafe.Sizeof(zero))
+}
+
 // removeSwap removes s[index] by moving the last element into its place. It
 // returns the shrunk slice and the old index of the moved element, or
 // nullIndex when nothing moved. The caller must repair the stored index of

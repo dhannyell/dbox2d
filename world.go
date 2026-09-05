@@ -1,9 +1,12 @@
 package dbox2d
 
 import (
+	"fmt"
+	"io"
 	"math/bits"
 	"strconv"
 	"strings"
+	"unsafe"
 
 	"github.com/dhannyell/fixed"
 )
@@ -838,6 +841,82 @@ func (worldId WorldId) GetCounters() Counters {
 // GetProfile returns the timing of the last Step.
 // It corresponds to b2World_GetProfile in src/world.c.
 func (id WorldId) GetProfile() Profile { return getWorldFromId(id).profile }
+
+// DumpMemoryStats writes the memory use of the world to w, one section
+// per structure. It corresponds to b2World_DumpMemoryStats in src/world.c.
+func (id WorldId) DumpMemoryStats(w io.Writer) {
+	wd := getWorldFromId(id)
+
+	_, _ = fmt.Fprintf(w, "id pools\n")
+	_, _ = fmt.Fprintf(w, "body ids: %d\n", wd.bodyIdPool.byteCount())
+	_, _ = fmt.Fprintf(w, "solver set ids: %d\n", wd.solverSetIdPool.byteCount())
+	_, _ = fmt.Fprintf(w, "joint ids: %d\n", wd.jointIdPool.byteCount())
+	_, _ = fmt.Fprintf(w, "contact ids: %d\n", wd.contactIdPool.byteCount())
+	_, _ = fmt.Fprintf(w, "island ids: %d\n", wd.islandIdPool.byteCount())
+	_, _ = fmt.Fprintf(w, "shape ids: %d\n", wd.shapeIdPool.byteCount())
+	_, _ = fmt.Fprintf(w, "chain ids: %d\n", wd.chainIdPool.byteCount())
+	_, _ = fmt.Fprintf(w, "\n")
+
+	_, _ = fmt.Fprintf(w, "world arrays\n")
+	_, _ = fmt.Fprintf(w, "bodies: %d\n", sliceBytes(wd.bodies))
+	_, _ = fmt.Fprintf(w, "solver sets: %d\n", sliceBytes(wd.solverSets))
+	_, _ = fmt.Fprintf(w, "joints: %d\n", sliceBytes(wd.joints))
+	_, _ = fmt.Fprintf(w, "contacts: %d\n", sliceBytes(wd.contacts))
+	_, _ = fmt.Fprintf(w, "islands: %d\n", sliceBytes(wd.islands))
+	_, _ = fmt.Fprintf(w, "shapes: %d\n", sliceBytes(wd.shapes))
+	_, _ = fmt.Fprintf(w, "chains: %d\n", sliceBytes(wd.chainShapes))
+	_, _ = fmt.Fprintf(w, "\n")
+
+	_, _ = fmt.Fprintf(w, "broad-phase\n")
+	_, _ = fmt.Fprintf(w, "static tree: %d\n", wd.broadPhase.trees[StaticBody].byteCount())
+	_, _ = fmt.Fprintf(w, "kinematic tree: %d\n", wd.broadPhase.trees[KinematicBody].byteCount())
+	_, _ = fmt.Fprintf(w, "dynamic tree: %d\n", wd.broadPhase.trees[DynamicBody].byteCount())
+	moveSet := &wd.broadPhase.moveSet
+	_, _ = fmt.Fprintf(w, "moveSet: %d (%d, %d)\n", moveSet.byteCount(), moveSet.count, len(moveSet.items))
+	_, _ = fmt.Fprintf(w, "moveArray: %d\n", sliceBytes(wd.broadPhase.moveArray))
+	pairSet := &wd.broadPhase.pairSet
+	_, _ = fmt.Fprintf(w, "pairSet: %d (%d, %d)\n", pairSet.byteCount(), pairSet.count, len(pairSet.items))
+	_, _ = fmt.Fprintf(w, "\n")
+
+	var bodySimCapacity, bodyStateCapacity, jointSimCapacity, contactSimCapacity, islandSimCapacity int
+	for i := range wd.solverSets {
+		set := &wd.solverSets[i]
+		if set.setIndex == nullIndex {
+			continue
+		}
+		bodySimCapacity += cap(set.bodySims)
+		bodyStateCapacity += cap(set.bodyStates)
+		jointSimCapacity += cap(set.jointSims)
+		contactSimCapacity += cap(set.contactSims)
+		islandSimCapacity += cap(set.islandSims)
+	}
+
+	_, _ = fmt.Fprintf(w, "solver sets\n")
+	_, _ = fmt.Fprintf(w, "body sim: %d\n", bodySimCapacity*int(unsafe.Sizeof(bodySim{})))
+	_, _ = fmt.Fprintf(w, "body state: %d\n", bodyStateCapacity*int(unsafe.Sizeof(bodyState{})))
+	_, _ = fmt.Fprintf(w, "joint sim: %d\n", jointSimCapacity*int(unsafe.Sizeof(jointSim{})))
+	_, _ = fmt.Fprintf(w, "contact sim: %d\n", contactSimCapacity*int(unsafe.Sizeof(contactSim{})))
+	// The reference multiplies by sizeof(int) here, a bug; the port uses the
+	// actual island sim size. See DIVERGENCES.md D-015.
+	_, _ = fmt.Fprintf(w, "island sim: %d\n", islandSimCapacity*int(unsafe.Sizeof(islandSim{})))
+	_, _ = fmt.Fprintf(w, "\n")
+
+	var bodyBitSetBytes, graphContactSimCapacity, graphJointSimCapacity int
+	for i := range graphColorCount {
+		color := &wd.constraintGraph.colors[i]
+		bodyBitSetBytes += color.bodySet.byteCount()
+		graphContactSimCapacity += cap(color.contactSims)
+		graphJointSimCapacity += cap(color.jointSims)
+	}
+
+	_, _ = fmt.Fprintf(w, "constraint graph\n")
+	_, _ = fmt.Fprintf(w, "body bit sets: %d\n", bodyBitSetBytes)
+	_, _ = fmt.Fprintf(w, "joint sim: %d\n", graphJointSimCapacity*int(unsafe.Sizeof(jointSim{})))
+	_, _ = fmt.Fprintf(w, "contact sim: %d\n", graphContactSimCapacity*int(unsafe.Sizeof(contactSim{})))
+	_, _ = fmt.Fprintf(w, "\n")
+
+	_, _ = fmt.Fprintf(w, "stack allocator: %d\n\n", getArenaCapacity(&wd.arena))
+}
 
 // SetUserData attaches application data to the world.
 // It corresponds to b2World_SetUserData in src/world.c.
