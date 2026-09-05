@@ -343,3 +343,33 @@ func TestTransferJointMovesBetweenSets(t *testing.T) {
 	}
 	validateWorld(w)
 }
+
+// TestSleepClearsTheBodyMoveIndex pins the reset of bodyMoveIndex when an
+// island sleeps. A stale index outlives a step with no awake bodies, which
+// clears the move events, and the next forced sleep reads past the array.
+func TestSleepClearsTheBodyMoveIndex(t *testing.T) {
+	worldId := createTestWorld(t)
+	w := getWorldFromId(worldId)
+
+	addStaticCircle(t, worldId, v2(0, -1))
+	idA := addDynamicCircle(t, worldId, v2(0, 0))
+	addDynamicCircle(t, worldId, v2(1, 0))
+
+	dt := fixed.Q32FromRatio(1, 60)
+	worldId.Step(dt, 4)
+	if getBodyFullId(w, idA).bodyMoveIndex == nullIndex {
+		t.Fatalf("the body has no move index after a step, the test needs one")
+	}
+
+	idA.SetAwake(false)
+	if getBodyFullId(w, idA).bodyMoveIndex != nullIndex {
+		t.Fatalf("the move index survives the sleep")
+	}
+
+	idA.SetAwake(true)
+	idA.SetAwake(false)
+	worldId.Step(dt, 4)
+	idA.SetAwake(true)
+	idA.SetAwake(false)
+	validateSolverSets(w)
+}

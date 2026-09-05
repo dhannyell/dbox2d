@@ -217,6 +217,7 @@ func trySleepIsland(w *world, islandId int) {
 					panic("dbox2d: the move event does not belong to the body")
 				}
 				moveEvent.FellAsleep = true
+				b.bodyMoveIndex = nullIndex
 			}
 
 			awakeBodyIndex := b.localIndex
