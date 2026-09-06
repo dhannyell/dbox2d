@@ -181,6 +181,13 @@ the previous snapshot, with the same result bits.
 These numbers come from one machine (Ryzen 7 5800X3D) and one snapshot of the
 code. Run `go test -run "^$" -bench . -benchmem` for your own.
 
+A production build can drop the saturation counter of `fixed` with
+`-tags fixed_nosatcounter`. Every result keeps the same bits; only the
+diagnostic count goes, and `SaturationCount` returns zero. On WebAssembly
+the tag also removes the last call that keeps the scalar methods from
+inlining. The tests of this repository read the counter, so they build
+without the tag.
+
 ## Reference source
 
 The upstream C source sits in this repository on the branch
