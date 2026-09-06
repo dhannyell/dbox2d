@@ -20,14 +20,15 @@ cd samples && go run ./cmd/native
 ## Run the browser host
 
 The browser host needs a browser with WebGPU. Build the wasm binary into
-`web/` and serve that directory with any static file server.
+`web/` and serve that directory. `cmd/serve` is a static file server that
+sends `.wasm` with the right content type; any other static server works.
 
 ```bash
-cd samples && CGO_ENABLED=0 GOOS=js GOARCH=wasm go build -o ../web/app.wasm ./cmd/web
+cd samples && CGO_ENABLED=0 GOOS=js GOARCH=wasm go build -o web/app.wasm ./cmd/web
 ```
 
 ```bash
-cd web && python -m http.server 8080
+cd samples && go run ./cmd/serve
 ```
 
 Then open `http://localhost:8080`.
@@ -115,5 +116,6 @@ on one worker; the reference's task system did not cross.
 | `internal/gpu`, `internal/render` | the WebGPU pipelines |
 | `internal/host/native` | GLFW window and surface |
 | `internal/host/wasm` | canvas, `requestAnimationFrame` and DOM events |
+| `web` | the page, `wasm_exec.js` and the built `app.wasm` (ignored) |
 | `internal/microui` | vendored copy of `zeozeozeo/microui-go` v1.0.1 (Unlicense) |
-| `cmd/native`, `cmd/web` | the two binaries |
+| `cmd/native`, `cmd/web`, `cmd/serve` | the two hosts and the static server |

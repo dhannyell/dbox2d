@@ -49,7 +49,7 @@ cd samples && go run ./cmd/native
 ```
 
 ```bash
-cd samples && CGO_ENABLED=0 GOOS=js GOARCH=wasm go build -o ../web/app.wasm ./cmd/web
+cd samples && CGO_ENABLED=0 GOOS=js GOARCH=wasm go build -o web/app.wasm ./cmd/web
 ```
 
 The task-system fields of `b2Counters` and `b2WorldDef`, and the `void*
