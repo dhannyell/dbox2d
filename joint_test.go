@@ -2,8 +2,6 @@ package dbox2d
 
 import (
 	"testing"
-
-	"github.com/dhannyell/fixed"
 )
 
 // This file tests the joint bookkeeping: the body lists, the set choice,
@@ -227,7 +225,7 @@ func TestJointToASleepingBodySleeps(t *testing.T) {
 func TestJointWithoutCollisionRemovesTheContact(t *testing.T) {
 	worldId := createTestWorld(t)
 	w := getWorldFromId(worldId)
-	boxId := boxOnGround(t, worldId, fixed.Q32Zero())
+	boxId := boxOnGround(t, worldId, QZero())
 	box := getBodyFullId(w, boxId)
 	groundId := BodyId{index1: 1, world0: w.worldId, generation: w.bodies[0].generation}
 
@@ -293,10 +291,10 @@ func TestRevoluteRejectsAFullTurnLimit(t *testing.T) {
 	def := DefaultRevoluteJointDef()
 	def.BodyIdA, def.BodyIdB = idA, idB
 	def.EnableLimit = true
-	def.UpperAngle = fixed.Q32Half()
+	def.UpperAngle = QHalf()
 	requirePanic(t, func() { CreateRevoluteJoint(worldId, &def) })
 
-	def.UpperAngle = fixed.Q32MustParse("0.495")
+	def.UpperAngle = QMustParse("0.495")
 	CreateRevoluteJoint(worldId, &def)
 }
 
@@ -310,11 +308,11 @@ func TestJointAccessorsRoundTrip(t *testing.T) {
 	def.BodyIdA, def.BodyIdB = idA, idB
 	jointId := CreateRevoluteJoint(worldId, &def)
 
-	anchorA := Vec2{X: fixed.Q32MustParse("0.25"), Y: fixed.Q32MustParse("-0.5")}
-	anchorB := Vec2{X: fixed.Q32MustParse("-0.75"), Y: fixed.Q32MustParse("0.125")}
-	referenceAngle := fixed.Q32MustParse("0.125")
-	hertz := fixed.Q32FromInt(30)
-	dampingRatio := fixed.Q32MustParse("0.75")
+	anchorA := Vec2{X: QMustParse("0.25"), Y: QMustParse("-0.5")}
+	anchorB := Vec2{X: QMustParse("-0.75"), Y: QMustParse("0.125")}
+	referenceAngle := QMustParse("0.125")
+	hertz := QFromInt(30)
+	dampingRatio := QMustParse("0.75")
 	userData := "joint data"
 
 	jointId.SetLocalAnchorA(anchorA)
@@ -356,7 +354,7 @@ func TestSetCollideConnectedTogglesContact(t *testing.T) {
 	shapeDef := DefaultShapeDef()
 	// Contact events must be enabled on both shapes for the transition assertions.
 	shapeDef.EnableContactEvents = true
-	box := MakeSquare(fixed.Q32Half())
+	box := MakeSquare(QHalf())
 	shapeA := CreatePolygonShape(bodyA, &shapeDef, &box)
 	shapeB := CreatePolygonShape(bodyB, &shapeDef, &box)
 	w := getWorldFromId(worldId)
@@ -400,23 +398,23 @@ func TestSetCollideConnectedTogglesContact(t *testing.T) {
 // TestGetConstraintForceMatchesWeight checks the settled support force under gravity.
 func TestGetConstraintForceMatchesWeight(t *testing.T) {
 	worldId := createTestWorld(t)
-	g := fixed.Q32FromInt(10)
+	g := QFromInt(10)
 	worldId.SetGravity(Vec2{Y: g.Neg()})
 
 	staticDef := DefaultBodyDef()
 	staticId := CreateBody(worldId, &staticDef)
 	dynamicDef := DefaultBodyDef()
 	dynamicDef.Type = DynamicBody
-	dynamicDef.Position = Vec2{Y: fixed.Q32FromInt(-1)}
+	dynamicDef.Position = Vec2{Y: QFromInt(-1)}
 	dynamicDef.EnableSleep = false
 	dynamicId := CreateBody(worldId, &dynamicDef)
 	shapeDef := DefaultShapeDef()
-	box := MakeSquare(fixed.Q32Half())
+	box := MakeSquare(QHalf())
 	CreatePolygonShape(dynamicId, &shapeDef, &box)
 
 	def := DefaultRevoluteJointDef()
 	def.BodyIdA, def.BodyIdB = staticId, dynamicId
-	def.LocalAnchorB = Vec2{Y: fixed.Q32One()}
+	def.LocalAnchorB = Vec2{Y: QOne()}
 	jointId := CreateRevoluteJoint(worldId, &def)
 
 	for range 60 {
@@ -425,7 +423,7 @@ func TestGetConstraintForceMatchesWeight(t *testing.T) {
 
 	mass := dynamicId.GetMass()
 	expected := mass.Mul(g)
-	tolerance := fixed.Q32MustParse("0.01")
+	tolerance := QMustParse("0.01")
 	if got := jointId.GetConstraintForce().Len(); !withinQ(got, expected, tolerance) {
 		t.Errorf("constraint force = %v, want mass * g = %v", got, expected)
 	}
@@ -441,18 +439,18 @@ func TestGetLinearAndAngularSeparation(t *testing.T) {
 	def := DefaultRevoluteJointDef()
 	def.BodyIdA, def.BodyIdB = bodyA, bodyB
 	def.EnableLimit = true
-	def.LowerAngle = fixed.Q32Zero()
-	def.UpperAngle = fixed.Q32Zero()
+	def.LowerAngle = QZero()
+	def.UpperAngle = QZero()
 	jointId := CreateRevoluteJoint(worldId, &def)
 
-	separation := fixed.Q32MustParse("0.1")
-	bodyB.SetTransform(Vec2{X: separation}, MakeRot(fixed.Q32Zero()))
-	tolerance := fixed.Q32MustParse("0.0001")
+	separation := QMustParse("0.1")
+	bodyB.SetTransform(Vec2{X: separation}, MakeRot(QZero()))
+	tolerance := QMustParse("0.0001")
 	if got := jointId.GetLinearSeparation(); !withinQ(got, separation, tolerance) {
 		t.Errorf("linear separation = %v, want %v", got, separation)
 	}
 
-	quarterTurn := fixed.Q32MustParse("0.25")
+	quarterTurn := QMustParse("0.25")
 	bodyB.SetTransform(Vec2{X: separation}, MakeRot(quarterTurn))
 	if got := jointId.GetAngularSeparation(); !withinQ(got, quarterTurn, tolerance) {
 		t.Errorf("angular separation = %v, want %v turns", got, quarterTurn)

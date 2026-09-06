@@ -27,7 +27,7 @@ func suspendedBox(t *testing.T, worldId WorldId, position Vec2, def *WheelJointD
 	boxDef.Position = position
 	boxId := CreateBody(worldId, &boxDef)
 	shapeDef := DefaultShapeDef()
-	unit := MakeBox(fixed.Q32Half(), fixed.Q32Half())
+	unit := MakeBox(QHalf(), QHalf())
 	CreatePolygonShape(boxId, &shapeDef, &unit)
 
 	def.BodyIdA = groundId
@@ -47,7 +47,7 @@ func TestWheelLineHoldsTheBox(t *testing.T) {
 	def.EnableSpring = false
 	box, j := suspendedBox(t, worldId, v2(0, 0), &def)
 	state := getBodyState(w, box)
-	state.linearVelocity = Vec2{X: fixed.Q32One(), Y: fixed.Q32One()}
+	state.linearVelocity = Vec2{X: QOne(), Y: QOne()}
 
 	context := jointContext(w)
 	prepareJoints(context, j.colorIndex)
@@ -55,10 +55,10 @@ func TestWheelLineHoldsTheBox(t *testing.T) {
 
 	tolerance := fixed.Q32FromRaw(1 << 12)
 	js := getJointSim(w, j)
-	if !withinQ(js.wheelJoint.perpImpulse, fixed.Q32One(), tolerance) {
+	if !withinQ(js.wheelJoint.perpImpulse, QOne(), tolerance) {
 		t.Errorf("perpImpulse is %v, want 1", js.wheelJoint.perpImpulse)
 	}
-	if !withinQ(state.linearVelocity.X, fixed.Q32Zero(), tolerance) || !withinQ(state.linearVelocity.Y, fixed.Q32One(), tolerance) {
+	if !withinQ(state.linearVelocity.X, QZero(), tolerance) || !withinQ(state.linearVelocity.Y, QOne(), tolerance) {
 		t.Errorf("vB is %v, want (0, 1)", state.linearVelocity)
 	}
 
@@ -66,7 +66,7 @@ func TestWheelLineHoldsTheBox(t *testing.T) {
 	// perpendicular (-1, 0).
 	w.invH = context.invH
 	force := getWheelJointForce(w, js)
-	if !withinQ(force.X, fixed.Q32FromInt(-240), tolerance.Mul(context.invH)) {
+	if !withinQ(force.X, QFromInt(-240), tolerance.Mul(context.invH)) {
 		t.Errorf("the joint force is %v, want (-240, 0)", force)
 	}
 }
@@ -82,11 +82,11 @@ func TestWheelUpperLimitStopsTheTravel(t *testing.T) {
 	def := DefaultWheelJointDef()
 	def.EnableSpring = false
 	def.EnableLimit = true
-	def.LowerTranslation = fixed.Q32Zero()
-	def.UpperTranslation = fixed.Q32One()
+	def.LowerTranslation = QZero()
+	def.UpperTranslation = QOne()
 	box, j := suspendedBox(t, worldId, v2(0, 1), &def)
 	state := getBodyState(w, box)
-	state.linearVelocity = Vec2{Y: fixed.Q32One()}
+	state.linearVelocity = Vec2{Y: QOne()}
 
 	context := jointContext(w)
 	prepareJoints(context, j.colorIndex)
@@ -94,10 +94,10 @@ func TestWheelUpperLimitStopsTheTravel(t *testing.T) {
 
 	tolerance := fixed.Q32FromRaw(1 << 12)
 	js := getJointSim(w, j)
-	if !js.wheelJoint.lowerImpulse.Eq(fixed.Q32Zero()) || !withinQ(js.wheelJoint.upperImpulse, fixed.Q32One(), tolerance) {
+	if !js.wheelJoint.lowerImpulse.Eq(QZero()) || !withinQ(js.wheelJoint.upperImpulse, QOne(), tolerance) {
 		t.Errorf("the limit impulses are %v and %v, want 0 and 1", js.wheelJoint.lowerImpulse, js.wheelJoint.upperImpulse)
 	}
-	if !withinQ(state.linearVelocity.Y, fixed.Q32Zero(), tolerance) {
+	if !withinQ(state.linearVelocity.Y, QZero(), tolerance) {
 		t.Errorf("vB.y is %v, want 0", state.linearVelocity.Y)
 	}
 }
@@ -112,8 +112,8 @@ func TestWheelMotorSaturatesAtTheTorque(t *testing.T) {
 	def := DefaultWheelJointDef()
 	def.EnableSpring = false
 	def.EnableMotor = true
-	def.MotorSpeed = fixed.Q32One()
-	def.MaxMotorTorque = fixed.Q32FromInt(100)
+	def.MotorSpeed = QOne()
+	def.MaxMotorTorque = QFromInt(100)
 	box, j := suspendedBox(t, worldId, v2(0, 0), &def)
 	state := getBodyState(w, box)
 
@@ -123,25 +123,25 @@ func TestWheelMotorSaturatesAtTheTorque(t *testing.T) {
 
 	tolerance := fixed.Q32FromRaw(1 << 12)
 	js := getJointSim(w, j)
-	if !withinQ(js.wheelJoint.motorImpulse, fixed.Q32FromRatio(5, 12), tolerance) {
+	if !withinQ(js.wheelJoint.motorImpulse, QFromRatio(5, 12), tolerance) {
 		t.Errorf("motorImpulse is %v, want 5/12", js.wheelJoint.motorImpulse)
 	}
 	wB := state.angularVelocity.Mul(tau)
-	if !withinQ(wB, fixed.Q32FromRatio(5, 2), tolerance) {
+	if !withinQ(wB, QFromRatio(5, 2), tolerance) {
 		t.Errorf("wB is %v rad/s, want 2.5", wB)
 	}
 
 	// The torque report is the saturated motor torque.
 	w.invH = context.invH
-	if torque := getWheelJointTorque(w, js); !withinQ(torque, fixed.Q32FromInt(100), tolerance.Mul(context.invH)) {
+	if torque := getWheelJointTorque(w, js); !withinQ(torque, QFromInt(100), tolerance.Mul(context.invH)) {
 		t.Errorf("the joint torque is %v, want 100", torque)
 	}
 
 	// The warm start applies the stored impulse again on a fresh state.
-	state.angularVelocity = fixed.Q32Zero()
+	state.angularVelocity = QZero()
 	warmStartJoints(context, j.colorIndex)
 	wB = state.angularVelocity.Mul(tau)
-	if !withinQ(wB, fixed.Q32FromRatio(5, 2), tolerance) {
+	if !withinQ(wB, QFromRatio(5, 2), tolerance) {
 		t.Errorf("the warm start gives wB %v rad/s, want 2.5", wB)
 	}
 }
@@ -294,14 +294,14 @@ func TestSolveWheelJointTracksTheFloat64Mirror(t *testing.T) {
 	def.LocalAnchorB = qv("-1", "0.25")
 	def.LocalAxisA = qv("1", "0.5")
 	def.EnableSpring = true
-	def.Hertz = fixed.Q32FromInt(2)
-	def.DampingRatio = fixed.Q32Half()
+	def.Hertz = QFromInt(2)
+	def.DampingRatio = QHalf()
 	def.EnableLimit = true
-	def.LowerTranslation = fixed.Q32MustParse("0.6")
-	def.UpperTranslation = fixed.Q32MustParse("0.8")
+	def.LowerTranslation = QMustParse("0.6")
+	def.UpperTranslation = QMustParse("0.8")
 	def.EnableMotor = true
-	def.MotorSpeed = fixed.Q32Half()
-	def.MaxMotorTorque = fixed.Q32FromInt(3)
+	def.MotorSpeed = QHalf()
+	def.MaxMotorTorque = QFromInt(3)
 	jointId := CreateWheelJoint(worldId, &def)
 	js := getJointSim(w, getJointFullId(w, jointId))
 	stateA := getBodyState(w, getBodyFullId(w, idA))

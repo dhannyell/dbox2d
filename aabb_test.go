@@ -2,15 +2,13 @@ package dbox2d
 
 import (
 	"testing"
-
-	"github.com/dhannyell/fixed"
 )
 
 // box returns the box with the given integer corners.
 func box(lx, ly, ux, uy int) AABB {
 	return AABB{
-		LowerBound: Vec2{X: fixed.Q32FromInt(lx), Y: fixed.Q32FromInt(ly)},
-		UpperBound: Vec2{X: fixed.Q32FromInt(ux), Y: fixed.Q32FromInt(uy)},
+		LowerBound: Vec2{X: QFromInt(lx), Y: QFromInt(ly)},
+		UpperBound: Vec2{X: QFromInt(ux), Y: QFromInt(uy)},
 	}
 }
 
@@ -75,7 +73,7 @@ func TestAABBCenterAndExtentsRebuildTheBox(t *testing.T) {
 	if rebuilt != a {
 		t.Errorf("rebuilt box = %v, want %v", rebuilt, a)
 	}
-	if got, want := perimeter(a), fixed.Q32FromInt(32); !got.Eq(want) {
+	if got, want := perimeter(a), QFromInt(32); !got.Eq(want) {
 		t.Errorf("perimeter = %v, want %v", got, want)
 	}
 }
@@ -84,11 +82,11 @@ func TestAABBCenterAndExtentsRebuildTheBox(t *testing.T) {
 // how a capsule and a rounded polygon report their bounds.
 func TestMakeAABBAddsTheRadius(t *testing.T) {
 	points := []Vec2{
-		{X: fixed.Q32FromInt(1), Y: fixed.Q32FromInt(2)},
-		{X: fixed.Q32FromInt(-3), Y: fixed.Q32FromInt(5)},
+		{X: QFromInt(1), Y: QFromInt(2)},
+		{X: QFromInt(-3), Y: QFromInt(5)},
 	}
 
-	got := MakeAABB(points, fixed.Q32One())
+	got := MakeAABB(points, QOne())
 	if want := box(-4, 1, 2, 6); got != want {
 		t.Errorf("MakeAABB = %v, want %v", got, want)
 	}
@@ -105,7 +103,7 @@ func TestMakeAABBRejectsEmptyPoints(t *testing.T) {
 			t.Errorf("an empty point set did not panic")
 		}
 	}()
-	MakeAABB(nil, fixed.Q32Zero())
+	MakeAABB(nil, QZero())
 }
 
 // TestIsValidAABBRejectsAnInvertedBox guards the check that catches a bad
@@ -124,27 +122,27 @@ func TestIsValidAABBRejectsAnInvertedBox(t *testing.T) {
 func TestAABBRayCastHitsTheNearFace(t *testing.T) {
 	a := box(0, 0, 2, 2)
 
-	p1 := Vec2{X: fixed.Q32FromRatio(-3, 2), Y: fixed.Q32One()}
-	p2 := Vec2{X: fixed.Q32FromRatio(3, 2), Y: fixed.Q32One()}
+	p1 := Vec2{X: QFromRatio(-3, 2), Y: QOne()}
+	p2 := Vec2{X: QFromRatio(3, 2), Y: QOne()}
 
 	output := aabbRayCast(a, p1, p2)
 
 	if !output.Hit {
 		t.Fatalf("the ray misses the box")
 	}
-	if want := fixed.Q32Half(); !output.Fraction.Eq(want) {
+	if want := QHalf(); !output.Fraction.Eq(want) {
 		t.Errorf("fraction = %v, want %v", output.Fraction, want)
 	}
-	if !output.Point.X.Eq(fixed.Q32Zero()) || !output.Point.Y.Eq(fixed.Q32One()) {
+	if !output.Point.X.Eq(QZero()) || !output.Point.Y.Eq(QOne()) {
 		t.Errorf("point = %v, want (0, 1)", output.Point)
 	}
-	if !output.Normal.X.Eq(fixed.Q32FromInt(-1)) || !output.Normal.Y.Eq(fixed.Q32Zero()) {
+	if !output.Normal.X.Eq(QFromInt(-1)) || !output.Normal.Y.Eq(QZero()) {
 		t.Errorf("normal = %v, want (-1, 0)", output.Normal)
 	}
 
 	// A ray parallel to a slab and outside it misses.
-	above1 := Vec2{X: fixed.Q32FromInt(-1), Y: fixed.Q32FromInt(3)}
-	above2 := Vec2{X: fixed.Q32FromInt(3), Y: fixed.Q32FromInt(3)}
+	above1 := Vec2{X: QFromInt(-1), Y: QFromInt(3)}
+	above2 := Vec2{X: QFromInt(3), Y: QFromInt(3)}
 	if aabbRayCast(a, above1, above2).Hit {
 		t.Errorf("a ray that passes above the box reports a hit")
 	}

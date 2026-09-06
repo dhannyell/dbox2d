@@ -7,8 +7,6 @@ import (
 	"regexp"
 	"strings"
 	"testing"
-
-	"github.com/dhannyell/fixed"
 )
 
 // This file tests the world state as one unit: the handles, the id pools,
@@ -32,16 +30,16 @@ func createTestWorld(t testing.TB) WorldId {
 }
 
 func v2(x, y int) Vec2 {
-	return Vec2{X: fixed.Q32FromInt(x), Y: fixed.Q32FromInt(y)}
+	return Vec2{X: QFromInt(x), Y: QFromInt(y)}
 }
 
 func TestWorldAccessorsRoundTrip(t *testing.T) {
 	worldId := createTestWorld(t)
 	worldId.SetGravity(v2(3, -4))
-	worldId.SetRestitutionThreshold(fixed.Q32FromInt(2))
-	worldId.SetHitEventThreshold(fixed.Q32FromInt(3))
-	worldId.SetContactTuning(fixed.Q32FromInt(4), fixed.Q32Half(), fixed.Q32FromInt(5))
-	worldId.SetMaximumLinearSpeed(fixed.Q32FromInt(6))
+	worldId.SetRestitutionThreshold(QFromInt(2))
+	worldId.SetHitEventThreshold(QFromInt(3))
+	worldId.SetContactTuning(QFromInt(4), QHalf(), QFromInt(5))
+	worldId.SetMaximumLinearSpeed(QFromInt(6))
 	worldId.SetUserData("world")
 	worldId.EnableSleeping(false)
 	worldId.EnableContinuous(false)
@@ -53,9 +51,9 @@ func TestWorldAccessorsRoundTrip(t *testing.T) {
 		got  Q
 		want Q
 	}{
-		{"restitution threshold", worldId.GetRestitutionThreshold(), fixed.Q32FromInt(2)},
-		{"hit event threshold", worldId.GetHitEventThreshold(), fixed.Q32FromInt(3)},
-		{"maximum linear speed", worldId.GetMaximumLinearSpeed(), fixed.Q32FromInt(6)},
+		{"restitution threshold", worldId.GetRestitutionThreshold(), QFromInt(2)},
+		{"hit event threshold", worldId.GetHitEventThreshold(), QFromInt(3)},
+		{"maximum linear speed", worldId.GetMaximumLinearSpeed(), QFromInt(6)},
 	}
 	for _, check := range checks {
 		if !check.got.Eq(check.want) {
@@ -160,7 +158,7 @@ func TestStepFillsTheProfile(t *testing.T) {
 	groundDef := DefaultBodyDef()
 	groundId := CreateBody(worldId, &groundDef)
 	groundShapeDef := DefaultShapeDef()
-	ground := MakeBox(fixed.Q32FromInt(50), fixed.Q32One())
+	ground := MakeBox(QFromInt(50), QOne())
 	CreatePolygonShape(groundId, &groundShapeDef, &ground)
 
 	// A stack of boxes, not a handful: the timer resolution of some hosts
@@ -198,7 +196,7 @@ func TestStepFillsTheProfile(t *testing.T) {
 		t.Errorf("solve parts sum = %v, want <= Solve (%v) + %v", sub, p.Solve, slack)
 	}
 
-	worldId.Step(fixed.Q32Zero(), 4)
+	worldId.Step(QZero(), 4)
 	if got := worldId.GetProfile(); got != (Profile{}) {
 		t.Errorf("GetProfile() after a zero time step = %+v, want zero", got)
 	}
@@ -206,7 +204,7 @@ func TestStepFillsTheProfile(t *testing.T) {
 
 func TestSetFrictionCallbackAffectsNextContact(t *testing.T) {
 	worldId := createTestWorld(t)
-	constant := fixed.Q32MustParse("0.75")
+	constant := QMustParse("0.75")
 	worldId.SetFrictionCallback(func(Q, int, Q, int) Q { return constant })
 	addDynamicCircle(t, worldId, v2(0, 0))
 	addDynamicCircle(t, worldId, v2(1, 0))
@@ -274,7 +272,7 @@ func TestIdReuseInvalidatesTheOldHandle(t *testing.T) {
 		bodyId := CreateBody(worldId, &bodyDef)
 
 		shapeDef := DefaultShapeDef()
-		circle := Circle{Radius: fixed.Q32One()}
+		circle := Circle{Radius: QOne()}
 		oldId := CreateCircleShape(bodyId, &shapeDef, &circle)
 		DestroyShape(oldId, true)
 		if oldId.IsValid() {
@@ -303,7 +301,7 @@ func TestCreateAndDestroyOrdersProduceTheSameWorld(t *testing.T) {
 	bodyDef := DefaultBodyDef()
 	bodyDef.Type = DynamicBody
 	shapeDef := DefaultShapeDef()
-	box := MakeSquare(fixed.Q32One())
+	box := MakeSquare(QOne())
 
 	addBody := func(worldId WorldId, position Vec2) BodyId {
 		def := bodyDef
@@ -372,7 +370,7 @@ func TestBodyMassComesFromItsShapes(t *testing.T) {
 	worldId := createTestWorld(t)
 
 	// Half a turn per second, so the velocity correction is visible.
-	omega := fixed.Q32Half()
+	omega := QHalf()
 
 	bodyDef := DefaultBodyDef()
 	bodyDef.Type = DynamicBody
@@ -381,7 +379,7 @@ func TestBodyMassComesFromItsShapes(t *testing.T) {
 	bodyId := CreateBody(worldId, &bodyDef)
 
 	shapeDef := DefaultShapeDef()
-	box := MakeSquare(fixed.Q32One())
+	box := MakeSquare(QOne())
 	CreatePolygonShape(bodyId, &shapeDef, &box)
 
 	wantBox := ComputePolygonMass(&box, shapeDef.Density)
@@ -397,7 +395,7 @@ func TestBodyMassComesFromItsShapes(t *testing.T) {
 	velocityBefore := getBodyState(w, b).linearVelocity
 
 	// A degenerate capsule welds into a circle at its midpoint.
-	capsule := Capsule{Center1: v2(2, 0), Center2: v2(2, 0), Radius: fixed.Q32One()}
+	capsule := Capsule{Center1: v2(2, 0), Center2: v2(2, 0), Radius: QOne()}
 	weldedId := CreateCapsuleShape(bodyId, &shapeDef, &capsule)
 
 	welded := getShape(w, weldedId)
@@ -421,7 +419,7 @@ func TestBodyMassComesFromItsShapes(t *testing.T) {
 	}
 
 	// The stored inverse comes from one division, as in the reference.
-	if !sim.invMass.Eq(fixed.Q32One().Div(b.mass)) {
+	if !sim.invMass.Eq(QOne().Div(b.mass)) {
 		t.Errorf("invMass = %v, want 1 / mass", sim.invMass)
 	}
 
@@ -504,7 +502,7 @@ func TestOverlapAABBReportsTheFatBounds(t *testing.T) {
 	kinematicDef.Position = v2(5, 0)
 	kinematic := CreateBody(worldId, &kinematicDef)
 	shapeDef := DefaultShapeDef()
-	circle := Circle{Radius: fixed.Q32Half()}
+	circle := Circle{Radius: QHalf()}
 	CreateCircleShape(kinematic, &shapeDef, &circle)
 	addDynamicBox(t, worldId, v2(10, 0))
 	addDynamicBox(t, worldId, v2(10, 0))
@@ -585,8 +583,8 @@ func TestCastRayClipsAcrossTheTrees(t *testing.T) {
 		t.Fatalf("the closest hit is not the near box (%d leaf visits)", stats.LeafVisits)
 	}
 	// The near box spans [-1, 1]; the hit sits on its left face.
-	eps := fixed.Q32One().Div(fixed.Q32FromInt(1024))
-	diff := point.X.Add(fixed.Q32One())
+	eps := QOne().Div(QFromInt(1024))
+	diff := point.X.Add(QOne())
 	if diff.Less(eps.Neg()) || eps.Less(diff) {
 		t.Errorf("the hit point x is %v, want -1", point.X)
 	}
@@ -594,7 +592,7 @@ func TestCastRayClipsAcrossTheTrees(t *testing.T) {
 	hit = ShapeId{}
 	worldId.CastRay(origin, translation, filter, func(id ShapeId, p, n Vec2, fraction Q) Q {
 		if id == near {
-			return fixed.Q32One().Neg()
+			return QOne().Neg()
 		}
 		return closest(id, p, n, fraction)
 	})
@@ -606,13 +604,13 @@ func TestCastRayClipsAcrossTheTrees(t *testing.T) {
 	masked.MaskBits = 0
 	worldId.CastRay(origin, translation, masked, func(ShapeId, Vec2, Vec2, Q) Q {
 		t.Errorf("an empty mask reported a hit")
-		return fixed.Q32One()
+		return QOne()
 	})
 
 	calls := 0
 	worldId.CastRay(v2(8, 0), translation, filter, func(id ShapeId, _, _ Vec2, fraction Q) Q {
 		calls++
-		if id != static || !fraction.Eq(fixed.Q32Zero()) {
+		if id != static || !fraction.Eq(QZero()) {
 			t.Errorf("the inside origin did not report the static circle at fraction zero")
 		}
 		return fraction
@@ -635,19 +633,19 @@ func hundredShapeWorld(t *testing.T, rng *rand.Rand) WorldId {
 		bodyDef := DefaultBodyDef()
 		bodyDef.Type = BodyType(i % 3)
 		bodyDef.Position = v2(rng.Intn(60), rng.Intn(60))
-		bodyDef.Rotation = MakeRot(fixed.Q32FromRatio(rng.Intn(8), 8))
+		bodyDef.Rotation = MakeRot(QFromRatio(rng.Intn(8), 8))
 		bodyId := CreateBody(worldId, &bodyDef)
 		shapeDef := DefaultShapeDef()
 		shapeDef.Filter.CategoryBits = 1 << uint(rng.Intn(3))
 		switch rng.Intn(3) {
 		case 0:
-			circle := Circle{Radius: fixed.Q32FromRatio(1+rng.Intn(4), 2)}
+			circle := Circle{Radius: QFromRatio(1+rng.Intn(4), 2)}
 			CreateCircleShape(bodyId, &shapeDef, &circle)
 		case 1:
-			capsule := Capsule{Center1: v2(-1, 0), Center2: v2(1, 0), Radius: fixed.Q32Half()}
+			capsule := Capsule{Center1: v2(-1, 0), Center2: v2(1, 0), Radius: QHalf()}
 			CreateCapsuleShape(bodyId, &shapeDef, &capsule)
 		default:
-			box := MakeBox(fixed.Q32FromRatio(1+rng.Intn(4), 2), fixed.Q32FromRatio(1+rng.Intn(4), 2))
+			box := MakeBox(QFromRatio(1+rng.Intn(4), 2), QFromRatio(1+rng.Intn(4), 2))
 			CreatePolygonShape(bodyId, &shapeDef, &box)
 		}
 	}
@@ -661,16 +659,16 @@ func TestShapeQueriesMatchBruteForce(t *testing.T) {
 	rng := rand.New(rand.NewSource(3))
 	worldId := hundredShapeWorld(t, rng)
 	w := getWorldFromId(worldId)
-	one := fixed.Q32One()
-	zero := fixed.Q32Zero()
-	tolerance := linearSlop.Div(fixed.Q32FromInt(10))
+	one := QOne()
+	zero := QZero()
+	tolerance := linearSlop.Div(QFromInt(10))
 
 	for range 50 {
 		filter := DefaultQueryFilter()
 		filter.MaskBits = uint64(1 + rng.Intn(7))
-		unit := MakeBox(one, fixed.Q32Half())
+		unit := MakeBox(one, QHalf())
 		origin := v2(rng.Intn(60), rng.Intn(60))
-		proxy := MakeOffsetProxy(unit.Vertices[:unit.Count], fixed.Q32FromRatio(rng.Intn(3), 4), origin, RotIdentity())
+		proxy := MakeOffsetProxy(unit.Vertices[:unit.Count], QFromRatio(rng.Intn(3), 4), origin, RotIdentity())
 		translation := v2(rng.Intn(61)-30, rng.Intn(61)-30)
 
 		// Overlap: the distance solver decides for every shape.
@@ -745,16 +743,16 @@ func TestCastMoverStopsAtTheWall(t *testing.T) {
 	wallDef.Position = v2(10, 0)
 	wall := CreateBody(worldId, &wallDef)
 	shapeDef := DefaultShapeDef()
-	wallBox := MakeBox(fixed.Q32One(), fixed.Q32FromInt(5))
+	wallBox := MakeBox(QOne(), QFromInt(5))
 	CreatePolygonShape(wall, &shapeDef, &wallBox)
 
-	mover := Capsule{Center1: v2(0, -1), Center2: v2(0, 1), Radius: fixed.Q32Half()}
+	mover := Capsule{Center1: v2(0, -1), Center2: v2(0, 1), Radius: QHalf()}
 	fraction := worldId.CastMover(&mover, v2(20, 0), DefaultQueryFilter())
 
 	// The capsule surface reaches the face at x = 9 after 8.5 units of
 	// the 20; the sweep targets the radius less a slop.
-	exact := fixed.Q32MustParse("0.425")
-	if !fraction.Sub(exact).Abs().Less(fixed.Q32MustParse("0.001")) {
+	exact := QMustParse("0.425")
+	if !fraction.Sub(exact).Abs().Less(QMustParse("0.001")) {
 		t.Fatalf("mover fraction %v, want near 0.425", fraction)
 	}
 
@@ -826,9 +824,9 @@ func TestCustomFilterAcceptingKeepsWitness(t *testing.T) {
 // edge faces the explosion head-on, giving getShapeProjectedPerimeter a
 // perimeter of exactly 2 (the two y-extents, no polygon radius).
 func TestExplodeImpulseByDistance(t *testing.T) {
-	radius := fixed.Q32FromInt(4)
-	falloff := fixed.Q32FromInt(2)
-	impulsePerLength := fixed.Q32FromInt(8)
+	radius := QFromInt(4)
+	falloff := QFromInt(2)
+	impulsePerLength := QFromInt(8)
 
 	def := func() ExplosionDef {
 		return ExplosionDef{
@@ -881,7 +879,7 @@ func TestExplodeImpulseByDistance(t *testing.T) {
 		explosionDef := def()
 		worldId.Explode(&explosionDef)
 
-		if v := bodyId.GetLinearVelocity(); !v.X.Eq(fixed.Q32Zero()) || !v.Y.Eq(fixed.Q32Zero()) {
+		if v := bodyId.GetLinearVelocity(); !v.X.Eq(QZero()) || !v.Y.Eq(QZero()) {
 			t.Fatalf("velocity beyond the falloff = %v, want zero", v)
 		}
 		if bodyId.IsAwake() {
@@ -915,7 +913,7 @@ func TestExplodeImpulseByDistance(t *testing.T) {
 		worldId.Explode(&explosionDef)
 
 		v := bodyId.GetLinearVelocity()
-		if !v.Y.Eq(fixed.Q32Zero()) || !fixed.Q32Zero().Less(v.X) {
+		if !v.Y.Eq(QZero()) || !QZero().Less(v.X) {
 			t.Fatalf("velocity at the explosion center = %v, want a positive x and zero y", v)
 		}
 	})

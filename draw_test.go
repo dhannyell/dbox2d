@@ -8,8 +8,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-
-	"github.com/dhannyell/fixed"
 )
 
 func TestDefaultDebugDrawIsCallable(t *testing.T) {
@@ -37,18 +35,18 @@ func TestDrawRevoluteJointLimitsUseTurns(t *testing.T) {
 	draw.DrawSegment = func(a, b Vec2, _ HexColor) { segments = append(segments, [2]Vec2{a, b}) }
 	base := jointSim{revoluteJoint: revoluteJoint{
 		enableLimit: true,
-		lowerAngle:  fixed.Q32MustParse("-0.25"),
-		upperAngle:  fixed.Q32MustParse("0.25"),
+		lowerAngle:  QMustParse("-0.25"),
+		upperAngle:  QMustParse("0.25"),
 	}}
-	drawRevoluteJoint(&draw, &base, TransformIdentity(), TransformIdentity(), fixed.Q32One())
+	drawRevoluteJoint(&draw, &base, TransformIdentity(), TransformIdentity(), QOne())
 	if len(segments) < 4 {
 		t.Fatalf("segments = %d, want limit segments", len(segments))
 	}
-	lowerWant := Vec2{Y: fixed.Q32One().Neg()}
+	lowerWant := Vec2{Y: QOne().Neg()}
 	if got := segments[1][1]; got != lowerWant {
 		t.Fatalf("lower limit endpoint = %#v, want %#v", got, lowerWant)
 	}
-	upperWant := Vec2{Y: fixed.Q32One()}
+	upperWant := Vec2{Y: QOne()}
 	if got := segments[2][1]; got != upperWant {
 		t.Fatalf("upper limit endpoint = %#v, want %#v", got, upperWant)
 	}
@@ -161,104 +159,104 @@ func createDrawScene(t testing.TB) WorldId {
 	w := createTestWorld(t)
 	sd := DefaultShapeDef()
 	bd := DefaultBodyDef()
-	bd.Position.Y = fixed.Q32Half().Neg()
+	bd.Position.Y = QHalf().Neg()
 	bd.Name = "ground"
 	ground := CreateBody(w, &bd)
-	floor := MakeBox(fixed.Q32FromInt(40), fixed.Q32Half())
+	floor := MakeBox(QFromInt(40), QHalf())
 	CreatePolygonShape(ground, &sd, &floor)
 
-	box := MakeSquare(fixed.Q32Half())
+	box := MakeSquare(QHalf())
 	bd = DefaultBodyDef()
 	bd.Type, bd.EnableSleep = DynamicBody, false
-	bd.Position, bd.Name = Vec2{X: fixed.Q32FromInt(-32), Y: fixed.Q32FromInt(3)}, "box"
-	bd.Rotation, bd.FixedRotation = MakeRot(fixed.Q32MustParse("0.1")), true
+	bd.Position, bd.Name = Vec2{X: QFromInt(-32), Y: QFromInt(3)}, "box"
+	bd.Rotation, bd.FixedRotation = MakeRot(QMustParse("0.1")), true
 	CreatePolygonShape(CreateBody(w, &bd), &sd, &box)
 
 	slideSd := DefaultShapeDef()
 	// A lower friction than the default keeps the box sliding through every step.
-	slideSd.Material.Friction = fixed.Q32MustParse("0.1")
+	slideSd.Material.Friction = QMustParse("0.1")
 	bd = DefaultBodyDef()
 	bd.Type, bd.EnableSleep = DynamicBody, false
-	bd.Position, bd.Name = Vec2{X: fixed.Q32FromInt(-24), Y: fixed.Q32Half()}, "sliding"
-	bd.LinearVelocity = Vec2{X: fixed.Q32FromInt(3)}
+	bd.Position, bd.Name = Vec2{X: QFromInt(-24), Y: QHalf()}, "sliding"
+	bd.LinearVelocity = Vec2{X: QFromInt(3)}
 	CreatePolygonShape(CreateBody(w, &bd), &slideSd, &box)
 
 	bd = DefaultBodyDef()
 	bd.Type, bd.EnableSleep = DynamicBody, false
-	bd.Position, bd.Name = Vec2{X: fixed.Q32FromInt(-16), Y: fixed.Q32FromInt(3)}, "circle"
-	circle := Circle{Radius: fixed.Q32MustParse("0.25")}
+	bd.Position, bd.Name = Vec2{X: QFromInt(-16), Y: QFromInt(3)}, "circle"
+	circle := Circle{Radius: QMustParse("0.25")}
 	CreateCircleShape(CreateBody(w, &bd), &sd, &circle)
 
 	bd = DefaultBodyDef()
 	bd.Type, bd.EnableSleep = DynamicBody, false
-	bd.Position, bd.Name = Vec2{X: fixed.Q32FromInt(-8), Y: fixed.Q32FromInt(3)}, "rounded"
-	rounded := MakeRoundedBox(fixed.Q32MustParse("0.4"), fixed.Q32MustParse("0.4"), fixed.Q32MustParse("0.1"))
+	bd.Position, bd.Name = Vec2{X: QFromInt(-8), Y: QFromInt(3)}, "rounded"
+	rounded := MakeRoundedBox(QMustParse("0.4"), QMustParse("0.4"), QMustParse("0.1"))
 	CreatePolygonShape(CreateBody(w, &bd), &sd, &rounded)
 
 	bd = DefaultBodyDef()
 	bd.Type, bd.EnableSleep = DynamicBody, false
-	bd.Position, bd.Name = Vec2{X: fixed.Q32Zero(), Y: fixed.Q32FromInt(3)}, "hinge"
+	bd.Position, bd.Name = Vec2{X: QZero(), Y: QFromInt(3)}, "hinge"
 	hinge := CreateBody(w, &bd)
 	CreatePolygonShape(hinge, &sd, &box)
 	jd := DefaultRevoluteJointDef()
 	jd.BodyIdA, jd.BodyIdB = ground, hinge
-	jd.LocalAnchorA = Vec2{X: fixed.Q32Zero(), Y: fixed.Q32MustParse("3.5")}
+	jd.LocalAnchorA = Vec2{X: QZero(), Y: QMustParse("3.5")}
 	jd.EnableLimit = true
-	jd.LowerAngle, jd.UpperAngle = fixed.Q32MustParse("-0.25"), fixed.Q32MustParse("0.25")
+	jd.LowerAngle, jd.UpperAngle = QMustParse("-0.25"), QMustParse("0.25")
 	CreateRevoluteJoint(w, &jd)
 
-	small := MakeSquare(fixed.Q32MustParse("0.3"))
+	small := MakeSquare(QMustParse("0.3"))
 	bd = DefaultBodyDef()
 	bd.Type, bd.EnableSleep = DynamicBody, false
-	bd.Position, bd.Name = Vec2{X: fixed.Q32FromInt(8), Y: fixed.Q32FromInt(3)}, "distance"
+	bd.Position, bd.Name = Vec2{X: QFromInt(8), Y: QFromInt(3)}, "distance"
 	distanceBody := CreateBody(w, &bd)
 	CreatePolygonShape(distanceBody, &sd, &small)
 	dd := DefaultDistanceJointDef()
 	dd.BodyIdA, dd.BodyIdB = ground, distanceBody
-	dd.LocalAnchorA = Vec2{X: fixed.Q32FromInt(8), Y: fixed.Q32MustParse("5.5")}
-	dd.Length = fixed.Q32FromInt(2)
+	dd.LocalAnchorA = Vec2{X: QFromInt(8), Y: QMustParse("5.5")}
+	dd.Length = QFromInt(2)
 	dd.EnableLimit = true
-	dd.MinLength, dd.MaxLength = fixed.Q32One(), fixed.Q32FromInt(3)
+	dd.MinLength, dd.MaxLength = QOne(), QFromInt(3)
 	CreateDistanceJoint(w, &dd)
 
 	bd = DefaultBodyDef()
 	bd.Type, bd.EnableSleep = DynamicBody, false
-	bd.Position, bd.Name = Vec2{X: fixed.Q32FromInt(16), Y: fixed.Q32FromInt(6)}, "prismatic"
+	bd.Position, bd.Name = Vec2{X: QFromInt(16), Y: QFromInt(6)}, "prismatic"
 	prismaticBody := CreateBody(w, &bd)
 	CreatePolygonShape(prismaticBody, &sd, &box)
 	pd := DefaultPrismaticJointDef()
 	pd.BodyIdA, pd.BodyIdB = ground, prismaticBody
-	pd.LocalAnchorA = Vec2{X: fixed.Q32FromInt(16), Y: fixed.Q32MustParse("3.5")}
-	pd.LocalAxisA = Vec2{Y: fixed.Q32One()}
+	pd.LocalAnchorA = Vec2{X: QFromInt(16), Y: QMustParse("3.5")}
+	pd.LocalAxisA = Vec2{Y: QOne()}
 	pd.EnableLimit = true
-	pd.LowerTranslation, pd.UpperTranslation = fixed.Q32Zero(), fixed.Q32FromInt(3)
+	pd.LowerTranslation, pd.UpperTranslation = QZero(), QFromInt(3)
 	CreatePrismaticJoint(w, &pd)
 
 	bd = DefaultBodyDef()
 	bd.Type, bd.EnableSleep = DynamicBody, false
-	bd.Position, bd.Name = Vec2{X: fixed.Q32FromInt(24), Y: fixed.Q32FromInt(3)}, "wheel"
+	bd.Position, bd.Name = Vec2{X: QFromInt(24), Y: QFromInt(3)}, "wheel"
 	wheelBody := CreateBody(w, &bd)
 	CreatePolygonShape(wheelBody, &sd, &small)
 	wd := DefaultWheelJointDef()
 	wd.BodyIdA, wd.BodyIdB = ground, wheelBody
-	wd.LocalAnchorA = Vec2{X: fixed.Q32FromInt(24), Y: fixed.Q32MustParse("3.5")}
+	wd.LocalAnchorA = Vec2{X: QFromInt(24), Y: QMustParse("3.5")}
 	wd.EnableMotor = true
-	wd.MotorSpeed, wd.MaxMotorTorque = fixed.Q32One(), fixed.Q32FromInt(10)
+	wd.MotorSpeed, wd.MaxMotorTorque = QOne(), QFromInt(10)
 	CreateWheelJoint(w, &wd)
 
 	bd = DefaultBodyDef()
 	bd.Type, bd.IsAwake = DynamicBody, false
-	bd.Position, bd.Name = Vec2{X: fixed.Q32FromInt(32), Y: fixed.Q32MustParse("0.25")}, "capsule"
-	capsule := Capsule{Center1: Vec2{X: fixed.Q32Half().Neg()}, Center2: Vec2{X: fixed.Q32Half()}, Radius: fixed.Q32MustParse("0.25")}
+	bd.Position, bd.Name = Vec2{X: QFromInt(32), Y: QMustParse("0.25")}, "capsule"
+	capsule := Capsule{Center1: Vec2{X: QHalf().Neg()}, Center2: Vec2{X: QHalf()}, Radius: QMustParse("0.25")}
 	CreateCapsuleShape(CreateBody(w, &bd), &sd, &capsule)
 
 	bd = DefaultBodyDef()
-	bd.Position = Vec2{X: fixed.Q32FromInt(40), Y: fixed.Q32FromInt(5)}
-	segment := Segment{Point1: Vec2{X: fixed.Q32One().Neg()}, Point2: Vec2{X: fixed.Q32One()}}
+	bd.Position = Vec2{X: QFromInt(40), Y: QFromInt(5)}
+	segment := Segment{Point1: Vec2{X: QOne().Neg()}, Point2: Vec2{X: QOne()}}
 	CreateSegmentShape(CreateBody(w, &bd), &sd, &segment)
 
 	bd = DefaultBodyDef()
-	bd.Position, bd.Name = Vec2{X: fixed.Q32FromInt(48), Y: fixed.Q32FromInt(3)}, "sensor"
+	bd.Position, bd.Name = Vec2{X: QFromInt(48), Y: QFromInt(3)}, "sensor"
 	sensorSd := DefaultShapeDef()
 	sensorSd.IsSensor = true
 	CreatePolygonShape(CreateBody(w, &bd), &sensorSd, &box)
@@ -276,7 +274,7 @@ func TestDrawMatchesGolden(t *testing.T) {
 	*calls = append(*calls, drawCall{kind: "all"})
 	w.Draw(draw)
 	draw.UseDrawingBounds = true
-	draw.DrawingBounds = AABB{LowerBound: Vec2{X: fixed.Q32FromInt(-36), Y: fixed.Q32FromInt(-1)}, UpperBound: Vec2{X: fixed.Q32FromInt(4), Y: fixed.Q32FromInt(5)}}
+	draw.DrawingBounds = AABB{LowerBound: Vec2{X: QFromInt(-36), Y: QFromInt(-1)}, UpperBound: Vec2{X: QFromInt(4), Y: QFromInt(5)}}
 	*calls = append(*calls, drawCall{kind: "bounded"})
 	w.Draw(draw)
 	wantBytes, err := os.ReadFile("testdata/draw_golden.txt")
@@ -340,16 +338,16 @@ func drawTextMatches(got, want string) bool {
 }
 
 func TestDrawShapeCallbacksPerType(t *testing.T) {
-	transform := Transform{P: Vec2{X: fixed.Q32FromInt(3), Y: fixed.Q32FromInt(4)}, Q: MakeRot(fixed.Q32MustParse("0.25"))}
-	segment := Segment{Point1: Vec2{X: fixed.Q32One()}, Point2: Vec2{X: fixed.Q32FromInt(2)}}
+	transform := Transform{P: Vec2{X: QFromInt(3), Y: QFromInt(4)}, Q: MakeRot(QMustParse("0.25"))}
+	segment := Segment{Point1: Vec2{X: QOne()}, Point2: Vec2{X: QFromInt(2)}}
 	cases := []struct {
 		name  string
 		shape shape
 		kinds []string
 	}{
-		{"circle", shape{shapeType: CircleShape, circle: Circle{Center: segment.Point1, Radius: fixed.Q32Half()}}, []string{"solidCircle"}},
-		{"capsule", shape{shapeType: CapsuleShape, capsule: Capsule{Center1: segment.Point1, Center2: segment.Point2, Radius: fixed.Q32Half()}}, []string{"capsule"}},
-		{"polygon", shape{shapeType: PolygonShape, polygon: MakeSquare(fixed.Q32Half())}, []string{"solidPolygon"}},
+		{"circle", shape{shapeType: CircleShape, circle: Circle{Center: segment.Point1, Radius: QHalf()}}, []string{"solidCircle"}},
+		{"capsule", shape{shapeType: CapsuleShape, capsule: Capsule{Center1: segment.Point1, Center2: segment.Point2, Radius: QHalf()}}, []string{"capsule"}},
+		{"polygon", shape{shapeType: PolygonShape, polygon: MakeSquare(QHalf())}, []string{"solidPolygon"}},
 		{"segment", shape{shapeType: SegmentShape, segment: segment}, []string{"segment"}},
 		{"chain", shape{shapeType: ChainSegmentShape, chainSegment: ChainSegment{Segment: segment}}, []string{"segment", "point", "segment"}},
 	}
@@ -429,7 +427,7 @@ func TestDrawBoundsVisitLinkedJointOnlyOnce(t *testing.T) {
 	a := addDynamicBox(t, w, v2(0, 0))
 	b := addDynamicBox(t, w, v2(3, 0))
 	jd := DefaultDistanceJointDef()
-	jd.BodyIdA, jd.BodyIdB, jd.Length = a, b, fixed.Q32FromInt(3)
+	jd.BodyIdA, jd.BodyIdB, jd.Length = a, b, QFromInt(3)
 	CreateDistanceJoint(w, &jd)
 	for _, upper := range []int{1, 4} {
 		draw, calls := recordDraw()
@@ -471,8 +469,8 @@ func TestDrawPreservesSimulationAndCallbackOrder(t *testing.T) {
 }
 
 func TestDrawContactDiagnosticsMatchReferenceUnits(t *testing.T) {
-	m := Manifold{Normal: Vec2{Y: fixed.Q32One()}, PointCount: 1}
-	m.Points[0] = ManifoldPoint{Point: v2(2, 3), NormalImpulse: fixed.Q32MustParse("0.125"), TotalNormalImpulse: fixed.Q32Half(), TangentImpulse: fixed.Q32MustParse("-0.25"), Id: 123}
+	m := Manifold{Normal: Vec2{Y: QOne()}, PointCount: 1}
+	m.Points[0] = ManifoldPoint{Point: v2(2, 3), NormalImpulse: QMustParse("0.125"), TotalNormalImpulse: QHalf(), TangentImpulse: QMustParse("-0.25"), Id: 123}
 	for _, tc := range []struct {
 		bounded          bool
 		end              float64
@@ -552,9 +550,9 @@ func TestDrawDistanceLimitsPreserveEndpointOrder(t *testing.T) {
 	draw := DefaultDebugDraw()
 	var segments [][2]Vec2
 	draw.DrawSegment = func(a, b Vec2, _ HexColor) { segments = append(segments, [2]Vec2{a, b}) }
-	base := jointSim{distanceJoint: distanceJoint{enableLimit: true, minLength: fixed.Q32One(), maxLength: fixed.Q32FromInt(3)}}
+	base := jointSim{distanceJoint: distanceJoint{enableLimit: true, minLength: QOne(), maxLength: QFromInt(3)}}
 	drawDistanceJoint(&draw, &base, TransformIdentity(), Transform{P: v2(2, 0), Q: RotIdentity()})
-	want := [2]Vec2{{X: fixed.Q32One(), Y: fixed.Q32MustParse("0.05")}, {X: fixed.Q32One(), Y: fixed.Q32MustParse("-0.05")}}
+	want := [2]Vec2{{X: QOne(), Y: QMustParse("0.05")}, {X: QOne(), Y: QMustParse("-0.05")}}
 	if len(segments) != 4 || segments[0] != want {
 		t.Fatalf("limit segments = %+v", segments)
 	}
@@ -568,7 +566,7 @@ func TestDrawNumberRoundsLabelsWithoutFloat(t *testing.T) {
 	}{
 		{"1.125", 2, "1.12"}, {"1.375", 2, "1.38"}, {"-1.375", 2, "-1.38"}, {"0", 2, "0.00"}, {"-0.001", 2, "-0.00"}, {"9.999", 2, "10.00"}, {"2147483647.5", 2, "2147483647.50"},
 	} {
-		if got := drawNumber(fixed.Q32MustParse(tc.value), tc.places); got != tc.want {
+		if got := drawNumber(QMustParse(tc.value), tc.places); got != tc.want {
 			t.Errorf("%s: %s, want %s", tc.value, got, tc.want)
 		}
 	}

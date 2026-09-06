@@ -25,7 +25,7 @@ func drivenBox(t *testing.T, worldId WorldId, def *MotorJointDef) (*body, *joint
 	boxDef.Type = DynamicBody
 	boxId := CreateBody(worldId, &boxDef)
 	shapeDef := DefaultShapeDef()
-	unit := MakeBox(fixed.Q32Half(), fixed.Q32Half())
+	unit := MakeBox(QHalf(), QHalf())
 	CreatePolygonShape(boxId, &shapeDef, &unit)
 
 	def.BodyIdA = groundId
@@ -43,7 +43,7 @@ func TestMotorJointAccessorsRoundTrip(t *testing.T) {
 	_, j := drivenBox(t, worldId, &def)
 	jointId := makeJointId(w, jointPair{joint: j, jointSim: getJointSim(w, j)})
 
-	linearOffset := Vec2{X: fixed.Q32FromRatio(3, 2), Y: fixed.Q32FromRatio(-2, 3)}
+	linearOffset := Vec2{X: QFromRatio(3, 2), Y: QFromRatio(-2, 3)}
 	tests := []struct {
 		name string
 		set  func()
@@ -58,27 +58,27 @@ func TestMotorJointAccessorsRoundTrip(t *testing.T) {
 		},
 		{
 			name: "angular offset",
-			set:  func() { jointId.SetAngularOffset(fixed.Q32FromRatio(1, 4)) },
+			set:  func() { jointId.SetAngularOffset(QFromRatio(1, 4)) },
 			get:  func() any { return jointId.GetAngularOffset() },
-			want: fixed.Q32FromRatio(1, 4),
+			want: QFromRatio(1, 4),
 		},
 		{
 			name: "max force",
-			set:  func() { jointId.SetMaxForce(fixed.Q32FromInt(7)) },
+			set:  func() { jointId.SetMaxForce(QFromInt(7)) },
 			get:  func() any { return jointId.GetMaxForce() },
-			want: fixed.Q32FromInt(7),
+			want: QFromInt(7),
 		},
 		{
 			name: "max torque",
-			set:  func() { jointId.SetMaxTorque(fixed.Q32FromInt(11)) },
+			set:  func() { jointId.SetMaxTorque(QFromInt(11)) },
 			get:  func() any { return jointId.GetMaxTorque() },
-			want: fixed.Q32FromInt(11),
+			want: QFromInt(11),
 		},
 		{
 			name: "correction factor",
-			set:  func() { jointId.SetCorrectionFactor(fixed.Q32FromRatio(2, 5)) },
+			set:  func() { jointId.SetCorrectionFactor(QFromRatio(2, 5)) },
 			get:  func() any { return jointId.GetCorrectionFactor() },
-			want: fixed.Q32FromRatio(2, 5),
+			want: QFromRatio(2, 5),
 		},
 	}
 
@@ -113,7 +113,7 @@ func TestMotorJointAccessorsRoundTrip(t *testing.T) {
 		mouseDef.BodyIdB = bodyId
 		mouseDef.Target = Vec2Zero()
 		mouseId := CreateMouseJoint(worldId, &mouseDef)
-		want := fixed.Q32FromInt(13)
+		want := QFromInt(13)
 		mouseId.SetMaxForce(want)
 		if got := mouseId.GetMaxForce(); !got.Eq(want) {
 			t.Errorf("got %v, want %v", got, want)
@@ -130,9 +130,9 @@ func TestMotorJointAngularOffsetClampsToHalfTurn(t *testing.T) {
 	_, j := drivenBox(t, worldId, &def)
 	jointId := makeJointId(w, jointPair{joint: j, jointSim: getJointSim(w, j)})
 
-	jointId.SetAngularOffset(fixed.Q32FromRatio(3, 4))
-	if got := jointId.GetAngularOffset(); !got.Eq(fixed.Q32Half()) {
-		t.Errorf("got %v, want %v", got, fixed.Q32Half())
+	jointId.SetAngularOffset(QFromRatio(3, 4))
+	if got := jointId.GetAngularOffset(); !got.Eq(QHalf()) {
+		t.Errorf("got %v, want %v", got, QHalf())
 	}
 }
 
@@ -144,8 +144,8 @@ func TestMotorDrivesTowardTheOffset(t *testing.T) {
 	worldId := createTestWorld(t)
 	w := getWorldFromId(worldId)
 	def := DefaultMotorJointDef()
-	def.LinearOffset = Vec2{X: fixed.Q32One()}
-	def.MaxForce = fixed.Q32FromInt(100)
+	def.LinearOffset = Vec2{X: QOne()}
+	def.MaxForce = QFromInt(100)
 	box, j := drivenBox(t, worldId, &def)
 	state := getBodyState(w, box)
 
@@ -155,9 +155,9 @@ func TestMotorDrivesTowardTheOffset(t *testing.T) {
 
 	tolerance := fixed.Q32FromRaw(1 << 12)
 	js := getJointSim(w, j)
-	twelfths := fixed.Q32FromRatio(5, 12)
+	twelfths := QFromRatio(5, 12)
 	impulse := js.motorJoint.linearImpulse
-	if !withinQ(impulse.X, twelfths, tolerance) || !withinQ(impulse.Y, fixed.Q32Zero(), tolerance) {
+	if !withinQ(impulse.X, twelfths, tolerance) || !withinQ(impulse.Y, QZero(), tolerance) {
 		t.Errorf("linearImpulse is %v, want (5/12, 0)", impulse)
 	}
 	if !withinQ(state.linearVelocity.X, twelfths, tolerance) {
@@ -167,7 +167,7 @@ func TestMotorDrivesTowardTheOffset(t *testing.T) {
 	// The force report is the saturated motor force.
 	w.invH = context.invH
 	force := getMotorJointForce(w, js)
-	if !withinQ(force.X, fixed.Q32FromInt(100), tolerance.Mul(context.invH)) {
+	if !withinQ(force.X, QFromInt(100), tolerance.Mul(context.invH)) {
 		t.Errorf("the joint force is %v, want (100, 0)", force)
 	}
 
@@ -187,8 +187,8 @@ func TestMotorTurnsTowardTheAngularOffset(t *testing.T) {
 	worldId := createTestWorld(t)
 	w := getWorldFromId(worldId)
 	def := DefaultMotorJointDef()
-	def.AngularOffset = fixed.Q32MustParse("0.25")
-	def.MaxTorque = fixed.Q32FromInt(100)
+	def.AngularOffset = QMustParse("0.25")
+	def.MaxTorque = QFromInt(100)
 	box, j := drivenBox(t, worldId, &def)
 	state := getBodyState(w, box)
 
@@ -198,15 +198,15 @@ func TestMotorTurnsTowardTheAngularOffset(t *testing.T) {
 
 	tolerance := fixed.Q32FromRaw(1 << 12)
 	js := getJointSim(w, j)
-	if !withinQ(js.motorJoint.angularImpulse, fixed.Q32FromRatio(5, 12), tolerance) {
+	if !withinQ(js.motorJoint.angularImpulse, QFromRatio(5, 12), tolerance) {
 		t.Errorf("angularImpulse is %v, want 5/12", js.motorJoint.angularImpulse)
 	}
-	if wB := state.angularVelocity.Mul(tau); !withinQ(wB, fixed.Q32FromRatio(5, 2), tolerance) {
+	if wB := state.angularVelocity.Mul(tau); !withinQ(wB, QFromRatio(5, 2), tolerance) {
 		t.Errorf("wB is %v rad/s, want 2.5", wB)
 	}
 
 	w.invH = context.invH
-	if torque := getMotorJointTorque(w, js); !withinQ(torque, fixed.Q32FromInt(100), tolerance.Mul(context.invH)) {
+	if torque := getMotorJointTorque(w, js); !withinQ(torque, QFromInt(100), tolerance.Mul(context.invH)) {
 		t.Errorf("the joint torque is %v, want 100", torque)
 	}
 }
@@ -299,9 +299,9 @@ func TestSolveMotorJointTracksTheFloat64Mirror(t *testing.T) {
 	def := DefaultMotorJointDef()
 	def.BodyIdA, def.BodyIdB = idA, idB
 	def.LinearOffset = qv("1.4", "0.6")
-	def.AngularOffset = fixed.Q32MustParse("-0.05")
-	def.MaxForce = fixed.Q32FromInt(1000)
-	def.MaxTorque = fixed.Q32FromInt(1000)
+	def.AngularOffset = QMustParse("-0.05")
+	def.MaxForce = QFromInt(1000)
+	def.MaxTorque = QFromInt(1000)
 	jointId := CreateMotorJoint(worldId, &def)
 	js := getJointSim(w, getJointFullId(w, jointId))
 	stateA := getBodyState(w, getBodyFullId(w, idA))

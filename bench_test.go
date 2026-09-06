@@ -4,8 +4,6 @@ import (
 	"math"
 	"runtime"
 	"testing"
-
-	"github.com/dhannyell/fixed"
 )
 
 // This file measures the scalar penalty of Q32.32 against float64, and the
@@ -18,31 +16,31 @@ const benchBodyCount = 1024
 // makeBenchContext builds the integration inputs directly, without a world,
 // so the benchmark isolates the arithmetic.
 func makeBenchContext() *stepContext {
-	w := &world{gravity: Vec2{Y: fixed.Q32FromInt(-10)}}
+	w := &world{gravity: Vec2{Y: QFromInt(-10)}}
 
-	dt := fixed.Q32One().Div(fixed.Q32FromInt(60))
+	dt := QOne().Div(QFromInt(60))
 	context := &stepContext{
 		world:             w,
 		dt:                dt,
-		invDt:             fixed.Q32FromInt(60),
-		h:                 dt.Div(fixed.Q32FromInt(4)),
+		invDt:             QFromInt(60),
+		h:                 dt.Div(QFromInt(4)),
 		subStepCount:      4,
-		maxLinearVelocity: fixed.Q32FromInt(400),
+		maxLinearVelocity: QFromInt(400),
 	}
 
-	damping := fixed.Q32MustParse("0.1")
+	damping := QMustParse("0.1")
 	context.sims = make([]bodySim, benchBodyCount)
 	context.states = make([]bodyState, benchBodyCount)
 	for i := range benchBodyCount {
 		sim := &context.sims[i]
-		sim.invMass = fixed.Q32One()
-		sim.invInertia = fixed.Q32FromInt(6)
+		sim.invMass = QOne()
+		sim.invInertia = QFromInt(6)
 		sim.linearDamping = damping
 		sim.angularDamping = damping
-		sim.gravityScale = fixed.Q32One()
+		sim.gravityScale = QOne()
 		state := &context.states[i]
-		state.linearVelocity = Vec2{X: fixed.Q32FromInt(i % 7), Y: fixed.Q32FromInt(i % 5)}
-		state.angularVelocity = fixed.Q32MustParse("0.25")
+		state.linearVelocity = Vec2{X: QFromInt(i % 7), Y: QFromInt(i % 5)}
+		state.angularVelocity = QMustParse("0.25")
 	}
 	return context
 }
@@ -281,14 +279,14 @@ func BenchmarkStep(b *testing.B) {
 	bodyDef := DefaultBodyDef()
 	bodyDef.Type = DynamicBody
 	shapeDef := DefaultShapeDef()
-	box := MakeSquare(fixed.Q32One())
+	box := MakeSquare(QOne())
 	for i := range benchBodyCount {
-		bodyDef.Position = Vec2{X: fixed.Q32FromInt(i * 3), Y: fixed.Q32FromInt(i % 16)}
+		bodyDef.Position = Vec2{X: QFromInt(i * 3), Y: QFromInt(i % 16)}
 		bodyId := CreateBody(worldId, &bodyDef)
 		CreatePolygonShape(bodyId, &shapeDef, &box)
 	}
 
-	dt := fixed.Q32One().Div(fixed.Q32FromInt(60))
+	dt := QOne().Div(QFromInt(60))
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
@@ -695,10 +693,10 @@ func collidePolygonsF64(polygonA *f64Polygon, aPx, aPy, aQc, aQs float64, polygo
 // BenchmarkCollidePolygonsQ measures the dominant contact pattern: two unit
 // boxes on the overlap branch of the clip path.
 func BenchmarkCollidePolygonsQ(b *testing.B) {
-	boxA := MakeSquare(fixed.Q32One())
-	boxB := MakeSquare(fixed.Q32One())
+	boxA := MakeSquare(QOne())
+	boxB := MakeSquare(QOne())
 	xfA := TransformIdentity()
-	xfB := Transform{P: Vec2{Y: fixed.Q32MustParse("1.5")}, Q: RotIdentity()}
+	xfB := Transform{P: Vec2{Y: QMustParse("1.5")}, Q: RotIdentity()}
 
 	var result Manifold
 	b.ResetTimer()
@@ -749,12 +747,12 @@ func pyramidCenters(rows int) [][2]int {
 // buildPyramid creates the ground and the boxes of a pyramid and returns
 // the top box.
 func buildPyramid(worldId WorldId, rows int) BodyId {
-	half := fixed.Q32Half()
+	half := QHalf()
 	groundDef := DefaultBodyDef()
 	groundDef.Position = Vec2{Y: half.Neg()}
 	groundId := CreateBody(worldId, &groundDef)
 	shapeDef := DefaultShapeDef()
-	ground := MakeBox(fixed.Q32FromInt(rows), half)
+	ground := MakeBox(QFromInt(rows), half)
 	CreatePolygonShape(groundId, &shapeDef, &ground)
 
 	bodyDef := DefaultBodyDef()
@@ -762,7 +760,7 @@ func buildPyramid(worldId WorldId, rows int) BodyId {
 	box := MakeSquare(half)
 	var bodyId BodyId
 	for _, c := range pyramidCenters(rows) {
-		bodyDef.Position = Vec2{X: half.Mul(fixed.Q32FromInt(c[0])), Y: half.Mul(fixed.Q32FromInt(c[1]))}
+		bodyDef.Position = Vec2{X: half.Mul(QFromInt(c[0])), Y: half.Mul(QFromInt(c[1]))}
 		bodyId = CreateBody(worldId, &bodyDef)
 		CreatePolygonShape(bodyId, &shapeDef, &box)
 	}
@@ -777,7 +775,7 @@ func BenchmarkStepPyramid(b *testing.B) {
 	buildPyramid(worldId, pyramidRows)
 	w := getWorldFromId(worldId)
 
-	dt := fixed.Q32One().Div(fixed.Q32FromInt(60))
+	dt := QOne().Div(QFromInt(60))
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
@@ -792,12 +790,12 @@ func BenchmarkStepPyramid(b *testing.B) {
 // buildPyramidWithSensor lays out the same pyramid as buildPyramid, plus one
 // wide static sensor over the ground and sensor events enabled on the boxes.
 func buildPyramidWithSensor(worldId WorldId, rows int) {
-	half := fixed.Q32Half()
+	half := QHalf()
 	groundDef := DefaultBodyDef()
 	groundDef.Position = Vec2{Y: half.Neg()}
 	groundId := CreateBody(worldId, &groundDef)
 	shapeDef := DefaultShapeDef()
-	ground := MakeBox(fixed.Q32FromInt(rows), half)
+	ground := MakeBox(QFromInt(rows), half)
 	CreatePolygonShape(groundId, &shapeDef, &ground)
 
 	sensorDef := DefaultBodyDef()
@@ -805,7 +803,7 @@ func buildPyramidWithSensor(worldId WorldId, rows int) {
 	sensorShapeDef := DefaultShapeDef()
 	sensorShapeDef.IsSensor = true
 	sensorShapeDef.EnableSensorEvents = true
-	sensor := MakeBox(fixed.Q32FromInt(rows), fixed.Q32MustParse("0.05"))
+	sensor := MakeBox(QFromInt(rows), QMustParse("0.05"))
 	CreatePolygonShape(sensorId, &sensorShapeDef, &sensor)
 
 	bodyDef := DefaultBodyDef()
@@ -814,7 +812,7 @@ func buildPyramidWithSensor(worldId WorldId, rows int) {
 	boxShapeDef.EnableSensorEvents = true
 	box := MakeSquare(half)
 	for _, c := range pyramidCenters(rows) {
-		bodyDef.Position = Vec2{X: half.Mul(fixed.Q32FromInt(c[0])), Y: half.Mul(fixed.Q32FromInt(c[1]))}
+		bodyDef.Position = Vec2{X: half.Mul(QFromInt(c[0])), Y: half.Mul(QFromInt(c[1]))}
 		bodyId := CreateBody(worldId, &bodyDef)
 		CreatePolygonShape(bodyId, &boxShapeDef, &box)
 	}
@@ -830,7 +828,7 @@ func BenchmarkStepSensors(b *testing.B) {
 	defer DestroyWorld(worldId)
 	buildPyramidWithSensor(worldId, pyramidRows)
 
-	dt := fixed.Q32One().Div(fixed.Q32FromInt(60))
+	dt := QOne().Div(QFromInt(60))
 
 	// Warm up so the stack has settled and every buffer has grown.
 	for range 120 {
@@ -1823,10 +1821,10 @@ func treeBenchBox(i int) [4]int {
 var treeBenchQuery = [4]int{12, 12, 17, 17}
 
 func halfUnitsQ(box [4]int) AABB {
-	half := fixed.Q32Half()
+	half := QHalf()
 	return AABB{
-		LowerBound: Vec2{X: fixed.Q32FromInt(box[0]).Mul(half), Y: fixed.Q32FromInt(box[1]).Mul(half)},
-		UpperBound: Vec2{X: fixed.Q32FromInt(box[2]).Mul(half), Y: fixed.Q32FromInt(box[3]).Mul(half)},
+		LowerBound: Vec2{X: QFromInt(box[0]).Mul(half), Y: QFromInt(box[1]).Mul(half)},
+		UpperBound: Vec2{X: QFromInt(box[2]).Mul(half), Y: QFromInt(box[3]).Mul(half)},
 	}
 }
 
@@ -2041,13 +2039,13 @@ func BenchmarkUpdateBroadPhasePairsF64(b *testing.B) {
 // distance_internal_test.go.
 
 func benchDistanceInput() DistanceInput {
-	box := MakeSquare(fixed.Q32One())
-	proxy := MakeProxy(box.Vertices[:box.Count], fixed.Q32Zero())
+	box := MakeSquare(QOne())
+	proxy := MakeProxy(box.Vertices[:box.Count], QZero())
 	return DistanceInput{
 		ProxyA:     proxy,
 		ProxyB:     proxy,
 		TransformA: TransformIdentity(),
-		TransformB: Transform{P: Vec2{X: fixed.Q32FromInt(3), Y: fixed.Q32Half()}, Q: MakeRot(fixed.Q32FromRatio(1, 8))},
+		TransformB: Transform{P: Vec2{X: QFromInt(3), Y: QHalf()}, Q: MakeRot(QFromRatio(1, 8))},
 		UseRadii:   true,
 	}
 }
@@ -2064,7 +2062,7 @@ func BenchmarkShapeDistanceQ(b *testing.B) {
 		result = ShapeDistance(&input, &cache, nil)
 	}
 	runtime.KeepAlive(result)
-	if !fixed.Q32Half().Less(result.Distance) {
+	if !QHalf().Less(result.Distance) {
 		b.Fatal("the boxes are not apart")
 	}
 }
@@ -2095,12 +2093,12 @@ func benchTOIInput() TOIInput {
 		ProxyB: input.ProxyB,
 		SweepA: Sweep{Q1: RotIdentity(), Q2: RotIdentity()},
 		SweepB: Sweep{
-			C1: Vec2{X: fixed.Q32FromInt(5), Y: fixed.Q32Half()},
-			C2: Vec2{X: fixed.Q32FromInt(-5), Y: fixed.Q32Half()},
-			Q1: MakeRot(fixed.Q32FromRatio(1, 8)),
-			Q2: MakeRot(fixed.Q32FromRatio(3, 8)),
+			C1: Vec2{X: QFromInt(5), Y: QHalf()},
+			C2: Vec2{X: QFromInt(-5), Y: QHalf()},
+			Q1: MakeRot(QFromRatio(1, 8)),
+			Q2: MakeRot(QFromRatio(3, 8)),
 		},
-		MaxFraction: fixed.Q32One(),
+		MaxFraction: QOne(),
 	}
 }
 
@@ -2148,22 +2146,22 @@ const bulletLaneCount = 64
 func buildBulletRange(worldId WorldId) {
 	wallDef := DefaultBodyDef()
 	wallShape := DefaultShapeDef()
-	wall := MakeBox(fixed.Q32Half(), fixed.Q32FromInt(bulletLaneCount))
+	wall := MakeBox(QHalf(), QFromInt(bulletLaneCount))
 	for _, x := range [2]int{-30, 30} {
-		wallDef.Position = Vec2{X: fixed.Q32FromInt(x)}
+		wallDef.Position = Vec2{X: QFromInt(x)}
 		CreatePolygonShape(CreateBody(worldId, &wallDef), &wallShape, &wall)
 	}
 
 	boxDef := DefaultBodyDef()
 	boxDef.Type = DynamicBody
-	boxDef.LinearVelocity = Vec2{X: fixed.Q32FromInt(200)}
+	boxDef.LinearVelocity = Vec2{X: QFromInt(200)}
 	boxDef.EnableSleep = false
 	boxShape := DefaultShapeDef()
-	boxShape.Material.Restitution = fixed.Q32One()
-	boxShape.Material.Friction = fixed.Q32Zero()
-	box := MakeSquare(fixed.Q32FromRatio(1, 10))
+	boxShape.Material.Restitution = QOne()
+	boxShape.Material.Friction = QZero()
+	box := MakeSquare(QFromRatio(1, 10))
 	for i := range bulletLaneCount {
-		boxDef.Position = Vec2{Y: fixed.Q32FromInt(i - bulletLaneCount/2)}
+		boxDef.Position = Vec2{Y: QFromInt(i - bulletLaneCount/2)}
 		boxDef.IsBullet = i%2 == 0
 		CreatePolygonShape(CreateBody(worldId, &boxDef), &boxShape, &box)
 	}
@@ -2177,7 +2175,7 @@ func BenchmarkStepBullets(b *testing.B) {
 	buildBulletRange(worldId)
 	w := getWorldFromId(worldId)
 
-	dt := fixed.Q32One().Div(fixed.Q32FromInt(60))
+	dt := QOne().Div(QFromInt(60))
 
 	// Warm up through several bounces so every buffer has grown.
 	for range 120 {
@@ -2219,12 +2217,12 @@ func BenchmarkStepRevoluteChain(b *testing.B) {
 	boxDef.Type = DynamicBody
 	boxDef.EnableSleep = false
 	shapeDef := DefaultShapeDef()
-	box := MakeBox(fixed.Q32Half(), fixed.Q32Half())
+	box := MakeBox(QHalf(), QHalf())
 	jointDef := DefaultRevoluteJointDef()
-	jointDef.LocalAnchorA = Vec2{X: fixed.Q32Half()}
-	jointDef.LocalAnchorB = Vec2{X: fixed.Q32Half().Neg()}
+	jointDef.LocalAnchorA = Vec2{X: QHalf()}
+	jointDef.LocalAnchorB = Vec2{X: QHalf().Neg()}
 	for i := range 32 {
-		boxDef.Position = Vec2{X: fixed.Q32FromInt(i + 1)}
+		boxDef.Position = Vec2{X: QFromInt(i + 1)}
 		bodyId := CreateBody(worldId, &boxDef)
 		CreatePolygonShape(bodyId, &shapeDef, &box)
 		jointDef.BodyIdA = prevId
@@ -2233,7 +2231,7 @@ func BenchmarkStepRevoluteChain(b *testing.B) {
 		prevId = bodyId
 	}
 
-	dt := fixed.Q32One().Div(fixed.Q32FromInt(60))
+	dt := QOne().Div(QFromInt(60))
 
 	// Warm up through later self-contacts so contact buffers reach capacity.
 	for range 20000 {
@@ -2283,12 +2281,12 @@ func BenchmarkSolveRevoluteJointF64(b *testing.B) {
 // four rigid planes boxing in the target translation.
 func BenchmarkSolvePlanes(b *testing.B) {
 	planes := []CollisionPlane{
-		{Plane: Plane{Normal: Vec2{Y: fixed.Q32One()}, Offset: fixed.Q32FromInt(-5)}, PushLimit: Huge},
-		{Plane: Plane{Normal: Vec2{X: fixed.Q32One()}, Offset: fixed.Q32FromInt(-5)}, PushLimit: Huge},
-		{Plane: Plane{Normal: Vec2{X: fixed.Q32One().Neg()}, Offset: fixed.Q32FromInt(-5)}, PushLimit: Huge},
-		{Plane: Plane{Normal: Vec2{Y: fixed.Q32One().Neg()}, Offset: fixed.Q32FromInt(-5)}, PushLimit: Huge},
+		{Plane: Plane{Normal: Vec2{Y: QOne()}, Offset: QFromInt(-5)}, PushLimit: Huge},
+		{Plane: Plane{Normal: Vec2{X: QOne()}, Offset: QFromInt(-5)}, PushLimit: Huge},
+		{Plane: Plane{Normal: Vec2{X: QOne().Neg()}, Offset: QFromInt(-5)}, PushLimit: Huge},
+		{Plane: Plane{Normal: Vec2{Y: QOne().Neg()}, Offset: QFromInt(-5)}, PushLimit: Huge},
 	}
-	target := Vec2{X: fixed.Q32FromInt(1), Y: fixed.Q32FromInt(-8)}
+	target := Vec2{X: QFromInt(1), Y: QFromInt(-8)}
 
 	var result PlaneSolverResult
 	b.ReportAllocs()

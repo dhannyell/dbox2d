@@ -14,11 +14,11 @@ import (
 // over the awake set of the world.
 func jointContext(w *world) *stepContext {
 	context := &stepContext{world: w}
-	context.dt = fixed.Q32FromRatio(1, 60)
+	context.dt = QFromRatio(1, 60)
 	context.subStepCount = 4
-	context.invDt = fixed.Q32FromInt(60)
-	context.h = fixed.Q32FromRatio(1, 240)
-	context.invH = fixed.Q32FromInt(240)
+	context.invDt = QFromInt(60)
+	context.h = QFromRatio(1, 240)
+	context.invH = QFromInt(240)
 	context.maxLinearVelocity = w.maxLinearSpeed
 	context.enableWarmStarting = w.enableWarmStarting
 	context.graph = &w.constraintGraph
@@ -44,7 +44,7 @@ func pinnedBox(t *testing.T, worldId WorldId, position Vec2, def *RevoluteJointD
 	boxDef.Position = position
 	boxId := CreateBody(worldId, &boxDef)
 	shapeDef := DefaultShapeDef()
-	unit := MakeBox(fixed.Q32Half(), fixed.Q32Half())
+	unit := MakeBox(QHalf(), QHalf())
 	CreatePolygonShape(boxId, &shapeDef, &unit)
 
 	def.BodyIdA = groundId
@@ -68,7 +68,7 @@ func TestRevoluteHoldsTheAnchor(t *testing.T) {
 	def := DefaultRevoluteJointDef()
 	box, j := pinnedBox(t, worldId, v2(1, 0), &def)
 	state := getBodyState(w, box)
-	state.linearVelocity = Vec2{Y: fixed.Q32One().Neg()}
+	state.linearVelocity = Vec2{Y: QOne().Neg()}
 
 	context := jointContext(w)
 	prepareJoints(context, j.colorIndex)
@@ -76,23 +76,23 @@ func TestRevoluteHoldsTheAnchor(t *testing.T) {
 
 	tolerance := fixed.Q32FromRaw(1 << 12)
 	js := getJointSim(w, j)
-	seventh := fixed.Q32FromRatio(1, 7)
-	if !withinQ(js.revoluteJoint.linearImpulse.X, fixed.Q32Zero(), tolerance) || !withinQ(js.revoluteJoint.linearImpulse.Y, seventh, tolerance) {
+	seventh := QFromRatio(1, 7)
+	if !withinQ(js.revoluteJoint.linearImpulse.X, QZero(), tolerance) || !withinQ(js.revoluteJoint.linearImpulse.Y, seventh, tolerance) {
 		t.Errorf("linearImpulse is %v, want (0, 1/7)", js.revoluteJoint.linearImpulse)
 	}
 	wB := state.angularVelocity.Mul(tau)
-	if !withinQ(wB, fixed.Q32FromRatio(-6, 7), tolerance) {
+	if !withinQ(wB, QFromRatio(-6, 7), tolerance) {
 		t.Errorf("wB is %v rad/s, want -6/7", wB)
 	}
-	anchorVelocity := state.linearVelocity.Add(CrossSV(wB, Vec2{X: fixed.Q32One().Neg()}))
-	if !withinQ(anchorVelocity.X, fixed.Q32Zero(), tolerance) || !withinQ(anchorVelocity.Y, fixed.Q32Zero(), tolerance) {
+	anchorVelocity := state.linearVelocity.Add(CrossSV(wB, Vec2{X: QOne().Neg()}))
+	if !withinQ(anchorVelocity.X, QZero(), tolerance) || !withinQ(anchorVelocity.Y, QZero(), tolerance) {
 		t.Errorf("the anchor moves at %v", anchorVelocity)
 	}
 
 	// The force report divides the impulse by the sub-step: 240/7.
 	w.invH = context.invH
 	force := getRevoluteJointForce(w, js)
-	if !withinQ(force.Y, fixed.Q32FromRatio(240, 7), tolerance.Mul(context.invH)) {
+	if !withinQ(force.Y, QFromRatio(240, 7), tolerance.Mul(context.invH)) {
 		t.Errorf("the joint force is %v, want (0, 240/7)", force)
 	}
 }
@@ -112,7 +112,7 @@ func TestRevoluteLimitStopsTheSpin(t *testing.T) {
 	def.EnableLimit = true
 	box, j := pinnedBox(t, worldId, v2(0, 0), &def)
 	state := getBodyState(w, box)
-	state.angularVelocity = fixed.Q32One().Div(tau)
+	state.angularVelocity = QOne().Div(tau)
 
 	context := jointContext(w)
 	prepareJoints(context, j.colorIndex)
@@ -120,11 +120,11 @@ func TestRevoluteLimitStopsTheSpin(t *testing.T) {
 
 	tolerance := fixed.Q32FromRaw(1 << 12)
 	js := getJointSim(w, j)
-	sixth := fixed.Q32FromRatio(1, 6)
-	if !js.revoluteJoint.lowerImpulse.Eq(fixed.Q32Zero()) || !withinQ(js.revoluteJoint.upperImpulse, sixth, tolerance) {
+	sixth := QFromRatio(1, 6)
+	if !js.revoluteJoint.lowerImpulse.Eq(QZero()) || !withinQ(js.revoluteJoint.upperImpulse, sixth, tolerance) {
 		t.Errorf("the limit impulses are %v and %v, want 0 and 1/6", js.revoluteJoint.lowerImpulse, js.revoluteJoint.upperImpulse)
 	}
-	if !withinQ(state.angularVelocity, fixed.Q32Zero(), tolerance) {
+	if !withinQ(state.angularVelocity, QZero(), tolerance) {
 		t.Errorf("wB is %v turns/s, want 0", state.angularVelocity)
 	}
 }
@@ -140,8 +140,8 @@ func TestRevoluteMotorSaturatesAtTheTorque(t *testing.T) {
 	w := getWorldFromId(worldId)
 	def := DefaultRevoluteJointDef()
 	def.EnableMotor = true
-	def.MotorSpeed = fixed.Q32One()
-	def.MaxMotorTorque = fixed.Q32FromInt(100)
+	def.MotorSpeed = QOne()
+	def.MaxMotorTorque = QFromInt(100)
 	box, j := pinnedBox(t, worldId, v2(0, 0), &def)
 	state := getBodyState(w, box)
 
@@ -151,25 +151,25 @@ func TestRevoluteMotorSaturatesAtTheTorque(t *testing.T) {
 
 	tolerance := fixed.Q32FromRaw(1 << 12)
 	js := getJointSim(w, j)
-	if !withinQ(js.revoluteJoint.motorImpulse, fixed.Q32FromRatio(5, 12), tolerance) {
+	if !withinQ(js.revoluteJoint.motorImpulse, QFromRatio(5, 12), tolerance) {
 		t.Errorf("motorImpulse is %v, want 5/12", js.revoluteJoint.motorImpulse)
 	}
 	wB := state.angularVelocity.Mul(tau)
-	if !withinQ(wB, fixed.Q32FromRatio(5, 2), tolerance) {
+	if !withinQ(wB, QFromRatio(5, 2), tolerance) {
 		t.Errorf("wB is %v rad/s, want 2.5", wB)
 	}
 
 	// The torque report is the saturated motor torque.
 	w.invH = context.invH
-	if torque := getRevoluteJointTorque(w, js); !withinQ(torque, fixed.Q32FromInt(100), tolerance.Mul(context.invH)) {
+	if torque := getRevoluteJointTorque(w, js); !withinQ(torque, QFromInt(100), tolerance.Mul(context.invH)) {
 		t.Errorf("the joint torque is %v, want 100", torque)
 	}
 
 	// The warm start applies the stored impulse again on a fresh state.
-	state.angularVelocity = fixed.Q32Zero()
+	state.angularVelocity = QZero()
 	warmStartJoints(context, j.colorIndex)
 	wB = state.angularVelocity.Mul(tau)
-	if !withinQ(wB, fixed.Q32FromRatio(5, 2), tolerance) {
+	if !withinQ(wB, QFromRatio(5, 2), tolerance) {
 		t.Errorf("the warm start gives wB %v rad/s, want 2.5", wB)
 	}
 }
@@ -194,13 +194,13 @@ func TestRevoluteJointAccessorsRoundTrip(t *testing.T) {
 		get  func() Q
 		want Q
 	}{
-		{"target angle", func() { jointId.SetTargetAngle(fixed.Q32FromRatio(1, 4)) }, jointId.GetTargetAngle, fixed.Q32FromRatio(1, 4)},
-		{"spring hertz", func() { jointId.SetSpringHertz(fixed.Q32FromInt(4)) }, jointId.GetSpringHertz, fixed.Q32FromInt(4)},
-		{"spring damping ratio", func() { jointId.SetSpringDampingRatio(fixed.Q32Half()) }, jointId.GetSpringDampingRatio, fixed.Q32Half()},
-		{"lower limit", func() { jointId.SetLimits(fixed.Q32FromRatio(-1, 4), fixed.Q32FromRatio(1, 3)) }, jointId.GetLowerLimit, fixed.Q32FromRatio(-1, 4)},
-		{"upper limit", func() { jointId.SetLimits(fixed.Q32FromRatio(-1, 4), fixed.Q32FromRatio(1, 3)) }, jointId.GetUpperLimit, fixed.Q32FromRatio(1, 3)},
-		{"motor speed", func() { jointId.SetMotorSpeed(fixed.Q32FromRatio(1, 2)) }, jointId.GetMotorSpeed, fixed.Q32FromRatio(1, 2)},
-		{"maximum motor torque", func() { jointId.SetMaxMotorTorque(fixed.Q32FromInt(5)) }, jointId.GetMaxMotorTorque, fixed.Q32FromInt(5)},
+		{"target angle", func() { jointId.SetTargetAngle(QFromRatio(1, 4)) }, jointId.GetTargetAngle, QFromRatio(1, 4)},
+		{"spring hertz", func() { jointId.SetSpringHertz(QFromInt(4)) }, jointId.GetSpringHertz, QFromInt(4)},
+		{"spring damping ratio", func() { jointId.SetSpringDampingRatio(QHalf()) }, jointId.GetSpringDampingRatio, QHalf()},
+		{"lower limit", func() { jointId.SetLimits(QFromRatio(-1, 4), QFromRatio(1, 3)) }, jointId.GetLowerLimit, QFromRatio(-1, 4)},
+		{"upper limit", func() { jointId.SetLimits(QFromRatio(-1, 4), QFromRatio(1, 3)) }, jointId.GetUpperLimit, QFromRatio(1, 3)},
+		{"motor speed", func() { jointId.SetMotorSpeed(QFromRatio(1, 2)) }, jointId.GetMotorSpeed, QFromRatio(1, 2)},
+		{"maximum motor torque", func() { jointId.SetMaxMotorTorque(QFromInt(5)) }, jointId.GetMaxMotorTorque, QFromInt(5)},
 	}
 	for _, tc := range qCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -242,8 +242,8 @@ func TestRevoluteJointGetAngleInTurns(t *testing.T) {
 	def.BodyIdA = groundId
 	def.BodyIdB = bodyId
 	jointId := CreateRevoluteJoint(worldId, &def)
-	bodyId.SetTransform(Vec2Zero(), MakeRot(fixed.Q32FromRatio(1, 4)))
-	if got := jointId.GetAngle(); !withinQ(got, fixed.Q32FromRatio(1, 4), fixed.Q32FromRaw(1<<12)) {
+	bodyId.SetTransform(Vec2Zero(), MakeRot(QFromRatio(1, 4)))
+	if got := jointId.GetAngle(); !withinQ(got, QFromRatio(1, 4), fixed.Q32FromRaw(1<<12)) {
 		t.Errorf("angle = %v turns, want 0.25", got)
 	}
 }

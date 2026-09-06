@@ -3,8 +3,6 @@ package dbox2d
 import (
 	"math"
 	"testing"
-
-	"github.com/dhannyell/fixed"
 )
 
 // The float64 mirror of the revolute solve follows src/revolute_joint.c
@@ -218,10 +216,10 @@ func makeRevoluteMirrorCase(tb testing.TB) revoluteMirrorCase {
 		def := DefaultBodyDef()
 		def.Type = DynamicBody
 		def.Position = position
-		def.Rotation = fixed.RotFromTurns(fixed.Q32MustParse(turns))
+		def.Rotation = MakeRot(QMustParse(turns))
 		id := CreateBody(worldId, &def)
 		shapeDef := DefaultShapeDef()
-		box := MakeBox(fixed.Q32MustParse("0.75"), fixed.Q32Half())
+		box := MakeBox(QMustParse("0.75"), QHalf())
 		CreatePolygonShape(id, &shapeDef, &box)
 		return id
 	}
@@ -233,15 +231,15 @@ func makeRevoluteMirrorCase(tb testing.TB) revoluteMirrorCase {
 	def.LocalAnchorA = qv("0.5", "0.25")
 	def.LocalAnchorB = qv("-1", "0.25")
 	def.EnableSpring = true
-	def.Hertz = fixed.Q32FromInt(2)
-	def.DampingRatio = fixed.Q32Half()
-	def.TargetAngle = fixed.Q32MustParse("0.05")
+	def.Hertz = QFromInt(2)
+	def.DampingRatio = QHalf()
+	def.TargetAngle = QMustParse("0.05")
 	def.EnableLimit = true
-	def.LowerAngle = fixed.Q32MustParse("-0.1")
-	def.UpperAngle = fixed.Q32MustParse("0.1")
+	def.LowerAngle = QMustParse("-0.1")
+	def.UpperAngle = QMustParse("0.1")
 	def.EnableMotor = true
-	def.MotorSpeed = fixed.Q32Half()
-	def.MaxMotorTorque = fixed.Q32FromInt(3)
+	def.MotorSpeed = QHalf()
+	def.MaxMotorTorque = QFromInt(3)
 	jointId := CreateRevoluteJoint(worldId, &def)
 	j := getJointFullId(w, jointId)
 	js := getJointSim(w, j)
@@ -251,13 +249,13 @@ func makeRevoluteMirrorCase(tb testing.TB) revoluteMirrorCase {
 	stateA := getBodyState(w, bodyA)
 	stateB := getBodyState(w, bodyB)
 	stateA.linearVelocity = qv("1", "-2")
-	stateA.angularVelocity = fixed.Q32MustParse("0.3")
+	stateA.angularVelocity = QMustParse("0.3")
 	stateA.deltaPosition = qv("0.01", "0.02")
-	stateA.deltaRotation = fixed.RotFromTurns(fixed.Q32MustParse("0.01"))
+	stateA.deltaRotation = MakeRot(QMustParse("0.01"))
 	stateB.linearVelocity = qv("-0.5", "1")
-	stateB.angularVelocity = fixed.Q32MustParse("-0.2")
+	stateB.angularVelocity = QMustParse("-0.2")
 	stateB.deltaPosition = qv("-0.03", "0.01")
-	stateB.deltaRotation = fixed.RotFromTurns(fixed.Q32MustParse("-0.02"))
+	stateB.deltaRotation = MakeRot(QMustParse("-0.02"))
 
 	context := jointContext(w)
 	prepareJoint(js, context)

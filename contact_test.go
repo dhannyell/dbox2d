@@ -2,8 +2,6 @@ package dbox2d
 
 import (
 	"testing"
-
-	"github.com/dhannyell/fixed"
 )
 
 // addDynamicCircle creates a dynamic body with a circle of radius one half.
@@ -14,7 +12,7 @@ func addDynamicCircle(t *testing.T, worldId WorldId, position Vec2) BodyId {
 	bodyDef.Position = position
 	bodyId := CreateBody(worldId, &bodyDef)
 	shapeDef := DefaultShapeDef()
-	circle := Circle{Radius: fixed.Q32Half()}
+	circle := Circle{Radius: QHalf()}
 	CreateCircleShape(bodyId, &shapeDef, &circle)
 	return bodyId
 }
@@ -97,7 +95,7 @@ func TestCreateContactUsesDisabledSetForSleepingBodies(t *testing.T) {
 		bodyDef.IsAwake = false
 		bodyId := CreateBody(worldId, &bodyDef)
 		shapeDef := DefaultShapeDef()
-		circle := Circle{Radius: fixed.Q32Half()}
+		circle := Circle{Radius: QHalf()}
 		CreateCircleShape(bodyId, &shapeDef, &circle)
 		return bodyId
 	}
@@ -119,7 +117,7 @@ func TestCreateContactUsesDisabledSetForSleepingBodies(t *testing.T) {
 func TestUpdateContactCarriesTheStoredImpulse(t *testing.T) {
 	worldId := createTestWorld(t)
 	idA := addDynamicCircle(t, worldId, v2(0, 0))
-	idB := addDynamicCircle(t, worldId, Vec2{X: fixed.Q32MustParse("0.75")})
+	idB := addDynamicCircle(t, worldId, Vec2{X: QMustParse("0.75")})
 
 	w := getWorldFromId(worldId)
 	shapeA := firstShape(w, idA)
@@ -147,14 +145,14 @@ func TestUpdateContactCarriesTheStoredImpulse(t *testing.T) {
 		t.Errorf("the first update reports a persisted point")
 	}
 
-	cs.manifold.Points[0].NormalImpulse = fixed.Q32One()
+	cs.manifold.Points[0].NormalImpulse = QOne()
 	updateContact(w, cs, shapeA, xfA, Vec2Zero(), shapeB, xfB, Vec2Zero())
 
 	p := &cs.manifold.Points[0]
 	if !p.Persisted {
 		t.Errorf("the matched point is not persisted")
 	}
-	if !p.NormalImpulse.Eq(fixed.Q32One()) {
+	if !p.NormalImpulse.Eq(QOne()) {
 		t.Errorf("the stored impulse did not carry over")
 	}
 }
@@ -240,7 +238,7 @@ func TestDestroyShapeDestroysItsContacts(t *testing.T) {
 	bodyDef.Position = v2(1, 0)
 	bodyB := CreateBody(worldId, &bodyDef)
 	shapeDef := DefaultShapeDef()
-	circle := Circle{Radius: fixed.Q32Half()}
+	circle := Circle{Radius: QHalf()}
 	shapeIdA := CreateCircleShape(bodyA, &shapeDef, &circle)
 	CreateCircleShape(bodyB, &shapeDef, &circle)
 

@@ -27,7 +27,7 @@ func ropedBox(t *testing.T, worldId WorldId, position Vec2, def *DistanceJointDe
 	boxDef.Position = position
 	boxId := CreateBody(worldId, &boxDef)
 	shapeDef := DefaultShapeDef()
-	unit := MakeBox(fixed.Q32Half(), fixed.Q32Half())
+	unit := MakeBox(QHalf(), QHalf())
 	CreatePolygonShape(boxId, &shapeDef, &unit)
 
 	def.BodyIdA = groundId
@@ -43,10 +43,10 @@ func TestDistanceRigidStopsTheBox(t *testing.T) {
 	worldId := createTestWorld(t)
 	w := getWorldFromId(worldId)
 	def := DefaultDistanceJointDef()
-	def.Length = fixed.Q32FromInt(2)
+	def.Length = QFromInt(2)
 	box, j := ropedBox(t, worldId, v2(2, 0), &def)
 	state := getBodyState(w, box)
-	state.linearVelocity = Vec2{X: fixed.Q32One()}
+	state.linearVelocity = Vec2{X: QOne()}
 
 	context := jointContext(w)
 	prepareJoints(context, j.colorIndex)
@@ -54,17 +54,17 @@ func TestDistanceRigidStopsTheBox(t *testing.T) {
 
 	tolerance := fixed.Q32FromRaw(1 << 12)
 	js := getJointSim(w, j)
-	if !withinQ(js.distanceJoint.impulse, fixed.Q32One().Neg(), tolerance) {
+	if !withinQ(js.distanceJoint.impulse, QOne().Neg(), tolerance) {
 		t.Errorf("impulse is %v, want -1", js.distanceJoint.impulse)
 	}
-	if !withinQ(state.linearVelocity.X, fixed.Q32Zero(), tolerance) {
+	if !withinQ(state.linearVelocity.X, QZero(), tolerance) {
 		t.Errorf("vB.x is %v, want 0", state.linearVelocity.X)
 	}
 
 	// The force report divides the impulse by the sub-step: -240 on x.
 	w.invH = context.invH
 	force := getDistanceJointForce(w, js)
-	if !withinQ(force.X, fixed.Q32FromInt(-240), tolerance.Mul(context.invH)) {
+	if !withinQ(force.X, QFromInt(-240), tolerance.Mul(context.invH)) {
 		t.Errorf("the joint force is %v, want (-240, 0)", force)
 	}
 }
@@ -79,14 +79,14 @@ func TestDistanceUpperLimitHoldsTheRope(t *testing.T) {
 	worldId := createTestWorld(t)
 	w := getWorldFromId(worldId)
 	def := DefaultDistanceJointDef()
-	def.Length = fixed.Q32FromInt(2)
+	def.Length = QFromInt(2)
 	def.EnableSpring = true
 	def.EnableLimit = true
-	def.MinLength = fixed.Q32One()
-	def.MaxLength = fixed.Q32FromInt(3)
+	def.MinLength = QOne()
+	def.MaxLength = QFromInt(3)
 	box, j := ropedBox(t, worldId, v2(3, 0), &def)
 	state := getBodyState(w, box)
-	state.linearVelocity = Vec2{X: fixed.Q32One()}
+	state.linearVelocity = Vec2{X: QOne()}
 
 	context := jointContext(w)
 	prepareJoints(context, j.colorIndex)
@@ -94,10 +94,10 @@ func TestDistanceUpperLimitHoldsTheRope(t *testing.T) {
 
 	tolerance := fixed.Q32FromRaw(1 << 12)
 	js := getJointSim(w, j)
-	if !js.distanceJoint.lowerImpulse.Eq(fixed.Q32Zero()) || !withinQ(js.distanceJoint.upperImpulse, fixed.Q32One(), tolerance) {
+	if !js.distanceJoint.lowerImpulse.Eq(QZero()) || !withinQ(js.distanceJoint.upperImpulse, QOne(), tolerance) {
 		t.Errorf("the limit impulses are %v and %v, want 0 and 1", js.distanceJoint.lowerImpulse, js.distanceJoint.upperImpulse)
 	}
-	if !withinQ(state.linearVelocity.X, fixed.Q32Zero(), tolerance) {
+	if !withinQ(state.linearVelocity.X, QZero(), tolerance) {
 		t.Errorf("vB.x is %v, want 0", state.linearVelocity.X)
 	}
 }
@@ -111,11 +111,11 @@ func TestDistanceMotorSaturatesAtTheForce(t *testing.T) {
 	worldId := createTestWorld(t)
 	w := getWorldFromId(worldId)
 	def := DefaultDistanceJointDef()
-	def.Length = fixed.Q32FromInt(2)
+	def.Length = QFromInt(2)
 	def.EnableSpring = true
 	def.EnableMotor = true
-	def.MotorSpeed = fixed.Q32One()
-	def.MaxMotorForce = fixed.Q32FromInt(100)
+	def.MotorSpeed = QOne()
+	def.MaxMotorForce = QFromInt(100)
 	box, j := ropedBox(t, worldId, v2(2, 0), &def)
 	state := getBodyState(w, box)
 
@@ -125,7 +125,7 @@ func TestDistanceMotorSaturatesAtTheForce(t *testing.T) {
 
 	tolerance := fixed.Q32FromRaw(1 << 12)
 	js := getJointSim(w, j)
-	twelfths := fixed.Q32FromRatio(5, 12)
+	twelfths := QFromRatio(5, 12)
 	if !withinQ(js.distanceJoint.motorImpulse, twelfths, tolerance) {
 		t.Errorf("motorImpulse is %v, want 5/12", js.distanceJoint.motorImpulse)
 	}
@@ -278,10 +278,10 @@ func mirrorBodies(t *testing.T, worldId WorldId) (BodyId, BodyId) {
 		def := DefaultBodyDef()
 		def.Type = DynamicBody
 		def.Position = position
-		def.Rotation = fixed.RotFromTurns(fixed.Q32MustParse(turns))
+		def.Rotation = MakeRot(QMustParse(turns))
 		id := CreateBody(worldId, &def)
 		shapeDef := DefaultShapeDef()
-		box := MakeBox(fixed.Q32MustParse("0.75"), fixed.Q32Half())
+		box := MakeBox(QMustParse("0.75"), QHalf())
 		CreatePolygonShape(id, &shapeDef, &box)
 		return id
 	}
@@ -291,13 +291,13 @@ func mirrorBodies(t *testing.T, worldId WorldId) (BodyId, BodyId) {
 	stateA := getBodyState(w, getBodyFullId(w, idA))
 	stateB := getBodyState(w, getBodyFullId(w, idB))
 	stateA.linearVelocity = qv("1", "-2")
-	stateA.angularVelocity = fixed.Q32MustParse("0.3")
+	stateA.angularVelocity = QMustParse("0.3")
 	stateA.deltaPosition = qv("0.01", "0.02")
-	stateA.deltaRotation = fixed.RotFromTurns(fixed.Q32MustParse("0.01"))
+	stateA.deltaRotation = MakeRot(QMustParse("0.01"))
 	stateB.linearVelocity = qv("-0.5", "1")
-	stateB.angularVelocity = fixed.Q32MustParse("-0.2")
+	stateB.angularVelocity = QMustParse("-0.2")
 	stateB.deltaPosition = qv("-0.03", "0.01")
-	stateB.deltaRotation = fixed.RotFromTurns(fixed.Q32MustParse("-0.02"))
+	stateB.deltaRotation = MakeRot(QMustParse("-0.02"))
 	return idA, idB
 }
 
@@ -321,16 +321,16 @@ func TestSolveDistanceJointTracksTheFloat64Mirror(t *testing.T) {
 	def.BodyIdA, def.BodyIdB = idA, idB
 	def.LocalAnchorA = qv("0.5", "0.25")
 	def.LocalAnchorB = qv("-1", "0.25")
-	def.Length = fixed.Q32MustParse("1.9")
+	def.Length = QMustParse("1.9")
 	def.EnableSpring = true
-	def.Hertz = fixed.Q32FromInt(2)
-	def.DampingRatio = fixed.Q32Half()
+	def.Hertz = QFromInt(2)
+	def.DampingRatio = QHalf()
 	def.EnableLimit = true
-	def.MinLength = fixed.Q32MustParse("2.1")
-	def.MaxLength = fixed.Q32MustParse("2.2")
+	def.MinLength = QMustParse("2.1")
+	def.MaxLength = QMustParse("2.2")
 	def.EnableMotor = true
-	def.MotorSpeed = fixed.Q32Half()
-	def.MaxMotorForce = fixed.Q32FromInt(30)
+	def.MotorSpeed = QHalf()
+	def.MaxMotorForce = QFromInt(30)
 	jointId := CreateDistanceJoint(worldId, &def)
 	js := getJointSim(w, getJointFullId(w, jointId))
 	stateA := getBodyState(w, getBodyFullId(w, idA))
@@ -386,7 +386,7 @@ func TestDistanceJointAccessorsRoundTrip(t *testing.T) {
 	groundId := CreateBody(worldId, &groundDef)
 	bodyDef := DefaultBodyDef()
 	bodyDef.Type = DynamicBody
-	bodyDef.Position = Vec2{X: fixed.Q32FromInt(2)}
+	bodyDef.Position = Vec2{X: QFromInt(2)}
 	bodyId := CreateBody(worldId, &bodyDef)
 
 	def := DefaultDistanceJointDef()
@@ -401,12 +401,12 @@ func TestDistanceJointAccessorsRoundTrip(t *testing.T) {
 		get  func() Q
 		want Q
 	}{
-		{"length", func() { jointId.SetLength(fixed.Q32FromInt(3)) }, jointId.GetLength, fixed.Q32FromInt(3)},
-		{"spring hertz", func() { jointId.SetSpringHertz(fixed.Q32FromInt(4)) }, jointId.GetSpringHertz, fixed.Q32FromInt(4)},
-		{"spring damping ratio", func() { jointId.SetSpringDampingRatio(fixed.Q32Half()) }, jointId.GetSpringDampingRatio, fixed.Q32Half()},
-		{"length range minimum", func() { jointId.SetLengthRange(fixed.Q32FromInt(3), fixed.Q32FromInt(1)) }, jointId.GetMinLength, fixed.Q32FromInt(1)},
-		{"motor speed", func() { jointId.SetMotorSpeed(fixed.Q32FromInt(2)) }, jointId.GetMotorSpeed, fixed.Q32FromInt(2)},
-		{"maximum motor force", func() { jointId.SetMaxMotorForce(fixed.Q32FromInt(5)) }, jointId.GetMaxMotorForce, fixed.Q32FromInt(5)},
+		{"length", func() { jointId.SetLength(QFromInt(3)) }, jointId.GetLength, QFromInt(3)},
+		{"spring hertz", func() { jointId.SetSpringHertz(QFromInt(4)) }, jointId.GetSpringHertz, QFromInt(4)},
+		{"spring damping ratio", func() { jointId.SetSpringDampingRatio(QHalf()) }, jointId.GetSpringDampingRatio, QHalf()},
+		{"length range minimum", func() { jointId.SetLengthRange(QFromInt(3), QFromInt(1)) }, jointId.GetMinLength, QFromInt(1)},
+		{"motor speed", func() { jointId.SetMotorSpeed(QFromInt(2)) }, jointId.GetMotorSpeed, QFromInt(2)},
+		{"maximum motor force", func() { jointId.SetMaxMotorForce(QFromInt(5)) }, jointId.GetMaxMotorForce, QFromInt(5)},
 	}
 	for _, tc := range qCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -416,7 +416,7 @@ func TestDistanceJointAccessorsRoundTrip(t *testing.T) {
 			}
 		})
 	}
-	if got := jointId.GetMaxLength(); !withinQ(got, fixed.Q32FromInt(3), tolerance) {
+	if got := jointId.GetMaxLength(); !withinQ(got, QFromInt(3), tolerance) {
 		t.Errorf("maximum length = %v, want 3", got)
 	}
 
@@ -445,14 +445,14 @@ func TestDistanceJointGetCurrentLength(t *testing.T) {
 	groundId := CreateBody(worldId, &groundDef)
 	bodyDef := DefaultBodyDef()
 	bodyDef.Type = DynamicBody
-	bodyDef.Position = Vec2{X: fixed.Q32FromInt(2)}
+	bodyDef.Position = Vec2{X: QFromInt(2)}
 	bodyId := CreateBody(worldId, &bodyDef)
 
 	def := DefaultDistanceJointDef()
 	def.BodyIdA = groundId
 	def.BodyIdB = bodyId
 	jointId := CreateDistanceJoint(worldId, &def)
-	if got := jointId.GetCurrentLength(); !withinQ(got, fixed.Q32FromInt(2), fixed.Q32FromRaw(1<<12)) {
+	if got := jointId.GetCurrentLength(); !withinQ(got, QFromInt(2), fixed.Q32FromRaw(1<<12)) {
 		t.Errorf("current length = %v, want 2", got)
 	}
 }

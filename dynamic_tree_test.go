@@ -3,8 +3,6 @@ package dbox2d
 import (
 	"math/rand"
 	"testing"
-
-	"github.com/dhannyell/fixed"
 )
 
 // TestTreeInsertKeepsTheInvariants pins the growth path: a hundred proxies
@@ -163,7 +161,7 @@ func TestTreeEnlargeProxyStopsAtTheContainingAncestor(t *testing.T) {
 // internal children contain the new box, the seed cost is unbounded and the
 // centroid distance decides, so the search descends toward the near cluster.
 func TestTreeSeedNeverWins(t *testing.T) {
-	if !perimeter(box(-Huge.Int(), -Huge.Int(), Huge.Int(), Huge.Int())).Less(fixed.Q32MaxValue()) {
+	if !perimeter(box(-Huge.Int(), -Huge.Int(), Huge.Int(), Huge.Int())).Less(QMaxValue()) {
 		t.Fatalf("the widest proxy box reaches the seed")
 	}
 
@@ -270,7 +268,7 @@ func TestTreeRayCastClipsTheRay(t *testing.T) {
 		tree.createProxy(box(i*10, 0, i*10+2, 2), DefaultCategoryBits, uint64(i))
 	}
 
-	input := RayCastInput{Origin: v2(-5, 1), Translation: v2(100, 0), MaxFraction: fixed.Q32One()}
+	input := RayCastInput{Origin: v2(-5, 1), Translation: v2(100, 0), MaxFraction: QOne()}
 
 	var order []uint64
 	tree.rayCast(&input, DefaultMaskBits, func(sub *RayCastInput, proxyId int, userData uint64) Q {
@@ -299,13 +297,13 @@ func TestTreeRayCastClipsTheRay(t *testing.T) {
 	}
 
 	visits := 0
-	tree.rayCast(&input, DefaultMaskBits, func(*RayCastInput, int, uint64) Q { visits++; return fixed.Q32Zero() })
+	tree.rayCast(&input, DefaultMaskBits, func(*RayCastInput, int, uint64) Q { visits++; return QZero() })
 	if visits != 1 {
 		t.Errorf("a zero return let the cast visit %d leaves", visits)
 	}
 
 	visits = 0
-	tree.rayCast(&input, 2, func(*RayCastInput, int, uint64) Q { visits++; return fixed.Q32One() })
+	tree.rayCast(&input, 2, func(*RayCastInput, int, uint64) Q { visits++; return QOne() })
 	if visits != 0 {
 		t.Errorf("the mask let %d leaves through", visits)
 	}
@@ -323,12 +321,12 @@ func TestTreePartitionMidSplitsTheLongestAxis(t *testing.T) {
 		t.Fatalf("the split is %d, want 2", split)
 	}
 	for i := range split {
-		if !centers[i].X.Less(fixed.Q32FromInt(5)) {
+		if !centers[i].X.Less(QFromInt(5)) {
 			t.Errorf("center %d is on the right of the pivot", indices[i])
 		}
 	}
 	for i := split; i < 4; i++ {
-		if centers[i].X.Less(fixed.Q32FromInt(5)) {
+		if centers[i].X.Less(QFromInt(5)) {
 			t.Errorf("center %d is on the left of the pivot", indices[i])
 		}
 	}
@@ -360,7 +358,7 @@ func TestTreePartitionSAHPicksTheCheapestPlane(t *testing.T) {
 		t.Fatalf("the split is %d, want 3", split)
 	}
 	for i := range split {
-		if indices[i] >= 3 || !boxes[i].UpperBound.X.Less(fixed.Q32FromInt(9)) {
+		if indices[i] >= 3 || !boxes[i].UpperBound.X.Less(QFromInt(9)) {
 			t.Errorf("box %d sits right of plane three", indices[i])
 		}
 	}
@@ -497,11 +495,11 @@ func TestTreeShapeCastMatchesBruteForce(t *testing.T) {
 
 	for range 50 {
 		x, y := rng.Intn(60), rng.Intn(60)
-		unit := MakeBox(fixed.Q32One(), fixed.Q32One())
-		proxy := MakeOffsetProxy(unit.Vertices[:unit.Count], fixed.Q32Zero(), v2(x, y), RotIdentity())
+		unit := MakeBox(QOne(), QOne())
+		proxy := MakeOffsetProxy(unit.Vertices[:unit.Count], QZero(), v2(x, y), RotIdentity())
 		translation := v2(rng.Intn(41)-20, rng.Intn(41)-20)
 		mask := uint64(rng.Intn(8))
-		input := ShapeCastInput{Proxy: proxy, Translation: translation, MaxFraction: fixed.Q32One()}
+		input := ShapeCastInput{Proxy: proxy, Translation: translation, MaxFraction: QOne()}
 
 		start := box(x-1, y-1, x+1, y+1)
 		swept := AABBUnion(start, AABB{LowerBound: start.LowerBound.Add(translation), UpperBound: start.UpperBound.Add(translation)})
@@ -542,14 +540,14 @@ func TestTreeShapeCastClipsTheSweep(t *testing.T) {
 		tree.createProxy(box(i*10, 0, i*10+2, 2), DefaultCategoryBits, uint64(i))
 	}
 
-	unit := MakeBox(fixed.Q32Half(), fixed.Q32Half())
-	proxy := MakeOffsetProxy(unit.Vertices[:unit.Count], fixed.Q32Zero(), v2(-5, 1), RotIdentity())
-	input := ShapeCastInput{Proxy: proxy, Translation: v2(100, 0), MaxFraction: fixed.Q32One()}
+	unit := MakeBox(QHalf(), QHalf())
+	proxy := MakeOffsetProxy(unit.Vertices[:unit.Count], QZero(), v2(-5, 1), RotIdentity())
+	input := ShapeCastInput{Proxy: proxy, Translation: v2(100, 0), MaxFraction: QOne()}
 
 	var order []uint64
 	stats := tree.shapeCast(&input, DefaultMaskBits, func(sub *ShapeCastInput, proxyId int, userData uint64) Q {
 		order = append(order, userData)
-		leaf := MakeOffsetBox(fixed.Q32One(), fixed.Q32One(), AABBCenter(tree.getAABB(proxyId)), RotIdentity())
+		leaf := MakeOffsetBox(QOne(), QOne(), AABBCenter(tree.getAABB(proxyId)), RotIdentity())
 		out := ShapeCastPolygon(&ShapeCastInput{
 			Proxy:       sub.Proxy,
 			Translation: sub.Translation,

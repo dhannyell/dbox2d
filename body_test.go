@@ -13,7 +13,7 @@ func TestBodyAccessorsRoundTrip(t *testing.T) {
 	bodyDef.Type = DynamicBody
 	bodyId := CreateBody(worldId, &bodyDef)
 	shapeDef := DefaultShapeDef()
-	box := MakeSquare(fixed.Q32One())
+	box := MakeSquare(QOne())
 	CreatePolygonShape(bodyId, &shapeDef, &box)
 
 	checks := []struct {
@@ -22,12 +22,12 @@ func TestBodyAccessorsRoundTrip(t *testing.T) {
 		got  func() Q
 		want Q
 	}{
-		{"linear velocity x", func() { bodyId.SetLinearVelocity(v2(3, -2)) }, func() Q { return bodyId.GetLinearVelocity().X }, fixed.Q32FromInt(3)},
-		{"angular velocity", func() { bodyId.SetAngularVelocity(fixed.Q32Half()) }, bodyId.GetAngularVelocity, fixed.Q32Half()},
-		{"linear damping", func() { bodyId.SetLinearDamping(fixed.Q32MustParse("0.25")) }, bodyId.GetLinearDamping, fixed.Q32MustParse("0.25")},
-		{"angular damping", func() { bodyId.SetAngularDamping(fixed.Q32MustParse("0.5")) }, bodyId.GetAngularDamping, fixed.Q32MustParse("0.5")},
-		{"gravity scale", func() { bodyId.SetGravityScale(fixed.Q32MustParse("1.5")) }, bodyId.GetGravityScale, fixed.Q32MustParse("1.5")},
-		{"sleep threshold", func() { bodyId.SetSleepThreshold(fixed.Q32MustParse("0.125")) }, bodyId.GetSleepThreshold, fixed.Q32MustParse("0.125")},
+		{"linear velocity x", func() { bodyId.SetLinearVelocity(v2(3, -2)) }, func() Q { return bodyId.GetLinearVelocity().X }, QFromInt(3)},
+		{"angular velocity", func() { bodyId.SetAngularVelocity(QHalf()) }, bodyId.GetAngularVelocity, QHalf()},
+		{"linear damping", func() { bodyId.SetLinearDamping(QMustParse("0.25")) }, bodyId.GetLinearDamping, QMustParse("0.25")},
+		{"angular damping", func() { bodyId.SetAngularDamping(QMustParse("0.5")) }, bodyId.GetAngularDamping, QMustParse("0.5")},
+		{"gravity scale", func() { bodyId.SetGravityScale(QMustParse("1.5")) }, bodyId.GetGravityScale, QMustParse("1.5")},
+		{"sleep threshold", func() { bodyId.SetSleepThreshold(QMustParse("0.125")) }, bodyId.GetSleepThreshold, QMustParse("0.125")},
 	}
 	for _, check := range checks {
 		check.set()
@@ -74,14 +74,14 @@ func TestSetTransformMovesBodyAndProxy(t *testing.T) {
 	plate := CreateBody(worldId, &plateDef)
 	shapeDef := DefaultShapeDef()
 	shapeDef.EnableContactEvents = true
-	plateBox := MakeBox(fixed.Q32FromInt(5), fixed.Q32Half())
+	plateBox := MakeBox(QFromInt(5), QHalf())
 	plateShape := CreatePolygonShape(plate, &shapeDef, &plateBox)
 
 	bodyDef := DefaultBodyDef()
 	bodyDef.Type = DynamicBody
 	bodyDef.Position = v2(10, 0)
 	body := CreateBody(worldId, &bodyDef)
-	bodyBox := MakeSquare(fixed.Q32Half())
+	bodyBox := MakeSquare(QHalf())
 	bodyShape := CreatePolygonShape(body, &shapeDef, &bodyBox)
 
 	newPosition := v2(0, -1)
@@ -119,14 +119,14 @@ func newSetTypeScenario(t *testing.T) setTypeScenario {
 	ground := CreateBody(worldId, &groundDef)
 	shapeDef := DefaultShapeDef()
 	shapeDef.EnableContactEvents = true
-	groundBox := MakeBox(fixed.Q32FromInt(5), fixed.Q32Half())
+	groundBox := MakeBox(QFromInt(5), QHalf())
 	groundShape := CreatePolygonShape(ground, &shapeDef, &groundBox)
 
 	bodyDef := DefaultBodyDef()
 	bodyDef.Type = DynamicBody
 	bodyDef.Position = v2(-1, 0)
 	bodyA := CreateBody(worldId, &bodyDef)
-	bodyBox := MakeSquare(fixed.Q32Half())
+	bodyBox := MakeSquare(QHalf())
 	bodyAShape := CreatePolygonShape(bodyA, &shapeDef, &bodyBox)
 
 	bodyDef.Position = v2(1, 0)
@@ -220,7 +220,7 @@ func TestEnableRecreatesContacts(t *testing.T) {
 	if !foundGround {
 		t.Fatalf("body A contacts = %+v, want a ground contact", data[:count])
 	}
-	if got := scenario.bodyA.GetPosition().Y; !withinQ(got, restingY, fixed.Q32MustParse("0.01")) {
+	if got := scenario.bodyA.GetPosition().Y; !withinQ(got, restingY, QMustParse("0.01")) {
 		t.Fatalf("body A y = %v, want %v", got, restingY)
 	}
 	validateWorld(scenario.w)
@@ -233,7 +233,7 @@ func TestDisableStaticBody(t *testing.T) {
 	bodyDef := DefaultBodyDef()
 	body := CreateBody(worldId, &bodyDef)
 	shapeDef := DefaultShapeDef()
-	box := MakeSquare(fixed.Q32Half())
+	box := MakeSquare(QHalf())
 	CreatePolygonShape(body, &shapeDef, &box)
 
 	if got := getBodyFullId(w, body).setIndex; got != staticSet {
@@ -264,14 +264,14 @@ func TestDisableStaticBodyWakesTheSleeper(t *testing.T) {
 	groundDef.Position = v2(0, -1)
 	ground := CreateBody(worldId, &groundDef)
 	shapeDef := DefaultShapeDef()
-	groundBox := MakeBox(fixed.Q32FromInt(5), fixed.Q32Half())
+	groundBox := MakeBox(QFromInt(5), QHalf())
 	CreatePolygonShape(ground, &shapeDef, &groundBox)
 
 	bodyDef := DefaultBodyDef()
 	bodyDef.Type = DynamicBody
 	bodyDef.Position = v2(0, 0)
 	box := CreateBody(worldId, &bodyDef)
-	boxShape := MakeSquare(fixed.Q32Half())
+	boxShape := MakeSquare(QHalf())
 	CreatePolygonShape(box, &shapeDef, &boxShape)
 
 	asleep := false
@@ -333,7 +333,7 @@ func TestSetTypeStaticToDynamicFalls(t *testing.T) {
 	bodyDef.Position = v2(0, 5)
 	body := CreateBody(worldId, &bodyDef)
 	shapeDef := DefaultShapeDef()
-	box := MakeSquare(fixed.Q32Half())
+	box := MakeSquare(QHalf())
 	CreatePolygonShape(body, &shapeDef, &box)
 
 	body.SetType(DynamicBody)
@@ -368,7 +368,7 @@ func TestSetTypeKinematicFollowsVelocity(t *testing.T) {
 	for range 60 {
 		worldId.Step(stepDt(), 4)
 	}
-	wantX := fixed.Q32One()
+	wantX := QOne()
 	if got := body.GetPosition().X; !withinQ(got, wantX, fixed.Q32FromRaw(64)) {
 		t.Fatalf("body x = %v, want %v", got, wantX)
 	}
@@ -409,11 +409,11 @@ func TestSetTypeKeepsJointAndContacts(t *testing.T) {
 func TestSetTargetTransformDerivesVelocity(t *testing.T) {
 	worldId := createTestWorld(t)
 	body := addDynamicBox(t, worldId, Vec2Zero())
-	body.SetTargetTransform(Transform{P: v2(1, 0), Q: MakeRot(fixed.Q32MustParse("0.25"))}, fixed.Q32FromRatio(1, 60))
+	body.SetTargetTransform(Transform{P: v2(1, 0), Q: MakeRot(QMustParse("0.25"))}, QFromRatio(1, 60))
 
 	// (1 m - 0 m) / (1/60 s) = 60 m/s; (0.25 turn - 0 turn) / (1/60 s) = 15 turns/s.
 	linearWant := v2(60, 0)
-	angularWant := fixed.Q32MustParse("0.25").Mul(fixed.Q32FromInt(60))
+	angularWant := QMustParse("0.25").Mul(QFromInt(60))
 	tolerance := fixed.Q32FromRaw(2048)
 	if got := body.GetLinearVelocity(); !withinQ(got.X, linearWant.X, tolerance) || !withinQ(got.Y, linearWant.Y, tolerance) {
 		t.Errorf("linear velocity = %v, want %v", got, linearWant)
@@ -430,9 +430,9 @@ func TestSetMassDataOverridesShapeMass(t *testing.T) {
 	body := addDynamicBox(t, worldId, Vec2Zero())
 	before := body.GetLocalCenterOfMass()
 	massData := MassData{
-		Mass:              fixed.Q32FromInt(5),
+		Mass:              QFromInt(5),
 		Center:            v2(1, 0),
-		RotationalInertia: fixed.Q32FromInt(2),
+		RotationalInertia: QFromInt(2),
 	}
 	body.SetMassData(massData)
 
@@ -456,7 +456,7 @@ func TestApplyForceOffCenterGivesTorque(t *testing.T) {
 	bodyId := addDynamicBox(t, worldId, Vec2Zero())
 	bodyId.ApplyForce(v2(0, 10), v2(1, 0), true)
 	worldId.Step(stepDt(), 4)
-	if !fixed.Q32Zero().Less(bodyId.GetAngularVelocity()) {
+	if !QZero().Less(bodyId.GetAngularVelocity()) {
 		t.Fatalf("angular velocity = %v, want positive", bodyId.GetAngularVelocity())
 	}
 }
@@ -467,7 +467,7 @@ func TestApplyAngularImpulseInTurns(t *testing.T) {
 	bodyId := addDynamicBox(t, worldId, Vec2Zero())
 	inertia := bodyId.GetRotationalInertia()
 	bodyId.ApplyAngularImpulse(inertia, true)
-	want := fixed.Q32One().Div(tau)
+	want := QOne().Div(tau)
 	if !withinQ(bodyId.GetAngularVelocity(), want, fixed.Q32FromRaw(4)) {
 		t.Fatalf("angular velocity = %v, want %v turns/s", bodyId.GetAngularVelocity(), want)
 	}
@@ -478,7 +478,7 @@ func TestGetLocalPointVelocityUsesTurns(t *testing.T) {
 	worldId := createTestWorld(t)
 	bodyId := addDynamicBox(t, worldId, Vec2Zero())
 	v := v2(3, -2)
-	w := fixed.Q32MustParse("0.25")
+	w := QMustParse("0.25")
 	r := v2(2, 1)
 	bodyId.SetLinearVelocity(v)
 	bodyId.SetAngularVelocity(w)
@@ -493,9 +493,9 @@ func TestGetLocalPointVelocityUsesTurns(t *testing.T) {
 func TestSetFixedRotationZeroesInertia(t *testing.T) {
 	worldId := createTestWorld(t)
 	bodyId := addDynamicBox(t, worldId, Vec2Zero())
-	bodyId.SetAngularVelocity(fixed.Q32One())
+	bodyId.SetAngularVelocity(QOne())
 	bodyId.SetFixedRotation(true)
-	if !bodyId.IsFixedRotation() || !bodyId.GetRotationalInertia().Eq(fixed.Q32Zero()) || !bodyId.GetAngularVelocity().Eq(fixed.Q32Zero()) {
+	if !bodyId.IsFixedRotation() || !bodyId.GetRotationalInertia().Eq(QZero()) || !bodyId.GetAngularVelocity().Eq(QZero()) {
 		t.Fatalf("fixed rotation state = %v, inertia = %v, angular velocity = %v", bodyId.IsFixedRotation(), bodyId.GetRotationalInertia(), bodyId.GetAngularVelocity())
 	}
 }
@@ -507,13 +507,13 @@ func TestGetContactDataReturnsTouchingManifold(t *testing.T) {
 	groundDef.Position = v2(0, -2)
 	ground := CreateBody(worldId, &groundDef)
 	shapeDef := DefaultShapeDef()
-	groundBox := MakeBox(fixed.Q32FromInt(5), fixed.Q32Half())
+	groundBox := MakeBox(QFromInt(5), QHalf())
 	groundShape := CreatePolygonShape(ground, &shapeDef, &groundBox)
 	bodyDef := DefaultBodyDef()
 	bodyDef.Type = DynamicBody
 	bodyDef.Position = v2(0, -1)
 	body := CreateBody(worldId, &bodyDef)
-	box := MakeSquare(fixed.Q32One())
+	box := MakeSquare(QOne())
 	bodyShape := CreatePolygonShape(body, &shapeDef, &box)
 	for range 5 {
 		worldId.Step(stepDt(), 4)
@@ -536,7 +536,7 @@ func TestGetShapesAndJointsKeepListOrder(t *testing.T) {
 	initialShapes := make([]ShapeId, 1)
 	body.GetShapes(initialShapes)
 	shapeDef := DefaultShapeDef()
-	shape := MakeSquare(fixed.Q32Half())
+	shape := MakeSquare(QHalf())
 	firstShape := CreatePolygonShape(body, &shapeDef, &shape)
 	secondShape := CreatePolygonShape(body, &shapeDef, &shape)
 	otherA := addPlate(t, worldId, StaticBody, -3)

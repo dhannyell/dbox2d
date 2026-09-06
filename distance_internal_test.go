@@ -4,8 +4,6 @@ import (
 	"math"
 	"math/rand"
 	"testing"
-
-	"github.com/dhannyell/fixed"
 )
 
 // The float64 mirror of the GJK solver follows distance.go line by line.
@@ -351,11 +349,11 @@ func transformToF64(t Transform) f64Transform {
 // randomProxy builds a rotated box, a capsule or a circle proxy with
 // coordinates on a millimetre grid.
 func randomProxy(rng *rand.Rand) ShapeProxy {
-	milli := func(lo, hi int) Q { return fixed.Q32FromRatio(lo+rng.Intn(hi-lo+1), 1000) }
+	milli := func(lo, hi int) Q { return QFromRatio(lo+rng.Intn(hi-lo+1), 1000) }
 	switch rng.Intn(3) {
 	case 0:
 		box := MakeBox(milli(100, 2000), milli(100, 2000))
-		return MakeProxy(box.Vertices[:box.Count], fixed.Q32Zero())
+		return MakeProxy(box.Vertices[:box.Count], QZero())
 	case 1:
 		points := []Vec2{{X: milli(-1000, 1000), Y: milli(-1000, 1000)}, {X: milli(-1000, 1000), Y: milli(-1000, 1000)}}
 		return MakeProxy(points, milli(50, 500))
@@ -367,7 +365,7 @@ func randomProxy(rng *rand.Rand) ShapeProxy {
 // randomTransform places a proxy inside a ten metre box at a random angle
 // on a grid of a thousandth of a turn.
 func randomTransform(rng *rand.Rand) Transform {
-	milli := func(lo, hi int) Q { return fixed.Q32FromRatio(lo+rng.Intn(hi-lo+1), 1000) }
+	milli := func(lo, hi int) Q { return QFromRatio(lo+rng.Intn(hi-lo+1), 1000) }
 	return Transform{
 		P: Vec2{X: milli(-5000, 5000), Y: milli(-5000, 5000)},
 		Q: MakeRot(milli(0, 999)),
@@ -397,7 +395,7 @@ func TestShapeDistanceTracksTheFloat64Mirror(t *testing.T) {
 		pa, pb := proxyToF64(&input.ProxyA), proxyToF64(&input.ProxyB)
 		want := shapeDistanceF64(&pa, &pb, transformToF64(input.TransformA), transformToF64(input.TransformB), true, &f64SimplexCache{})
 
-		if (want.distance == 0) != got.Distance.Eq(fixed.Q32Zero()) {
+		if (want.distance == 0) != got.Distance.Eq(QZero()) {
 			continue
 		}
 		compared++
@@ -666,7 +664,7 @@ func timeOfImpactF64(proxyA, proxyB *f64Proxy, sweepA, sweepB f64Sweep, maxFract
 // randomSweep turns at most a quarter turn, so the interpolated rotation
 // never collapses to zero.
 func randomSweep(rng *rand.Rand) Sweep {
-	milli := func(lo, hi int) Q { return fixed.Q32FromRatio(lo+rng.Intn(hi-lo+1), 1000) }
+	milli := func(lo, hi int) Q { return QFromRatio(lo+rng.Intn(hi-lo+1), 1000) }
 	turn := milli(0, 999)
 	return Sweep{
 		LocalCenter: Vec2{X: milli(-500, 500), Y: milli(-500, 500)},
@@ -693,7 +691,7 @@ func TestTimeOfImpactTracksTheFloat64Mirror(t *testing.T) {
 			ProxyB:      randomProxy(rng),
 			SweepA:      randomSweep(rng),
 			SweepB:      randomSweep(rng),
-			MaxFraction: fixed.Q32One(),
+			MaxFraction: QOne(),
 		}
 		got := TimeOfImpact(&input)
 

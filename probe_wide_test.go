@@ -1,3 +1,8 @@
+//go:build !dbox2d_float
+
+// The probes measure the fixed-point format itself; they have no meaning in
+// another scalar mode.
+
 package dbox2d
 
 import (
