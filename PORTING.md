@@ -28,6 +28,12 @@ A name is exported when the reference exports it from `include/box2d/`, plus
 the tolerances of `constants.h`, which content authoring needs. Everything
 else that the reference keeps under `src/` stays unexported here.
 
+The scalar has one owner, `scalar_fixed.go`. It declares `Q`, `Vec2` and `Rot`
+and the constructors that build a scalar. Every other file calls those
+constructors; only the tests that read the raw format still import the fixed
+module. A second scalar mode is a second file under another build tag, not a
+sweep of the solver.
+
 A sizing constant lands with the file that reads it, not before. A constant
 with no consumer is dead weight that the compiler cannot check.
 
