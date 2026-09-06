@@ -31,6 +31,12 @@ else that the reference keeps under `src/` stays unexported here.
 A sizing constant lands with the file that reads it, not before. A constant
 with no consumer is dead weight that the compiler cannot check.
 
+The reference's `samples/` tree is a second module, `samples/`, with its
+own `go.mod`. It ports `sample.h`, `sample.cpp`, `draw.cpp` and the scene
+files, and replaces OpenGL and Dear ImGui with WebGPU and a vendored
+microui. See [samples/README.md](samples/README.md). Its checksum tests
+pin the scenes the way the witness pins the solver.
+
 ## The order of operations
 
 Two rules follow from the arithmetic and apply to every file of the port.

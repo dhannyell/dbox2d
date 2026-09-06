@@ -18,7 +18,8 @@ ray, shape and mover queries of the world, the seven joints and the filter
 joint, the chains, the sensors and the character mover. `Step` finds the
 new pairs, updates the contacts, solves the joints and the contacts,
 sweeps the fast bodies and the bullets against the world so they stop at
-their first time of impact, and puts resting islands to sleep.
+their first time of impact, and puts resting islands to sleep. The world
+also reports a step profile and a memory dump.
 [PORTING.md](PORTING.md) tracks what has landed.
 
 ### Naming
@@ -36,18 +37,24 @@ b2World_GetGravity(worldId)             → worldId.GetGravity()
 `Create*`, `Destroy*`, `Default*Def`, `Make*` and the geometry functions
 stay free functions: they carry no handle in the reference name.
 
-### Not ported
+### Samples
 
-A few pieces of the reference surface do not cross, by design:
+The `samples` module ports the Box2D sample scenes: 47 scenes across
+Stacking, Benchmark and Joints, rendered with WebGPU by a native window or
+a browser page. [samples/README.md](samples/README.md) explains the keys and
+how to add a scene.
 
-- `b2World_GetProfile` and `b2Profile`: the port carries no timers to
-  report.
-- `b2World_DumpMemoryStats`: the port has no allocation hooks to walk.
-- The `byteCount` and `taskCount` fields of `b2Counters`, and the task
-  fields of `b2WorldDef`: they serve a task system this port does not
-  have.
-- The `void* context` parameter of every callback function type: a Go
-  closure already carries its own state.
+```bash
+cd samples && go run ./cmd/native
+```
+
+```bash
+cd samples && CGO_ENABLED=0 GOOS=js GOARCH=wasm go build -o ../web/app.wasm ./cmd/web
+```
+
+The task-system fields of `b2Counters` and `b2WorldDef`, and the `void*
+context` of every callback, do not cross: this port has no task system and a
+Go closure carries its own state.
 
 See [PORTING.md](PORTING.md) for the full map and
 [DIVERGENCES.md](DIVERGENCES.md) for what changed shape to survive fixed
