@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/dhannyell/dbox2d"
-	"github.com/dhannyell/fixed"
 )
 
 // TestHumanHelpers drives the human controls the scenes rely on: a spawned
@@ -15,8 +14,8 @@ func TestHumanHelpers(t *testing.T) {
 	worldId := dbox2d.CreateWorld(&worldDef)
 	defer dbox2d.DestroyWorld(worldId)
 
-	h := createHuman(worldId, dbox2d.Vec2{}, fixed.Q32One(), fixed.Q32MustParse("0.03"),
-		fixed.Q32FromInt(5), fixed.Q32Half(), 1, nil, false)
+	h := createHuman(worldId, dbox2d.Vec2{}, dbox2d.QOne(), dbox2d.QMustParse("0.03"),
+		dbox2d.QFromInt(5), dbox2d.QHalf(), 1, nil, false)
 	if !h.isSpawned {
 		t.Fatalf("the human is not spawned")
 	}
@@ -26,20 +25,20 @@ func TestHumanHelpers(t *testing.T) {
 		}
 	}
 
-	h.setVelocity(dbox2d.Vec2{X: fixed.Q32One()})
-	if got := h.bones[boneTorso].bodyId.GetLinearVelocity(); got.X != fixed.Q32One() {
+	h.setVelocity(dbox2d.Vec2{X: dbox2d.QOne()})
+	if got := h.bones[boneTorso].bodyId.GetLinearVelocity(); got.X != dbox2d.QOne() {
 		t.Errorf("the torso velocity is %s, want 1", got.X)
 	}
-	h.applyRandomAngularImpulse(fixed.Q32One())
-	h.setJointFrictionTorque(fixed.Q32Zero())
-	h.setJointFrictionTorque(fixed.Q32One())
-	h.setJointSpringHertz(fixed.Q32Zero())
-	h.setJointSpringHertz(fixed.Q32FromInt(5))
-	h.setJointDampingRatio(fixed.Q32Half())
+	h.applyRandomAngularImpulse(dbox2d.QOne())
+	h.setJointFrictionTorque(dbox2d.QZero())
+	h.setJointFrictionTorque(dbox2d.QOne())
+	h.setJointSpringHertz(dbox2d.QZero())
+	h.setJointSpringHertz(dbox2d.QFromInt(5))
+	h.setJointDampingRatio(dbox2d.QHalf())
 	h.enableSensorEvents(true)
 
 	before := h.bones[boneHead].bodyId.GetPosition().Y
-	h.setScale(fixed.Q32FromInt(2))
+	h.setScale(dbox2d.QFromInt(2))
 	after := h.bones[boneHead].bodyId.GetPosition().Y
 	if !after.Greater(before) {
 		t.Errorf("the head is at %s after the scale, want above %s", after, before)

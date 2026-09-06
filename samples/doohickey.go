@@ -4,7 +4,6 @@ package samples
 
 import (
 	"github.com/dhannyell/dbox2d"
-	"github.com/dhannyell/fixed"
 )
 
 type doohickey struct {
@@ -24,39 +23,39 @@ func (d *doohickey) spawn(worldId dbox2d.WorldId, position dbox2d.Vec2, scale db
 	bodyDef.Type = dbox2d.DynamicBody
 
 	shapeDef := dbox2d.DefaultShapeDef()
-	shapeDef.Material.RollingResistance = fixed.Q32MustParse("0.1")
+	shapeDef.Material.RollingResistance = dbox2d.QMustParse("0.1")
 
 	circle := dbox2d.Circle{Radius: scale}
 	capsule := dbox2d.Capsule{
-		Center1: dbox2d.Vec2{X: fixed.Q32FromRatio(-7, 2).Mul(scale)},
-		Center2: dbox2d.Vec2{X: fixed.Q32FromRatio(7, 2).Mul(scale)},
-		Radius:  fixed.Q32MustParse("0.15").Mul(scale),
+		Center1: dbox2d.Vec2{X: dbox2d.QFromRatio(-7, 2).Mul(scale)},
+		Center2: dbox2d.Vec2{X: dbox2d.QFromRatio(7, 2).Mul(scale)},
+		Radius:  dbox2d.QMustParse("0.15").Mul(scale),
 	}
 
 	bodyDef.Position = dbox2d.MulAdd(position, scale, dbox2d.Vec2{
-		X: fixed.Q32FromInt(-5),
-		Y: fixed.Q32FromInt(3),
+		X: dbox2d.QFromInt(-5),
+		Y: dbox2d.QFromInt(3),
 	})
 	d.wheelId1 = dbox2d.CreateBody(worldId, &bodyDef)
 	dbox2d.CreateCircleShape(d.wheelId1, &shapeDef, &circle)
 
 	bodyDef.Position = dbox2d.MulAdd(position, scale, dbox2d.Vec2{
-		X: fixed.Q32FromInt(5),
-		Y: fixed.Q32FromInt(3),
+		X: dbox2d.QFromInt(5),
+		Y: dbox2d.QFromInt(3),
 	})
 	d.wheelId2 = dbox2d.CreateBody(worldId, &bodyDef)
 	dbox2d.CreateCircleShape(d.wheelId2, &shapeDef, &circle)
 
 	bodyDef.Position = dbox2d.MulAdd(position, scale, dbox2d.Vec2{
-		X: fixed.Q32MustParse("-1.5"),
-		Y: fixed.Q32FromInt(3),
+		X: dbox2d.QMustParse("-1.5"),
+		Y: dbox2d.QFromInt(3),
 	})
 	d.barId1 = dbox2d.CreateBody(worldId, &bodyDef)
 	dbox2d.CreateCapsuleShape(d.barId1, &shapeDef, &capsule)
 
 	bodyDef.Position = dbox2d.MulAdd(position, scale, dbox2d.Vec2{
-		X: fixed.Q32MustParse("1.5"),
-		Y: fixed.Q32FromInt(3),
+		X: dbox2d.QMustParse("1.5"),
+		Y: dbox2d.QFromInt(3),
 	})
 	d.barId2 = dbox2d.CreateBody(worldId, &bodyDef)
 	dbox2d.CreateCapsuleShape(d.barId2, &shapeDef, &capsule)
@@ -65,33 +64,33 @@ func (d *doohickey) spawn(worldId dbox2d.WorldId, position dbox2d.Vec2, scale db
 	revoluteDef.BodyIdA = d.wheelId1
 	revoluteDef.BodyIdB = d.barId1
 	revoluteDef.LocalAnchorA = dbox2d.Vec2{}
-	revoluteDef.LocalAnchorB = dbox2d.Vec2{X: fixed.Q32MustParse("-3.5").Mul(scale)}
+	revoluteDef.LocalAnchorB = dbox2d.Vec2{X: dbox2d.QMustParse("-3.5").Mul(scale)}
 	revoluteDef.EnableMotor = true
-	revoluteDef.MaxMotorTorque = fixed.Q32FromInt(2).Mul(scale)
+	revoluteDef.MaxMotorTorque = dbox2d.QFromInt(2).Mul(scale)
 	d.axleId1 = dbox2d.CreateRevoluteJoint(worldId, &revoluteDef)
 
 	revoluteDef.BodyIdA = d.wheelId2
 	revoluteDef.BodyIdB = d.barId2
 	revoluteDef.LocalAnchorA = dbox2d.Vec2{}
-	revoluteDef.LocalAnchorB = dbox2d.Vec2{X: fixed.Q32MustParse("3.5").Mul(scale)}
+	revoluteDef.LocalAnchorB = dbox2d.Vec2{X: dbox2d.QMustParse("3.5").Mul(scale)}
 	revoluteDef.EnableMotor = true
-	revoluteDef.MaxMotorTorque = fixed.Q32FromInt(2).Mul(scale)
+	revoluteDef.MaxMotorTorque = dbox2d.QFromInt(2).Mul(scale)
 	d.axleId2 = dbox2d.CreateRevoluteJoint(worldId, &revoluteDef)
 
 	prismaticDef := dbox2d.DefaultPrismaticJointDef()
 	prismaticDef.BodyIdA = d.barId1
 	prismaticDef.BodyIdB = d.barId2
-	prismaticDef.LocalAxisA = dbox2d.Vec2{X: fixed.Q32One()}
-	prismaticDef.LocalAnchorA = dbox2d.Vec2{X: fixed.Q32FromInt(2).Mul(scale)}
-	prismaticDef.LocalAnchorB = dbox2d.Vec2{X: fixed.Q32FromInt(-2).Mul(scale)}
-	prismaticDef.LowerTranslation = fixed.Q32FromInt(-2).Mul(scale)
-	prismaticDef.UpperTranslation = fixed.Q32FromInt(2).Mul(scale)
+	prismaticDef.LocalAxisA = dbox2d.Vec2{X: dbox2d.QOne()}
+	prismaticDef.LocalAnchorA = dbox2d.Vec2{X: dbox2d.QFromInt(2).Mul(scale)}
+	prismaticDef.LocalAnchorB = dbox2d.Vec2{X: dbox2d.QFromInt(-2).Mul(scale)}
+	prismaticDef.LowerTranslation = dbox2d.QFromInt(-2).Mul(scale)
+	prismaticDef.UpperTranslation = dbox2d.QFromInt(2).Mul(scale)
 	prismaticDef.EnableLimit = true
 	prismaticDef.EnableMotor = true
-	prismaticDef.MaxMotorForce = fixed.Q32FromInt(2).Mul(scale)
+	prismaticDef.MaxMotorForce = dbox2d.QFromInt(2).Mul(scale)
 	prismaticDef.EnableSpring = true
-	prismaticDef.Hertz = fixed.Q32One()
-	prismaticDef.DampingRatio = fixed.Q32Half()
+	prismaticDef.Hertz = dbox2d.QOne()
+	prismaticDef.DampingRatio = dbox2d.QHalf()
 	d.sliderId = dbox2d.CreatePrismaticJoint(worldId, &prismaticDef)
 
 	d.isSpawned = true

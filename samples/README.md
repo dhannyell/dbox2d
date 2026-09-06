@@ -85,7 +85,7 @@ func init() {
 
 The port keeps the reference conventions with three changes. Every
 simulation value is a `dbox2d.Q`; write constants with
-`fixed.Q32MustParse("0.35")` or `fixed.Q32FromRatio(1, 8)`. Every angle is a
+`dbox2d.QMustParse("0.35")` or `dbox2d.QFromRatio(1, 8)`. Every angle is a
 turn, not a radian: `π/2` is `1/4`; a motor speed in rad/s goes through
 `radiansToTurns`. GUI sliders hold a `float64` and convert with
 `FromFloat64` when the value enters the world.

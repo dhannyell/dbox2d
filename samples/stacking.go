@@ -6,7 +6,6 @@ package samples
 
 import (
 	"github.com/dhannyell/dbox2d"
-	"github.com/dhannyell/fixed"
 )
 
 func init() {
@@ -38,24 +37,24 @@ func NewSingleBox(ctx *SampleContext) Sample {
 		ctx.Camera.Zoom = 3.5
 	}
 
-	extent := fixed.Q32One()
+	extent := dbox2d.QOne()
 
 	bodyDef := dbox2d.DefaultBodyDef()
 	groundId := dbox2d.CreateBody(s.WorldId, &bodyDef)
 
-	groundWidth := fixed.Q32FromInt(66).Mul(extent)
+	groundWidth := dbox2d.QFromInt(66).Mul(extent)
 	shapeDef := dbox2d.DefaultShapeDef()
 
 	segment := dbox2d.Segment{
-		Point1: dbox2d.Vec2{X: groundWidth.Neg(), Y: fixed.Q32Zero()},
-		Point2: dbox2d.Vec2{X: groundWidth, Y: fixed.Q32Zero()},
+		Point1: dbox2d.Vec2{X: groundWidth.Neg(), Y: dbox2d.QZero()},
+		Point2: dbox2d.Vec2{X: groundWidth, Y: dbox2d.QZero()},
 	}
 	dbox2d.CreateSegmentShape(groundId, &shapeDef, &segment)
 
 	bodyDef.Type = dbox2d.DynamicBody
 	box := dbox2d.MakeBox(extent, extent)
-	bodyDef.Position = dbox2d.Vec2{X: fixed.Q32Zero(), Y: fixed.Q32One()}
-	bodyDef.LinearVelocity = dbox2d.Vec2{X: fixed.Q32FromInt(5), Y: fixed.Q32Zero()}
+	bodyDef.Position = dbox2d.Vec2{X: dbox2d.QZero(), Y: dbox2d.QOne()}
+	bodyDef.LinearVelocity = dbox2d.Vec2{X: dbox2d.QFromInt(5), Y: dbox2d.QZero()}
 	s.bodyId = dbox2d.CreateBody(s.WorldId, &bodyDef)
 	dbox2d.CreatePolygonShape(s.bodyId, &shapeDef, &box)
 
@@ -92,10 +91,10 @@ func NewTiltedStack(ctx *SampleContext) Sample {
 
 	{
 		bodyDef := dbox2d.DefaultBodyDef()
-		bodyDef.Position = dbox2d.Vec2{Y: fixed.Q32FromInt(-1)}
+		bodyDef.Position = dbox2d.Vec2{Y: dbox2d.QFromInt(-1)}
 		groundID := dbox2d.CreateBody(s.WorldId, &bodyDef)
 
-		box := dbox2d.MakeBox(fixed.Q32FromInt(1000), fixed.Q32One())
+		box := dbox2d.MakeBox(dbox2d.QFromInt(1000), dbox2d.QOne())
 		shapeDef := dbox2d.DefaultShapeDef()
 		dbox2d.CreatePolygonShape(groundID, &shapeDef, &box)
 	}
@@ -104,17 +103,17 @@ func NewTiltedStack(ctx *SampleContext) Sample {
 		s.bodies[i] = dbox2d.BodyId{}
 	}
 
-	box := dbox2d.MakeRoundedBox(fixed.Q32MustParse("0.45"), fixed.Q32MustParse("0.45"), fixed.Q32MustParse("0.05"))
+	box := dbox2d.MakeRoundedBox(dbox2d.QMustParse("0.45"), dbox2d.QMustParse("0.45"), dbox2d.QMustParse("0.05"))
 	shapeDef := dbox2d.DefaultShapeDef()
-	shapeDef.Density = fixed.Q32One()
-	shapeDef.Material.Friction = fixed.Q32MustParse("0.3")
+	shapeDef.Density = dbox2d.QOne()
+	shapeDef.Material.Friction = dbox2d.QMustParse("0.3")
 
-	offset := fixed.Q32MustParse("0.2")
-	dx := fixed.Q32FromInt(5)
-	xroot := dx.Mul(fixed.Q32FromRatio(-1*(tiltedStackColumns-1), 2))
+	offset := dbox2d.QMustParse("0.2")
+	dx := dbox2d.QFromInt(5)
+	xroot := dx.Mul(dbox2d.QFromRatio(-1*(tiltedStackColumns-1), 2))
 
 	for j := range tiltedStackColumns {
-		x := xroot.Add(dx.Mul(fixed.Q32FromInt(j)))
+		x := xroot.Add(dx.Mul(dbox2d.QFromInt(j)))
 
 		for i := range tiltedStackRows {
 			bodyDef := dbox2d.DefaultBodyDef()
@@ -122,8 +121,8 @@ func NewTiltedStack(ctx *SampleContext) Sample {
 
 			n := j*tiltedStackRows + i
 			bodyDef.Position = dbox2d.Vec2{
-				X: x.Add(offset.Mul(fixed.Q32FromInt(i))),
-				Y: fixed.Q32FromRatio(1, 2).Add(fixed.Q32FromInt(i)),
+				X: x.Add(offset.Mul(dbox2d.QFromInt(i))),
+				Y: dbox2d.QFromRatio(1, 2).Add(dbox2d.QFromInt(i)),
 			}
 			bodyID := dbox2d.CreateBody(s.WorldId, &bodyDef)
 
@@ -175,14 +174,14 @@ func NewVerticalStack(ctx *SampleContext) Sample {
 		shapeDef := dbox2d.DefaultShapeDef()
 
 		segment := dbox2d.Segment{
-			Point1: dbox2d.Vec2{X: fixed.Q32FromInt(10)},
-			Point2: dbox2d.Vec2{X: fixed.Q32FromInt(10), Y: fixed.Q32FromInt(20)},
+			Point1: dbox2d.Vec2{X: dbox2d.QFromInt(10)},
+			Point2: dbox2d.Vec2{X: dbox2d.QFromInt(10), Y: dbox2d.QFromInt(20)},
 		}
 		dbox2d.CreateSegmentShape(groundID, &shapeDef, &segment)
 
 		segment = dbox2d.Segment{
-			Point1: dbox2d.Vec2{X: fixed.Q32FromInt(-30)},
-			Point2: dbox2d.Vec2{X: fixed.Q32FromInt(30)},
+			Point1: dbox2d.Vec2{X: dbox2d.QFromInt(-30)},
+			Point2: dbox2d.Vec2{X: dbox2d.QFromInt(30)},
 		}
 		dbox2d.CreateSegmentShape(groundID, &shapeDef, &segment)
 	}
@@ -212,22 +211,22 @@ func (s *VerticalStack) createStacks() {
 		}
 	}
 
-	circle := dbox2d.Circle{Radius: fixed.Q32Half()}
-	box := dbox2d.MakeRoundedBox(fixed.Q32MustParse("0.45"), fixed.Q32MustParse("0.45"), fixed.Q32MustParse("0.05"))
+	circle := dbox2d.Circle{Radius: dbox2d.QHalf()}
+	box := dbox2d.MakeRoundedBox(dbox2d.QMustParse("0.45"), dbox2d.QMustParse("0.45"), dbox2d.QMustParse("0.05"))
 	shapeDef := dbox2d.DefaultShapeDef()
-	shapeDef.Density = fixed.Q32One()
-	shapeDef.Material.Friction = fixed.Q32MustParse("0.3")
+	shapeDef.Density = dbox2d.QOne()
+	shapeDef.Material.Friction = dbox2d.QMustParse("0.3")
 
-	offset := fixed.Q32FromRatio(1, 100)
+	offset := dbox2d.QFromRatio(1, 100)
 	if s.shapeType == verticalStackCircleShape {
-		offset = fixed.Q32Zero()
+		offset = dbox2d.QZero()
 	}
 
-	dx := fixed.Q32FromInt(-3)
-	xroot := fixed.Q32FromInt(8)
+	dx := dbox2d.QFromInt(-3)
+	xroot := dbox2d.QFromInt(8)
 
 	for j := range s.columnCount {
-		x := xroot.Add(dx.Mul(fixed.Q32FromInt(j)))
+		x := xroot.Add(dx.Mul(dbox2d.QFromInt(j)))
 
 		for i := range s.rowCount {
 			bodyDef := dbox2d.DefaultBodyDef()
@@ -240,7 +239,7 @@ func (s *VerticalStack) createStacks() {
 			}
 			bodyDef.Position = dbox2d.Vec2{
 				X: x.Add(shift),
-				Y: fixed.Q32FromRatio(1, 2).Add(fixed.Q32FromInt(i)),
+				Y: dbox2d.QFromRatio(1, 2).Add(dbox2d.QFromInt(i)),
 			}
 			bodyID := dbox2d.CreateBody(s.WorldId, &bodyDef)
 
@@ -277,20 +276,20 @@ func (s *VerticalStack) destroyBullets() {
 }
 
 func (s *VerticalStack) fireBullets() {
-	circle := dbox2d.Circle{Radius: fixed.Q32FromRatio(1, 4)}
-	box := dbox2d.MakeBox(fixed.Q32FromRatio(1, 4), fixed.Q32FromRatio(1, 4))
+	circle := dbox2d.Circle{Radius: dbox2d.QFromRatio(1, 4)}
+	box := dbox2d.MakeBox(dbox2d.QFromRatio(1, 4), dbox2d.QFromRatio(1, 4))
 	shapeDef := dbox2d.DefaultShapeDef()
-	shapeDef.Density = fixed.Q32FromInt(4)
+	shapeDef.Density = dbox2d.QFromInt(4)
 
 	for i := range s.bulletCount {
 		bodyDef := dbox2d.DefaultBodyDef()
 		bodyDef.Type = dbox2d.DynamicBody
 		bodyDef.Position = dbox2d.Vec2{
-			X: fixed.Q32MustParse("-26.7").Sub(fixed.Q32FromInt(i)),
-			Y: fixed.Q32FromInt(6),
+			X: dbox2d.QMustParse("-26.7").Sub(dbox2d.QFromInt(i)),
+			Y: dbox2d.QFromInt(6),
 		}
 		// Bullet speed is linear velocity, so it is not converted to turns.
-		speed := randomFloatRange(fixed.Q32FromInt(200), fixed.Q32FromInt(300))
+		speed := randomFloatRange(dbox2d.QFromInt(200), dbox2d.QFromInt(300))
 		bodyDef.LinearVelocity = dbox2d.Vec2{X: speed}
 		bodyDef.IsBullet = true
 
@@ -365,31 +364,31 @@ func NewCircleStack(ctx *SampleContext) Sample {
 		shapeIndex++
 
 		segment := dbox2d.Segment{
-			Point1: dbox2d.Vec2{X: fixed.Q32FromInt(-10)},
-			Point2: dbox2d.Vec2{X: fixed.Q32FromInt(10)},
+			Point1: dbox2d.Vec2{X: dbox2d.QFromInt(-10)},
+			Point2: dbox2d.Vec2{X: dbox2d.QFromInt(10)},
 		}
 		dbox2d.CreateSegmentShape(groundID, &shapeDef, &segment)
 	}
 
-	s.WorldId.SetGravity(dbox2d.Vec2{Y: fixed.Q32FromInt(-20)})
-	s.WorldId.SetContactTuning(fixed.Q32FromInt(90), fixed.Q32FromInt(10), fixed.Q32FromInt(3))
+	s.WorldId.SetGravity(dbox2d.Vec2{Y: dbox2d.QFromInt(-20)})
+	s.WorldId.SetContactTuning(dbox2d.QFromInt(90), dbox2d.QFromInt(10), dbox2d.QFromInt(3))
 
 	bodyDef := dbox2d.DefaultBodyDef()
 	bodyDef.Type = dbox2d.DynamicBody
-	circle := dbox2d.Circle{Radius: fixed.Q32Half()}
+	circle := dbox2d.Circle{Radius: dbox2d.QHalf()}
 	shapeDef := dbox2d.DefaultShapeDef()
 	shapeDef.EnableHitEvents = true
-	shapeDef.Material.Friction = fixed.Q32Zero()
+	shapeDef.Material.Friction = dbox2d.QZero()
 
-	y := fixed.Q32FromRatio(3, 4)
+	y := dbox2d.QFromRatio(3, 4)
 	for i := range 10 {
 		bodyDef.Position.Y = y
 		bodyID := dbox2d.CreateBody(s.WorldId, &bodyDef)
 		shapeDef.UserData = shapeIndex
-		shapeDef.Density = fixed.Q32FromInt(1 + 4*i)
+		shapeDef.Density = dbox2d.QFromInt(1 + 4*i)
 		shapeIndex++
 		dbox2d.CreateCircleShape(bodyID, &shapeDef, &circle)
-		y = y.Add(fixed.Q32FromRatio(5, 4))
+		y = y.Add(dbox2d.QFromRatio(5, 4))
 	}
 
 	return s
@@ -402,7 +401,7 @@ func (s *CircleStack) Step() {
 	for _, event := range events.HitEvents {
 		indexA, _ := event.ShapeIdA.GetUserData().(int)
 		indexB, _ := event.ShapeIdB.GetUserData().(int)
-		s.Context.Draw.DrawPoint(event.Point, fixed.Q32FromInt(10), dbox2d.ColorWhite)
+		s.Context.Draw.DrawPoint(event.Point, dbox2d.QFromInt(10), dbox2d.ColorWhite)
 		s.events = append(s.events, circleStackEvent{indexA: indexA, indexB: indexB})
 	}
 
@@ -427,30 +426,30 @@ func NewCapsuleStack(ctx *SampleContext) Sample {
 
 	{
 		bodyDef := dbox2d.DefaultBodyDef()
-		bodyDef.Position = dbox2d.Vec2{Y: fixed.Q32FromInt(-1)}
+		bodyDef.Position = dbox2d.Vec2{Y: dbox2d.QFromInt(-1)}
 		groundID := dbox2d.CreateBody(s.WorldId, &bodyDef)
 
 		shapeDef := dbox2d.DefaultShapeDef()
-		polygon := dbox2d.MakeBox(fixed.Q32FromInt(10), fixed.Q32One())
+		polygon := dbox2d.MakeBox(dbox2d.QFromInt(10), dbox2d.QOne())
 		dbox2d.CreatePolygonShape(groundID, &shapeDef, &polygon)
 	}
 
 	bodyDef := dbox2d.DefaultBodyDef()
 	bodyDef.Type = dbox2d.DynamicBody
-	a := fixed.Q32FromRatio(1, 4)
+	a := dbox2d.QFromRatio(1, 4)
 	capsule := dbox2d.Capsule{
-		Center1: dbox2d.Vec2{X: fixed.Q32FromInt(-4).Mul(a)},
-		Center2: dbox2d.Vec2{X: fixed.Q32FromInt(4).Mul(a)},
+		Center1: dbox2d.Vec2{X: dbox2d.QFromInt(-4).Mul(a)},
+		Center2: dbox2d.Vec2{X: dbox2d.QFromInt(4).Mul(a)},
 		Radius:  a,
 	}
 	shapeDef := dbox2d.DefaultShapeDef()
 
-	y := fixed.Q32FromInt(2).Mul(a)
+	y := dbox2d.QFromInt(2).Mul(a)
 	for range 20 {
 		bodyDef.Position.Y = y
 		bodyID := dbox2d.CreateBody(s.WorldId, &bodyDef)
 		dbox2d.CreateCapsuleShape(bodyID, &shapeDef, &capsule)
-		y = y.Add(fixed.Q32FromInt(3).Mul(a))
+		y = y.Add(dbox2d.QFromInt(3).Mul(a))
 	}
 
 	return s
@@ -476,22 +475,22 @@ func NewCliff(ctx *SampleContext) Sample {
 		bodyDef := dbox2d.DefaultBodyDef()
 		groundID := dbox2d.CreateBody(s.WorldId, &bodyDef)
 		shapeDef := dbox2d.DefaultShapeDef()
-		box := dbox2d.MakeOffsetBox(fixed.Q32FromInt(100), fixed.Q32One(), dbox2d.Vec2{Y: fixed.Q32FromInt(-1)}, dbox2d.RotIdentity())
+		box := dbox2d.MakeOffsetBox(dbox2d.QFromInt(100), dbox2d.QOne(), dbox2d.Vec2{Y: dbox2d.QFromInt(-1)}, dbox2d.RotIdentity())
 		dbox2d.CreatePolygonShape(groundID, &shapeDef, &box)
 
 		segment := dbox2d.Segment{
-			Point1: dbox2d.Vec2{X: fixed.Q32FromInt(-14), Y: fixed.Q32FromInt(4)},
-			Point2: dbox2d.Vec2{X: fixed.Q32FromInt(-8), Y: fixed.Q32FromInt(4)},
+			Point1: dbox2d.Vec2{X: dbox2d.QFromInt(-14), Y: dbox2d.QFromInt(4)},
+			Point2: dbox2d.Vec2{X: dbox2d.QFromInt(-8), Y: dbox2d.QFromInt(4)},
 		}
 		dbox2d.CreateSegmentShape(groundID, &shapeDef, &segment)
 
-		box = dbox2d.MakeOffsetBox(fixed.Q32FromInt(3), fixed.Q32FromRatio(1, 2), dbox2d.Vec2{Y: fixed.Q32FromInt(4)}, dbox2d.RotIdentity())
+		box = dbox2d.MakeOffsetBox(dbox2d.QFromInt(3), dbox2d.QFromRatio(1, 2), dbox2d.Vec2{Y: dbox2d.QFromInt(4)}, dbox2d.RotIdentity())
 		dbox2d.CreatePolygonShape(groundID, &shapeDef, &box)
 
 		capsule := dbox2d.Capsule{
-			Center1: dbox2d.Vec2{X: fixed.Q32MustParse("8.5"), Y: fixed.Q32FromInt(4)},
-			Center2: dbox2d.Vec2{X: fixed.Q32MustParse("13.5"), Y: fixed.Q32FromInt(4)},
-			Radius:  fixed.Q32Half(),
+			Center1: dbox2d.Vec2{X: dbox2d.QMustParse("8.5"), Y: dbox2d.QFromInt(4)},
+			Center2: dbox2d.Vec2{X: dbox2d.QMustParse("13.5"), Y: dbox2d.QFromInt(4)},
+			Radius:  dbox2d.QHalf(),
 		}
 		dbox2d.CreateCapsuleShape(groundID, &shapeDef, &capsule)
 	}
@@ -513,82 +512,82 @@ func (s *Cliff) createBodies() {
 		}
 	}
 
-	sign := fixed.Q32One()
+	sign := dbox2d.QOne()
 	if s.flip {
 		sign = sign.Neg()
 	}
 
 	capsule := dbox2d.Capsule{
-		Center1: dbox2d.Vec2{X: fixed.Q32FromRatio(-1, 4)},
-		Center2: dbox2d.Vec2{X: fixed.Q32FromRatio(1, 4)},
-		Radius:  fixed.Q32FromRatio(1, 4),
+		Center1: dbox2d.Vec2{X: dbox2d.QFromRatio(-1, 4)},
+		Center2: dbox2d.Vec2{X: dbox2d.QFromRatio(1, 4)},
+		Radius:  dbox2d.QFromRatio(1, 4),
 	}
-	circle := dbox2d.Circle{Radius: fixed.Q32Half()}
-	square := dbox2d.MakeSquare(fixed.Q32Half())
+	circle := dbox2d.Circle{Radius: dbox2d.QHalf()}
+	square := dbox2d.MakeSquare(dbox2d.QHalf())
 
 	bodyDef := dbox2d.DefaultBodyDef()
 	bodyDef.Type = dbox2d.DynamicBody
 
 	{
 		shapeDef := dbox2d.DefaultShapeDef()
-		shapeDef.Material.Friction = fixed.Q32FromRatio(1, 100)
-		bodyDef.LinearVelocity = dbox2d.Vec2{X: fixed.Q32FromInt(2).Mul(sign)}
+		shapeDef.Material.Friction = dbox2d.QFromRatio(1, 100)
+		bodyDef.LinearVelocity = dbox2d.Vec2{X: dbox2d.QFromInt(2).Mul(sign)}
 
-		offset := fixed.Q32Zero()
+		offset := dbox2d.QZero()
 		if s.flip {
-			offset = fixed.Q32FromInt(-4)
+			offset = dbox2d.QFromInt(-4)
 		}
 
-		bodyDef.Position = dbox2d.Vec2{X: fixed.Q32FromInt(-9).Add(offset), Y: fixed.Q32MustParse("4.25")}
+		bodyDef.Position = dbox2d.Vec2{X: dbox2d.QFromInt(-9).Add(offset), Y: dbox2d.QMustParse("4.25")}
 		s.bodyIDs[0] = dbox2d.CreateBody(s.WorldId, &bodyDef)
 		dbox2d.CreateCapsuleShape(s.bodyIDs[0], &shapeDef, &capsule)
 
-		bodyDef.Position = dbox2d.Vec2{X: fixed.Q32FromInt(2).Add(offset), Y: fixed.Q32MustParse("4.75")}
+		bodyDef.Position = dbox2d.Vec2{X: dbox2d.QFromInt(2).Add(offset), Y: dbox2d.QMustParse("4.75")}
 		s.bodyIDs[1] = dbox2d.CreateBody(s.WorldId, &bodyDef)
 		dbox2d.CreateCapsuleShape(s.bodyIDs[1], &shapeDef, &capsule)
 
-		bodyDef.Position = dbox2d.Vec2{X: fixed.Q32FromInt(13).Add(offset), Y: fixed.Q32MustParse("4.75")}
+		bodyDef.Position = dbox2d.Vec2{X: dbox2d.QFromInt(13).Add(offset), Y: dbox2d.QMustParse("4.75")}
 		s.bodyIDs[2] = dbox2d.CreateBody(s.WorldId, &bodyDef)
 		dbox2d.CreateCapsuleShape(s.bodyIDs[2], &shapeDef, &capsule)
 	}
 
 	{
 		shapeDef := dbox2d.DefaultShapeDef()
-		shapeDef.Material.Friction = fixed.Q32FromRatio(1, 100)
-		bodyDef.LinearVelocity = dbox2d.Vec2{X: fixed.Q32MustParse("2.5").Mul(sign)}
+		shapeDef.Material.Friction = dbox2d.QFromRatio(1, 100)
+		bodyDef.LinearVelocity = dbox2d.Vec2{X: dbox2d.QMustParse("2.5").Mul(sign)}
 
-		bodyDef.Position = dbox2d.Vec2{X: fixed.Q32FromInt(-11), Y: fixed.Q32MustParse("4.5")}
+		bodyDef.Position = dbox2d.Vec2{X: dbox2d.QFromInt(-11), Y: dbox2d.QMustParse("4.5")}
 		s.bodyIDs[3] = dbox2d.CreateBody(s.WorldId, &bodyDef)
 		dbox2d.CreatePolygonShape(s.bodyIDs[3], &shapeDef, &square)
 
-		bodyDef.Position = dbox2d.Vec2{Y: fixed.Q32FromInt(5)}
+		bodyDef.Position = dbox2d.Vec2{Y: dbox2d.QFromInt(5)}
 		s.bodyIDs[4] = dbox2d.CreateBody(s.WorldId, &bodyDef)
 		dbox2d.CreatePolygonShape(s.bodyIDs[4], &shapeDef, &square)
 
-		bodyDef.Position = dbox2d.Vec2{X: fixed.Q32FromInt(11), Y: fixed.Q32FromInt(5)}
+		bodyDef.Position = dbox2d.Vec2{X: dbox2d.QFromInt(11), Y: dbox2d.QFromInt(5)}
 		s.bodyIDs[5] = dbox2d.CreateBody(s.WorldId, &bodyDef)
 		dbox2d.CreatePolygonShape(s.bodyIDs[5], &shapeDef, &square)
 	}
 
 	{
 		shapeDef := dbox2d.DefaultShapeDef()
-		shapeDef.Material.Friction = fixed.Q32FromRatio(1, 5)
-		bodyDef.LinearVelocity = dbox2d.Vec2{X: fixed.Q32MustParse("1.5").Mul(sign)}
+		shapeDef.Material.Friction = dbox2d.QFromRatio(1, 5)
+		bodyDef.LinearVelocity = dbox2d.Vec2{X: dbox2d.QMustParse("1.5").Mul(sign)}
 
-		offset := fixed.Q32Zero()
+		offset := dbox2d.QZero()
 		if s.flip {
-			offset = fixed.Q32FromInt(4)
+			offset = dbox2d.QFromInt(4)
 		}
 
-		bodyDef.Position = dbox2d.Vec2{X: fixed.Q32FromInt(-13).Add(offset), Y: fixed.Q32MustParse("4.5")}
+		bodyDef.Position = dbox2d.Vec2{X: dbox2d.QFromInt(-13).Add(offset), Y: dbox2d.QMustParse("4.5")}
 		s.bodyIDs[6] = dbox2d.CreateBody(s.WorldId, &bodyDef)
 		dbox2d.CreateCircleShape(s.bodyIDs[6], &shapeDef, &circle)
 
-		bodyDef.Position = dbox2d.Vec2{X: fixed.Q32FromInt(-2).Add(offset), Y: fixed.Q32FromInt(5)}
+		bodyDef.Position = dbox2d.Vec2{X: dbox2d.QFromInt(-2).Add(offset), Y: dbox2d.QFromInt(5)}
 		s.bodyIDs[7] = dbox2d.CreateBody(s.WorldId, &bodyDef)
 		dbox2d.CreateCircleShape(s.bodyIDs[7], &shapeDef, &circle)
 
-		bodyDef.Position = dbox2d.Vec2{X: fixed.Q32FromInt(9).Add(offset), Y: fixed.Q32FromInt(5)}
+		bodyDef.Position = dbox2d.Vec2{X: dbox2d.QFromInt(9).Add(offset), Y: dbox2d.QFromInt(5)}
 		s.bodyIDs[8] = dbox2d.CreateBody(s.WorldId, &bodyDef)
 		dbox2d.CreateCircleShape(s.bodyIDs[8], &shapeDef, &circle)
 	}
@@ -621,29 +620,29 @@ func NewArch(ctx *SampleContext) Sample {
 	}
 
 	ps1 := [9]dbox2d.Vec2{
-		{X: fixed.Q32MustParse("16.0"), Y: fixed.Q32MustParse("0.0")},
-		{X: fixed.Q32MustParse("14.93803712795643"), Y: fixed.Q32MustParse("5.133601056842984")},
-		{X: fixed.Q32MustParse("13.79871746027416"), Y: fixed.Q32MustParse("10.24928069555078")},
-		{X: fixed.Q32MustParse("12.56252963284711"), Y: fixed.Q32MustParse("15.34107019122473")},
-		{X: fixed.Q32MustParse("11.20040987372525"), Y: fixed.Q32MustParse("20.39856541571217")},
-		{X: fixed.Q32MustParse("9.66521217819836"), Y: fixed.Q32MustParse("25.40369899225096")},
-		{X: fixed.Q32MustParse("7.87179930638133"), Y: fixed.Q32MustParse("30.3179337000085")},
-		{X: fixed.Q32MustParse("5.635199558196225"), Y: fixed.Q32MustParse("35.03820717801641")},
-		{X: fixed.Q32MustParse("2.405937953536585"), Y: fixed.Q32MustParse("39.09554102558315")},
+		{X: dbox2d.QMustParse("16.0"), Y: dbox2d.QMustParse("0.0")},
+		{X: dbox2d.QMustParse("14.93803712795643"), Y: dbox2d.QMustParse("5.133601056842984")},
+		{X: dbox2d.QMustParse("13.79871746027416"), Y: dbox2d.QMustParse("10.24928069555078")},
+		{X: dbox2d.QMustParse("12.56252963284711"), Y: dbox2d.QMustParse("15.34107019122473")},
+		{X: dbox2d.QMustParse("11.20040987372525"), Y: dbox2d.QMustParse("20.39856541571217")},
+		{X: dbox2d.QMustParse("9.66521217819836"), Y: dbox2d.QMustParse("25.40369899225096")},
+		{X: dbox2d.QMustParse("7.87179930638133"), Y: dbox2d.QMustParse("30.3179337000085")},
+		{X: dbox2d.QMustParse("5.635199558196225"), Y: dbox2d.QMustParse("35.03820717801641")},
+		{X: dbox2d.QMustParse("2.405937953536585"), Y: dbox2d.QMustParse("39.09554102558315")},
 	}
 	ps2 := [9]dbox2d.Vec2{
-		{X: fixed.Q32MustParse("24.0"), Y: fixed.Q32MustParse("0.0")},
-		{X: fixed.Q32MustParse("22.33619528222415"), Y: fixed.Q32MustParse("6.02299846205841")},
-		{X: fixed.Q32MustParse("20.54936888969905"), Y: fixed.Q32MustParse("12.00964361211476")},
-		{X: fixed.Q32MustParse("18.60854610798073"), Y: fixed.Q32MustParse("17.9470321677465")},
-		{X: fixed.Q32MustParse("16.46769273811807"), Y: fixed.Q32MustParse("23.81367936585418")},
-		{X: fixed.Q32MustParse("14.05325025774858"), Y: fixed.Q32MustParse("29.57079353071012")},
-		{X: fixed.Q32MustParse("11.23551045834022"), Y: fixed.Q32MustParse("35.13775818285372")},
-		{X: fixed.Q32MustParse("7.752568160730571"), Y: fixed.Q32MustParse("40.30450679009583")},
-		{X: fixed.Q32MustParse("3.016931552701656"), Y: fixed.Q32MustParse("44.28891593799322")},
+		{X: dbox2d.QMustParse("24.0"), Y: dbox2d.QMustParse("0.0")},
+		{X: dbox2d.QMustParse("22.33619528222415"), Y: dbox2d.QMustParse("6.02299846205841")},
+		{X: dbox2d.QMustParse("20.54936888969905"), Y: dbox2d.QMustParse("12.00964361211476")},
+		{X: dbox2d.QMustParse("18.60854610798073"), Y: dbox2d.QMustParse("17.9470321677465")},
+		{X: dbox2d.QMustParse("16.46769273811807"), Y: dbox2d.QMustParse("23.81367936585418")},
+		{X: dbox2d.QMustParse("14.05325025774858"), Y: dbox2d.QMustParse("29.57079353071012")},
+		{X: dbox2d.QMustParse("11.23551045834022"), Y: dbox2d.QMustParse("35.13775818285372")},
+		{X: dbox2d.QMustParse("7.752568160730571"), Y: dbox2d.QMustParse("40.30450679009583")},
+		{X: dbox2d.QMustParse("3.016931552701656"), Y: dbox2d.QMustParse("44.28891593799322")},
 	}
 
-	scale := fixed.Q32FromRatio(1, 4)
+	scale := dbox2d.QFromRatio(1, 4)
 	for i := range ps1 {
 		ps1[i].X = ps1[i].X.Mul(scale)
 		ps1[i].Y = ps1[i].Y.Mul(scale)
@@ -652,14 +651,14 @@ func NewArch(ctx *SampleContext) Sample {
 	}
 
 	shapeDef := dbox2d.DefaultShapeDef()
-	shapeDef.Material.Friction = fixed.Q32MustParse("0.6")
+	shapeDef.Material.Friction = dbox2d.QMustParse("0.6")
 
 	{
 		bodyDef := dbox2d.DefaultBodyDef()
 		groundID := dbox2d.CreateBody(s.WorldId, &bodyDef)
 		segment := dbox2d.Segment{
-			Point1: dbox2d.Vec2{X: fixed.Q32FromInt(-100)},
-			Point2: dbox2d.Vec2{X: fixed.Q32FromInt(100)},
+			Point1: dbox2d.Vec2{X: dbox2d.QFromInt(-100)},
+			Point2: dbox2d.Vec2{X: dbox2d.QFromInt(100)},
 		}
 		dbox2d.CreateSegmentShape(groundID, &shapeDef, &segment)
 	}
@@ -670,7 +669,7 @@ func NewArch(ctx *SampleContext) Sample {
 		bodyID := dbox2d.CreateBody(s.WorldId, &bodyDef)
 		points := []dbox2d.Vec2{ps1[i], ps2[i], ps2[i+1], ps1[i+1]}
 		hull := dbox2d.ComputeHull(points)
-		polygon := dbox2d.MakePolygon(&hull, fixed.Q32Zero())
+		polygon := dbox2d.MakePolygon(&hull, dbox2d.QZero())
 		dbox2d.CreatePolygonShape(bodyID, &shapeDef, &polygon)
 	}
 
@@ -683,7 +682,7 @@ func NewArch(ctx *SampleContext) Sample {
 			{X: ps2[i+1].X.Neg(), Y: ps2[i+1].Y},
 		}
 		hull := dbox2d.ComputeHull(points)
-		polygon := dbox2d.MakePolygon(&hull, fixed.Q32Zero())
+		polygon := dbox2d.MakePolygon(&hull, dbox2d.QZero())
 		dbox2d.CreatePolygonShape(bodyID, &shapeDef, &polygon)
 	}
 
@@ -695,14 +694,14 @@ func NewArch(ctx *SampleContext) Sample {
 			{X: ps1[8].X.Neg(), Y: ps1[8].Y},
 		}
 		hull := dbox2d.ComputeHull(points)
-		polygon := dbox2d.MakePolygon(&hull, fixed.Q32Zero())
+		polygon := dbox2d.MakePolygon(&hull, dbox2d.QZero())
 		dbox2d.CreatePolygonShape(bodyID, &shapeDef, &polygon)
 	}
 
-	box := dbox2d.MakeBox(fixed.Q32FromInt(2), fixed.Q32Half())
+	box := dbox2d.MakeBox(dbox2d.QFromInt(2), dbox2d.QHalf())
 	for i := range 4 {
 		bodyDef.Position = dbox2d.Vec2{
-			Y: fixed.Q32Half().Add(ps2[8].Y).Add(fixed.Q32FromInt(i)),
+			Y: dbox2d.QHalf().Add(ps2[8].Y).Add(dbox2d.QFromInt(i)),
 		}
 		bodyID := dbox2d.CreateBody(s.WorldId, &bodyDef)
 		dbox2d.CreatePolygonShape(bodyID, &shapeDef, &box)
@@ -727,32 +726,32 @@ func NewDoubleDomino(ctx *SampleContext) Sample {
 
 	{
 		bodyDef := dbox2d.DefaultBodyDef()
-		bodyDef.Position = dbox2d.Vec2{Y: fixed.Q32FromInt(-1)}
+		bodyDef.Position = dbox2d.Vec2{Y: dbox2d.QFromInt(-1)}
 		groundID := dbox2d.CreateBody(s.WorldId, &bodyDef)
-		box := dbox2d.MakeBox(fixed.Q32FromInt(100), fixed.Q32FromInt(1))
+		box := dbox2d.MakeBox(dbox2d.QFromInt(100), dbox2d.QFromInt(1))
 		shapeDef := dbox2d.DefaultShapeDef()
 		dbox2d.CreatePolygonShape(groundID, &shapeDef, &box)
 	}
 
-	box := dbox2d.MakeBox(fixed.Q32FromRatio(1, 8), fixed.Q32Half())
+	box := dbox2d.MakeBox(dbox2d.QFromRatio(1, 8), dbox2d.QHalf())
 	shapeDef := dbox2d.DefaultShapeDef()
-	shapeDef.Material.Friction = fixed.Q32MustParse("0.6")
+	shapeDef.Material.Friction = dbox2d.QMustParse("0.6")
 	bodyDef := dbox2d.DefaultBodyDef()
 	bodyDef.Type = dbox2d.DynamicBody
 	count := 15
-	x := fixed.Q32FromRatio(-count, 2)
+	x := dbox2d.QFromRatio(-count, 2)
 	for i := range count {
-		bodyDef.Position = dbox2d.Vec2{X: x, Y: fixed.Q32Half()}
+		bodyDef.Position = dbox2d.Vec2{X: x, Y: dbox2d.QHalf()}
 		bodyID := dbox2d.CreateBody(s.WorldId, &bodyDef)
 		dbox2d.CreatePolygonShape(bodyID, &shapeDef, &box)
 		if i == 0 {
 			bodyID.ApplyLinearImpulse(
-				dbox2d.Vec2{X: fixed.Q32MustParse("0.2")},
-				dbox2d.Vec2{X: x, Y: fixed.Q32FromInt(1)},
+				dbox2d.Vec2{X: dbox2d.QMustParse("0.2")},
+				dbox2d.Vec2{X: x, Y: dbox2d.QFromInt(1)},
 				true,
 			)
 		}
-		x = x.Add(fixed.Q32One())
+		x = x.Add(dbox2d.QOne())
 	}
 
 	return s
@@ -785,27 +784,27 @@ func NewConfined(ctx *SampleContext) Sample {
 		groundID := dbox2d.CreateBody(s.WorldId, &bodyDef)
 		shapeDef := dbox2d.DefaultShapeDef()
 		capsule := dbox2d.Capsule{
-			Center1: dbox2d.Vec2{X: fixed.Q32MustParse("-10.5")},
-			Center2: dbox2d.Vec2{X: fixed.Q32MustParse("10.5")},
-			Radius:  fixed.Q32Half(),
+			Center1: dbox2d.Vec2{X: dbox2d.QMustParse("-10.5")},
+			Center2: dbox2d.Vec2{X: dbox2d.QMustParse("10.5")},
+			Radius:  dbox2d.QHalf(),
 		}
 		dbox2d.CreateCapsuleShape(groundID, &shapeDef, &capsule)
 		capsule = dbox2d.Capsule{
-			Center1: dbox2d.Vec2{X: fixed.Q32MustParse("-10.5")},
-			Center2: dbox2d.Vec2{X: fixed.Q32MustParse("-10.5"), Y: fixed.Q32MustParse("20.5")},
-			Radius:  fixed.Q32Half(),
+			Center1: dbox2d.Vec2{X: dbox2d.QMustParse("-10.5")},
+			Center2: dbox2d.Vec2{X: dbox2d.QMustParse("-10.5"), Y: dbox2d.QMustParse("20.5")},
+			Radius:  dbox2d.QHalf(),
 		}
 		dbox2d.CreateCapsuleShape(groundID, &shapeDef, &capsule)
 		capsule = dbox2d.Capsule{
-			Center1: dbox2d.Vec2{X: fixed.Q32MustParse("10.5")},
-			Center2: dbox2d.Vec2{X: fixed.Q32MustParse("10.5"), Y: fixed.Q32MustParse("20.5")},
-			Radius:  fixed.Q32Half(),
+			Center1: dbox2d.Vec2{X: dbox2d.QMustParse("10.5")},
+			Center2: dbox2d.Vec2{X: dbox2d.QMustParse("10.5"), Y: dbox2d.QMustParse("20.5")},
+			Radius:  dbox2d.QHalf(),
 		}
 		dbox2d.CreateCapsuleShape(groundID, &shapeDef, &capsule)
 		capsule = dbox2d.Capsule{
-			Center1: dbox2d.Vec2{X: fixed.Q32MustParse("-10.5"), Y: fixed.Q32MustParse("20.5")},
-			Center2: dbox2d.Vec2{X: fixed.Q32MustParse("10.5"), Y: fixed.Q32MustParse("20.5")},
-			Radius:  fixed.Q32Half(),
+			Center1: dbox2d.Vec2{X: dbox2d.QMustParse("-10.5"), Y: dbox2d.QMustParse("20.5")},
+			Center2: dbox2d.Vec2{X: dbox2d.QMustParse("10.5"), Y: dbox2d.QMustParse("20.5")},
+			Radius:  dbox2d.QHalf(),
 		}
 		dbox2d.CreateCapsuleShape(groundID, &shapeDef, &capsule)
 	}
@@ -815,15 +814,15 @@ func NewConfined(ctx *SampleContext) Sample {
 	s.count = 0
 	bodyDef := dbox2d.DefaultBodyDef()
 	bodyDef.Type = dbox2d.DynamicBody
-	bodyDef.GravityScale = fixed.Q32Zero()
+	bodyDef.GravityScale = dbox2d.QZero()
 	shapeDef := dbox2d.DefaultShapeDef()
-	circle := dbox2d.Circle{Radius: fixed.Q32Half()}
-	step := fixed.Q32FromRatio(18, confinedGridCount)
+	circle := dbox2d.Circle{Radius: dbox2d.QHalf()}
+	step := dbox2d.QFromRatio(18, confinedGridCount)
 	for s.count < confinedMaxCount {
 		s.row = 0
 		for range confinedGridCount {
-			x := fixed.Q32MustParse("-8.75").Add(fixed.Q32FromInt(s.column).Mul(step))
-			y := fixed.Q32MustParse("1.5").Add(fixed.Q32FromInt(s.row).Mul(step))
+			x := dbox2d.QMustParse("-8.75").Add(dbox2d.QFromInt(s.column).Mul(step))
+			y := dbox2d.QMustParse("1.5").Add(dbox2d.QFromInt(s.row).Mul(step))
 			bodyDef.Position = dbox2d.Vec2{X: x, Y: y}
 			bodyID := dbox2d.CreateBody(s.WorldId, &bodyDef)
 			dbox2d.CreateCircleShape(bodyID, &shapeDef, &circle)
@@ -851,31 +850,31 @@ func NewCardHouse(ctx *SampleContext) Sample {
 	}
 
 	bodyDef := dbox2d.DefaultBodyDef()
-	bodyDef.Position = dbox2d.Vec2{Y: fixed.Q32FromInt(-2)}
+	bodyDef.Position = dbox2d.Vec2{Y: dbox2d.QFromInt(-2)}
 	groundID := dbox2d.CreateBody(s.WorldId, &bodyDef)
 	shapeDef := dbox2d.DefaultShapeDef()
-	shapeDef.Material.Friction = fixed.Q32MustParse("0.7")
-	groundBox := dbox2d.MakeBox(fixed.Q32FromInt(40), fixed.Q32FromInt(2))
+	shapeDef.Material.Friction = dbox2d.QMustParse("0.7")
+	groundBox := dbox2d.MakeBox(dbox2d.QFromInt(40), dbox2d.QFromInt(2))
 	dbox2d.CreatePolygonShape(groundID, &shapeDef, &groundBox)
 
-	cardHeight := fixed.Q32MustParse("0.2")
-	cardThickness := fixed.Q32MustParse("0.001")
-	angle0 := fixed.Q32FromRatio(5, 72)
+	cardHeight := dbox2d.QMustParse("0.2")
+	cardThickness := dbox2d.QMustParse("0.001")
+	angle0 := dbox2d.QFromRatio(5, 72)
 	angle1 := angle0.Neg()
-	angle2 := fixed.Q32FromRatio(1, 4)
+	angle2 := dbox2d.QFromRatio(1, 4)
 	cardBox := dbox2d.MakeBox(cardThickness, cardHeight)
 	bodyDef.Type = dbox2d.DynamicBody
 
 	nb := 5
-	z0 := fixed.Q32Zero()
-	y := cardHeight.Sub(fixed.Q32MustParse("0.02"))
+	z0 := dbox2d.QZero()
+	y := cardHeight.Sub(dbox2d.QMustParse("0.02"))
 	for nb > 0 {
 		z := z0
 		for i := range nb {
 			if i != nb-1 {
 				bodyDef.Position = dbox2d.Vec2{
-					X: z.Add(fixed.Q32MustParse("0.25")),
-					Y: y.Add(cardHeight).Sub(fixed.Q32MustParse("0.015")),
+					X: z.Add(dbox2d.QMustParse("0.25")),
+					Y: y.Add(cardHeight).Sub(dbox2d.QMustParse("0.015")),
 				}
 				bodyDef.Rotation = dbox2d.MakeRot(angle2)
 				bodyID := dbox2d.CreateBody(s.WorldId, &bodyDef)
@@ -887,16 +886,16 @@ func NewCardHouse(ctx *SampleContext) Sample {
 			bodyID := dbox2d.CreateBody(s.WorldId, &bodyDef)
 			dbox2d.CreatePolygonShape(bodyID, &shapeDef, &cardBox)
 
-			z = z.Add(fixed.Q32MustParse("0.175"))
+			z = z.Add(dbox2d.QMustParse("0.175"))
 			bodyDef.Position = dbox2d.Vec2{X: z, Y: y}
 			bodyDef.Rotation = dbox2d.MakeRot(angle0)
 			bodyID = dbox2d.CreateBody(s.WorldId, &bodyDef)
 			dbox2d.CreatePolygonShape(bodyID, &shapeDef, &cardBox)
 
-			z = z.Add(fixed.Q32MustParse("0.175"))
+			z = z.Add(dbox2d.QMustParse("0.175"))
 		}
-		y = y.Add(cardHeight.Mul(fixed.Q32FromInt(2))).Sub(fixed.Q32MustParse("0.03"))
-		z0 = z0.Add(fixed.Q32MustParse("0.175"))
+		y = y.Add(cardHeight.Mul(dbox2d.QFromInt(2))).Sub(dbox2d.QMustParse("0.03"))
+		z0 = z0.Add(dbox2d.QMustParse("0.175"))
 		nb--
 	}
 

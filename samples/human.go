@@ -6,7 +6,6 @@ package samples
 
 import (
 	"github.com/dhannyell/dbox2d"
-	"github.com/dhannyell/fixed"
 )
 
 type boneId int
@@ -51,23 +50,23 @@ func createHuman(worldId dbox2d.WorldId, position dbox2d.Vec2, scale, frictionTo
 	for i := range h.bones {
 		h.bones[i].bodyId = dbox2d.BodyId{}
 		h.bones[i].jointId = dbox2d.JointId{}
-		h.bones[i].frictionScale = fixed.Q32One()
+		h.bones[i].frictionScale = dbox2d.QOne()
 		h.bones[i].parentIndex = -1
 	}
 
 	bodyDef := dbox2d.DefaultBodyDef()
 	bodyDef.Type = dbox2d.DynamicBody
-	bodyDef.SleepThreshold = fixed.Q32MustParse("0.1")
+	bodyDef.SleepThreshold = dbox2d.QMustParse("0.1")
 	bodyDef.UserData = userData
 
 	shapeDef := dbox2d.DefaultShapeDef()
-	shapeDef.Material.Friction = fixed.Q32MustParse("0.2")
+	shapeDef.Material.Friction = dbox2d.QMustParse("0.2")
 	shapeDef.Filter.GroupIndex = -groupIndex
 	shapeDef.Filter.CategoryBits = 2
 	shapeDef.Filter.MaskBits = 1 | 2
 
 	footShapeDef := shapeDef
-	footShapeDef.Material.Friction = fixed.Q32MustParse("0.05")
+	footShapeDef.Material.Friction = dbox2d.QMustParse("0.05")
 	footShapeDef.Filter.CategoryBits = 2
 	footShapeDef.Filter.MaskBits = 1
 
@@ -79,7 +78,7 @@ func createHuman(worldId dbox2d.WorldId, position dbox2d.Vec2, scale, frictionTo
 	maxTorque := frictionTorque.Mul(s)
 	enableMotor := true
 	enableLimit := true
-	drawSize := fixed.Q32MustParse("0.05")
+	drawSize := dbox2d.QMustParse("0.05")
 
 	shirtColor := dbox2d.ColorMediumTurquoise
 	pantColor := dbox2d.ColorDodgerBlue
@@ -95,8 +94,8 @@ func createHuman(worldId dbox2d.WorldId, position dbox2d.Vec2, scale, frictionTo
 		bone := &h.bones[boneHip]
 		bone.parentIndex = -1
 
-		bodyDef.Position = dbox2d.Vec2{Y: fixed.Q32MustParse("0.95").Mul(s)}.Add(position)
-		bodyDef.LinearDamping = fixed.Q32Zero()
+		bodyDef.Position = dbox2d.Vec2{Y: dbox2d.QMustParse("0.95").Mul(s)}.Add(position)
+		bodyDef.LinearDamping = dbox2d.QZero()
 		bodyDef.Name = "hip"
 
 		bone.bodyId = dbox2d.CreateBody(worldId, &bodyDef)
@@ -106,9 +105,9 @@ func createHuman(worldId dbox2d.WorldId, position dbox2d.Vec2, scale, frictionTo
 		}
 
 		capsule := dbox2d.Capsule{
-			Center1: dbox2d.Vec2{Y: fixed.Q32MustParse("-0.02").Mul(s)},
-			Center2: dbox2d.Vec2{Y: fixed.Q32MustParse("0.02").Mul(s)},
-			Radius:  fixed.Q32MustParse("0.095").Mul(s),
+			Center1: dbox2d.Vec2{Y: dbox2d.QMustParse("-0.02").Mul(s)},
+			Center2: dbox2d.Vec2{Y: dbox2d.QMustParse("0.02").Mul(s)},
+			Radius:  dbox2d.QMustParse("0.095").Mul(s),
 		}
 		dbox2d.CreateCapsuleShape(bone.bodyId, &shapeDef, &capsule)
 	}
@@ -117,12 +116,12 @@ func createHuman(worldId dbox2d.WorldId, position dbox2d.Vec2, scale, frictionTo
 		bone := &h.bones[boneTorso]
 		bone.parentIndex = int(boneHip)
 
-		bodyDef.Position = dbox2d.Vec2{Y: fixed.Q32MustParse("1.2").Mul(s)}.Add(position)
-		bodyDef.LinearDamping = fixed.Q32Zero()
+		bodyDef.Position = dbox2d.Vec2{Y: dbox2d.QMustParse("1.2").Mul(s)}.Add(position)
+		bodyDef.LinearDamping = dbox2d.QZero()
 		bodyDef.Name = "torso"
 
 		bone.bodyId = dbox2d.CreateBody(worldId, &bodyDef)
-		bone.frictionScale = fixed.Q32Half()
+		bone.frictionScale = dbox2d.QHalf()
 		bodyDef.Type = dbox2d.DynamicBody
 
 		if colorize {
@@ -130,9 +129,9 @@ func createHuman(worldId dbox2d.WorldId, position dbox2d.Vec2, scale, frictionTo
 		}
 
 		capsule := dbox2d.Capsule{
-			Center1: dbox2d.Vec2{Y: fixed.Q32MustParse("-0.135").Mul(s)},
-			Center2: dbox2d.Vec2{Y: fixed.Q32MustParse("0.135").Mul(s)},
-			Radius:  fixed.Q32MustParse("0.09").Mul(s),
+			Center1: dbox2d.Vec2{Y: dbox2d.QMustParse("-0.135").Mul(s)},
+			Center2: dbox2d.Vec2{Y: dbox2d.QMustParse("0.135").Mul(s)},
+			Radius:  dbox2d.QMustParse("0.09").Mul(s),
 		}
 		dbox2d.CreateCapsuleShape(bone.bodyId, &shapeDef, &capsule)
 
@@ -144,11 +143,11 @@ func createHuman(worldId dbox2d.WorldId, position dbox2d.Vec2, scale, frictionTo
 		jointDef.LocalAnchorB = jointDef.BodyIdB.GetLocalPoint(pivot)
 		jointDef.EnableLimit = enableLimit
 		// Joint angles use turns; the reference values are multiples of pi.
-		jointDef.LowerAngle = fixed.Q32FromRatio(-1, 8)
-		jointDef.UpperAngle = fixed.Q32Zero()
+		jointDef.LowerAngle = dbox2d.QFromRatio(-1, 8)
+		jointDef.UpperAngle = dbox2d.QZero()
 		jointDef.EnableMotor = enableMotor
 		jointDef.MaxMotorTorque = bone.frictionScale.Mul(maxTorque)
-		jointDef.EnableSpring = hertz.Greater(fixed.Q32Zero())
+		jointDef.EnableSpring = hertz.Greater(dbox2d.QZero())
 		jointDef.Hertz = hertz
 		jointDef.DampingRatio = dampingRatio
 		jointDef.DrawSize = drawSize
@@ -160,36 +159,36 @@ func createHuman(worldId dbox2d.WorldId, position dbox2d.Vec2, scale, frictionTo
 		bone := &h.bones[boneHead]
 		bone.parentIndex = int(boneTorso)
 
-		bodyDef.Position = dbox2d.Vec2{Y: fixed.Q32MustParse("1.475").Mul(s)}.Add(position)
-		bodyDef.LinearDamping = fixed.Q32MustParse("0.1")
+		bodyDef.Position = dbox2d.Vec2{Y: dbox2d.QMustParse("1.475").Mul(s)}.Add(position)
+		bodyDef.LinearDamping = dbox2d.QMustParse("0.1")
 		bodyDef.Name = "head"
 
 		bone.bodyId = dbox2d.CreateBody(worldId, &bodyDef)
-		bone.frictionScale = fixed.Q32FromRatio(1, 4)
+		bone.frictionScale = dbox2d.QFromRatio(1, 4)
 
 		if colorize {
 			shapeDef.Material.CustomColor = uint32(skinColor)
 		}
 
 		capsule := dbox2d.Capsule{
-			Center1: dbox2d.Vec2{Y: fixed.Q32MustParse("-0.038").Mul(s)},
-			Center2: dbox2d.Vec2{Y: fixed.Q32MustParse("0.039").Mul(s)},
-			Radius:  fixed.Q32MustParse("0.075").Mul(s),
+			Center1: dbox2d.Vec2{Y: dbox2d.QMustParse("-0.038").Mul(s)},
+			Center2: dbox2d.Vec2{Y: dbox2d.QMustParse("0.039").Mul(s)},
+			Radius:  dbox2d.QMustParse("0.075").Mul(s),
 		}
 		dbox2d.CreateCapsuleShape(bone.bodyId, &shapeDef, &capsule)
 
-		pivot := dbox2d.Vec2{Y: fixed.Q32MustParse("1.4").Mul(s)}.Add(position)
+		pivot := dbox2d.Vec2{Y: dbox2d.QMustParse("1.4").Mul(s)}.Add(position)
 		jointDef := dbox2d.DefaultRevoluteJointDef()
 		jointDef.BodyIdA = h.bones[bone.parentIndex].bodyId
 		jointDef.BodyIdB = bone.bodyId
 		jointDef.LocalAnchorA = jointDef.BodyIdA.GetLocalPoint(pivot)
 		jointDef.LocalAnchorB = jointDef.BodyIdB.GetLocalPoint(pivot)
 		jointDef.EnableLimit = enableLimit
-		jointDef.LowerAngle = fixed.Q32FromRatio(-3, 20)
-		jointDef.UpperAngle = fixed.Q32FromRatio(1, 20)
+		jointDef.LowerAngle = dbox2d.QFromRatio(-3, 20)
+		jointDef.UpperAngle = dbox2d.QFromRatio(1, 20)
 		jointDef.EnableMotor = enableMotor
 		jointDef.MaxMotorTorque = bone.frictionScale.Mul(maxTorque)
-		jointDef.EnableSpring = hertz.Greater(fixed.Q32Zero())
+		jointDef.EnableSpring = hertz.Greater(dbox2d.QZero())
 		jointDef.Hertz = hertz
 		jointDef.DampingRatio = dampingRatio
 		jointDef.DrawSize = drawSize
@@ -201,36 +200,36 @@ func createHuman(worldId dbox2d.WorldId, position dbox2d.Vec2, scale, frictionTo
 		bone := &h.bones[boneUpperLeftLeg]
 		bone.parentIndex = int(boneHip)
 
-		bodyDef.Position = dbox2d.Vec2{Y: fixed.Q32MustParse("0.775").Mul(s)}.Add(position)
-		bodyDef.LinearDamping = fixed.Q32Zero()
+		bodyDef.Position = dbox2d.Vec2{Y: dbox2d.QMustParse("0.775").Mul(s)}.Add(position)
+		bodyDef.LinearDamping = dbox2d.QZero()
 		bodyDef.Name = "upper_left_leg"
 
 		bone.bodyId = dbox2d.CreateBody(worldId, &bodyDef)
-		bone.frictionScale = fixed.Q32One()
+		bone.frictionScale = dbox2d.QOne()
 
 		if colorize {
 			shapeDef.Material.CustomColor = uint32(pantColor)
 		}
 
 		capsule := dbox2d.Capsule{
-			Center1: dbox2d.Vec2{Y: fixed.Q32MustParse("-0.125").Mul(s)},
-			Center2: dbox2d.Vec2{Y: fixed.Q32MustParse("0.125").Mul(s)},
-			Radius:  fixed.Q32MustParse("0.06").Mul(s),
+			Center1: dbox2d.Vec2{Y: dbox2d.QMustParse("-0.125").Mul(s)},
+			Center2: dbox2d.Vec2{Y: dbox2d.QMustParse("0.125").Mul(s)},
+			Radius:  dbox2d.QMustParse("0.06").Mul(s),
 		}
 		dbox2d.CreateCapsuleShape(bone.bodyId, &shapeDef, &capsule)
 
-		pivot := dbox2d.Vec2{Y: fixed.Q32MustParse("0.9").Mul(s)}.Add(position)
+		pivot := dbox2d.Vec2{Y: dbox2d.QMustParse("0.9").Mul(s)}.Add(position)
 		jointDef := dbox2d.DefaultRevoluteJointDef()
 		jointDef.BodyIdA = h.bones[bone.parentIndex].bodyId
 		jointDef.BodyIdB = bone.bodyId
 		jointDef.LocalAnchorA = jointDef.BodyIdA.GetLocalPoint(pivot)
 		jointDef.LocalAnchorB = jointDef.BodyIdB.GetLocalPoint(pivot)
 		jointDef.EnableLimit = enableLimit
-		jointDef.LowerAngle = fixed.Q32FromRatio(-1, 40)
-		jointDef.UpperAngle = fixed.Q32FromRatio(1, 5)
+		jointDef.LowerAngle = dbox2d.QFromRatio(-1, 40)
+		jointDef.UpperAngle = dbox2d.QFromRatio(1, 5)
 		jointDef.EnableMotor = enableMotor
 		jointDef.MaxMotorTorque = bone.frictionScale.Mul(maxTorque)
-		jointDef.EnableSpring = hertz.Greater(fixed.Q32Zero())
+		jointDef.EnableSpring = hertz.Greater(dbox2d.QZero())
 		jointDef.Hertz = hertz
 		jointDef.DampingRatio = dampingRatio
 		jointDef.DrawSize = drawSize
@@ -239,49 +238,49 @@ func createHuman(worldId dbox2d.WorldId, position dbox2d.Vec2, scale, frictionTo
 	}
 
 	points := []dbox2d.Vec2{
-		{X: fixed.Q32MustParse("-0.03").Mul(s), Y: fixed.Q32MustParse("-0.185").Mul(s)},
-		{X: fixed.Q32MustParse("0.11").Mul(s), Y: fixed.Q32MustParse("-0.185").Mul(s)},
-		{X: fixed.Q32MustParse("0.11").Mul(s), Y: fixed.Q32MustParse("-0.16").Mul(s)},
-		{X: fixed.Q32MustParse("-0.03").Mul(s), Y: fixed.Q32MustParse("-0.14").Mul(s)},
+		{X: dbox2d.QMustParse("-0.03").Mul(s), Y: dbox2d.QMustParse("-0.185").Mul(s)},
+		{X: dbox2d.QMustParse("0.11").Mul(s), Y: dbox2d.QMustParse("-0.185").Mul(s)},
+		{X: dbox2d.QMustParse("0.11").Mul(s), Y: dbox2d.QMustParse("-0.16").Mul(s)},
+		{X: dbox2d.QMustParse("-0.03").Mul(s), Y: dbox2d.QMustParse("-0.14").Mul(s)},
 	}
 	footHull := dbox2d.ComputeHull(points)
-	footPolygon := dbox2d.MakePolygon(&footHull, fixed.Q32MustParse("0.015").Mul(s))
+	footPolygon := dbox2d.MakePolygon(&footHull, dbox2d.QMustParse("0.015").Mul(s))
 
 	{
 		bone := &h.bones[boneLowerLeftLeg]
 		bone.parentIndex = int(boneUpperLeftLeg)
 
-		bodyDef.Position = dbox2d.Vec2{Y: fixed.Q32MustParse("0.475").Mul(s)}.Add(position)
-		bodyDef.LinearDamping = fixed.Q32Zero()
+		bodyDef.Position = dbox2d.Vec2{Y: dbox2d.QMustParse("0.475").Mul(s)}.Add(position)
+		bodyDef.LinearDamping = dbox2d.QZero()
 		bodyDef.Name = "lower_left_leg"
 
 		bone.bodyId = dbox2d.CreateBody(worldId, &bodyDef)
-		bone.frictionScale = fixed.Q32Half()
+		bone.frictionScale = dbox2d.QHalf()
 
 		if colorize {
 			shapeDef.Material.CustomColor = uint32(pantColor)
 		}
 
 		capsule := dbox2d.Capsule{
-			Center1: dbox2d.Vec2{Y: fixed.Q32MustParse("-0.155").Mul(s)},
-			Center2: dbox2d.Vec2{Y: fixed.Q32MustParse("0.125").Mul(s)},
-			Radius:  fixed.Q32MustParse("0.045").Mul(s),
+			Center1: dbox2d.Vec2{Y: dbox2d.QMustParse("-0.155").Mul(s)},
+			Center2: dbox2d.Vec2{Y: dbox2d.QMustParse("0.125").Mul(s)},
+			Radius:  dbox2d.QMustParse("0.045").Mul(s),
 		}
 		dbox2d.CreateCapsuleShape(bone.bodyId, &shapeDef, &capsule)
 		dbox2d.CreatePolygonShape(bone.bodyId, &footShapeDef, &footPolygon)
 
-		pivot := dbox2d.Vec2{Y: fixed.Q32MustParse("0.625").Mul(s)}.Add(position)
+		pivot := dbox2d.Vec2{Y: dbox2d.QMustParse("0.625").Mul(s)}.Add(position)
 		jointDef := dbox2d.DefaultRevoluteJointDef()
 		jointDef.BodyIdA = h.bones[bone.parentIndex].bodyId
 		jointDef.BodyIdB = bone.bodyId
 		jointDef.LocalAnchorA = jointDef.BodyIdA.GetLocalPoint(pivot)
 		jointDef.LocalAnchorB = jointDef.BodyIdB.GetLocalPoint(pivot)
 		jointDef.EnableLimit = enableLimit
-		jointDef.LowerAngle = fixed.Q32FromRatio(-1, 4)
-		jointDef.UpperAngle = fixed.Q32FromRatio(-1, 100)
+		jointDef.LowerAngle = dbox2d.QFromRatio(-1, 4)
+		jointDef.UpperAngle = dbox2d.QFromRatio(-1, 100)
 		jointDef.EnableMotor = enableMotor
 		jointDef.MaxMotorTorque = bone.frictionScale.Mul(maxTorque)
-		jointDef.EnableSpring = hertz.Greater(fixed.Q32Zero())
+		jointDef.EnableSpring = hertz.Greater(dbox2d.QZero())
 		jointDef.Hertz = hertz
 		jointDef.DampingRatio = dampingRatio
 		jointDef.DrawSize = drawSize
@@ -293,36 +292,36 @@ func createHuman(worldId dbox2d.WorldId, position dbox2d.Vec2, scale, frictionTo
 		bone := &h.bones[boneUpperRightLeg]
 		bone.parentIndex = int(boneHip)
 
-		bodyDef.Position = dbox2d.Vec2{Y: fixed.Q32MustParse("0.775").Mul(s)}.Add(position)
-		bodyDef.LinearDamping = fixed.Q32Zero()
+		bodyDef.Position = dbox2d.Vec2{Y: dbox2d.QMustParse("0.775").Mul(s)}.Add(position)
+		bodyDef.LinearDamping = dbox2d.QZero()
 		bodyDef.Name = "upper_right_leg"
 
 		bone.bodyId = dbox2d.CreateBody(worldId, &bodyDef)
-		bone.frictionScale = fixed.Q32One()
+		bone.frictionScale = dbox2d.QOne()
 
 		if colorize {
 			shapeDef.Material.CustomColor = uint32(pantColor)
 		}
 
 		capsule := dbox2d.Capsule{
-			Center1: dbox2d.Vec2{Y: fixed.Q32MustParse("-0.125").Mul(s)},
-			Center2: dbox2d.Vec2{Y: fixed.Q32MustParse("0.125").Mul(s)},
-			Radius:  fixed.Q32MustParse("0.06").Mul(s),
+			Center1: dbox2d.Vec2{Y: dbox2d.QMustParse("-0.125").Mul(s)},
+			Center2: dbox2d.Vec2{Y: dbox2d.QMustParse("0.125").Mul(s)},
+			Radius:  dbox2d.QMustParse("0.06").Mul(s),
 		}
 		dbox2d.CreateCapsuleShape(bone.bodyId, &shapeDef, &capsule)
 
-		pivot := dbox2d.Vec2{Y: fixed.Q32MustParse("0.9").Mul(s)}.Add(position)
+		pivot := dbox2d.Vec2{Y: dbox2d.QMustParse("0.9").Mul(s)}.Add(position)
 		jointDef := dbox2d.DefaultRevoluteJointDef()
 		jointDef.BodyIdA = h.bones[bone.parentIndex].bodyId
 		jointDef.BodyIdB = bone.bodyId
 		jointDef.LocalAnchorA = jointDef.BodyIdA.GetLocalPoint(pivot)
 		jointDef.LocalAnchorB = jointDef.BodyIdB.GetLocalPoint(pivot)
 		jointDef.EnableLimit = enableLimit
-		jointDef.LowerAngle = fixed.Q32FromRatio(-1, 40)
-		jointDef.UpperAngle = fixed.Q32FromRatio(1, 5)
+		jointDef.LowerAngle = dbox2d.QFromRatio(-1, 40)
+		jointDef.UpperAngle = dbox2d.QFromRatio(1, 5)
 		jointDef.EnableMotor = enableMotor
 		jointDef.MaxMotorTorque = bone.frictionScale.Mul(maxTorque)
-		jointDef.EnableSpring = hertz.Greater(fixed.Q32Zero())
+		jointDef.EnableSpring = hertz.Greater(dbox2d.QZero())
 		jointDef.Hertz = hertz
 		jointDef.DampingRatio = dampingRatio
 		jointDef.DrawSize = drawSize
@@ -334,37 +333,37 @@ func createHuman(worldId dbox2d.WorldId, position dbox2d.Vec2, scale, frictionTo
 		bone := &h.bones[boneLowerRightLeg]
 		bone.parentIndex = int(boneUpperRightLeg)
 
-		bodyDef.Position = dbox2d.Vec2{Y: fixed.Q32MustParse("0.475").Mul(s)}.Add(position)
-		bodyDef.LinearDamping = fixed.Q32Zero()
+		bodyDef.Position = dbox2d.Vec2{Y: dbox2d.QMustParse("0.475").Mul(s)}.Add(position)
+		bodyDef.LinearDamping = dbox2d.QZero()
 		bodyDef.Name = "lower_right_leg"
 
 		bone.bodyId = dbox2d.CreateBody(worldId, &bodyDef)
-		bone.frictionScale = fixed.Q32Half()
+		bone.frictionScale = dbox2d.QHalf()
 
 		if colorize {
 			shapeDef.Material.CustomColor = uint32(pantColor)
 		}
 
 		capsule := dbox2d.Capsule{
-			Center1: dbox2d.Vec2{Y: fixed.Q32MustParse("-0.155").Mul(s)},
-			Center2: dbox2d.Vec2{Y: fixed.Q32MustParse("0.125").Mul(s)},
-			Radius:  fixed.Q32MustParse("0.045").Mul(s),
+			Center1: dbox2d.Vec2{Y: dbox2d.QMustParse("-0.155").Mul(s)},
+			Center2: dbox2d.Vec2{Y: dbox2d.QMustParse("0.125").Mul(s)},
+			Radius:  dbox2d.QMustParse("0.045").Mul(s),
 		}
 		dbox2d.CreateCapsuleShape(bone.bodyId, &shapeDef, &capsule)
 		dbox2d.CreatePolygonShape(bone.bodyId, &footShapeDef, &footPolygon)
 
-		pivot := dbox2d.Vec2{Y: fixed.Q32MustParse("0.625").Mul(s)}.Add(position)
+		pivot := dbox2d.Vec2{Y: dbox2d.QMustParse("0.625").Mul(s)}.Add(position)
 		jointDef := dbox2d.DefaultRevoluteJointDef()
 		jointDef.BodyIdA = h.bones[bone.parentIndex].bodyId
 		jointDef.BodyIdB = bone.bodyId
 		jointDef.LocalAnchorA = jointDef.BodyIdA.GetLocalPoint(pivot)
 		jointDef.LocalAnchorB = jointDef.BodyIdB.GetLocalPoint(pivot)
 		jointDef.EnableLimit = enableLimit
-		jointDef.LowerAngle = fixed.Q32FromRatio(-1, 4)
-		jointDef.UpperAngle = fixed.Q32FromRatio(-1, 100)
+		jointDef.LowerAngle = dbox2d.QFromRatio(-1, 4)
+		jointDef.UpperAngle = dbox2d.QFromRatio(-1, 100)
 		jointDef.EnableMotor = enableMotor
 		jointDef.MaxMotorTorque = bone.frictionScale.Mul(maxTorque)
-		jointDef.EnableSpring = hertz.Greater(fixed.Q32Zero())
+		jointDef.EnableSpring = hertz.Greater(dbox2d.QZero())
 		jointDef.Hertz = hertz
 		jointDef.DampingRatio = dampingRatio
 		jointDef.DrawSize = drawSize
@@ -375,10 +374,10 @@ func createHuman(worldId dbox2d.WorldId, position dbox2d.Vec2, scale, frictionTo
 	{
 		bone := &h.bones[boneUpperLeftArm]
 		bone.parentIndex = int(boneTorso)
-		bone.frictionScale = fixed.Q32Half()
+		bone.frictionScale = dbox2d.QHalf()
 
-		bodyDef.Position = dbox2d.Vec2{Y: fixed.Q32MustParse("1.225").Mul(s)}.Add(position)
-		bodyDef.LinearDamping = fixed.Q32Zero()
+		bodyDef.Position = dbox2d.Vec2{Y: dbox2d.QMustParse("1.225").Mul(s)}.Add(position)
+		bodyDef.LinearDamping = dbox2d.QZero()
 		bodyDef.Name = "upper_left_arm"
 
 		bone.bodyId = dbox2d.CreateBody(worldId, &bodyDef)
@@ -388,24 +387,24 @@ func createHuman(worldId dbox2d.WorldId, position dbox2d.Vec2, scale, frictionTo
 		}
 
 		capsule := dbox2d.Capsule{
-			Center1: dbox2d.Vec2{Y: fixed.Q32MustParse("-0.125").Mul(s)},
-			Center2: dbox2d.Vec2{Y: fixed.Q32MustParse("0.125").Mul(s)},
-			Radius:  fixed.Q32MustParse("0.035").Mul(s),
+			Center1: dbox2d.Vec2{Y: dbox2d.QMustParse("-0.125").Mul(s)},
+			Center2: dbox2d.Vec2{Y: dbox2d.QMustParse("0.125").Mul(s)},
+			Radius:  dbox2d.QMustParse("0.035").Mul(s),
 		}
 		dbox2d.CreateCapsuleShape(bone.bodyId, &shapeDef, &capsule)
 
-		pivot := dbox2d.Vec2{Y: fixed.Q32MustParse("1.35").Mul(s)}.Add(position)
+		pivot := dbox2d.Vec2{Y: dbox2d.QMustParse("1.35").Mul(s)}.Add(position)
 		jointDef := dbox2d.DefaultRevoluteJointDef()
 		jointDef.BodyIdA = h.bones[bone.parentIndex].bodyId
 		jointDef.BodyIdB = bone.bodyId
 		jointDef.LocalAnchorA = jointDef.BodyIdA.GetLocalPoint(pivot)
 		jointDef.LocalAnchorB = jointDef.BodyIdB.GetLocalPoint(pivot)
 		jointDef.EnableLimit = enableLimit
-		jointDef.LowerAngle = fixed.Q32FromRatio(-1, 20)
-		jointDef.UpperAngle = fixed.Q32FromRatio(2, 5)
+		jointDef.LowerAngle = dbox2d.QFromRatio(-1, 20)
+		jointDef.UpperAngle = dbox2d.QFromRatio(2, 5)
 		jointDef.EnableMotor = enableMotor
 		jointDef.MaxMotorTorque = bone.frictionScale.Mul(maxTorque)
-		jointDef.EnableSpring = hertz.Greater(fixed.Q32Zero())
+		jointDef.EnableSpring = hertz.Greater(dbox2d.QZero())
 		jointDef.Hertz = hertz
 		jointDef.DampingRatio = dampingRatio
 		jointDef.DrawSize = drawSize
@@ -417,37 +416,37 @@ func createHuman(worldId dbox2d.WorldId, position dbox2d.Vec2, scale, frictionTo
 		bone := &h.bones[boneLowerLeftArm]
 		bone.parentIndex = int(boneUpperLeftArm)
 
-		bodyDef.Position = dbox2d.Vec2{Y: fixed.Q32MustParse("0.975").Mul(s)}.Add(position)
-		bodyDef.LinearDamping = fixed.Q32MustParse("0.1")
+		bodyDef.Position = dbox2d.Vec2{Y: dbox2d.QMustParse("0.975").Mul(s)}.Add(position)
+		bodyDef.LinearDamping = dbox2d.QMustParse("0.1")
 		bodyDef.Name = "lower_left_arm"
 
 		bone.bodyId = dbox2d.CreateBody(worldId, &bodyDef)
-		bone.frictionScale = fixed.Q32MustParse("0.1")
+		bone.frictionScale = dbox2d.QMustParse("0.1")
 
 		if colorize {
 			shapeDef.Material.CustomColor = uint32(skinColor)
 		}
 
 		capsule := dbox2d.Capsule{
-			Center1: dbox2d.Vec2{Y: fixed.Q32MustParse("-0.125").Mul(s)},
-			Center2: dbox2d.Vec2{Y: fixed.Q32MustParse("0.125").Mul(s)},
-			Radius:  fixed.Q32MustParse("0.03").Mul(s),
+			Center1: dbox2d.Vec2{Y: dbox2d.QMustParse("-0.125").Mul(s)},
+			Center2: dbox2d.Vec2{Y: dbox2d.QMustParse("0.125").Mul(s)},
+			Radius:  dbox2d.QMustParse("0.03").Mul(s),
 		}
 		dbox2d.CreateCapsuleShape(bone.bodyId, &shapeDef, &capsule)
 
-		pivot := dbox2d.Vec2{Y: fixed.Q32MustParse("1.1").Mul(s)}.Add(position)
+		pivot := dbox2d.Vec2{Y: dbox2d.QMustParse("1.1").Mul(s)}.Add(position)
 		jointDef := dbox2d.DefaultRevoluteJointDef()
 		jointDef.BodyIdA = h.bones[bone.parentIndex].bodyId
 		jointDef.BodyIdB = bone.bodyId
 		jointDef.LocalAnchorA = jointDef.BodyIdA.GetLocalPoint(pivot)
 		jointDef.LocalAnchorB = jointDef.BodyIdB.GetLocalPoint(pivot)
-		jointDef.ReferenceAngle = fixed.Q32FromRatio(1, 8)
+		jointDef.ReferenceAngle = dbox2d.QFromRatio(1, 8)
 		jointDef.EnableLimit = enableLimit
-		jointDef.LowerAngle = fixed.Q32FromRatio(-1, 10)
-		jointDef.UpperAngle = fixed.Q32FromRatio(3, 20)
+		jointDef.LowerAngle = dbox2d.QFromRatio(-1, 10)
+		jointDef.UpperAngle = dbox2d.QFromRatio(3, 20)
 		jointDef.EnableMotor = enableMotor
 		jointDef.MaxMotorTorque = bone.frictionScale.Mul(maxTorque)
-		jointDef.EnableSpring = hertz.Greater(fixed.Q32Zero())
+		jointDef.EnableSpring = hertz.Greater(dbox2d.QZero())
 		jointDef.Hertz = hertz
 		jointDef.DampingRatio = dampingRatio
 		jointDef.DrawSize = drawSize
@@ -459,36 +458,36 @@ func createHuman(worldId dbox2d.WorldId, position dbox2d.Vec2, scale, frictionTo
 		bone := &h.bones[boneUpperRightArm]
 		bone.parentIndex = int(boneTorso)
 
-		bodyDef.Position = dbox2d.Vec2{Y: fixed.Q32MustParse("1.225").Mul(s)}.Add(position)
-		bodyDef.LinearDamping = fixed.Q32Zero()
+		bodyDef.Position = dbox2d.Vec2{Y: dbox2d.QMustParse("1.225").Mul(s)}.Add(position)
+		bodyDef.LinearDamping = dbox2d.QZero()
 		bodyDef.Name = "upper_right_arm"
 
 		bone.bodyId = dbox2d.CreateBody(worldId, &bodyDef)
-		bone.frictionScale = fixed.Q32Half()
+		bone.frictionScale = dbox2d.QHalf()
 
 		if colorize {
 			shapeDef.Material.CustomColor = uint32(shirtColor)
 		}
 
 		capsule := dbox2d.Capsule{
-			Center1: dbox2d.Vec2{Y: fixed.Q32MustParse("-0.125").Mul(s)},
-			Center2: dbox2d.Vec2{Y: fixed.Q32MustParse("0.125").Mul(s)},
-			Radius:  fixed.Q32MustParse("0.035").Mul(s),
+			Center1: dbox2d.Vec2{Y: dbox2d.QMustParse("-0.125").Mul(s)},
+			Center2: dbox2d.Vec2{Y: dbox2d.QMustParse("0.125").Mul(s)},
+			Radius:  dbox2d.QMustParse("0.035").Mul(s),
 		}
 		dbox2d.CreateCapsuleShape(bone.bodyId, &shapeDef, &capsule)
 
-		pivot := dbox2d.Vec2{Y: fixed.Q32MustParse("1.35").Mul(s)}.Add(position)
+		pivot := dbox2d.Vec2{Y: dbox2d.QMustParse("1.35").Mul(s)}.Add(position)
 		jointDef := dbox2d.DefaultRevoluteJointDef()
 		jointDef.BodyIdA = h.bones[bone.parentIndex].bodyId
 		jointDef.BodyIdB = bone.bodyId
 		jointDef.LocalAnchorA = jointDef.BodyIdA.GetLocalPoint(pivot)
 		jointDef.LocalAnchorB = jointDef.BodyIdB.GetLocalPoint(pivot)
 		jointDef.EnableLimit = enableLimit
-		jointDef.LowerAngle = fixed.Q32FromRatio(-1, 20)
-		jointDef.UpperAngle = fixed.Q32FromRatio(2, 5)
+		jointDef.LowerAngle = dbox2d.QFromRatio(-1, 20)
+		jointDef.UpperAngle = dbox2d.QFromRatio(2, 5)
 		jointDef.EnableMotor = enableMotor
 		jointDef.MaxMotorTorque = bone.frictionScale.Mul(maxTorque)
-		jointDef.EnableSpring = hertz.Greater(fixed.Q32Zero())
+		jointDef.EnableSpring = hertz.Greater(dbox2d.QZero())
 		jointDef.Hertz = hertz
 		jointDef.DampingRatio = dampingRatio
 		jointDef.DrawSize = drawSize
@@ -500,37 +499,37 @@ func createHuman(worldId dbox2d.WorldId, position dbox2d.Vec2, scale, frictionTo
 		bone := &h.bones[boneLowerRightArm]
 		bone.parentIndex = int(boneUpperRightArm)
 
-		bodyDef.Position = dbox2d.Vec2{Y: fixed.Q32MustParse("0.975").Mul(s)}.Add(position)
-		bodyDef.LinearDamping = fixed.Q32MustParse("0.1")
+		bodyDef.Position = dbox2d.Vec2{Y: dbox2d.QMustParse("0.975").Mul(s)}.Add(position)
+		bodyDef.LinearDamping = dbox2d.QMustParse("0.1")
 		bodyDef.Name = "lower_right_arm"
 
 		bone.bodyId = dbox2d.CreateBody(worldId, &bodyDef)
-		bone.frictionScale = fixed.Q32MustParse("0.1")
+		bone.frictionScale = dbox2d.QMustParse("0.1")
 
 		if colorize {
 			shapeDef.Material.CustomColor = uint32(skinColor)
 		}
 
 		capsule := dbox2d.Capsule{
-			Center1: dbox2d.Vec2{Y: fixed.Q32MustParse("-0.125").Mul(s)},
-			Center2: dbox2d.Vec2{Y: fixed.Q32MustParse("0.125").Mul(s)},
-			Radius:  fixed.Q32MustParse("0.03").Mul(s),
+			Center1: dbox2d.Vec2{Y: dbox2d.QMustParse("-0.125").Mul(s)},
+			Center2: dbox2d.Vec2{Y: dbox2d.QMustParse("0.125").Mul(s)},
+			Radius:  dbox2d.QMustParse("0.03").Mul(s),
 		}
 		dbox2d.CreateCapsuleShape(bone.bodyId, &shapeDef, &capsule)
 
-		pivot := dbox2d.Vec2{Y: fixed.Q32MustParse("1.1").Mul(s)}.Add(position)
+		pivot := dbox2d.Vec2{Y: dbox2d.QMustParse("1.1").Mul(s)}.Add(position)
 		jointDef := dbox2d.DefaultRevoluteJointDef()
 		jointDef.BodyIdA = h.bones[bone.parentIndex].bodyId
 		jointDef.BodyIdB = bone.bodyId
 		jointDef.LocalAnchorA = jointDef.BodyIdA.GetLocalPoint(pivot)
 		jointDef.LocalAnchorB = jointDef.BodyIdB.GetLocalPoint(pivot)
-		jointDef.ReferenceAngle = fixed.Q32FromRatio(1, 8)
+		jointDef.ReferenceAngle = dbox2d.QFromRatio(1, 8)
 		jointDef.EnableLimit = enableLimit
-		jointDef.LowerAngle = fixed.Q32FromRatio(-1, 10)
-		jointDef.UpperAngle = fixed.Q32FromRatio(3, 20)
+		jointDef.LowerAngle = dbox2d.QFromRatio(-1, 10)
+		jointDef.UpperAngle = dbox2d.QFromRatio(3, 20)
 		jointDef.EnableMotor = enableMotor
 		jointDef.MaxMotorTorque = bone.frictionScale.Mul(maxTorque)
-		jointDef.EnableSpring = hertz.Greater(fixed.Q32Zero())
+		jointDef.EnableSpring = hertz.Greater(dbox2d.QZero())
 		jointDef.Hertz = hertz
 		jointDef.DampingRatio = dampingRatio
 		jointDef.DrawSize = drawSize
@@ -581,7 +580,7 @@ func (h *human) applyRandomAngularImpulse(magnitude dbox2d.Q) {
 }
 
 func (h *human) setJointFrictionTorque(torque dbox2d.Q) {
-	if torque == fixed.Q32Zero() {
+	if torque == dbox2d.QZero() {
 		for i := 1; i < int(boneCount); i++ {
 			h.bones[i].jointId.EnableMotor(false)
 		}
@@ -596,7 +595,7 @@ func (h *human) setJointFrictionTorque(torque dbox2d.Q) {
 }
 
 func (h *human) setJointSpringHertz(hertz dbox2d.Q) {
-	if hertz == fixed.Q32Zero() {
+	if hertz == dbox2d.QZero() {
 		for i := 1; i < int(boneCount); i++ {
 			h.bones[i].jointId.EnableSpring(false)
 		}

@@ -6,7 +6,6 @@ package samples
 
 import (
 	"github.com/dhannyell/dbox2d"
-	"github.com/dhannyell/fixed"
 )
 
 const randLimit = 32767
@@ -28,12 +27,12 @@ func randomIntRange(lo, hi int) int {
 }
 
 func randomFloat() dbox2d.Q {
-	r := fixed.Q32FromRatio(randomInt(), randLimit)
-	return fixed.Q32FromInt(2).Mul(r).Sub(fixed.Q32One())
+	r := dbox2d.QFromRatio(randomInt(), randLimit)
+	return dbox2d.QFromInt(2).Mul(r).Sub(dbox2d.QOne())
 }
 
 func randomFloatRange(lo, hi dbox2d.Q) dbox2d.Q {
-	r := fixed.Q32FromRatio(randomInt(), randLimit)
+	r := dbox2d.QFromRatio(randomInt(), randLimit)
 	return hi.Sub(lo).Mul(r).Add(lo)
 }
 
@@ -42,7 +41,7 @@ func randomVec2(lo, hi dbox2d.Q) dbox2d.Vec2 {
 }
 
 func randomRot() dbox2d.Rot {
-	return dbox2d.MakeRot(randomFloatRange(fixed.Q32Half().Neg(), fixed.Q32Half()))
+	return dbox2d.MakeRot(randomFloatRange(dbox2d.QHalf().Neg(), dbox2d.QHalf()))
 }
 
 func randomPolygon(extent dbox2d.Q) dbox2d.Polygon {
@@ -54,7 +53,7 @@ func randomPolygon(extent dbox2d.Q) dbox2d.Polygon {
 
 	hull := dbox2d.ComputeHull(points[:count])
 	if hull.Count > 0 {
-		return dbox2d.MakePolygon(&hull, fixed.Q32Zero())
+		return dbox2d.MakePolygon(&hull, dbox2d.QZero())
 	}
 	return dbox2d.MakeSquare(extent)
 }

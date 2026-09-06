@@ -9,7 +9,6 @@ import (
 	"math"
 
 	"github.com/dhannyell/dbox2d"
-	"github.com/dhannyell/fixed"
 )
 
 // SampleContext is the shared state a host hands to every sample.
@@ -153,7 +152,7 @@ func (b *Base) MouseDown(p dbox2d.Vec2, button MouseButton, mod Modifier) {
 		return
 	}
 
-	d := dbox2d.Vec2{X: fixed.Q32FromRatio(1, 1000), Y: fixed.Q32FromRatio(1, 1000)}
+	d := dbox2d.Vec2{X: dbox2d.QFromRatio(1, 1000), Y: dbox2d.QFromRatio(1, 1000)}
 	box := dbox2d.AABB{
 		LowerBound: dbox2d.Vec2{X: p.X.Sub(d.X), Y: p.Y.Sub(d.Y)},
 		UpperBound: dbox2d.Vec2{X: p.X.Add(d.X), Y: p.Y.Add(d.Y)},
@@ -183,10 +182,10 @@ func (b *Base) MouseDown(p dbox2d.Vec2, button MouseButton, mod Modifier) {
 	mouseDef.BodyIdA = b.GroundBodyId
 	mouseDef.BodyIdB = qc.bodyId
 	mouseDef.Target = p
-	mouseDef.Hertz = fixed.Q32FromInt(10)
-	mouseDef.DampingRatio = fixed.Q32FromRatio(7, 10)
+	mouseDef.Hertz = dbox2d.QFromInt(10)
+	mouseDef.DampingRatio = dbox2d.QFromRatio(7, 10)
 	gravityLength, _ := dbox2d.GetLengthAndNormalize(b.WorldId.GetGravity())
-	mouseDef.MaxForce = fixed.Q32FromInt(1000).Mul(qc.bodyId.GetMass()).Mul(gravityLength)
+	mouseDef.MaxForce = dbox2d.QFromInt(1000).Mul(qc.bodyId.GetMass()).Mul(gravityLength)
 	b.MouseJointId = dbox2d.CreateMouseJoint(b.WorldId, &mouseDef)
 
 	qc.bodyId.SetAwake(true)
@@ -228,14 +227,14 @@ func (b *Base) Step() {
 	s := &b.Context.Settings
 	var timeStep dbox2d.Q
 	if s.Hertz > 0 {
-		timeStep = fixed.Q32One().Div(fixed.Q32FromInt(int(s.Hertz)))
+		timeStep = dbox2d.QOne().Div(dbox2d.QFromInt(int(s.Hertz)))
 	}
 
 	if s.Pause {
 		if s.SingleStep {
 			s.SingleStep = false
 		} else {
-			timeStep = fixed.Q32Zero()
+			timeStep = dbox2d.QZero()
 		}
 		b.DrawTextLine("****PAUSED****")
 	}
@@ -265,7 +264,7 @@ func (b *Base) Step() {
 	b.WorldId.Step(timeStep, s.SubStepCount)
 	b.WorldId.Draw(draw)
 
-	if timeStep.Greater(fixed.Q32Zero()) {
+	if timeStep.Greater(dbox2d.QZero()) {
 		b.StepCount++
 	}
 
