@@ -1,5 +1,9 @@
 # samples
 
+[![Tumbler in the browser host](web/tumbler.png)](https://dhannyell.github.io/dbox2d/)
+
+**[Live demo](https://dhannyell.github.io/dbox2d/)** — the browser host on GitHub Pages, built from `main` by `pages.yml`. It needs a browser with WebGPU.
+
 The sample scenes of Box2D v3.1.1, ported to `dbox2d`. A scene builds a
 world, steps it and asks the world to draw itself. A host renders the
 draw commands with WebGPU and feeds the mouse and the keyboard back. Two
@@ -116,6 +120,6 @@ on one worker; the reference's task system did not cross.
 | `internal/gpu`, `internal/render` | the WebGPU pipelines |
 | `internal/host/native` | GLFW window and surface |
 | `internal/host/wasm` | canvas, `requestAnimationFrame` and DOM events |
-| `web` | the page, `wasm_exec.js` and the built `app.wasm` (ignored) |
+| `web` | the page, `wasm_exec.js`, the screenshot and the built `app.wasm` (ignored) |
 | `internal/microui` | vendored copy of `zeozeozeo/microui-go` v1.0.1 (Unlicense) |
 | `cmd/native`, `cmd/web`, `cmd/serve` | the two hosts and the static server |

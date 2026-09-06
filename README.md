@@ -5,6 +5,8 @@ Q32.32 fixed-point arithmetic from
 [`fixed`](https://github.com/dhannyell/fixed), so equal inputs produce the same
 result bits on every supported architecture, on every run.
 
+**[Run the samples in your browser](https://dhannyell.github.io/dbox2d/)** (needs WebGPU).
+
 The module is pre-v1. Its import path and its API may change before the first
 stable release. It requires Go 1.26.4 or newer.
 
