@@ -186,7 +186,7 @@ func TestRestingBoxHoldsItsGround(t *testing.T) {
 		}
 		applyRestitution(context, overflowIndex)
 		storeImpulses(context, overflowIndex)
-		setBitCountAndClear(&w.taskContext.awakeIslandBitSet, len(w.solverSets[awakeSet].islandSims))
+		setBitCountAndClear(&w.taskContexts[0].awakeIslandBitSet, len(w.solverSets[awakeSet].islandSims))
 		w.bodyMoveEvents = resizeMoveEvents(w.bodyMoveEvents, 1)
 		finalizeBodiesTask(0, 1, context)
 	}

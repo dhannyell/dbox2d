@@ -20,9 +20,10 @@ const (
 
 // world manages all physics entities and the dynamic simulation.
 type world struct {
-	// Deferred: the task system of the reference.
 	sensors            []sensor
-	sensorTaskContexts [1]sensorTaskContext
+	sensorTaskContexts []sensorTaskContext
+	workerCount        int
+	executor           executor
 
 	// constraintGraph colors the awake touching contacts.
 	constraintGraph constraintGraph
@@ -79,9 +80,8 @@ type world struct {
 	// profile times the last Step. The clock never feeds the simulation.
 	profile Profile
 
-	// taskContext is the per-worker scratch of the reference. The port has
-	// one worker.
-	taskContext taskContext
+	// taskContexts holds per-worker scratch for the step stages.
+	taskContexts []taskContext
 
 	// The event arrays of the last step. The end events use two buffers,
 	// because a contact destroyed between steps reports into the buffer
@@ -219,6 +219,7 @@ func CreateWorld(def *WorldDef) WorldId {
 	w.worldId = uint16(worldId)
 	w.generation = generation
 	w.inUse = true
+	w.workerCount = effectiveWorkerCount(def.WorkerCount)
 
 	// pools
 	w.bodyIdPool = createIdPool()
@@ -266,10 +267,14 @@ func CreateWorld(def *WorldDef) WorldId {
 
 	w.splitIslandId = nullIndex
 
-	w.taskContext.contactStateBitSet = createBitSet(1024)
-	w.taskContext.enlargedSimBitSet = createBitSet(256)
-	w.taskContext.awakeIslandBitSet = createBitSet(256)
-	w.taskContext.splitIslandId = nullIndex
+	w.taskContexts = make([]taskContext, w.workerCount)
+	for i := range w.taskContexts {
+		w.taskContexts[i].contactStateBitSet = createBitSet(1024)
+		w.taskContexts[i].enlargedSimBitSet = createBitSet(256)
+		w.taskContexts[i].awakeIslandBitSet = createBitSet(256)
+		w.taskContexts[i].splitIslandId = nullIndex
+	}
+	w.sensorTaskContexts = make([]sensorTaskContext, w.workerCount)
 
 	w.bodyMoveEvents = make([]BodyMoveEvent, 0, 16)
 	w.contactBeginEvents = make([]ContactBeginTouchEvent, 0, 16)
@@ -313,6 +318,7 @@ func CreateWorld(def *WorldDef) WorldId {
 // DestroyWorld destroys a world and every body and shape in it.
 func DestroyWorld(worldId WorldId) {
 	w := getWorldFromId(worldId)
+	w.executor.stop()
 
 	destroyGraph(&w.constraintGraph)
 

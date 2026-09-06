@@ -273,6 +273,7 @@ func stepF64(sims []f64BodySim, states []f64BodyState, shapes []f64Shape, dt flo
 
 func BenchmarkStep(b *testing.B) {
 	def := DefaultWorldDef()
+	def.WorkerCount = *workersFlag
 	worldId := CreateWorld(&def)
 	defer DestroyWorld(worldId)
 
@@ -769,6 +770,7 @@ func buildPyramid(worldId WorldId, rows int) BodyId {
 
 func BenchmarkStepPyramid(b *testing.B) {
 	def := DefaultWorldDef()
+	def.WorkerCount = *workersFlag
 	def.EnableSleep = false
 	worldId := CreateWorld(&def)
 	defer DestroyWorld(worldId)
@@ -823,6 +825,7 @@ func buildPyramidWithSensor(worldId WorldId, rows int) {
 // sensor's fattened bounds each step.
 func BenchmarkStepSensors(b *testing.B) {
 	def := DefaultWorldDef()
+	def.WorkerCount = *workersFlag
 	def.EnableSleep = false
 	worldId := CreateWorld(&def)
 	defer DestroyWorld(worldId)
@@ -2169,6 +2172,7 @@ func buildBulletRange(worldId WorldId) {
 
 func BenchmarkStepBullets(b *testing.B) {
 	def := DefaultWorldDef()
+	def.WorkerCount = *workersFlag
 	def.Gravity = Vec2Zero()
 	worldId := CreateWorld(&def)
 	defer DestroyWorld(worldId)
@@ -2207,6 +2211,7 @@ func BenchmarkStepBullets(b *testing.B) {
 // joints and swings under gravity. Step must not allocate.
 func BenchmarkStepRevoluteChain(b *testing.B) {
 	def := DefaultWorldDef()
+	def.WorkerCount = *workersFlag
 	worldId := CreateWorld(&def)
 	defer DestroyWorld(worldId)
 

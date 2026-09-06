@@ -44,7 +44,10 @@ type WorldDef struct {
 	// RestitutionCallback customizes restitution mixing for new contacts.
 	RestitutionCallback RestitutionCallback
 
-	// Deferred: the task system fields of the reference.
+	// WorkerCount is the number of workers that step the world. 1 steps on
+	// the calling goroutine. 0 picks min(runtime.GOMAXPROCS(0), 64). Any N
+	// produces the same bits; WebAssembly always steps on one worker.
+	WorkerCount int
 
 	// Enable sleeping to improve performance.
 	EnableSleep bool
@@ -62,6 +65,7 @@ type WorldDef struct {
 // Counters reports world sizes and solver storage usage for diagnostics.
 type Counters struct {
 	BodyCount, ShapeCount, ContactCount, JointCount, IslandCount, StackUsed, StaticTreeHeight, TreeHeight int
+	TaskCount                                                                                             int
 	ColorCounts                                                                                           [graphColorCount]int
 }
 
@@ -116,6 +120,7 @@ func DefaultWorldDef() WorldDef {
 		MaxContactPushSpeed:  QFromInt(3),
 		// 400 meters per second, faster than the speed of sound
 		MaximumLinearSpeed: QFromInt(400),
+		WorkerCount:        1,
 		EnableSleep:        true,
 		EnableContinuous:   true,
 		internalValue:      secretCookie,

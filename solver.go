@@ -432,7 +432,7 @@ func finalizeBodiesTask(startIndex, endIndex int, context *stepContext) {
 		panic("dbox2d: the task range is inverted")
 	}
 
-	taskContext := &w.taskContext
+	taskContext := &w.taskContexts[0]
 	enlargedSimBitSet := &taskContext.enlargedSimBitSet
 	awakeIslandBitSet := &taskContext.awakeIslandBitSet
 
@@ -722,7 +722,7 @@ func solve(w *world, context *stepContext) {
 
 		// Prepare the enlarged body and island bit sets used in body finalization.
 		awakeIslandCount := len(awake.islandSims)
-		taskContext := &w.taskContext
+		taskContext := &w.taskContexts[0]
 		setBitCountAndClear(&taskContext.enlargedSimBitSet, awakeBodyCount)
 		setBitCountAndClear(&taskContext.awakeIslandBitSet, awakeIslandCount)
 		taskContext.splitIslandId = nullIndex
@@ -792,7 +792,7 @@ func solve(w *world, context *stepContext) {
 	{
 		refitStart := time.Now()
 
-		enlargedBodyBitSet := &w.taskContext.enlargedSimBitSet
+		enlargedBodyBitSet := &w.taskContexts[0].enlargedSimBitSet
 
 		// Enlarge broad-phase proxies and build move array
 		// Apply shape AABB changes to broad-phase. This also create the move array which must be
@@ -923,7 +923,7 @@ func solve(w *world, context *stepContext) {
 		if w.splitIslandId != nullIndex {
 			panic("dbox2d: the split candidate is not clear")
 		}
-		taskContext := &w.taskContext
+		taskContext := &w.taskContexts[0]
 		if taskContext.splitIslandId != nullIndex {
 			if !QZero().Less(taskContext.splitSleepTime) {
 				panic("dbox2d: the split candidate has no sleep time")

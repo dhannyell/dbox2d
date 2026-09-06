@@ -80,6 +80,9 @@ func (worldId WorldId) Step(timeStep Q, subStepCount int) {
 	if w.locked {
 		panic("dbox2d: the world is locked")
 	}
+	if w.workerCount > 1 {
+		w.executor.start(w.workerCount)
+	}
 
 	// Prepare to capture events
 	// Ensure user does not access stale data if there is an early return
@@ -177,7 +180,7 @@ func (worldId WorldId) Step(timeStep Q, subStepCount int) {
 // array.
 func collideTask(contactSims []contactSim, context *stepContext) {
 	w := context.world
-	taskContext := &w.taskContext
+	taskContext := &w.taskContexts[0]
 	shapes := w.shapes
 	bodies := w.bodies
 
@@ -296,7 +299,7 @@ func collide(context *stepContext) {
 
 	// Contact bit set on ids because contact pointers are unstable as they move between touching and not touching.
 	contactIdCapacity := w.contactIdPool.idCapacity()
-	taskContext := &w.taskContext
+	taskContext := &w.taskContexts[0]
 	setBitCountAndClear(&taskContext.contactStateBitSet, contactIdCapacity)
 
 	// The reference gathers the sims into one pointer array for the
