@@ -2,8 +2,6 @@ package dbox2d
 
 import (
 	"math"
-
-	"github.com/dhannyell/fixed"
 )
 
 // Default filter bits. upstream B2_DEFAULT_CATEGORY_BITS, B2_DEFAULT_MASK_BITS
@@ -110,14 +108,14 @@ type PreSolveFcn func(shapeIdA, shapeIdB ShapeId, manifold *Manifold) bool
 // DefaultWorldDef returns the default world definition.
 func DefaultWorldDef() WorldDef {
 	return WorldDef{
-		Gravity:              Vec2{Y: fixed.Q32FromInt(-10)},
-		RestitutionThreshold: fixed.Q32One(),
-		HitEventThreshold:    fixed.Q32One(),
-		ContactHertz:         fixed.Q32FromInt(30),
-		ContactDampingRatio:  fixed.Q32FromInt(10),
-		MaxContactPushSpeed:  fixed.Q32FromInt(3),
+		Gravity:              Vec2{Y: QFromInt(-10)},
+		RestitutionThreshold: QOne(),
+		HitEventThreshold:    QOne(),
+		ContactHertz:         QFromInt(30),
+		ContactDampingRatio:  QFromInt(10),
+		MaxContactPushSpeed:  QFromInt(3),
 		// 400 meters per second, faster than the speed of sound
-		MaximumLinearSpeed: fixed.Q32FromInt(400),
+		MaximumLinearSpeed: QFromInt(400),
 		EnableSleep:        true,
 		EnableContinuous:   true,
 		internalValue:      secretCookie,
@@ -217,9 +215,9 @@ type BodyDef struct {
 func DefaultBodyDef() BodyDef {
 	return BodyDef{
 		Type:           StaticBody,
-		Rotation:       fixed.RotIdentity(),
-		SleepThreshold: fixed.Q32MustParse("0.05"),
-		GravityScale:   fixed.Q32One(),
+		Rotation:       RotIdentity(),
+		SleepThreshold: QMustParse("0.05"),
+		GravityScale:   QOne(),
 		EnableSleep:    true,
 		IsAwake:        true,
 		IsEnabled:      true,
@@ -330,7 +328,7 @@ type SurfaceMaterial struct {
 
 // DefaultSurfaceMaterial returns the default material: friction 0.6.
 func DefaultSurfaceMaterial() SurfaceMaterial {
-	return SurfaceMaterial{Friction: fixed.Q32MustParse("0.6")}
+	return SurfaceMaterial{Friction: QMustParse("0.6")}
 }
 
 // ShapeDef holds the data to create a shape. It is a temporary bundle of
@@ -385,7 +383,7 @@ type ShapeDef struct {
 func DefaultShapeDef() ShapeDef {
 	return ShapeDef{
 		Material:              DefaultSurfaceMaterial(),
-		Density:               fixed.Q32One(),
+		Density:               QOne(),
 		Filter:                DefaultFilter(),
 		InvokeContactCreation: true,
 		UpdateBodyMass:        true,
@@ -641,7 +639,7 @@ type DistanceJointDef struct {
 // DefaultDistanceJointDef returns the default distance joint definition.
 func DefaultDistanceJointDef() DistanceJointDef {
 	return DistanceJointDef{
-		Length:        fixed.Q32One(),
+		Length:        QOne(),
 		MaxLength:     Huge,
 		internalValue: secretCookie,
 	}
@@ -687,9 +685,9 @@ type MotorJointDef struct {
 // DefaultMotorJointDef returns the default motor joint definition.
 func DefaultMotorJointDef() MotorJointDef {
 	return MotorJointDef{
-		MaxForce:         fixed.Q32One(),
-		MaxTorque:        fixed.Q32One(),
-		CorrectionFactor: fixed.Q32MustParse("0.3"),
+		MaxForce:         QOne(),
+		MaxTorque:        QOne(),
+		CorrectionFactor: QMustParse("0.3"),
 		internalValue:    secretCookie,
 	}
 }
@@ -731,9 +729,9 @@ type MouseJointDef struct {
 // DefaultMouseJointDef returns the default mouse joint definition.
 func DefaultMouseJointDef() MouseJointDef {
 	return MouseJointDef{
-		Hertz:         fixed.Q32FromInt(4),
-		DampingRatio:  fixed.Q32One(),
-		MaxForce:      fixed.Q32One(),
+		Hertz:         QFromInt(4),
+		DampingRatio:  QOne(),
+		MaxForce:      QOne(),
 		internalValue: secretCookie,
 	}
 }
@@ -828,7 +826,7 @@ type PrismaticJointDef struct {
 // DefaultPrismaticJointDef returns the default prismatic joint definition.
 func DefaultPrismaticJointDef() PrismaticJointDef {
 	return PrismaticJointDef{
-		LocalAxisA:    Vec2{X: fixed.Q32One()},
+		LocalAxisA:    Vec2{X: QOne()},
 		internalValue: secretCookie,
 	}
 }
@@ -902,7 +900,7 @@ type RevoluteJointDef struct {
 // DefaultRevoluteJointDef returns the default revolute joint definition.
 func DefaultRevoluteJointDef() RevoluteJointDef {
 	return RevoluteJointDef{
-		DrawSize:      fixed.Q32MustParse("0.25"),
+		DrawSize:      QMustParse("0.25"),
 		internalValue: secretCookie,
 	}
 }
@@ -1408,10 +1406,10 @@ func DefaultDebugDraw() DebugDraw {
 // DefaultWheelJointDef returns the default wheel joint definition.
 func DefaultWheelJointDef() WheelJointDef {
 	return WheelJointDef{
-		LocalAxisA:    Vec2{Y: fixed.Q32One()},
+		LocalAxisA:    Vec2{Y: QOne()},
 		EnableSpring:  true,
-		Hertz:         fixed.Q32One(),
-		DampingRatio:  fixed.Q32MustParse("0.7"),
+		Hertz:         QOne(),
+		DampingRatio:  QMustParse("0.7"),
 		internalValue: secretCookie,
 	}
 }

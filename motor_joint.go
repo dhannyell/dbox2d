@@ -1,7 +1,5 @@
 package dbox2d
 
-import "github.com/dhannyell/fixed"
-
 // This file corresponds to src/motor_joint.c of the reference. The angles
 // are turns (D-004); the angular separation enters the bias in radians.
 
@@ -96,12 +94,12 @@ func prepareMotorJoint(base *jointSim, context *stepContext) {
 	K.Cy.Y = mA.Add(mB).Add(rA.X.Mul(rA.X).Mul(iA)).Add(rB.X.Mul(rB.X).Mul(iB))
 	joint.linearMass = GetInverse22(K)
 
-	zero := fixed.Q32Zero()
+	zero := QZero()
 	ka := iA.Add(iB)
 	// D-006: the reference multiplies by the reciprocal of ka.
 	joint.angularMass = zero
 	if zero.Less(ka) {
-		joint.angularMass = fixed.Q32One().Div(ka)
+		joint.angularMass = QOne().Div(ka)
 	}
 
 	if !context.enableWarmStarting {
@@ -244,7 +242,7 @@ func (jointId JointId) SetAngularOffset(angularOffset Q) {
 	}
 	w := getWorld(jointId.world0)
 	js := getJointSimCheckType(w, jointId, MotorJoint)
-	halfTurn := fixed.Q32Half()
+	halfTurn := QHalf()
 	// D-004: the port bounds turns to a half turn; the reference leaves radians unbounded.
 	angularOffset = angularOffset.Clamp(halfTurn.Neg(), halfTurn) // D-004
 	js.motorJoint.angularOffset = angularOffset
@@ -262,7 +260,7 @@ func (jointId JointId) SetMaxForce(maxForce Q) {
 	if !IsValidQ(maxForce) {
 		panic("dbox2d: SetMaxForce needs a valid value")
 	}
-	zero := fixed.Q32Zero()
+	zero := QZero()
 	if maxForce.Less(zero) {
 		maxForce = zero
 	}
@@ -299,7 +297,7 @@ func (jointId JointId) SetMaxTorque(maxTorque Q) {
 	if !IsValidQ(maxTorque) {
 		panic("dbox2d: SetMaxTorque needs a valid value")
 	}
-	zero := fixed.Q32Zero()
+	zero := QZero()
 	if maxTorque.Less(zero) {
 		maxTorque = zero
 	}
@@ -322,7 +320,7 @@ func (jointId JointId) SetCorrectionFactor(correctionFactor Q) {
 	}
 	w := getWorld(jointId.world0)
 	js := getJointSimCheckType(w, jointId, MotorJoint)
-	js.motorJoint.correctionFactor = correctionFactor.Clamp(fixed.Q32Zero(), fixed.Q32One())
+	js.motorJoint.correctionFactor = correctionFactor.Clamp(QZero(), QOne())
 }
 
 // GetCorrectionFactor reports the motor joint's correction factor (b2MotorJoint_GetCorrectionFactor).

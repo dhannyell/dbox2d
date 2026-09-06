@@ -3,8 +3,6 @@ package dbox2d
 import (
 	"math/bits"
 	"time"
-
-	"github.com/dhannyell/fixed"
 )
 
 // millisecondsSince returns the elapsed wall-clock time since start, in
@@ -92,7 +90,7 @@ func (worldId WorldId) Step(timeStep Q, subStepCount int) {
 
 	w.profile = Profile{}
 
-	zero := fixed.Q32Zero()
+	zero := QZero()
 	if timeStep.Eq(zero) {
 		// Swap end event array buffers
 		w.endEventArrayIndex = 1 - w.endEventArrayIndex
@@ -116,15 +114,15 @@ func (worldId WorldId) Step(timeStep Q, subStepCount int) {
 	context.subStepCount = max(1, subStepCount)
 
 	if zero.Less(timeStep) {
-		context.invDt = fixed.Q32One().Div(timeStep)
-		context.h = timeStep.Div(fixed.Q32FromInt(context.subStepCount))
-		context.invH = fixed.Q32FromInt(context.subStepCount).Mul(context.invDt)
+		context.invDt = QOne().Div(timeStep)
+		context.h = timeStep.Div(QFromInt(context.subStepCount))
+		context.invH = QFromInt(context.subStepCount).Mul(context.invDt)
 	}
 
 	w.invH = context.invH
 
 	// Hertz values get reduced for large time steps
-	contactHertz := w.contactHertz.Min(fixed.Q32FromRatio(1, 8).Mul(context.invH))
+	contactHertz := w.contactHertz.Min(QFromRatio(1, 8).Mul(context.invH))
 	context.contactSoftness = makeSoft(contactHertz, w.contactDampingRatio, context.h)
 	context.staticSoftness = makeSoft(contactHertz.Add(contactHertz), w.contactDampingRatio, context.h)
 

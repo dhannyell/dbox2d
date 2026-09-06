@@ -3,8 +3,6 @@ package dbox2d
 import (
 	"math/bits"
 	"time"
-
-	"github.com/dhannyell/fixed"
 )
 
 // softness holds the soft constraint coefficients of one sub-step. It
@@ -19,7 +17,7 @@ type softness struct {
 // ratio (zeta) and the sub-step time (h). A zero frequency means a rigid
 // constraint. It corresponds to b2MakeSoft in src/solver.h.
 func makeSoft(hertz, zeta, h Q) softness {
-	if hertz.Eq(fixed.Q32Zero()) {
+	if hertz.Eq(QZero()) {
 		return softness{}
 	}
 
@@ -34,7 +32,7 @@ func makeSoft(hertz, zeta, h Q) softness {
 	// In all cases: massScale + impulseScale == 1
 	// D-006: the reference multiplies by the reciprocal of (1 + a2). Each
 	// coefficient divides instead.
-	one := fixed.Q32One()
+	one := QOne()
 	return softness{
 		biasRate:     omega.Div(a1),
 		massScale:    a2.Div(one.Add(a2)),
@@ -55,8 +53,8 @@ func integrateVelocitiesTask(startIndex, endIndex int, context *stepContext) {
 	maxLinearSpeedSquared := maxLinearSpeed.Mul(maxLinearSpeed)
 	maxAngularSpeedSquared := maxAngularSpeed.Mul(maxAngularSpeed)
 
-	zero := fixed.Q32Zero()
-	one := fixed.Q32One()
+	zero := QZero()
+	one := QOne()
 	for i := startIndex; i < endIndex; i++ {
 		sim := &sims[i]
 		state := &states[i]
@@ -150,7 +148,7 @@ type continuousContext struct {
 // replaces the context pointer of b2ContinuousQueryCallback in
 // src/solver.c. See D-014.
 func (ctx *continuousContext) queryCallback(_ int, userData uint64) bool {
-	zero := fixed.Q32Zero()
+	zero := QZero()
 
 	shapeId := int(userData)
 
@@ -225,7 +223,7 @@ func (ctx *continuousContext) queryCallback(_ int, userData uint64) bool {
 			offset2 := Cross(c2.Sub(p1), e)
 
 			// todo this should use the min extent of the fast shape, not the body
-			allowedFraction := fixed.Q32FromRatio(1, 4)
+			allowedFraction := QFromRatio(1, 4)
 			if offset1.Less(zero) || offset1.Sub(offset2).Less(allowedFraction.Mul(fastBodySim.minExtent)) {
 				// Minimal clipping
 				return true
@@ -251,7 +249,7 @@ func (ctx *continuousContext) queryCallback(_ int, userData uint64) bool {
 		// fallback to TOI of a small circle around the fast shape centroid
 		centroid := getShapeCentroid(fastShape)
 		extent := computeShapeExtent(fastShape, centroid)
-		radius := fixed.Q32FromRatio(1, 4).Mul(extent.minExtent)
+		radius := QFromRatio(1, 4).Mul(extent.minExtent)
 		centroidPoint := [1]Vec2{centroid}
 		input.ProxyB = MakeProxy(centroidPoint[:], radius)
 		output = TimeOfImpact(&input)
@@ -309,7 +307,7 @@ func solveContinuous(w *world, bodySimIndex int) {
 	ctx.world = w
 	ctx.sweep = sweep
 	ctx.fastBodySim = fastBodySim
-	ctx.fraction = fixed.Q32One()
+	ctx.fraction = QOne()
 
 	isBullet := fastBodySim.isBullet
 
@@ -342,7 +340,7 @@ func solveContinuous(w *world, bodySimIndex int) {
 		}
 	}
 
-	if ctx.fraction.Less(fixed.Q32One()) {
+	if ctx.fraction.Less(QOne()) {
 		// Handle time of impact event
 		q := NLerp(sweep.Q1, sweep.Q2, ctx.fraction)
 		c := Lerp(sweep.C1, sweep.C2, ctx.fraction)
@@ -440,8 +438,8 @@ func finalizeBodiesTask(startIndex, endIndex int, context *stepContext) {
 
 	enableContinuous := w.enableContinuous
 
-	zero := fixed.Q32Zero()
-	half := fixed.Q32Half()
+	zero := QZero()
+	half := QHalf()
 	for simIndex := startIndex; simIndex < endIndex; simIndex++ {
 		state := &states[simIndex]
 		sim := &sims[simIndex]
@@ -474,7 +472,7 @@ func finalizeBodiesTask(startIndex, endIndex int, context *stepContext) {
 
 		// reset state deltas
 		state.deltaPosition = Vec2Zero()
-		state.deltaRotation = fixed.RotIdentity()
+		state.deltaRotation = RotIdentity()
 
 		sim.transform.P = sim.center.Sub(RotateVector(sim.transform.Q, sim.localCenter))
 
@@ -728,7 +726,7 @@ func solve(w *world, context *stepContext) {
 		setBitCountAndClear(&taskContext.enlargedSimBitSet, awakeBodyCount)
 		setBitCountAndClear(&taskContext.awakeIslandBitSet, awakeIslandCount)
 		taskContext.splitIslandId = nullIndex
-		taskContext.splitSleepTime = fixed.Q32Zero()
+		taskContext.splitSleepTime = QZero()
 
 		// Finalize bodies. Must happen after the constraint solver and after island splitting.
 		finalizeBodiesTask(0, awakeBodyCount, context)
@@ -751,7 +749,7 @@ func solve(w *world, context *stepContext) {
 
 		threshold := w.hitEventThreshold
 		colors := &w.constraintGraph.colors
-		zero := fixed.Q32Zero()
+		zero := QZero()
 		for i := range graphColorCount {
 			color := &colors[i]
 			contactSims := color.contactSims
@@ -927,7 +925,7 @@ func solve(w *world, context *stepContext) {
 		}
 		taskContext := &w.taskContext
 		if taskContext.splitIslandId != nullIndex {
-			if !fixed.Q32Zero().Less(taskContext.splitSleepTime) {
+			if !QZero().Less(taskContext.splitSleepTime) {
 				panic("dbox2d: the split candidate has no sleep time")
 			}
 			w.splitIslandId = taskContext.splitIslandId

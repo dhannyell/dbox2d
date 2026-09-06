@@ -3,8 +3,6 @@ package dbox2d
 import (
 	"math/bits"
 	"slices"
-
-	"github.com/dhannyell/fixed"
 )
 
 // shapeRef identifies one sensor overlap. It corresponds to b2ShapeRef in
@@ -70,7 +68,7 @@ func sensorQueryCallback(_ int, userData uint64, context *sensorQueryContext) bo
 	output := ShapeDistance(&input, &cache, nil)
 
 	// D-012: sensor overlap requires an exact zero distance.
-	if !output.Distance.Eq(fixed.Q32Zero()) {
+	if !output.Distance.Eq(QZero()) {
 		return true
 	}
 

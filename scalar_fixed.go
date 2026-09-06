@@ -20,11 +20,6 @@ type (
 	Rot = fixed.Rot
 )
 
-// scalarEpsilon is the tolerance of a comparison with zero. Fixed-point
-// arithmetic is exact, so the tolerance is zero; a float mode substitutes
-// the epsilon of the reference.
-var scalarEpsilon = QZero()
-
 // QZero returns zero.
 func QZero() Q { return fixed.Q32Zero() }
 

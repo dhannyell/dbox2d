@@ -1,11 +1,9 @@
 package dbox2d
 
-import "github.com/dhannyell/fixed"
-
 // IsValidRay reports whether a ray cast input is usable.
 func IsValidRay(input *RayCastInput) bool {
 	isValid := IsValidVec2(input.Origin) && IsValidVec2(input.Translation) &&
-		IsValidQ(input.MaxFraction) && !input.MaxFraction.Less(fixed.Q32Zero()) && input.MaxFraction.Less(Huge)
+		IsValidQ(input.MaxFraction) && !input.MaxFraction.Less(QZero()) && input.MaxFraction.Less(Huge)
 	return isValid
 }
 
@@ -13,14 +11,14 @@ func IsValidRay(input *RayCastInput) bool {
 // panics on a polygon with no area.
 func computePolygonCentroid(vertices []Vec2) Vec2 {
 	center := Vec2Zero()
-	area := fixed.Q32Zero()
+	area := QZero()
 
 	// Get a reference point for forming triangles.
 	// Use the first vertex to reduce round-off errors.
 	origin := vertices[0]
 
-	half := fixed.Q32Half()
-	three := fixed.Q32FromInt(3)
+	half := QHalf()
+	three := QFromInt(3)
 
 	for i := 1; i < len(vertices)-1; i++ {
 		// Triangle edges
@@ -33,7 +31,7 @@ func computePolygonCentroid(vertices []Vec2) Vec2 {
 		area = area.Add(a)
 	}
 
-	if !fixed.Q32Zero().Less(area) {
+	if !QZero().Less(area) {
 		panic("dbox2d: a polygon centroid needs a positive area")
 	}
 	center = center.Div(area)
@@ -68,10 +66,10 @@ func MakePolygon(hull *Hull, radius Q) Polygon {
 			i2 = i + 1
 		}
 		edge := shape.Vertices[i2].Sub(shape.Vertices[i1])
-		if edge.Dot(edge).Eq(fixed.Q32Zero()) {
+		if edge.Dot(edge).Eq(QZero()) {
 			panic("dbox2d: a polygon edge has zero length")
 		}
-		shape.Normals[i] = CrossVS(edge, fixed.Q32One()).Normalize()
+		shape.Normals[i] = CrossVS(edge, QOne()).Normalize()
 	}
 
 	shape.Centroid = computePolygonCentroid(shape.Vertices[:shape.Count])
@@ -82,7 +80,7 @@ func MakePolygon(hull *Hull, radius Q) Polygon {
 // MakeOffsetPolygon returns a convex polygon built from a hull and placed at
 // a position and a rotation.
 func MakeOffsetPolygon(hull *Hull, position Vec2, rotation Rot) Polygon {
-	return MakeOffsetRoundedPolygon(hull, position, rotation, fixed.Q32Zero())
+	return MakeOffsetRoundedPolygon(hull, position, rotation, QZero())
 }
 
 // MakeOffsetRoundedPolygon returns a convex polygon built from a hull, placed
@@ -111,10 +109,10 @@ func MakeOffsetRoundedPolygon(hull *Hull, position Vec2, rotation Rot, radius Q)
 			i2 = i + 1
 		}
 		edge := shape.Vertices[i2].Sub(shape.Vertices[i1])
-		if edge.Dot(edge).Eq(fixed.Q32Zero()) {
+		if edge.Dot(edge).Eq(QZero()) {
 			panic("dbox2d: a polygon edge has zero length")
 		}
-		shape.Normals[i] = CrossVS(edge, fixed.Q32One()).Normalize()
+		shape.Normals[i] = CrossVS(edge, QOne()).Normalize()
 	}
 
 	shape.Centroid = computePolygonCentroid(shape.Vertices[:shape.Count])
@@ -131,8 +129,8 @@ func MakeSquare(halfWidth Q) Polygon {
 // MakeBox returns a rectangle polygon of the given half-extents, without a
 // hull. It panics on a half-extent that is not positive.
 func MakeBox(halfWidth, halfHeight Q) Polygon {
-	zero := fixed.Q32Zero()
-	one := fixed.Q32One()
+	zero := QZero()
+	one := QOne()
 
 	if !IsValidQ(halfWidth) || !zero.Less(halfWidth) {
 		panic("dbox2d: MakeBox needs a positive half-width")
@@ -159,7 +157,7 @@ func MakeBox(halfWidth, halfHeight Q) Polygon {
 // MakeRoundedBox returns a rectangle polygon with rounded corners, without a
 // hull.
 func MakeRoundedBox(halfWidth, halfHeight, radius Q) Polygon {
-	if !IsValidQ(radius) || radius.Less(fixed.Q32Zero()) {
+	if !IsValidQ(radius) || radius.Less(QZero()) {
 		panic("dbox2d: MakeRoundedBox needs a radius that is not negative")
 	}
 	shape := MakeBox(halfWidth, halfHeight)
@@ -170,14 +168,14 @@ func MakeRoundedBox(halfWidth, halfHeight, radius Q) Polygon {
 // MakeOffsetBox returns a rectangle polygon placed at a center and a
 // rotation, without a hull.
 func MakeOffsetBox(halfWidth, halfHeight Q, center Vec2, rotation Rot) Polygon {
-	return MakeOffsetRoundedBox(halfWidth, halfHeight, center, rotation, fixed.Q32Zero())
+	return MakeOffsetRoundedBox(halfWidth, halfHeight, center, rotation, QZero())
 }
 
 // MakeOffsetRoundedBox returns a rectangle polygon with rounded corners,
 // placed at a center and a rotation, without a hull.
 func MakeOffsetRoundedBox(halfWidth, halfHeight Q, center Vec2, rotation Rot, radius Q) Polygon {
-	zero := fixed.Q32Zero()
-	one := fixed.Q32One()
+	zero := QZero()
+	one := QOne()
 
 	if !IsValidQ(radius) || radius.Less(zero) {
 		panic("dbox2d: MakeOffsetRoundedBox needs a radius that is not negative")
@@ -224,18 +222,18 @@ func ComputeCircleMass(shape *Circle, density Q) MassData {
 	massData.Center = shape.Center
 
 	// inertia about the local origin
-	massData.RotationalInertia = massData.Mass.Mul(fixed.Q32Half().Mul(rr).Add(shape.Center.Dot(shape.Center)))
+	massData.RotationalInertia = massData.Mass.Mul(QHalf().Mul(rr).Add(shape.Center.Dot(shape.Center)))
 
 	return massData
 }
 
 // ComputeCapsuleMass returns the mass properties of a capsule.
 func ComputeCapsuleMass(shape *Capsule, density Q) MassData {
-	half := fixed.Q32Half()
-	two := fixed.Q32FromInt(2)
-	three := fixed.Q32FromInt(3)
-	four := fixed.Q32FromInt(4)
-	twelve := fixed.Q32FromInt(12)
+	half := QHalf()
+	two := QFromInt(2)
+	three := QFromInt(3)
+	four := QFromInt(4)
+	twelve := QFromInt(12)
 
 	radius := shape.Radius
 	rr := radius.Mul(radius)
@@ -294,10 +292,10 @@ func ComputePolygonMass(shape *Polygon, density Q) MassData {
 		return ComputeCapsuleMass(&capsule, density)
 	}
 
-	zero := fixed.Q32Zero()
-	half := fixed.Q32Half()
-	quarter := fixed.Q32MustParse("0.25")
-	three := fixed.Q32FromInt(3)
+	zero := QZero()
+	half := QHalf()
+	quarter := QMustParse("0.25")
+	three := QFromInt(3)
 
 	var vertices [MaxPolygonVertices]Vec2
 	count := shape.Count
@@ -305,7 +303,7 @@ func ComputePolygonMass(shape *Polygon, density Q) MassData {
 
 	if zero.Less(radius) {
 		// Approximate mass of rounded polygons by pushing out the vertices.
-		sqrt2 := fixed.Q32MustParse("1.412")
+		sqrt2 := QMustParse("1.412")
 		for i := range count {
 			j := i - 1
 			if i == 0 {
@@ -448,7 +446,7 @@ func PointInCapsule(point Vec2, shape *Capsule) bool {
 
 	d := p2.Sub(p1)
 	dd := d.Dot(d)
-	if dd.Eq(fixed.Q32Zero()) {
+	if dd.Eq(QZero()) {
 		// Capsule is really a circle
 		return !rr.Less(point.DistanceSq(p1))
 	}
@@ -458,7 +456,7 @@ func PointInCapsule(point Vec2, shape *Capsule) bool {
 	// dot(point - c, d) = 0
 	// t = dot(point - p1, d) / dot(d, d)
 	t := point.Sub(p1).Dot(d).Div(dd)
-	t = t.Clamp(fixed.Q32Zero(), fixed.Q32One())
+	t = t.Clamp(QZero(), QOne())
 	c := MulAdd(p1, t, d)
 
 	// Is query point within radius around closest point?
@@ -472,7 +470,7 @@ func RayCastCircle(input *RayCastInput, shape *Circle) CastOutput {
 		panic("dbox2d: RayCastCircle needs a valid ray")
 	}
 
-	zero := fixed.Q32Zero()
+	zero := QZero()
 	p := shape.Center
 
 	output := CastOutput{}
@@ -545,7 +543,7 @@ func RayCastCapsule(input *RayCastInput, shape *Capsule) CastOutput {
 		panic("dbox2d: RayCastCapsule needs a valid ray")
 	}
 
-	zero := fixed.Q32Zero()
+	zero := QZero()
 	output := CastOutput{}
 
 	v1 := shape.Center1
@@ -659,7 +657,7 @@ func RayCastCapsule(input *RayCastInput, shape *Capsule) CastOutput {
 // RayCastSegment casts a ray against a segment in local space. A one-sided
 // segment reports a miss for a ray that arrives from the left.
 func RayCastSegment(input *RayCastInput, shape *Segment, oneSided bool) CastOutput {
-	zero := fixed.Q32Zero()
+	zero := QZero()
 
 	if oneSided {
 		// Skip left-side collision
@@ -738,7 +736,7 @@ func RayCastPolygon(input *RayCastInput, shape *Polygon) CastOutput {
 		panic("dbox2d: RayCastPolygon needs a valid ray")
 	}
 
-	zero := fixed.Q32Zero()
+	zero := QZero()
 
 	if !shape.Radius.Eq(zero) {
 		// TODO_ERIN this is not working for ray vs box (zero radii)
@@ -848,7 +846,7 @@ func ShapeCastCapsule(input *ShapeCastInput, shape *Capsule) CastOutput {
 // ShapeCastSegment casts a proxy against a segment in the local frame of
 // the segment. It corresponds to b2ShapeCastSegment in src/geometry.c.
 func ShapeCastSegment(input *ShapeCastInput, shape *Segment) CastOutput {
-	pairInput := shapeCastPair(input, MakeProxy([]Vec2{shape.Point1, shape.Point2}, fixed.Q32Zero()))
+	pairInput := shapeCastPair(input, MakeProxy([]Vec2{shape.Point1, shape.Point2}, QZero()))
 	return ShapeCast(&pairInput)
 }
 
@@ -861,7 +859,7 @@ func ShapeCastPolygon(input *ShapeCastInput, shape *Polygon) CastOutput {
 
 // CollideMoverAndCircle ports b2CollideMoverAndCircle.
 func CollideMoverAndCircle(mover *Capsule, shape *Circle) PlaneResult {
-	zero := fixed.Q32Zero()
+	zero := QZero()
 	distanceInput := DistanceInput{
 		ProxyA:     MakeProxy([]Vec2{shape.Center}, zero),
 		ProxyB:     MakeProxy([]Vec2{mover.Center1, mover.Center2}, mover.Radius),
@@ -886,7 +884,7 @@ func CollideMoverAndCircle(mover *Capsule, shape *Circle) PlaneResult {
 
 // CollideMoverAndCapsule ports b2CollideMoverAndCapsule.
 func CollideMoverAndCapsule(mover *Capsule, shape *Capsule) PlaneResult {
-	zero := fixed.Q32Zero()
+	zero := QZero()
 	distanceInput := DistanceInput{
 		ProxyA:     MakeProxy([]Vec2{shape.Center1, shape.Center2}, zero),
 		ProxyB:     MakeProxy([]Vec2{mover.Center1, mover.Center2}, mover.Radius),
@@ -935,7 +933,7 @@ func CollideMoverAndPolygon(mover *Capsule, shape *Polygon) PlaneResult {
 
 // CollideMoverAndSegment ports b2CollideMoverAndSegment.
 func CollideMoverAndSegment(mover *Capsule, shape *Segment) PlaneResult {
-	zero := fixed.Q32Zero()
+	zero := QZero()
 	distanceInput := DistanceInput{
 		ProxyA:     MakeProxy([]Vec2{shape.Point1, shape.Point2}, zero),
 		ProxyB:     MakeProxy([]Vec2{mover.Center1, mover.Center2}, mover.Radius),

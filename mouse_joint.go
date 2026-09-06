@@ -1,7 +1,5 @@
 package dbox2d
 
-import "github.com/dhannyell/fixed"
-
 // SetTarget changes the mouse joint target (b2MouseJoint_SetTarget).
 func (jointId JointId) SetTarget(target Vec2) {
 	if !IsValidVec2(target) {
@@ -69,8 +67,8 @@ func prepareMouseJoint(base *jointSim, context *stepContext) {
 
 	joint.linearSoftness = makeSoft(joint.hertz, joint.dampingRatio, context.h)
 
-	angularHertz := fixed.Q32Half()
-	angularDampingRatio := fixed.Q32MustParse("0.1")
+	angularHertz := QHalf()
+	angularDampingRatio := QMustParse("0.1")
 	joint.angularSoftness = makeSoft(angularHertz, angularDampingRatio, context.h)
 
 	rB := joint.anchorB
@@ -91,7 +89,7 @@ func prepareMouseJoint(base *jointSim, context *stepContext) {
 
 	if !context.enableWarmStarting {
 		joint.linearImpulse = Vec2Zero()
-		joint.angularImpulse = fixed.Q32Zero()
+		joint.angularImpulse = QZero()
 	}
 }
 
@@ -134,7 +132,7 @@ func solveMouseJoint(base *jointSim, context *stepContext) {
 	vB := stateB.linearVelocity
 	wB := stateB.angularVelocity.Mul(tau)
 
-	zero := fixed.Q32Zero()
+	zero := QZero()
 
 	// Softness with no bias to reduce rotation speed
 	{

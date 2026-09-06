@@ -1,7 +1,5 @@
 package dbox2d
 
-import "github.com/dhannyell/fixed"
-
 // contact separation for sub-stepping
 // s = s0 + dot(cB + rB - cA - rA, normal)
 // normal is held constant
@@ -68,8 +66,8 @@ func prepareContacts(context *stepContext, colorIndex int) {
 	contactSoftness := context.contactSoftness
 	staticSoftness := context.staticSoftness
 
-	zero := fixed.Q32Zero()
-	one := fixed.Q32One()
+	zero := QZero()
+	one := QOne()
 	warmStartScale := zero
 	if w.enableWarmStarting {
 		warmStartScale = one
@@ -274,8 +272,8 @@ func solveContacts(context *stepContext, colorIndex int, useBias bool) {
 	// This is a dummy body to represent a static body since static bodies don't have a solver body.
 	dummyState := identityBodyState()
 
-	zero := fixed.Q32Zero()
-	one := fixed.Q32One()
+	zero := QZero()
+	one := QOne()
 	for i := range contactCount {
 		constraint := &constraints[i]
 		mA := constraint.invMassA
@@ -420,7 +418,7 @@ func applyRestitution(context *stepContext, colorIndex int) {
 	// dummy state to represent a static body
 	dummyState := identityBodyState()
 
-	zero := fixed.Q32Zero()
+	zero := QZero()
 	for i := range contactCount {
 		constraint := &constraints[i]
 

@@ -1,7 +1,5 @@
 package dbox2d
 
-import "github.com/dhannyell/fixed"
-
 // shape is the internal record of a shape on a body.
 type shape struct {
 	id          int
@@ -172,7 +170,7 @@ func createShapeInternal(w *world, b *body, transform Transform, def *ShapeDef, 
 // createShape validates the definition and dispatches on the geometry.
 func createShape(bodyId BodyId, def *ShapeDef, geometry any, shapeType ShapeType) ShapeId {
 	checkDef(def.internalValue)
-	zero := fixed.Q32Zero()
+	zero := QZero()
 	if !IsValidQ(def.Density) || def.Density.Less(zero) {
 		panic("dbox2d: ShapeDef.Density is not valid")
 	}
@@ -214,7 +212,7 @@ func CreateCircleShape(bodyId BodyId, def *ShapeDef, circle *Circle) ShapeId {
 func CreateCapsuleShape(bodyId BodyId, def *ShapeDef, capsule *Capsule) ShapeId {
 	lengthSqr := capsule.Center1.DistanceSq(capsule.Center2)
 	if !linearSlop.Mul(linearSlop).Less(lengthSqr) {
-		circle := Circle{Center: Lerp(capsule.Center1, capsule.Center2, fixed.Q32Half()), Radius: capsule.Radius}
+		circle := Circle{Center: Lerp(capsule.Center1, capsule.Center2, QHalf()), Radius: capsule.Radius}
 		return createShape(bodyId, def, &circle, CircleShape)
 	}
 
@@ -224,7 +222,7 @@ func CreateCapsuleShape(bodyId BodyId, def *ShapeDef, capsule *Capsule) ShapeId 
 // CreatePolygonShape creates a polygon shape on a body. Build the polygon
 // with MakePolygon or MakeBox.
 func CreatePolygonShape(bodyId BodyId, def *ShapeDef, polygon *Polygon) ShapeId {
-	if !IsValidQ(polygon.Radius) || polygon.Radius.Less(fixed.Q32Zero()) {
+	if !IsValidQ(polygon.Radius) || polygon.Radius.Less(QZero()) {
 		panic("dbox2d: Polygon.Radius is not valid")
 	}
 	return createShape(bodyId, def, polygon, PolygonShape)
@@ -254,7 +252,7 @@ func CreateChain(bodyId BodyId, def *ChainDef) ChainId {
 		panic("dbox2d: ChainDef.Materials must contain one material or one per point")
 	}
 
-	zero := fixed.Q32Zero()
+	zero := QZero()
 	for i := range def.Materials {
 		material := def.Materials[i]
 		if !IsValidQ(material.Friction) || material.Friction.Less(zero) {
@@ -532,15 +530,15 @@ func computeShapeAABB(s *shape, xf Transform) AABB {
 func getShapeCentroid(s *shape) Vec2 {
 	switch s.shapeType {
 	case CapsuleShape:
-		return Lerp(s.capsule.Center1, s.capsule.Center2, fixed.Q32Half())
+		return Lerp(s.capsule.Center1, s.capsule.Center2, QHalf())
 	case CircleShape:
 		return s.circle.Center
 	case PolygonShape:
 		return s.polygon.Centroid
 	case SegmentShape:
-		return Lerp(s.segment.Point1, s.segment.Point2, fixed.Q32Half())
+		return Lerp(s.segment.Point1, s.segment.Point2, QHalf())
 	case ChainSegmentShape:
-		return Lerp(s.chainSegment.Segment.Point1, s.chainSegment.Segment.Point2, fixed.Q32Half())
+		return Lerp(s.chainSegment.Segment.Point1, s.chainSegment.Segment.Point2, QHalf())
 	default:
 		return Vec2Zero()
 	}
@@ -557,7 +555,7 @@ func getShapeRadius(s *shape) Q {
 	case PolygonShape:
 		return s.polygon.Radius
 	default:
-		return fixed.Q32Zero()
+		return QZero()
 	}
 }
 
@@ -597,7 +595,7 @@ func computeShapeExtent(s *shape, localCenter Vec2) shapeExtent {
 	case PolygonShape:
 		poly := &s.polygon
 		minExtent := Huge
-		maxExtentSqr := fixed.Q32Zero()
+		maxExtentSqr := QZero()
 		for i := range poly.Count {
 			v := poly.Vertices[i]
 			planeOffset := poly.Normals[i].Dot(v.Sub(poly.Centroid))
@@ -611,13 +609,13 @@ func computeShapeExtent(s *shape, localCenter Vec2) shapeExtent {
 		extent.maxExtent = maxExtentSqr.Sqrt().Add(poly.Radius)
 
 	case SegmentShape:
-		extent.minExtent = fixed.Q32Zero()
+		extent.minExtent = QZero()
 		c1 := s.segment.Point1.Sub(localCenter)
 		c2 := s.segment.Point2.Sub(localCenter)
 		extent.maxExtent = c1.LenSq().Max(c2.LenSq()).Sqrt()
 
 	case ChainSegmentShape:
-		extent.minExtent = fixed.Q32Zero()
+		extent.minExtent = QZero()
 		c1 := s.chainSegment.Segment.Point1.Sub(localCenter)
 		c2 := s.chainSegment.Segment.Point2.Sub(localCenter)
 		extent.maxExtent = c1.LenSq().Max(c2.LenSq()).Sqrt()
@@ -661,7 +659,7 @@ func getShapeProjectedPerimeter(s *shape, line Vec2) Q {
 		return value2.Sub(value1).Abs()
 
 	default:
-		return fixed.Q32Zero()
+		return QZero()
 	}
 }
 
@@ -793,9 +791,9 @@ func makeShapeDistanceProxy(s *shape) ShapeProxy {
 	case PolygonShape:
 		return MakeProxy(s.polygon.Vertices[:s.polygon.Count], s.polygon.Radius)
 	case SegmentShape:
-		return MakeProxy([]Vec2{s.segment.Point1, s.segment.Point2}, fixed.Q32Zero())
+		return MakeProxy([]Vec2{s.segment.Point1, s.segment.Point2}, QZero())
 	case ChainSegmentShape:
-		return MakeProxy([]Vec2{s.chainSegment.Segment.Point1, s.chainSegment.Segment.Point2}, fixed.Q32Zero())
+		return MakeProxy([]Vec2{s.chainSegment.Segment.Point1, s.chainSegment.Segment.Point2}, QZero())
 	default:
 		panic("dbox2d: unknown shape type")
 	}
@@ -890,7 +888,7 @@ func (chainId ChainId) GetSegments(segments []ShapeId) int {
 // SetFriction changes the friction of every chain segment. It corresponds to
 // b2Chain_SetFriction.
 func (chainId ChainId) SetFriction(friction Q) {
-	zero := fixed.Q32Zero()
+	zero := QZero()
 	if !IsValidQ(friction) || friction.Less(zero) {
 		panic("dbox2d: SetFriction friction is not valid")
 	}
@@ -1032,7 +1030,7 @@ func (shapeId ShapeId) TestPoint(point Vec2) bool {
 	case CircleShape:
 		return PointInCircle(localPoint, &s.circle)
 	case PolygonShape:
-		zero := fixed.Q32Zero()
+		zero := QZero()
 		input := DistanceInput{
 			ProxyA:     MakeProxy(s.polygon.Vertices[:s.polygon.Count], zero),
 			ProxyB:     MakeProxy([]Vec2{localPoint}, zero),
@@ -1060,7 +1058,7 @@ func (shapeId ShapeId) RayCast(input *RayCastInput) CastOutput {
 // SetDensity changes the shape density and optionally updates body mass. It
 // corresponds to b2Shape_SetDensity.
 func (shapeId ShapeId) SetDensity(density Q, updateBodyMass bool) {
-	zero := fixed.Q32Zero()
+	zero := QZero()
 	if !IsValidQ(density) || density.Less(zero) {
 		panic("dbox2d: SetDensity density is not valid")
 	}
@@ -1087,7 +1085,7 @@ func (shapeId ShapeId) GetDensity() Q {
 // SetFriction changes the shape friction. It corresponds to
 // b2Shape_SetFriction.
 func (shapeId ShapeId) SetFriction(friction Q) {
-	zero := fixed.Q32Zero()
+	zero := QZero()
 	if !IsValidQ(friction) || friction.Less(zero) {
 		panic("dbox2d: SetFriction friction is not valid")
 	}
@@ -1106,7 +1104,7 @@ func (shapeId ShapeId) GetFriction() Q {
 // SetRestitution changes the shape restitution. It corresponds to
 // b2Shape_SetRestitution.
 func (shapeId ShapeId) SetRestitution(restitution Q) {
-	zero := fixed.Q32Zero()
+	zero := QZero()
 	if !IsValidQ(restitution) || restitution.Less(zero) {
 		panic("dbox2d: SetRestitution restitution is not valid")
 	}
@@ -1444,7 +1442,7 @@ func (shapeId ShapeId) GetClosestPoint(target Vec2) Vec2 {
 	b := &w.bodies[s.bodyId]
 	transform := getBodyTransformQuick(w, b)
 
-	zero := fixed.Q32Zero()
+	zero := QZero()
 	input := DistanceInput{
 		ProxyA:     makeShapeDistanceProxy(s),
 		ProxyB:     MakeProxy([]Vec2{target}, zero),

@@ -1,15 +1,13 @@
 package dbox2d
 
-import "github.com/dhannyell/fixed"
-
 // SegmentDistance computes the closest points of two line segments,
 // clamping at the end points when needed. It follows Ericson 5.1.9 and
 // corresponds to b2SegmentDistance in src/distance.c.
 func SegmentDistance(p1, q1, p2, q2 Vec2) SegmentDistanceResult {
 	var result SegmentDistanceResult
 
-	zero := fixed.Q32Zero()
-	one := fixed.Q32One()
+	zero := QZero()
+	one := QOne()
 
 	d1 := q1.Sub(p1)
 	d2 := q2.Sub(p2)
@@ -84,7 +82,7 @@ func MakeProxy(points []Vec2, radius Q) ShapeProxy {
 // corresponds to b2GetSweepTransform in src/distance.c.
 func GetSweepTransform(sweep *Sweep, time Q) Transform {
 	// https://fgiesen.wordpress.com/2012/08/15/linear-interpolation-past-present-and-future/
-	omt := fixed.Q32One().Sub(time)
+	omt := QOne().Sub(time)
 
 	var xf Transform
 	xf.P = sweep.C1.Mul(omt).Add(sweep.C2.Mul(time))
@@ -170,7 +168,7 @@ func makeSimplexFromCache(cache *SimplexCache, proxyA, proxyB *ShapeProxy) Simpl
 		v.W = v.WA.Sub(v.WB)
 
 		// invalid
-		v.A = fixed.Q32One().Neg()
+		v.A = QOne().Neg()
 	}
 
 	// If the cache is empty or invalid ...
@@ -181,7 +179,7 @@ func makeSimplexFromCache(cache *SimplexCache, proxyA, proxyB *ShapeProxy) Simpl
 		v.WA = proxyA.Points[0]
 		v.WB = proxyB.Points[0]
 		v.W = v.WA.Sub(v.WB)
-		v.A = fixed.Q32One()
+		v.A = QOne()
 		s.Count = 1
 	}
 
@@ -253,8 +251,8 @@ func computeSimplexWitnessPoints(s *Simplex) (a, b Vec2) {
 // b2SolveSimplex2 in src/distance.c; the reciprocal of d12 becomes two
 // divisions (D-006).
 func solveSimplex2(s *Simplex) Vec2 {
-	zero := fixed.Q32Zero()
-	one := fixed.Q32One()
+	zero := QZero()
+	one := QOne()
 
 	w1 := s.V1.W
 	w2 := s.V2.W
@@ -291,8 +289,8 @@ func solveSimplex2(s *Simplex) Vec2 {
 // corresponds to b2SolveSimplex3 in src/distance.c; each reciprocal
 // becomes divisions (D-006).
 func solveSimplex3(s *Simplex) Vec2 {
-	zero := fixed.Q32Zero()
-	one := fixed.Q32One()
+	zero := QZero()
+	one := QOne()
 
 	w1 := s.V1.W
 	w2 := s.V2.W
@@ -407,7 +405,7 @@ func solveSimplex3(s *Simplex) Vec2 {
 // The reference stops on a search direction shorter than FLT_EPSILON;
 // the port stops on a squared length of exactly zero (D-012).
 func ShapeDistance(input *DistanceInput, cache *SimplexCache, simplexes []Simplex) DistanceOutput {
-	zero := fixed.Q32Zero()
+	zero := QZero()
 
 	if input.ProxyA.Count <= 0 || input.ProxyB.Count <= 0 {
 		panic("dbox2d: ShapeDistance needs at least one point per proxy")
@@ -561,7 +559,7 @@ func ShapeDistance(input *DistanceInput, cache *SimplexCache, simplexes []Simple
 	makeSimplexCache(cache, &simplex)
 
 	// Apply radii if requested
-	if input.UseRadii && linearSlop.Div(fixed.Q32FromInt(10)).Less(output.Distance) {
+	if input.UseRadii && linearSlop.Div(QFromInt(10)).Less(output.Distance) {
 		radiusA := input.ProxyA.Radius
 		radiusB := input.ProxyB.Radius
 		output.Distance = zero.Max(output.Distance.Sub(radiusA).Sub(radiusB))
@@ -580,12 +578,12 @@ func ShapeDistance(input *DistanceInput, cache *SimplexCache, simplexes []Simple
 // fraction unless the input allows an encroach. It corresponds to
 // b2ShapeCast in src/distance.c.
 func ShapeCast(input *ShapeCastPairInput) CastOutput {
-	zero := fixed.Q32Zero()
+	zero := QZero()
 
 	// Compute tolerance
 	totalRadius := input.ProxyA.Radius.Add(input.ProxyB.Radius)
 	target := linearSlop.Max(totalRadius.Sub(linearSlop))
-	tolerance := linearSlop.Div(fixed.Q32FromInt(4))
+	tolerance := linearSlop.Div(QFromInt(4))
 
 	if !tolerance.Less(target) {
 		panic("dbox2d: the shape cast target is inside the tolerance")
@@ -614,7 +612,7 @@ func ShapeCast(input *ShapeCastPairInput) CastOutput {
 
 		if distanceOutput.Distance.Less(target.Add(tolerance)) {
 			if iteration == 0 {
-				if input.CanEncroach && linearSlop.Mul(fixed.Q32FromInt(2)).Less(distanceOutput.Distance) {
+				if input.CanEncroach && linearSlop.Mul(QFromInt(2)).Less(distanceOutput.Distance) {
 					target = distanceOutput.Distance.Sub(linearSlop)
 				} else {
 					// Initial overlap
@@ -623,7 +621,7 @@ func ShapeCast(input *ShapeCastPairInput) CastOutput {
 					// Compute a common point
 					c1 := MulAdd(distanceOutput.PointA, input.ProxyA.Radius, distanceOutput.Normal)
 					c2 := MulAdd(distanceOutput.PointB, input.ProxyB.Radius.Neg(), distanceOutput.Normal)
-					output.Point = Lerp(c1, c2, fixed.Q32Half())
+					output.Point = Lerp(c1, c2, QHalf())
 					return output
 				}
 			} else {
@@ -726,18 +724,18 @@ func makeSeparationFunction(cache *SimplexCache, proxyA *ShapeProxy, sweepA *Swe
 		localPointB1 := proxyB.Points[cache.IndexB[0]]
 		localPointB2 := proxyB.Points[cache.IndexB[1]]
 
-		f.axis = CrossVS(localPointB2.Sub(localPointB1), fixed.Q32One())
+		f.axis = CrossVS(localPointB2.Sub(localPointB1), QOne())
 		f.axis = f.axis.Normalize()
 		normal := RotateVector(xfB.Q, f.axis)
 
-		f.localPoint = localPointB1.Add(localPointB2).Mul(fixed.Q32Half())
+		f.localPoint = localPointB1.Add(localPointB2).Mul(QHalf())
 		pointB := TransformPoint(xfB, f.localPoint)
 
 		localPointA := proxyA.Points[cache.IndexA[0]]
 		pointA := TransformPoint(xfA, localPointA)
 
 		s := pointA.Sub(pointB).Dot(normal)
-		if s.Less(fixed.Q32Zero()) {
+		if s.Less(QZero()) {
 			f.axis = Neg(f.axis)
 		}
 		return f
@@ -748,18 +746,18 @@ func makeSeparationFunction(cache *SimplexCache, proxyA *ShapeProxy, sweepA *Swe
 	localPointA1 := proxyA.Points[cache.IndexA[0]]
 	localPointA2 := proxyA.Points[cache.IndexA[1]]
 
-	f.axis = CrossVS(localPointA2.Sub(localPointA1), fixed.Q32One())
+	f.axis = CrossVS(localPointA2.Sub(localPointA1), QOne())
 	f.axis = f.axis.Normalize()
 	normal := RotateVector(xfA.Q, f.axis)
 
-	f.localPoint = localPointA1.Add(localPointA2).Mul(fixed.Q32Half())
+	f.localPoint = localPointA1.Add(localPointA2).Mul(QHalf())
 	pointA := TransformPoint(xfA, f.localPoint)
 
 	localPointB := proxyB.Points[cache.IndexB[0]]
 	pointB := TransformPoint(xfB, localPointB)
 
 	s := pointB.Sub(pointA).Dot(normal)
-	if s.Less(fixed.Q32Zero()) {
+	if s.Less(QZero()) {
 		f.axis = Neg(f.axis)
 	}
 	return f
@@ -870,7 +868,7 @@ func evaluateSeparation(f *separationFunction, indexA, indexB int, t Q) Q {
 // collisions. The reference counters under B2_SNOOP_TOI_COUNTERS are not
 // ported. It corresponds to b2TimeOfImpact in src/distance.c.
 func TimeOfImpact(input *TOIInput) TOIOutput {
-	zero := fixed.Q32Zero()
+	zero := QZero()
 
 	var output TOIOutput
 	output.State = TOIStateUnknown
@@ -889,7 +887,7 @@ func TimeOfImpact(input *TOIInput) TOIOutput {
 
 	totalRadius := proxyA.Radius.Add(proxyB.Radius)
 	target := linearSlop.Max(totalRadius.Sub(linearSlop))
-	tolerance := linearSlop.Div(fixed.Q32FromInt(4))
+	tolerance := linearSlop.Div(QFromInt(4))
 	if !tolerance.Less(target) {
 		panic("dbox2d: the time of impact target is inside the tolerance")
 	}
@@ -994,7 +992,7 @@ func TimeOfImpact(input *TOIInput) TOIOutput {
 					t = a1.Add(target.Sub(s1).Mul(a2.Sub(a1)).Div(s2.Sub(s1)))
 				} else {
 					// Bisection to guarantee progress.
-					t = fixed.Q32Half().Mul(a1.Add(a2))
+					t = QHalf().Mul(a1.Add(a2))
 				}
 
 				rootIterationCount++
