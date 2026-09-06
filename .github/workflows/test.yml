@@ -45,6 +45,25 @@ jobs:
       - name: Vet
         if: matrix.goarch == 'amd64'
         run: go vet ./...
+      - name: Guard the scalar layer
+        if: matrix.goarch == 'amd64' || matrix.goarch == 'wasm'
+        shell: bash
+        run: |
+          leaks="$(grep -rlE 'fixed\.(Q32(Zero|One|Half|FromInt|FromRatio|MustParse|MaxValue|MinValue)|RotIdentity|RotFromTurns|Atan2Turns)\(' --include=*.go --exclude=scalar_fixed.go --exclude=probe_q16_test.go --exclude=probe_wide_test.go . || true)"
+          if [ -n "$leaks" ]; then
+            printf 'Files bypass the scalar layer:\n%s\n' "$leaks"
+            exit 1
+          fi
+          # MakeRot stays out of the count: its body costs 83, over the budget of 80, since before the layer.
+          inlined="$(go build -gcflags=-m=1 . 2>&1 | grep -cE 'can inline (QZero|QOne|QHalf|QFromInt|QFromRatio|QMustParse|QMaxValue|QMinValue|RotIdentity|atan2Turns)$')"
+          if [ "$inlined" != "10" ]; then
+            echo "expected 10 inlinable constructors, got $inlined"
+            exit 1
+          fi
+          if go build -tags dbox2d_float . 2>/dev/null; then
+            echo "the dbox2d_float tag must not build yet"
+            exit 1
+          fi
       - name: Configure Wasm runner
         if: matrix.goarch == 'wasm'
         run: echo "$(go env GOROOT)/lib/wasm" >> "$GITHUB_PATH"
