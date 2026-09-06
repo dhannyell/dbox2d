@@ -1,7 +1,5 @@
 package dbox2d
 
-import "github.com/dhannyell/fixed"
-
 // This file corresponds to src/revolute_joint.c of the reference. The
 // angles are turns (D-004); an angle turns into radians by tau at the
 // single point where it enters an error C.
@@ -16,7 +14,7 @@ func drawRevoluteJoint(draw *DebugDraw, base *jointSim, transformA, transformB T
 	draw.DrawCircle(pB, drawSize, ColorGray)
 	draw.DrawSegment(pB, pC, ColorGray)
 	if draw.DrawJointExtras {
-		degrees := UnwindAngle(angle.Sub(joint.referenceAngle)).Mul(fixed.Q32FromInt(360))
+		degrees := UnwindAngle(angle.Sub(joint.referenceAngle)).Mul(QFromInt(360))
 		draw.DrawString(pC, " "+drawNumber(degrees, 1)+" deg", ColorWhite)
 	}
 	if joint.enableLimit {
@@ -58,7 +56,7 @@ func (jointId JointId) SetTargetAngle(angle Q) {
 	w := getWorld(jointId.world0)
 	joint := getJointSimCheckType(w, jointId, RevoluteJoint)
 	// D-004: the target angle is stored in turns and is bounded to half a turn.
-	halfTurn := fixed.Q32Half()
+	halfTurn := QHalf()
 	joint.revoluteJoint.targetAngle = angle.Clamp(halfTurn.Neg(), halfTurn)
 }
 
@@ -126,7 +124,7 @@ func (jointId JointId) SetLimits(lower, upper Q) {
 	switch j.jointType {
 	case RevoluteJoint:
 		// D-004: convert the reference +/- pi bound to +/- half a turn.
-		halfTurn := fixed.Q32Half()
+		halfTurn := QHalf()
 		lower = lower.Clamp(halfTurn.Neg(), halfTurn)
 		upper = upper.Clamp(halfTurn.Neg(), halfTurn)
 		lowerAngle := lower.Min(upper)
@@ -134,22 +132,22 @@ func (jointId JointId) SetLimits(lower, upper Q) {
 		if !lowerAngle.Eq(joint.revoluteJoint.lowerAngle) || !upperAngle.Eq(joint.revoluteJoint.upperAngle) {
 			joint.revoluteJoint.lowerAngle = lowerAngle
 			joint.revoluteJoint.upperAngle = upperAngle
-			joint.revoluteJoint.lowerImpulse = fixed.Q32Zero()
-			joint.revoluteJoint.upperImpulse = fixed.Q32Zero()
+			joint.revoluteJoint.lowerImpulse = QZero()
+			joint.revoluteJoint.upperImpulse = QZero()
 		}
 	case PrismaticJoint:
 		if !lower.Eq(joint.prismaticJoint.lowerTranslation) || !upper.Eq(joint.prismaticJoint.upperTranslation) {
 			joint.prismaticJoint.lowerTranslation = lower.Min(upper)
 			joint.prismaticJoint.upperTranslation = lower.Max(upper)
-			joint.prismaticJoint.lowerImpulse = fixed.Q32Zero()
-			joint.prismaticJoint.upperImpulse = fixed.Q32Zero()
+			joint.prismaticJoint.lowerImpulse = QZero()
+			joint.prismaticJoint.upperImpulse = QZero()
 		}
 	case WheelJoint:
 		if !lower.Eq(joint.wheelJoint.lowerTranslation) || !upper.Eq(joint.wheelJoint.upperTranslation) {
 			joint.wheelJoint.lowerTranslation = lower.Min(upper)
 			joint.wheelJoint.upperTranslation = lower.Max(upper)
-			joint.wheelJoint.lowerImpulse = fixed.Q32Zero()
-			joint.wheelJoint.upperImpulse = fixed.Q32Zero()
+			joint.wheelJoint.lowerImpulse = QZero()
+			joint.wheelJoint.upperImpulse = QZero()
 		}
 	default:
 		panic("dbox2d: joint type does not support limits")
@@ -269,12 +267,12 @@ func prepareRevoluteJoint(base *jointSim, context *stepContext) {
 	joint.deltaCenter = bodySimB.center.Sub(bodySimA.center)
 	joint.deltaAngle = RelativeAngle(bodySimB.transform.Q, bodySimA.transform.Q)
 
-	zero := fixed.Q32Zero()
+	zero := QZero()
 	k := iA.Add(iB)
 	// D-006: the reference multiplies by the reciprocal of k.
 	joint.axialMass = zero
 	if zero.Less(k) {
-		joint.axialMass = fixed.Q32One().Div(k)
+		joint.axialMass = QOne().Div(k)
 	}
 
 	joint.springSoftness = makeSoft(joint.hertz, joint.dampingRatio, context.h)
@@ -350,8 +348,8 @@ func solveRevoluteJoint(base *jointSim, context *stepContext, useBias bool) {
 	dqA := stateA.deltaRotation
 	dqB := stateB.deltaRotation
 
-	zero := fixed.Q32Zero()
-	one := fixed.Q32One()
+	zero := QZero()
+	one := QOne()
 	fixedRotation := iA.Add(iB).Eq(zero)
 
 	// Solve spring.

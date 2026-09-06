@@ -1,7 +1,5 @@
 package dbox2d
 
-import "github.com/dhannyell/fixed"
-
 func drawPrismaticJoint(draw *DebugDraw, base *jointSim, transformA, transformB Transform) {
 	joint := &base.prismaticJoint
 	pA := TransformPoint(transformA, base.localOriginAnchorA)
@@ -11,15 +9,15 @@ func drawPrismaticJoint(draw *DebugDraw, base *jointSim, transformA, transformB 
 	if joint.enableLimit {
 		lower := MulAdd(pA, joint.lowerTranslation, axis)
 		upper := MulAdd(pA, joint.upperTranslation, axis)
-		perp := LeftPerp(axis).Mul(fixed.Q32MustParse("0.1"))
+		perp := LeftPerp(axis).Mul(QMustParse("0.1"))
 		draw.DrawSegment(lower, upper, ColorGray)
 		draw.DrawSegment(lower.Sub(perp), lower.Add(perp), ColorGreen)
 		draw.DrawSegment(upper.Sub(perp), upper.Add(perp), ColorRed)
 	} else {
 		draw.DrawSegment(pA.Sub(axis), pA.Add(axis), ColorGray)
 	}
-	draw.DrawPoint(pA, fixed.Q32FromInt(5), ColorGray)
-	draw.DrawPoint(pB, fixed.Q32FromInt(5), ColorBlue)
+	draw.DrawPoint(pA, QFromInt(5), ColorGray)
+	draw.DrawPoint(pB, QFromInt(5), ColorBlue)
 }
 
 // This file corresponds to src/prismatic_joint.c of the reference. The
@@ -95,7 +93,7 @@ func (jointId JointId) GetSpeed() Q {
 	rB := RotateVector(transformB.Q, joint.localOriginAnchorB.Sub(bodySimB.localCenter))
 	d := bodySimB.center.Sub(bodySimA.center).Add(rB.Sub(rA))
 
-	zero := fixed.Q32Zero()
+	zero := QZero()
 	vA := Vec2Zero()
 	vB := Vec2Zero()
 	wA := zero
@@ -227,10 +225,10 @@ func preparePrismaticJoint(base *jointSim, context *stepContext) {
 	// effective masses
 	k := mA.Add(mB).Add(iA.Mul(a1).Mul(a1)).Add(iB.Mul(a2).Mul(a2))
 	// D-006: the reference multiplies by the reciprocal of k.
-	zero := fixed.Q32Zero()
+	zero := QZero()
 	joint.axialMass = zero
 	if zero.Less(k) {
-		joint.axialMass = fixed.Q32One().Div(k)
+		joint.axialMass = QOne().Div(k)
 	}
 
 	joint.springSoftness = makeSoft(joint.hertz, joint.dampingRatio, context.h)
@@ -328,8 +326,8 @@ func solvePrismaticJoint(base *jointSim, context *stepContext, useBias bool) {
 	a1 := Cross(d.Add(rA), axisA)
 	a2 := Cross(rB, axisA)
 
-	zero := fixed.Q32Zero()
-	one := fixed.Q32One()
+	zero := QZero()
+	one := QOne()
 
 	// spring constraint
 	if joint.enableSpring {

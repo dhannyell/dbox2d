@@ -4,12 +4,11 @@ import (
 	"testing"
 
 	"github.com/dhannyell/dbox2d"
-	"github.com/dhannyell/fixed"
 )
 
 // pt returns the point with the given decimal coordinates.
 func pt(x, y string) dbox2d.Vec2 {
-	return dbox2d.Vec2{X: fixed.Q32MustParse(x), Y: fixed.Q32MustParse(y)}
+	return dbox2d.Vec2{X: dbox2d.QMustParse(x), Y: dbox2d.QMustParse(y)}
 }
 
 // TestComputeHullDropsAnInteriorPoint checks the quickhull on the smallest

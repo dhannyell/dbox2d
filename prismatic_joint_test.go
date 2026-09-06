@@ -26,7 +26,7 @@ func slidingBox(t *testing.T, worldId WorldId, position Vec2, def *PrismaticJoin
 	boxDef.Position = position
 	boxId := CreateBody(worldId, &boxDef)
 	shapeDef := DefaultShapeDef()
-	unit := MakeBox(fixed.Q32Half(), fixed.Q32Half())
+	unit := MakeBox(QHalf(), QHalf())
 	CreatePolygonShape(boxId, &shapeDef, &unit)
 
 	def.BodyIdA = groundId
@@ -47,8 +47,8 @@ func TestPrismaticBlockHoldsTheLine(t *testing.T) {
 	def := DefaultPrismaticJointDef()
 	box, j := slidingBox(t, worldId, v2(0, 0), &def)
 	state := getBodyState(w, box)
-	state.linearVelocity = Vec2{Y: fixed.Q32One()}
-	state.angularVelocity = fixed.Q32One().Div(tau)
+	state.linearVelocity = Vec2{Y: QOne()}
+	state.angularVelocity = QOne().Div(tau)
 
 	context := jointContext(w)
 	prepareJoints(context, j.colorIndex)
@@ -57,16 +57,16 @@ func TestPrismaticBlockHoldsTheLine(t *testing.T) {
 	tolerance := fixed.Q32FromRaw(1 << 12)
 	js := getJointSim(w, j)
 	impulse := js.prismaticJoint.impulse
-	if !withinQ(impulse.X, fixed.Q32One().Neg(), tolerance) || !withinQ(impulse.Y, fixed.Q32FromRatio(-1, 6), tolerance) {
+	if !withinQ(impulse.X, QOne().Neg(), tolerance) || !withinQ(impulse.Y, QFromRatio(-1, 6), tolerance) {
 		t.Errorf("impulse is %v, want (-1, -1/6)", impulse)
 	}
-	if !withinQ(state.linearVelocity.Y, fixed.Q32Zero(), tolerance) || !withinQ(state.angularVelocity, fixed.Q32Zero(), tolerance) {
+	if !withinQ(state.linearVelocity.Y, QZero(), tolerance) || !withinQ(state.angularVelocity, QZero(), tolerance) {
 		t.Errorf("the box still moves: v %v, w %v", state.linearVelocity, state.angularVelocity)
 	}
 
 	// The torque report divides the angular impulse by the sub-step: -40.
 	w.invH = context.invH
-	if torque := getPrismaticJointTorque(w, js); !withinQ(torque, fixed.Q32FromInt(-40), tolerance.Mul(context.invH)) {
+	if torque := getPrismaticJointTorque(w, js); !withinQ(torque, QFromInt(-40), tolerance.Mul(context.invH)) {
 		t.Errorf("the joint torque is %v, want -40", torque)
 	}
 }
@@ -81,11 +81,11 @@ func TestPrismaticUpperLimitStopsTheSlide(t *testing.T) {
 	w := getWorldFromId(worldId)
 	def := DefaultPrismaticJointDef()
 	def.EnableLimit = true
-	def.LowerTranslation = fixed.Q32Zero()
-	def.UpperTranslation = fixed.Q32One()
+	def.LowerTranslation = QZero()
+	def.UpperTranslation = QOne()
 	box, j := slidingBox(t, worldId, v2(1, 0), &def)
 	state := getBodyState(w, box)
-	state.linearVelocity = Vec2{X: fixed.Q32One()}
+	state.linearVelocity = Vec2{X: QOne()}
 
 	context := jointContext(w)
 	prepareJoints(context, j.colorIndex)
@@ -93,17 +93,17 @@ func TestPrismaticUpperLimitStopsTheSlide(t *testing.T) {
 
 	tolerance := fixed.Q32FromRaw(1 << 12)
 	js := getJointSim(w, j)
-	if !js.prismaticJoint.lowerImpulse.Eq(fixed.Q32Zero()) || !withinQ(js.prismaticJoint.upperImpulse, fixed.Q32One(), tolerance) {
+	if !js.prismaticJoint.lowerImpulse.Eq(QZero()) || !withinQ(js.prismaticJoint.upperImpulse, QOne(), tolerance) {
 		t.Errorf("the limit impulses are %v and %v, want 0 and 1", js.prismaticJoint.lowerImpulse, js.prismaticJoint.upperImpulse)
 	}
-	if !withinQ(state.linearVelocity.X, fixed.Q32Zero(), tolerance) {
+	if !withinQ(state.linearVelocity.X, QZero(), tolerance) {
 		t.Errorf("vB.x is %v, want 0", state.linearVelocity.X)
 	}
 
 	// The force report divides the axial impulse by the sub-step: -240 on x.
 	w.invH = context.invH
 	force := getPrismaticJointForce(w, js)
-	if !withinQ(force.X, fixed.Q32FromInt(-240), tolerance.Mul(context.invH)) {
+	if !withinQ(force.X, QFromInt(-240), tolerance.Mul(context.invH)) {
 		t.Errorf("the joint force is %v, want (-240, 0)", force)
 	}
 }
@@ -116,8 +116,8 @@ func TestPrismaticMotorSaturatesAtTheForce(t *testing.T) {
 	w := getWorldFromId(worldId)
 	def := DefaultPrismaticJointDef()
 	def.EnableMotor = true
-	def.MotorSpeed = fixed.Q32One()
-	def.MaxMotorForce = fixed.Q32FromInt(100)
+	def.MotorSpeed = QOne()
+	def.MaxMotorForce = QFromInt(100)
 	box, j := slidingBox(t, worldId, v2(0, 0), &def)
 	state := getBodyState(w, box)
 
@@ -127,7 +127,7 @@ func TestPrismaticMotorSaturatesAtTheForce(t *testing.T) {
 
 	tolerance := fixed.Q32FromRaw(1 << 12)
 	js := getJointSim(w, j)
-	twelfths := fixed.Q32FromRatio(5, 12)
+	twelfths := QFromRatio(5, 12)
 	if !withinQ(js.prismaticJoint.motorImpulse, twelfths, tolerance) {
 		t.Errorf("motorImpulse is %v, want 5/12", js.prismaticJoint.motorImpulse)
 	}
@@ -304,17 +304,17 @@ func TestSolvePrismaticJointTracksTheFloat64Mirror(t *testing.T) {
 	def.LocalAnchorA = qv("0.5", "0.25")
 	def.LocalAnchorB = qv("-1", "0.25")
 	def.LocalAxisA = qv("1", "0.5")
-	def.ReferenceAngle = fixed.Q32MustParse("0.02")
+	def.ReferenceAngle = QMustParse("0.02")
 	def.EnableSpring = true
-	def.Hertz = fixed.Q32FromInt(2)
-	def.DampingRatio = fixed.Q32Half()
-	def.TargetTranslation = fixed.Q32MustParse("0.3")
+	def.Hertz = QFromInt(2)
+	def.DampingRatio = QHalf()
+	def.TargetTranslation = QMustParse("0.3")
 	def.EnableLimit = true
-	def.LowerTranslation = fixed.Q32MustParse("0.6")
-	def.UpperTranslation = fixed.Q32MustParse("0.8")
+	def.LowerTranslation = QMustParse("0.6")
+	def.UpperTranslation = QMustParse("0.8")
 	def.EnableMotor = true
-	def.MotorSpeed = fixed.Q32Half()
-	def.MaxMotorForce = fixed.Q32FromInt(30)
+	def.MotorSpeed = QHalf()
+	def.MaxMotorForce = QFromInt(30)
 	jointId := CreatePrismaticJoint(worldId, &def)
 	js := getJointSim(w, getJointFullId(w, jointId))
 	stateA := getBodyState(w, getBodyFullId(w, idA))
@@ -388,13 +388,13 @@ func TestPrismaticJointAccessorsRoundTrip(t *testing.T) {
 		get  func() Q
 		want Q
 	}{
-		{"target translation", func() { jointId.SetTargetTranslation(fixed.Q32FromRatio(1, 4)) }, jointId.GetTargetTranslation, fixed.Q32FromRatio(1, 4)},
-		{"spring hertz", func() { jointId.SetSpringHertz(fixed.Q32FromInt(4)) }, jointId.GetSpringHertz, fixed.Q32FromInt(4)},
-		{"spring damping ratio", func() { jointId.SetSpringDampingRatio(fixed.Q32Half()) }, jointId.GetSpringDampingRatio, fixed.Q32Half()},
-		{"lower limit", func() { jointId.SetLimits(fixed.Q32FromInt(-1), fixed.Q32FromInt(2)) }, jointId.GetLowerLimit, fixed.Q32FromInt(-1)},
-		{"upper limit", func() { jointId.SetLimits(fixed.Q32FromInt(-1), fixed.Q32FromInt(2)) }, jointId.GetUpperLimit, fixed.Q32FromInt(2)},
-		{"motor speed", func() { jointId.SetMotorSpeed(fixed.Q32FromRatio(1, 2)) }, jointId.GetMotorSpeed, fixed.Q32FromRatio(1, 2)},
-		{"maximum motor force", func() { jointId.SetMaxMotorForce(fixed.Q32FromInt(5)) }, jointId.GetMaxMotorForce, fixed.Q32FromInt(5)},
+		{"target translation", func() { jointId.SetTargetTranslation(QFromRatio(1, 4)) }, jointId.GetTargetTranslation, QFromRatio(1, 4)},
+		{"spring hertz", func() { jointId.SetSpringHertz(QFromInt(4)) }, jointId.GetSpringHertz, QFromInt(4)},
+		{"spring damping ratio", func() { jointId.SetSpringDampingRatio(QHalf()) }, jointId.GetSpringDampingRatio, QHalf()},
+		{"lower limit", func() { jointId.SetLimits(QFromInt(-1), QFromInt(2)) }, jointId.GetLowerLimit, QFromInt(-1)},
+		{"upper limit", func() { jointId.SetLimits(QFromInt(-1), QFromInt(2)) }, jointId.GetUpperLimit, QFromInt(2)},
+		{"motor speed", func() { jointId.SetMotorSpeed(QFromRatio(1, 2)) }, jointId.GetMotorSpeed, QFromRatio(1, 2)},
+		{"maximum motor force", func() { jointId.SetMaxMotorForce(QFromInt(5)) }, jointId.GetMaxMotorForce, QFromInt(5)},
 	}
 	for _, tc := range qCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -430,15 +430,15 @@ func TestPrismaticJointGetTranslation(t *testing.T) {
 	groundId := CreateBody(worldId, &groundDef)
 	bodyDef := DefaultBodyDef()
 	bodyDef.Type = DynamicBody
-	bodyDef.Position = Vec2{X: fixed.Q32Half()}
+	bodyDef.Position = Vec2{X: QHalf()}
 	bodyId := CreateBody(worldId, &bodyDef)
 
 	def := DefaultPrismaticJointDef()
 	def.BodyIdA = groundId
 	def.BodyIdB = bodyId
-	def.LocalAxisA = Vec2{X: fixed.Q32One()}
+	def.LocalAxisA = Vec2{X: QOne()}
 	jointId := CreatePrismaticJoint(worldId, &def)
-	if got := jointId.GetTranslation(); !withinQ(got, fixed.Q32Half(), fixed.Q32FromRaw(1<<12)) {
+	if got := jointId.GetTranslation(); !withinQ(got, QHalf(), fixed.Q32FromRaw(1<<12)) {
 		t.Errorf("translation = %v, want 0.5", got)
 	}
 }

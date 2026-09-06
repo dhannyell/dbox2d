@@ -11,7 +11,6 @@ import (
 	"github.com/dhannyell/dbox2d"
 	"github.com/dhannyell/dbox2d/samples"
 	"github.com/dhannyell/dbox2d/samples/internal/draw"
-	"github.com/dhannyell/fixed"
 )
 
 // buildScene creates a small world with a box, a circle, a capsule and a
@@ -26,42 +25,42 @@ func buildScene(t *testing.T) dbox2d.WorldId {
 	bd := dbox2d.DefaultBodyDef()
 	ground := dbox2d.CreateBody(w, &bd)
 	segment := dbox2d.Segment{
-		Point1: dbox2d.Vec2{X: fixed.Q32FromInt(-20)},
-		Point2: dbox2d.Vec2{X: fixed.Q32FromInt(20)},
+		Point1: dbox2d.Vec2{X: dbox2d.QFromInt(-20)},
+		Point2: dbox2d.Vec2{X: dbox2d.QFromInt(20)},
 	}
 	dbox2d.CreateSegmentShape(ground, &sd, &segment)
 
 	bd = dbox2d.DefaultBodyDef()
 	bd.Type = dbox2d.DynamicBody
-	bd.Position = dbox2d.Vec2{X: fixed.Q32FromInt(-6), Y: fixed.Q32FromInt(3)}
-	box := dbox2d.MakeSquare(fixed.Q32One())
+	bd.Position = dbox2d.Vec2{X: dbox2d.QFromInt(-6), Y: dbox2d.QFromInt(3)}
+	box := dbox2d.MakeSquare(dbox2d.QOne())
 	dbox2d.CreatePolygonShape(dbox2d.CreateBody(w, &bd), &sd, &box)
 
 	bd = dbox2d.DefaultBodyDef()
 	bd.Type = dbox2d.DynamicBody
-	bd.Position = dbox2d.Vec2{X: fixed.Q32Zero(), Y: fixed.Q32FromInt(3)}
-	circle := dbox2d.Circle{Radius: fixed.Q32Half()}
+	bd.Position = dbox2d.Vec2{X: dbox2d.QZero(), Y: dbox2d.QFromInt(3)}
+	circle := dbox2d.Circle{Radius: dbox2d.QHalf()}
 	dbox2d.CreateCircleShape(dbox2d.CreateBody(w, &bd), &sd, &circle)
 
 	bd = dbox2d.DefaultBodyDef()
 	bd.Type = dbox2d.DynamicBody
-	bd.Position = dbox2d.Vec2{X: fixed.Q32FromInt(6), Y: fixed.Q32FromInt(3)}
+	bd.Position = dbox2d.Vec2{X: dbox2d.QFromInt(6), Y: dbox2d.QFromInt(3)}
 	capsule := dbox2d.Capsule{
-		Center1: dbox2d.Vec2{X: fixed.Q32Half().Neg()},
-		Center2: dbox2d.Vec2{X: fixed.Q32Half()},
-		Radius:  fixed.Q32MustParse("0.25"),
+		Center1: dbox2d.Vec2{X: dbox2d.QHalf().Neg()},
+		Center2: dbox2d.Vec2{X: dbox2d.QHalf()},
+		Radius:  dbox2d.QMustParse("0.25"),
 	}
 	capsuleBody := dbox2d.CreateBody(w, &bd)
 	dbox2d.CreateCapsuleShape(capsuleBody, &sd, &capsule)
 
 	bd = dbox2d.DefaultBodyDef()
 	bd.Type = dbox2d.DynamicBody
-	bd.Position = dbox2d.Vec2{X: fixed.Q32FromInt(12), Y: fixed.Q32FromInt(3)}
+	bd.Position = dbox2d.Vec2{X: dbox2d.QFromInt(12), Y: dbox2d.QFromInt(3)}
 	hinge := dbox2d.CreateBody(w, &bd)
 	dbox2d.CreatePolygonShape(hinge, &sd, &box)
 	jd := dbox2d.DefaultRevoluteJointDef()
 	jd.BodyIdA, jd.BodyIdB = ground, hinge
-	jd.LocalAnchorA = dbox2d.Vec2{X: fixed.Q32FromInt(12), Y: fixed.Q32FromInt(3)}
+	jd.LocalAnchorA = dbox2d.Vec2{X: dbox2d.QFromInt(12), Y: dbox2d.QFromInt(3)}
 	dbox2d.CreateRevoluteJoint(w, &jd)
 
 	return w
@@ -77,7 +76,7 @@ func TestBatchesMatchTheCallbackOrder(t *testing.T) {
 	dd.DrawShapes = true
 	dd.DrawJoints = true
 
-	w.Step(fixed.Q32FromRatio(1, 60), 4)
+	w.Step(dbox2d.QFromRatio(1, 60), 4)
 	w.Draw(&dd)
 
 	if len(d.Batches.SolidPolygons) < 1 {
@@ -96,9 +95,9 @@ func TestBatchesMatchTheCallbackOrder(t *testing.T) {
 	// DrawPolygon closes the loop starting from the last vertex.
 	before := len(d.Batches.Lines)
 	triangle := []dbox2d.Vec2{
-		{X: fixed.Q32Zero(), Y: fixed.Q32Zero()},
-		{X: fixed.Q32One(), Y: fixed.Q32Zero()},
-		{X: fixed.Q32Zero(), Y: fixed.Q32One()},
+		{X: dbox2d.QZero(), Y: dbox2d.QZero()},
+		{X: dbox2d.QOne(), Y: dbox2d.QZero()},
+		{X: dbox2d.QZero(), Y: dbox2d.QOne()},
 	}
 	d.DrawPolygon(triangle, dbox2d.ColorWhite)
 	added := d.Batches.Lines[before:]
@@ -112,7 +111,7 @@ func TestBatchesMatchTheCallbackOrder(t *testing.T) {
 
 	// DrawAABB appends exactly four lines (eight vertices).
 	before = len(d.Batches.Lines)
-	d.DrawAABB(dbox2d.AABB{UpperBound: dbox2d.Vec2{X: fixed.Q32One(), Y: fixed.Q32One()}}, dbox2d.ColorWhite)
+	d.DrawAABB(dbox2d.AABB{UpperBound: dbox2d.Vec2{X: dbox2d.QOne(), Y: dbox2d.QOne()}}, dbox2d.ColorWhite)
 	if got := len(d.Batches.Lines) - before; got != 4*2 {
 		t.Fatalf("DrawAABB appended %d line vertices, want 8", got)
 	}

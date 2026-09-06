@@ -2,8 +2,6 @@ package dbox2d
 
 import (
 	"unsafe"
-
-	"github.com/dhannyell/fixed"
 )
 
 // The tree node flags of src/constants.h.
@@ -200,16 +198,16 @@ func findBestSibling(tree *dynamicTree, boxD AABB) int {
 
 	// Area of inflated node
 	directCost := perimeter(AABBUnion(rootBox, boxD))
-	inheritedCost := fixed.Q32Zero()
+	inheritedCost := QZero()
 
 	bestSibling := rootIndex
 	bestCost := directCost
 
-	zero := fixed.Q32Zero()
+	zero := QZero()
 
 	// D-009: the seed is the largest representable value, which no
 	// perimeter reaches.
-	maxCost := fixed.Q32MaxValue()
+	maxCost := QMaxValue()
 
 	// Descend the tree from root, following a single greedy path.
 	index := rootIndex
@@ -1143,7 +1141,7 @@ func (tree *dynamicTree) rayCast(input *RayCastInput, maskBits uint64, callback 
 	r := d.Normalize()
 
 	// v is perpendicular to the segment.
-	v := CrossSV(fixed.Q32One(), r)
+	v := CrossSV(QOne(), r)
 	absV := Abs(v)
 
 	// Separating axis for segment (Gino, p80).
@@ -1165,7 +1163,7 @@ func (tree *dynamicTree) rayCast(input *RayCastInput, maskBits uint64, callback 
 
 	subInput := *input
 
-	zero := fixed.Q32Zero()
+	zero := QZero()
 
 	for stackCount > 0 {
 		stackCount--
@@ -1265,7 +1263,7 @@ func (tree *dynamicTree) shapeCast(input *ShapeCastInput, maskBits uint64, callb
 
 	// v is perpendicular to the segment.
 	r := input.Translation
-	v := CrossSV(fixed.Q32One(), r)
+	v := CrossSV(QOne(), r)
 	absV := Abs(v)
 
 	// Separating axis for segment (Gino, p80).
@@ -1288,7 +1286,7 @@ func (tree *dynamicTree) shapeCast(input *ShapeCastInput, maskBits uint64, callb
 	stack[stackCount] = tree.root
 	stackCount++
 
-	zero := fixed.Q32Zero()
+	zero := QZero()
 
 	for stackCount > 0 {
 		stackCount--
@@ -1376,7 +1374,7 @@ func partitionMid(indices []int, centers []Vec2, count int) int {
 	}
 
 	d := upperBound.Sub(lowerBound)
-	half := fixed.Q32Half()
+	half := QHalf()
 	c := Vec2{X: half.Mul(lowerBound.X.Add(upperBound.X)), Y: half.Mul(lowerBound.Y.Add(upperBound.Y))}
 
 	// Partition longest axis using the Hoare partition scheme
@@ -1484,15 +1482,15 @@ func partitionSAH(indices []int, binIndices []int, boxes []AABB, count int) int 
 		invD = d.Y
 	}
 
-	zero := fixed.Q32Zero()
+	zero := QZero()
 	if zero.Less(invD) {
-		invD = fixed.Q32One().Div(invD)
+		invD = QOne().Div(invD)
 	} else {
 		invD = zero
 	}
 
 	// D-009: the seed bounds are the largest values, which no box reaches.
-	maxValue := fixed.Q32MaxValue()
+	maxValue := QMaxValue()
 
 	// Initialize bin bounds and count
 	for i := range treeBinCount {
@@ -1502,7 +1500,7 @@ func partitionSAH(indices []int, binIndices []int, boxes []AABB, count int) int 
 	}
 
 	// Assign boxes to bins and compute bin boxes
-	binCount := fixed.Q32FromInt(treeBinCount)
+	binCount := QFromInt(treeBinCount)
 	lowerBoundArray := [2]Q{centroidAABB.LowerBound.X, centroidAABB.LowerBound.Y}
 	minC := lowerBoundArray[axisIndex]
 	for i := range count {
@@ -1542,7 +1540,7 @@ func partitionSAH(indices []int, binIndices []int, boxes []AABB, count int) int 
 		leftCount := planes[i].leftCount
 		rightCount := planes[i].rightCount
 
-		cost := fixed.Q32FromInt(leftCount).Mul(leftArea).Add(fixed.Q32FromInt(rightCount).Mul(rightArea))
+		cost := QFromInt(leftCount).Mul(leftArea).Add(QFromInt(rightCount).Mul(rightArea))
 		if cost.Less(minCost) {
 			bestPlane = i
 			minCost = cost

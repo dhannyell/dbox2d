@@ -3,8 +3,6 @@ package dbox2d
 import (
 	"math/rand"
 	"testing"
-
-	"github.com/dhannyell/fixed"
 )
 
 // TestBroadPhaseBuffersTheMovedProxies pins the move buffer: a dynamic
@@ -62,7 +60,7 @@ func TestBroadPhasePairsFollowTheRules(t *testing.T) {
 
 	// A second shape on body a must not pair with the first one.
 	shapeDef := DefaultShapeDef()
-	circle := Circle{Radius: fixed.Q32Half()}
+	circle := Circle{Radius: QHalf()}
 	CreateCircleShape(a, &shapeDef, &circle)
 
 	// A shape that no mask accepts.
@@ -124,7 +122,7 @@ func TestBroadPhasePairsAreSortedByShapeId(t *testing.T) {
 		statics := make([]BodyId, 0, 7)
 		for _, k := range []int{5, 2, 6, 0, 3, 1, 4} {
 			// Every circle overlaps the box; the spread only changes the tree.
-			position := Vec2{X: fixed.Q32FromInt(k).Div(fixed.Q32FromInt(16))}
+			position := Vec2{X: QFromInt(k).Div(QFromInt(16))}
 			statics = append(statics, addStaticCircle(t, worldId, position))
 		}
 
@@ -238,11 +236,11 @@ func TestBroadPhasePairsMatchBruteForce(t *testing.T) {
 
 	const count = 100
 	types := [3]BodyType{DynamicBody, StaticBody, KinematicBody}
-	circle := Circle{Radius: fixed.Q32Half()}
+	circle := Circle{Radius: QHalf()}
 	for i := range count {
 		bodyDef := DefaultBodyDef()
 		bodyDef.Type = types[i%3]
-		bodyDef.Position = Vec2{X: fixed.Q32FromRatio(rng.Intn(80), 4), Y: fixed.Q32FromRatio(rng.Intn(80), 4)}
+		bodyDef.Position = Vec2{X: QFromRatio(rng.Intn(80), 4), Y: QFromRatio(rng.Intn(80), 4)}
 		bodyId := CreateBody(worldId, &bodyDef)
 		shapeDef := DefaultShapeDef()
 		shapeDef.Filter.CategoryBits = 1 << uint(rng.Intn(3))

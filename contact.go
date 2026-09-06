@@ -1,7 +1,5 @@
 package dbox2d
 
-import "github.com/dhannyell/fixed"
-
 // Contact flags of the cold data. They correspond to b2ContactFlags in
 // src/contact.h. The touching flag arrives with the narrowphase update of
 // the step; the hit event flag arrives with the solver events.
@@ -449,7 +447,7 @@ func updateContact(w *world, cs *contactSim, shapeA *shape, transformA Transform
 	cs.friction = w.frictionCallback(shapeA.friction, shapeA.userMaterialId, shapeB.friction, shapeB.userMaterialId)
 	cs.restitution = w.restitutionCallback(shapeA.restitution, shapeA.userMaterialId, shapeB.restitution, shapeB.userMaterialId)
 
-	zero := fixed.Q32Zero()
+	zero := QZero()
 	if zero.Less(shapeA.rollingResistance) || zero.Less(shapeB.rollingResistance) {
 		radiusA := getShapeRadius(shapeA)
 		radiusB := getShapeRadius(shapeB)
@@ -481,7 +479,7 @@ func updateContact(w *world, cs *contactSim, shapeA *shape, transformA Transform
 	// behaviour without the dead branch.
 	if !w.enableSpeculative && pointCount == 2 {
 		slop := LinearSlop()
-		if slop.Add(slop.Div(fixed.Q32FromInt(2))).Less(cs.manifold.Points[0].Separation) {
+		if slop.Add(slop.Div(QFromInt(2))).Less(cs.manifold.Points[0].Separation) {
 			cs.manifold.Points[0] = cs.manifold.Points[1]
 			cs.manifold.PointCount = 1
 		}

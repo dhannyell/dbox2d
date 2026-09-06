@@ -1,7 +1,5 @@
 package dbox2d
 
-import "github.com/dhannyell/fixed"
-
 // This file corresponds to src/distance_joint.c of the reference.
 
 func drawDistanceJoint(draw *DebugDraw, base *jointSim, transformA, transformB Transform) {
@@ -12,7 +10,7 @@ func drawDistanceJoint(draw *DebugDraw, base *jointSim, transformA, transformB T
 	if joint.enableLimit && joint.minLength.Less(joint.maxLength) {
 		pMin := MulAdd(pA, joint.minLength, axis)
 		pMax := MulAdd(pA, joint.maxLength, axis)
-		offset := RightPerp(axis).Mul(fixed.Q32MustParse("0.05"))
+		offset := RightPerp(axis).Mul(QMustParse("0.05"))
 		if linearSlop.Less(joint.minLength) {
 			draw.DrawSegment(pMin.Sub(offset), pMin.Add(offset), ColorLightGreen)
 		}
@@ -24,10 +22,10 @@ func drawDistanceJoint(draw *DebugDraw, base *jointSim, transformA, transformB T
 		}
 	}
 	draw.DrawSegment(pA, pB, ColorWhite)
-	draw.DrawPoint(pA, fixed.Q32FromInt(4), ColorWhite)
-	draw.DrawPoint(pB, fixed.Q32FromInt(4), ColorWhite)
+	draw.DrawPoint(pA, QFromInt(4), ColorWhite)
+	draw.DrawPoint(pB, QFromInt(4), ColorWhite)
 	if joint.enableSpring && (Q{}).Less(joint.hertz) {
-		draw.DrawPoint(MulAdd(pA, joint.length, axis), fixed.Q32FromInt(4), ColorBlue)
+		draw.DrawPoint(MulAdd(pA, joint.length, axis), QFromInt(4), ColorBlue)
 	}
 }
 
@@ -53,9 +51,9 @@ func (jointId JointId) SetLength(length Q) {
 	joint := getJointSimCheckType(w, jointId, DistanceJoint)
 	length = length.Clamp(linearSlop, Huge)
 	joint.distanceJoint.length = length
-	joint.distanceJoint.impulse = fixed.Q32Zero()
-	joint.distanceJoint.lowerImpulse = fixed.Q32Zero()
-	joint.distanceJoint.upperImpulse = fixed.Q32Zero()
+	joint.distanceJoint.impulse = QZero()
+	joint.distanceJoint.lowerImpulse = QZero()
+	joint.distanceJoint.upperImpulse = QZero()
 }
 
 // GetLength reports the distance joint length.
@@ -77,17 +75,17 @@ func (jointId JointId) EnableSpring(enableSpring bool) {
 	case RevoluteJoint:
 		if enableSpring != joint.revoluteJoint.enableSpring {
 			joint.revoluteJoint.enableSpring = enableSpring
-			joint.revoluteJoint.springImpulse = fixed.Q32Zero()
+			joint.revoluteJoint.springImpulse = QZero()
 		}
 	case PrismaticJoint:
 		if enableSpring != joint.prismaticJoint.enableSpring {
 			joint.prismaticJoint.enableSpring = enableSpring
-			joint.prismaticJoint.springImpulse = fixed.Q32Zero()
+			joint.prismaticJoint.springImpulse = QZero()
 		}
 	case WheelJoint:
 		if enableSpring != joint.wheelJoint.enableSpring {
 			joint.wheelJoint.enableSpring = enableSpring
-			joint.wheelJoint.springImpulse = fixed.Q32Zero()
+			joint.wheelJoint.springImpulse = QZero()
 		}
 	default:
 		panic("dbox2d: joint type does not support spring")
@@ -208,20 +206,20 @@ func (jointId JointId) EnableLimit(enableLimit bool) {
 	case RevoluteJoint:
 		if enableLimit != joint.revoluteJoint.enableLimit {
 			joint.revoluteJoint.enableLimit = enableLimit
-			joint.revoluteJoint.lowerImpulse = fixed.Q32Zero()
-			joint.revoluteJoint.upperImpulse = fixed.Q32Zero()
+			joint.revoluteJoint.lowerImpulse = QZero()
+			joint.revoluteJoint.upperImpulse = QZero()
 		}
 	case PrismaticJoint:
 		if enableLimit != joint.prismaticJoint.enableLimit {
 			joint.prismaticJoint.enableLimit = enableLimit
-			joint.prismaticJoint.lowerImpulse = fixed.Q32Zero()
-			joint.prismaticJoint.upperImpulse = fixed.Q32Zero()
+			joint.prismaticJoint.lowerImpulse = QZero()
+			joint.prismaticJoint.upperImpulse = QZero()
 		}
 	case WheelJoint:
 		if enableLimit != joint.wheelJoint.enableLimit {
 			joint.wheelJoint.enableLimit = enableLimit
-			joint.wheelJoint.lowerImpulse = fixed.Q32Zero()
-			joint.wheelJoint.upperImpulse = fixed.Q32Zero()
+			joint.wheelJoint.lowerImpulse = QZero()
+			joint.wheelJoint.upperImpulse = QZero()
 		}
 	default:
 		panic("dbox2d: joint type does not support limits")
@@ -255,9 +253,9 @@ func (jointId JointId) SetLengthRange(minLength, maxLength Q) {
 	maxLength = maxLength.Clamp(linearSlop, Huge)
 	joint.distanceJoint.minLength = minLength.Min(maxLength)
 	joint.distanceJoint.maxLength = minLength.Max(maxLength)
-	joint.distanceJoint.impulse = fixed.Q32Zero()
-	joint.distanceJoint.lowerImpulse = fixed.Q32Zero()
-	joint.distanceJoint.upperImpulse = fixed.Q32Zero()
+	joint.distanceJoint.impulse = QZero()
+	joint.distanceJoint.lowerImpulse = QZero()
+	joint.distanceJoint.upperImpulse = QZero()
 }
 
 // GetMinLength reports the lower distance limit.
@@ -294,22 +292,22 @@ func (jointId JointId) EnableMotor(enableMotor bool) {
 	case DistanceJoint:
 		if enableMotor != joint.distanceJoint.enableMotor {
 			joint.distanceJoint.enableMotor = enableMotor
-			joint.distanceJoint.motorImpulse = fixed.Q32Zero()
+			joint.distanceJoint.motorImpulse = QZero()
 		}
 	case RevoluteJoint:
 		if enableMotor != joint.revoluteJoint.enableMotor {
 			joint.revoluteJoint.enableMotor = enableMotor
-			joint.revoluteJoint.motorImpulse = fixed.Q32Zero()
+			joint.revoluteJoint.motorImpulse = QZero()
 		}
 	case PrismaticJoint:
 		if enableMotor != joint.prismaticJoint.enableMotor {
 			joint.prismaticJoint.enableMotor = enableMotor
-			joint.prismaticJoint.motorImpulse = fixed.Q32Zero()
+			joint.prismaticJoint.motorImpulse = QZero()
 		}
 	case WheelJoint:
 		if enableMotor != joint.wheelJoint.enableMotor {
 			joint.wheelJoint.enableMotor = enableMotor
-			joint.wheelJoint.motorImpulse = fixed.Q32Zero()
+			joint.wheelJoint.motorImpulse = QZero()
 		}
 	default:
 		panic("dbox2d: joint type does not support motors")
@@ -502,10 +500,10 @@ func prepareDistanceJoint(base *jointSim, context *stepContext) {
 	crB := Cross(rB, axis)
 	k := mA.Add(mB).Add(iA.Mul(crA).Mul(crA)).Add(iB.Mul(crB).Mul(crB))
 	// D-006: the reference multiplies by the reciprocal of k.
-	zero := fixed.Q32Zero()
+	zero := QZero()
 	joint.axialMass = zero
 	if zero.Less(k) {
-		joint.axialMass = fixed.Q32One().Div(k)
+		joint.axialMass = QOne().Div(k)
 	}
 
 	joint.distanceSoftness = makeSoft(joint.hertz, joint.dampingRatio, context.h)
@@ -587,8 +585,8 @@ func solveDistanceJoint(base *jointSim, context *stepContext, useBias bool) {
 	length := separation.Len()
 	axis := separation.Normalize()
 
-	zero := fixed.Q32Zero()
-	one := fixed.Q32One()
+	zero := QZero()
+	one := QOne()
 
 	// joint is soft if
 	// - spring is enabled

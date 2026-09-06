@@ -25,7 +25,7 @@ func draggedBox(t *testing.T, worldId WorldId, def *MouseJointDef) (*body, *join
 	boxDef.Type = DynamicBody
 	boxId := CreateBody(worldId, &boxDef)
 	shapeDef := DefaultShapeDef()
-	unit := MakeBox(fixed.Q32Half(), fixed.Q32Half())
+	unit := MakeBox(QHalf(), QHalf())
 	CreatePolygonShape(boxId, &shapeDef, &unit)
 
 	def.BodyIdA = groundId
@@ -43,7 +43,7 @@ func TestMouseJointTargetRoundTrip(t *testing.T) {
 	_, j := draggedBox(t, worldId, &def)
 	jointId := makeJointId(w, jointPair{joint: j, jointSim: getJointSim(w, j)})
 
-	want := Vec2{X: fixed.Q32FromRatio(3, 2), Y: fixed.Q32FromRatio(-2, 3)}
+	want := Vec2{X: QFromRatio(3, 2), Y: QFromRatio(-2, 3)}
 	jointId.SetTarget(want)
 	got := jointId.GetTarget()
 	if !got.X.Eq(want.X) || !got.Y.Eq(want.Y) {
@@ -60,10 +60,10 @@ func TestMousePullsTowardTheTarget(t *testing.T) {
 	worldId := createTestWorld(t)
 	w := getWorldFromId(worldId)
 	def := DefaultMouseJointDef()
-	def.MaxForce = fixed.Q32FromInt(100)
+	def.MaxForce = QFromInt(100)
 	box, j := draggedBox(t, worldId, &def)
 	state := getBodyState(w, box)
-	getJointSim(w, j).mouseJoint.targetA = Vec2{X: fixed.Q32One()}
+	getJointSim(w, j).mouseJoint.targetA = Vec2{X: QOne()}
 
 	context := jointContext(w)
 	prepareJoints(context, j.colorIndex)
@@ -71,9 +71,9 @@ func TestMousePullsTowardTheTarget(t *testing.T) {
 
 	tolerance := fixed.Q32FromRaw(1 << 12)
 	js := getJointSim(w, j)
-	twelfths := fixed.Q32FromRatio(5, 12)
+	twelfths := QFromRatio(5, 12)
 	impulse := js.mouseJoint.linearImpulse
-	if !withinQ(impulse.X, twelfths, tolerance) || !withinQ(impulse.Y, fixed.Q32Zero(), tolerance) {
+	if !withinQ(impulse.X, twelfths, tolerance) || !withinQ(impulse.Y, QZero(), tolerance) {
 		t.Errorf("linearImpulse is %v, want (5/12, 0)", impulse)
 	}
 	if !withinQ(state.linearVelocity.X, twelfths, tolerance) {
@@ -84,10 +84,10 @@ func TestMousePullsTowardTheTarget(t *testing.T) {
 	// the box does not spin.
 	w.invH = context.invH
 	force := getMouseJointForce(w, js)
-	if !withinQ(force.X, fixed.Q32FromInt(100), tolerance.Mul(context.invH)) {
+	if !withinQ(force.X, QFromInt(100), tolerance.Mul(context.invH)) {
 		t.Errorf("the joint force is %v, want (100, 0)", force)
 	}
-	if torque := getMouseJointTorque(w, js); !torque.Eq(fixed.Q32Zero()) {
+	if torque := getMouseJointTorque(w, js); !torque.Eq(QZero()) {
 		t.Errorf("the joint torque is %v, want 0", torque)
 	}
 
@@ -178,9 +178,9 @@ func TestSolveMouseJointTracksTheFloat64Mirror(t *testing.T) {
 	def := DefaultMouseJointDef()
 	def.BodyIdA, def.BodyIdB = idA, idB
 	def.Target = qv("1.2", "0.9")
-	def.Hertz = fixed.Q32FromInt(5)
-	def.DampingRatio = fixed.Q32MustParse("0.7")
-	def.MaxForce = fixed.Q32FromInt(1000)
+	def.Hertz = QFromInt(5)
+	def.DampingRatio = QMustParse("0.7")
+	def.MaxForce = QFromInt(1000)
 	jointId := CreateMouseJoint(worldId, &def)
 	js := getJointSim(w, getJointFullId(w, jointId))
 	stateB := getBodyState(w, getBodyFullId(w, idB))

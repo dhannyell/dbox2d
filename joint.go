@@ -1,7 +1,5 @@
 package dbox2d
 
-import "github.com/dhannyell/fixed"
-
 // This file corresponds to src/joint.h and src/joint.c of the reference.
 
 // jointEdge links a joint into the joint list of one body. It corresponds
@@ -289,8 +287,8 @@ func drawJoint(draw *DebugDraw, w *world, joint *joint) {
 	case DistanceJoint:
 		drawDistanceJoint(draw, base, transformA, transformB)
 	case MouseJoint:
-		draw.DrawPoint(base.mouseJoint.targetA, fixed.Q32FromInt(4), ColorGreen)
-		draw.DrawPoint(pB, fixed.Q32FromInt(4), ColorGreen)
+		draw.DrawPoint(base.mouseJoint.targetA, QFromInt(4), ColorGreen)
+		draw.DrawPoint(pB, QFromInt(4), ColorGreen)
 		draw.DrawSegment(base.mouseJoint.targetA, pB, ColorLightGray)
 	case FilterJoint:
 		draw.DrawSegment(pA, pB, ColorGold)
@@ -306,7 +304,7 @@ func drawJoint(draw *DebugDraw, w *world, joint *joint) {
 		draw.DrawSegment(transformB.P, pB, ColorDarkSeaGreen)
 	}
 	if draw.DrawGraphColors && joint.colorIndex != nullIndex {
-		draw.DrawPoint(Lerp(pA, pB, fixed.Q32Half()), fixed.Q32FromInt(5), graphColors[joint.colorIndex])
+		draw.DrawPoint(Lerp(pA, pB, QHalf()), QFromInt(5), graphColors[joint.colorIndex])
 	}
 }
 
@@ -457,7 +455,7 @@ func (jointId JointId) SetReferenceAngle(angle Q) {
 	w := getWorld(jointId.world0)
 	j := getJointFullId(w, jointId)
 	js := getJointSim(w, j)
-	halfTurn := fixed.Q32Half()
+	halfTurn := QHalf()
 	angle = angle.Clamp(halfTurn.Neg(), halfTurn)
 
 	switch j.jointType {
@@ -484,7 +482,7 @@ func (jointId JointId) GetReferenceAngle() Q {
 	case WeldJoint:
 		return js.weldJoint.referenceAngle
 	default:
-		return fixed.Q32Zero()
+		return QZero()
 	}
 }
 
@@ -615,7 +613,7 @@ func (jointId JointId) GetConstraintTorque() Q {
 
 	switch j.jointType {
 	case DistanceJoint, FilterJoint:
-		return fixed.Q32Zero()
+		return QZero()
 	case MotorJoint:
 		return getMotorJointTorque(w, base)
 	case MouseJoint:
@@ -644,7 +642,7 @@ func (jointId JointId) GetLinearSeparation() Q {
 	pA := TransformPoint(xfA, base.localOriginAnchorA)
 	pB := TransformPoint(xfB, base.localOriginAnchorB)
 	dp := pB.Sub(pA)
-	zero := fixed.Q32Zero()
+	zero := QZero()
 
 	switch j.jointType {
 	case DistanceJoint:
@@ -716,7 +714,7 @@ func (jointId JointId) GetAngularSeparation() Q {
 	xfA := getBodyTransform(w, j.edges[0].bodyId)
 	xfB := getBodyTransform(w, j.edges[1].bodyId)
 	relativeAngle := RelativeAngle(xfB.Q, xfA.Q)
-	zero := fixed.Q32Zero()
+	zero := QZero()
 
 	switch j.jointType {
 	case DistanceJoint, MotorJoint, MouseJoint, FilterJoint, WheelJoint:
@@ -748,7 +746,7 @@ func (jointId JointId) GetAngularSeparation() Q {
 
 // SetConstraintTuning changes the joint constraint tuning (b2Joint_SetConstraintTuning).
 func (jointId JointId) SetConstraintTuning(hertz, dampingRatio Q) {
-	zero := fixed.Q32Zero()
+	zero := QZero()
 	if !IsValidQ(hertz) || hertz.Less(zero) {
 		panic("dbox2d: SetConstraintTuning hertz is invalid")
 	}
@@ -917,9 +915,9 @@ func createJoint(w *world, bodyA, bodyB *body, userData any, drawSize Q, jointTy
 	js.constraintHertz = jointConstraintHertz
 	js.constraintDampingRatio = jointConstraintDampingRatio
 	js.constraintSoftness = softness{
-		biasRate:     fixed.Q32Zero(),
-		massScale:    fixed.Q32One(),
-		impulseScale: fixed.Q32Zero(),
+		biasRate:     QZero(),
+		massScale:    QOne(),
+		impulseScale: QZero(),
 	}
 
 	if js.jointId != jointId || js.bodyIdA != bodyIdA || js.bodyIdB != bodyIdB {
@@ -1019,7 +1017,7 @@ func CreateFilterJoint(worldId WorldId, def *FilterJointDef) JointId {
 // from DefaultDistanceJointDef.
 func CreateDistanceJoint(worldId WorldId, def *DistanceJointDef) JointId {
 	checkDef(def.internalValue)
-	zero := fixed.Q32Zero()
+	zero := QZero()
 	if !IsValidQ(def.Length) || !zero.Less(def.Length) {
 		panic("dbox2d: DistanceJointDef.Length must be positive")
 	}
@@ -1073,7 +1071,7 @@ func CreateMotorJoint(worldId WorldId, def *MotorJointDef) JointId {
 	js.motorJoint.angularOffset = def.AngularOffset
 	js.motorJoint.maxForce = def.MaxForce
 	js.motorJoint.maxTorque = def.MaxTorque
-	js.motorJoint.correctionFactor = def.CorrectionFactor.Clamp(fixed.Q32Zero(), fixed.Q32One())
+	js.motorJoint.correctionFactor = def.CorrectionFactor.Clamp(QZero(), QOne())
 
 	// If the joint prevents collisions, then destroy all contacts between attached bodies
 	if !def.CollideConnected {
@@ -1155,7 +1153,7 @@ func CreateRevoluteJoint(worldId WorldId, def *RevoluteJointDef) JointId {
 		panic("dbox2d: RevoluteJointDef.LowerAngle exceeds UpperAngle")
 	}
 	// The reference limits the range to 0.99 pi; in turns that is 0.495.
-	limitAngle := fixed.Q32MustParse("0.495")
+	limitAngle := QMustParse("0.495")
 	if def.LowerAngle.Less(limitAngle.Neg()) {
 		panic("dbox2d: RevoluteJointDef.LowerAngle is below -0.495 turns")
 	}
@@ -1174,7 +1172,7 @@ func CreateRevoluteJoint(worldId WorldId, def *RevoluteJointDef) JointId {
 
 	js.revoluteJoint = revoluteJoint{}
 
-	halfTurn := fixed.Q32Half()
+	halfTurn := QHalf()
 	js.revoluteJoint.referenceAngle = def.ReferenceAngle.Clamp(halfTurn.Neg(), halfTurn)
 	js.revoluteJoint.targetAngle = def.TargetAngle.Clamp(halfTurn.Neg(), halfTurn)
 	js.revoluteJoint.hertz = def.Hertz
@@ -1215,7 +1213,7 @@ func CreateWeldJoint(worldId WorldId, def *WeldJointDef) JointId {
 	js.weldJoint.angularHertz = def.AngularHertz
 	js.weldJoint.angularDampingRatio = def.AngularDampingRatio
 	js.weldJoint.linearImpulse = Vec2Zero()
-	js.weldJoint.angularImpulse = fixed.Q32Zero()
+	js.weldJoint.angularImpulse = QZero()
 
 	// If the joint prevents collisions, then destroy all contacts between attached bodies
 	if !def.CollideConnected {
@@ -1241,7 +1239,7 @@ func CreateWheelJoint(worldId WorldId, def *WheelJointDef) JointId {
 	js.localOriginAnchorA = def.LocalAnchorA
 	js.localOriginAnchorB = def.LocalAnchorB
 
-	zero := fixed.Q32Zero()
+	zero := QZero()
 	js.wheelJoint = wheelJoint{}
 	js.wheelJoint.localAxisA = def.LocalAxisA.Normalize()
 	js.wheelJoint.perpMass = zero
@@ -1394,7 +1392,7 @@ func jointStates(states []bodyState, dummy *bodyState, indexA, indexB int) (stat
 func prepareJoint(js *jointSim, context *stepContext) {
 	// Clamp joint hertz based on the time step to reduce jitter.
 	// D-006: the reference multiplies the inverse step by 0.25.
-	hertz := js.constraintHertz.Min(context.invH.Div(fixed.Q32FromInt(4)))
+	hertz := js.constraintHertz.Min(context.invH.Div(QFromInt(4)))
 	js.constraintSoftness = makeSoft(hertz, js.constraintDampingRatio, context.h)
 
 	switch js.jointType {

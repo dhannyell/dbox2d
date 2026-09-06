@@ -20,7 +20,7 @@
 // # Angles
 //
 // An angle is a turn, not a radian, because a turn reduces without pi. The
-// solver stores an orientation as a [github.com/dhannyell/fixed.Rot] sine and
+// solver stores an orientation as a [Rot] sine and
 // cosine pair, never as an angle.
 //
 // # IDs

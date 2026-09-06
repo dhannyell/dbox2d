@@ -13,7 +13,7 @@ func TestShapeAccessorsRoundTrip(t *testing.T) {
 	bodyDef.Type = DynamicBody
 	bodyId := CreateBody(worldId, &bodyDef)
 	shapeDef := DefaultShapeDef()
-	box := MakeSquare(fixed.Q32Half())
+	box := MakeSquare(QHalf())
 	shapeId := CreatePolygonShape(bodyId, &shapeDef, &box)
 
 	checks := []struct {
@@ -28,13 +28,13 @@ func TestShapeAccessorsRoundTrip(t *testing.T) {
 		},
 		{
 			name: "friction",
-			set:  func() { shapeId.SetFriction(fixed.Q32MustParse("0.25")) },
-			got:  func() bool { return shapeId.GetFriction().Eq(fixed.Q32MustParse("0.25")) },
+			set:  func() { shapeId.SetFriction(QMustParse("0.25")) },
+			got:  func() bool { return shapeId.GetFriction().Eq(QMustParse("0.25")) },
 		},
 		{
 			name: "restitution",
-			set:  func() { shapeId.SetRestitution(fixed.Q32MustParse("0.75")) },
-			got:  func() bool { return shapeId.GetRestitution().Eq(fixed.Q32MustParse("0.75")) },
+			set:  func() { shapeId.SetRestitution(QMustParse("0.75")) },
+			got:  func() bool { return shapeId.GetRestitution().Eq(QMustParse("0.75")) },
 		},
 		{
 			name: "material",
@@ -45,20 +45,20 @@ func TestShapeAccessorsRoundTrip(t *testing.T) {
 			name: "surface material",
 			set: func() {
 				shapeId.SetSurfaceMaterial(SurfaceMaterial{
-					Friction:          fixed.Q32MustParse("0.4"),
-					Restitution:       fixed.Q32MustParse("0.6"),
-					RollingResistance: fixed.Q32MustParse("0.2"),
-					TangentSpeed:      fixed.Q32MustParse("1.5"),
+					Friction:          QMustParse("0.4"),
+					Restitution:       QMustParse("0.6"),
+					RollingResistance: QMustParse("0.2"),
+					TangentSpeed:      QMustParse("1.5"),
 					UserMaterialId:    7,
 					CustomColor:       0x12345678,
 				})
 			},
 			got: func() bool {
 				return shapeId.GetSurfaceMaterial() == (SurfaceMaterial{
-					Friction:          fixed.Q32MustParse("0.4"),
-					Restitution:       fixed.Q32MustParse("0.6"),
-					RollingResistance: fixed.Q32MustParse("0.2"),
-					TangentSpeed:      fixed.Q32MustParse("1.5"),
+					Friction:          QMustParse("0.4"),
+					Restitution:       QMustParse("0.6"),
+					RollingResistance: QMustParse("0.2"),
+					TangentSpeed:      QMustParse("1.5"),
 					UserMaterialId:    7,
 					CustomColor:       0x12345678,
 				})
@@ -109,7 +109,7 @@ func TestSetFilterRecreatesPairs(t *testing.T) {
 
 	shapeDef := DefaultShapeDef()
 	shapeDef.EnableContactEvents = true
-	box := MakeSquare(fixed.Q32Half())
+	box := MakeSquare(QHalf())
 	shapeDef.Filter = Filter{CategoryBits: 1, MaskBits: 1}
 	shapeA := CreatePolygonShape(bodyA, &shapeDef, &box)
 	shapeDef.Filter = Filter{CategoryBits: 2, MaskBits: 2}
@@ -142,19 +142,19 @@ func TestSetDensityUpdatesBodyMass(t *testing.T) {
 	bodyDef.Type = DynamicBody
 	bodyId := CreateBody(worldId, &bodyDef)
 	shapeDef := DefaultShapeDef()
-	density := fixed.Q32MustParse("0.5")
+	density := QMustParse("0.5")
 	shapeDef.Density = density
-	box := MakeSquare(fixed.Q32One())
+	box := MakeSquare(QOne())
 	shapeId := CreatePolygonShape(bodyId, &shapeDef, &box)
 
 	massBefore := bodyId.GetMass()
-	shapeId.SetDensity(density.Mul(fixed.Q32FromInt(2)), true)
+	shapeId.SetDensity(density.Mul(QFromInt(2)), true)
 	massAfter := bodyId.GetMass()
-	if !massAfter.Eq(massBefore.Mul(fixed.Q32FromInt(2))) {
-		t.Fatalf("mass after density update = %v, want %v", massAfter, massBefore.Mul(fixed.Q32FromInt(2)))
+	if !massAfter.Eq(massBefore.Mul(QFromInt(2))) {
+		t.Fatalf("mass after density update = %v, want %v", massAfter, massBefore.Mul(QFromInt(2)))
 	}
 
-	shapeId.SetDensity(fixed.Q32FromInt(3), false)
+	shapeId.SetDensity(QFromInt(3), false)
 	if got := bodyId.GetMass(); !got.Eq(massAfter) {
 		t.Fatalf("mass after non-updating density change = %v, want %v", got, massAfter)
 	}
@@ -165,11 +165,11 @@ func TestSetCircleRefitsAABB(t *testing.T) {
 	bodyDef := DefaultBodyDef()
 	bodyId := CreateBody(worldId, &bodyDef)
 	shapeDef := DefaultShapeDef()
-	circle := Circle{Radius: fixed.Q32MustParse("0.25")}
+	circle := Circle{Radius: QMustParse("0.25")}
 	shapeId := CreateCircleShape(bodyId, &shapeDef, &circle)
 	oldAABB := shapeId.GetAABB()
 
-	shapeId.SetCircle(&Circle{Radius: fixed.Q32MustParse("0.75")})
+	shapeId.SetCircle(&Circle{Radius: QMustParse("0.75")})
 	newAABB := shapeId.GetAABB()
 	if !newAABB.LowerBound.X.Less(oldAABB.LowerBound.X) ||
 		!newAABB.LowerBound.Y.Less(oldAABB.LowerBound.Y) ||
@@ -184,21 +184,21 @@ func TestRayCastHitsShape(t *testing.T) {
 	bodyDef := DefaultBodyDef()
 	bodyId := CreateBody(worldId, &bodyDef)
 	shapeDef := DefaultShapeDef()
-	box := MakeSquare(fixed.Q32Half())
+	box := MakeSquare(QHalf())
 	shapeId := CreatePolygonShape(bodyId, &shapeDef, &box)
 
 	output := shapeId.RayCast(&RayCastInput{
 		Origin:      v2(-2, 0),
 		Translation: v2(4, 0),
-		MaxFraction: fixed.Q32One(),
+		MaxFraction: QOne(),
 	})
 	if !output.Hit {
 		t.Fatal("ray cast did not hit the box")
 	}
-	if output.Normal != (Vec2{X: fixed.Q32One().Neg()}) {
+	if output.Normal != (Vec2{X: QOne().Neg()}) {
 		t.Fatalf("hit normal = %v, want (-1, 0)", output.Normal)
 	}
-	wantPoint := Vec2{X: fixed.Q32Half().Neg()}
+	wantPoint := Vec2{X: QHalf().Neg()}
 	if !withinQ(output.Point.X, wantPoint.X, fixed.Q32FromRaw(16)) ||
 		!withinQ(output.Point.Y, wantPoint.Y, fixed.Q32FromRaw(16)) {
 		t.Fatalf("hit point = %v, want %v", output.Point, wantPoint)
@@ -210,11 +210,11 @@ func TestGetClosestPointOutsidePolygon(t *testing.T) {
 	bodyDef := DefaultBodyDef()
 	bodyId := CreateBody(worldId, &bodyDef)
 	shapeDef := DefaultShapeDef()
-	box := MakeSquare(fixed.Q32Half())
+	box := MakeSquare(QHalf())
 	shapeId := CreatePolygonShape(bodyId, &shapeDef, &box)
 
 	got := shapeId.GetClosestPoint(v2(3, 0))
-	want := Vec2{X: fixed.Q32Half()}
+	want := Vec2{X: QHalf()}
 	if !withinQ(got.X, want.X, fixed.Q32FromRaw(16)) || !withinQ(got.Y, want.Y, fixed.Q32FromRaw(16)) {
 		t.Fatalf("closest point = %v, want %v", got, want)
 	}
@@ -226,7 +226,7 @@ func TestTestPoint(t *testing.T) {
 	bodyDef.Position = v2(2, 3)
 	bodyId := CreateBody(worldId, &bodyDef)
 	shapeDef := DefaultShapeDef()
-	box := MakeSquare(fixed.Q32Half())
+	box := MakeSquare(QHalf())
 	shapeId := CreatePolygonShape(bodyId, &shapeDef, &box)
 
 	if !shapeId.TestPoint(v2(2, 3)) {
@@ -295,7 +295,7 @@ func TestChainSetFrictionReachesEverySegment(t *testing.T) {
 	chainDef := DefaultChainDef()
 	chainDef.Points = []Vec2{v2(0, 0), v2(1, 0), v2(2, 0), v2(3, 0), v2(4, 0)}
 	chainId := CreateChain(bodyId, &chainDef)
-	friction := fixed.Q32MustParse("0.375")
+	friction := QMustParse("0.375")
 	chainId.SetFriction(friction)
 
 	segments := make([]ShapeId, chainId.GetSegmentCount())

@@ -26,7 +26,7 @@ func weldedBox(t *testing.T, worldId WorldId, position Vec2, def *WeldJointDef) 
 	boxDef.Position = position
 	boxId := CreateBody(worldId, &boxDef)
 	shapeDef := DefaultShapeDef()
-	unit := MakeBox(fixed.Q32Half(), fixed.Q32Half())
+	unit := MakeBox(QHalf(), QHalf())
 	CreatePolygonShape(boxId, &shapeDef, &unit)
 
 	def.BodyIdA = groundId
@@ -55,25 +55,25 @@ func TestWeldJointSpringAccessorsRoundTrip(t *testing.T) {
 			name: "linear hertz",
 			set:  jointId.SetLinearHertz,
 			get:  jointId.GetLinearHertz,
-			want: fixed.Q32FromInt(2),
+			want: QFromInt(2),
 		},
 		{
 			name: "linear damping ratio",
 			set:  jointId.SetLinearDampingRatio,
 			get:  jointId.GetLinearDampingRatio,
-			want: fixed.Q32FromRatio(3, 2),
+			want: QFromRatio(3, 2),
 		},
 		{
 			name: "angular hertz",
 			set:  jointId.SetAngularHertz,
 			get:  jointId.GetAngularHertz,
-			want: fixed.Q32FromInt(4),
+			want: QFromInt(4),
 		},
 		{
 			name: "angular damping ratio",
 			set:  jointId.SetAngularDampingRatio,
 			get:  jointId.GetAngularDampingRatio,
-			want: fixed.Q32FromRatio(5, 4),
+			want: QFromRatio(5, 4),
 		},
 	}
 
@@ -97,7 +97,7 @@ func TestWeldHoldsTheAnchor(t *testing.T) {
 	def := DefaultWeldJointDef()
 	box, j := weldedBox(t, worldId, v2(1, 0), &def)
 	state := getBodyState(w, box)
-	state.linearVelocity = Vec2{Y: fixed.Q32One().Neg()}
+	state.linearVelocity = Vec2{Y: QOne().Neg()}
 
 	context := jointContext(w)
 	prepareJoints(context, j.colorIndex)
@@ -105,18 +105,18 @@ func TestWeldHoldsTheAnchor(t *testing.T) {
 
 	tolerance := fixed.Q32FromRaw(1 << 12)
 	js := getJointSim(w, j)
-	seventh := fixed.Q32FromRatio(1, 7)
-	if !withinQ(js.weldJoint.linearImpulse.X, fixed.Q32Zero(), tolerance) || !withinQ(js.weldJoint.linearImpulse.Y, seventh, tolerance) {
+	seventh := QFromRatio(1, 7)
+	if !withinQ(js.weldJoint.linearImpulse.X, QZero(), tolerance) || !withinQ(js.weldJoint.linearImpulse.Y, seventh, tolerance) {
 		t.Errorf("linearImpulse is %v, want (0, 1/7)", js.weldJoint.linearImpulse)
 	}
-	if !withinQ(state.angularVelocity.Mul(tau), fixed.Q32FromRatio(-6, 7), tolerance) {
+	if !withinQ(state.angularVelocity.Mul(tau), QFromRatio(-6, 7), tolerance) {
 		t.Errorf("wB is %v rad/s, want -6/7", state.angularVelocity.Mul(tau))
 	}
 
 	// The force report divides the impulse by the sub-step: 240/7.
 	w.invH = context.invH
 	force := getWeldJointForce(w, js)
-	if !withinQ(force.Y, fixed.Q32FromRatio(240, 7), tolerance.Mul(context.invH)) {
+	if !withinQ(force.Y, QFromRatio(240, 7), tolerance.Mul(context.invH)) {
 		t.Errorf("the joint force is %v, want (0, 240/7)", force)
 	}
 }
@@ -130,7 +130,7 @@ func TestWeldStopsTheSpin(t *testing.T) {
 	def := DefaultWeldJointDef()
 	box, j := weldedBox(t, worldId, v2(0, 0), &def)
 	state := getBodyState(w, box)
-	state.angularVelocity = fixed.Q32One().Div(tau)
+	state.angularVelocity = QOne().Div(tau)
 
 	context := jointContext(w)
 	prepareJoints(context, j.colorIndex)
@@ -138,22 +138,22 @@ func TestWeldStopsTheSpin(t *testing.T) {
 
 	tolerance := fixed.Q32FromRaw(1 << 12)
 	js := getJointSim(w, j)
-	if !withinQ(js.weldJoint.angularImpulse, fixed.Q32FromRatio(-1, 6), tolerance) {
+	if !withinQ(js.weldJoint.angularImpulse, QFromRatio(-1, 6), tolerance) {
 		t.Errorf("angularImpulse is %v, want -1/6", js.weldJoint.angularImpulse)
 	}
-	if !withinQ(state.angularVelocity, fixed.Q32Zero(), tolerance) {
+	if !withinQ(state.angularVelocity, QZero(), tolerance) {
 		t.Errorf("wB is %v turns/s, want 0", state.angularVelocity)
 	}
 
 	w.invH = context.invH
-	if torque := getWeldJointTorque(w, js); !withinQ(torque, fixed.Q32FromInt(-40), tolerance.Mul(context.invH)) {
+	if torque := getWeldJointTorque(w, js); !withinQ(torque, QFromInt(-40), tolerance.Mul(context.invH)) {
 		t.Errorf("the joint torque is %v, want -40", torque)
 	}
 
 	// The warm start applies the stored impulse again on a fresh state.
-	state.angularVelocity = fixed.Q32One().Div(tau)
+	state.angularVelocity = QOne().Div(tau)
 	warmStartJoints(context, j.colorIndex)
-	if !withinQ(state.angularVelocity, fixed.Q32Zero(), tolerance) {
+	if !withinQ(state.angularVelocity, QZero(), tolerance) {
 		t.Errorf("the warm start gives wB %v turns/s, want 0", state.angularVelocity)
 	}
 }
@@ -244,11 +244,11 @@ func TestSolveWeldJointTracksTheFloat64Mirror(t *testing.T) {
 	def.BodyIdA, def.BodyIdB = idA, idB
 	def.LocalAnchorA = qv("0.5", "0.25")
 	def.LocalAnchorB = qv("-1", "0.25")
-	def.ReferenceAngle = fixed.Q32MustParse("0.02")
-	def.LinearHertz = fixed.Q32FromInt(2)
-	def.LinearDampingRatio = fixed.Q32Half()
-	def.AngularHertz = fixed.Q32FromInt(3)
-	def.AngularDampingRatio = fixed.Q32MustParse("0.7")
+	def.ReferenceAngle = QMustParse("0.02")
+	def.LinearHertz = QFromInt(2)
+	def.LinearDampingRatio = QHalf()
+	def.AngularHertz = QFromInt(3)
+	def.AngularDampingRatio = QMustParse("0.7")
 	jointId := CreateWeldJoint(worldId, &def)
 	js := getJointSim(w, getJointFullId(w, jointId))
 	stateA := getBodyState(w, getBodyFullId(w, idA))

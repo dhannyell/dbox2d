@@ -1,7 +1,5 @@
 package dbox2d
 
-import "github.com/dhannyell/fixed"
-
 // body holds the organizational details that the solver does not use.
 type body struct {
 	name [32]byte
@@ -77,7 +75,7 @@ type bodyState struct {
 // identityBodyState returns the state at rest. The delta rotation is the
 // identity, (1, 0).
 func identityBodyState() bodyState {
-	return bodyState{deltaRotation: fixed.RotIdentity()}
+	return bodyState{deltaRotation: RotIdentity()}
 }
 
 // bodySim is the data that integrates position and velocity. The transform
@@ -195,7 +193,7 @@ func CreateBody(worldId WorldId, def *BodyDef) BodyId {
 	if !IsValidQ(def.AngularVelocity) {
 		panic("dbox2d: BodyDef.AngularVelocity is not valid")
 	}
-	zero := fixed.Q32Zero()
+	zero := QZero()
 	if !IsValidQ(def.LinearDamping) || def.LinearDamping.Less(zero) {
 		panic("dbox2d: BodyDef.LinearDamping is not valid")
 	}
@@ -251,7 +249,7 @@ func CreateBody(worldId WorldId, def *BodyDef) BodyId {
 		rotation0:         def.Rotation,
 		center0:           def.Position,
 		minExtent:         Huge,
-		maxExtent:         fixed.Q32Zero(),
+		maxExtent:         QZero(),
 		linearDamping:     def.LinearDamping,
 		angularDamping:    def.AngularDamping,
 		gravityScale:      def.GravityScale,
@@ -295,10 +293,10 @@ func CreateBody(worldId WorldId, def *BodyDef) BodyId {
 	b.islandNext = nullIndex
 	b.bodyMoveIndex = nullIndex
 	b.id = bodyId
-	b.mass = fixed.Q32Zero()
-	b.inertia = fixed.Q32Zero()
+	b.mass = QZero()
+	b.inertia = QZero()
 	b.sleepThreshold = def.SleepThreshold
-	b.sleepTime = fixed.Q32Zero()
+	b.sleepTime = QZero()
 	b.bodyType = def.Type
 	b.enableSleep = def.EnableSleep
 	b.fixedRotation = def.FixedRotation
@@ -412,7 +410,7 @@ func updateBodyMassData(w *world, b *body) {
 	sim := getBodySim(w, b)
 
 	// Compute mass data from shapes. Each shape has its own density.
-	zero := fixed.Q32Zero()
+	zero := QZero()
 	b.mass = zero
 	b.inertia = zero
 
@@ -462,7 +460,7 @@ func updateBodyMassData(w *world, b *body) {
 
 	// Compute center of mass.
 	if zero.Less(b.mass) {
-		sim.invMass = fixed.Q32One().Div(b.mass)
+		sim.invMass = QOne().Div(b.mass)
 		localCenter = localCenter.Mul(sim.invMass)
 	}
 
@@ -472,7 +470,7 @@ func updateBodyMassData(w *world, b *body) {
 		if !zero.Less(b.inertia) {
 			panic("dbox2d: the centered inertia is not positive")
 		}
-		sim.invInertia = fixed.Q32One().Div(b.inertia)
+		sim.invInertia = QOne().Div(b.inertia)
 	} else {
 		b.inertia = zero
 		sim.invInertia = zero
@@ -739,14 +737,14 @@ func (bodyId BodyId) SetTransform(position Vec2, rotation Rot) {
 func (bodyId BodyId) SetTargetTransform(target Transform, timeStep Q) {
 	w := getWorld(bodyId.world0)
 	b := getBodyFullId(w, bodyId)
-	zero := fixed.Q32Zero()
+	zero := QZero()
 	if b.bodyType == StaticBody || !zero.Less(timeStep) {
 		return
 	}
 
 	sim := getBodySim(w, b)
 	// D-006: the reciprocal is an exact fixed-point division.
-	invTimeStep := fixed.Q32One().Div(timeStep)
+	invTimeStep := QOne().Div(timeStep)
 	center1 := sim.center
 	center2 := TransformPoint(target, sim.localCenter)
 	linearVelocity := center2.Sub(center1).Mul(invTimeStep)
@@ -827,7 +825,7 @@ func (bodyId BodyId) GetAngularVelocity() Q {
 		// D-004: body angular velocity is stored in turns per second.
 		return state.angularVelocity
 	}
-	return fixed.Q32Zero()
+	return QZero()
 }
 
 // SetLinearVelocity changes the body's linear velocity. It corresponds to
@@ -838,7 +836,7 @@ func (bodyId BodyId) SetLinearVelocity(linearVelocity Vec2) {
 	if b.bodyType == StaticBody {
 		return
 	}
-	if fixed.Q32Zero().Less(linearVelocity.Dot(linearVelocity)) {
+	if QZero().Less(linearVelocity.Dot(linearVelocity)) {
 		wakeBody(w, b)
 	}
 	state := getBodyState(w, b)
@@ -856,7 +854,7 @@ func (bodyId BodyId) SetAngularVelocity(angularVelocity Q) {
 	if b.bodyType == StaticBody || b.fixedRotation {
 		return
 	}
-	if !angularVelocity.Eq(fixed.Q32Zero()) {
+	if !angularVelocity.Eq(QZero()) {
 		wakeBody(w, b)
 	}
 	state := getBodyState(w, b)
@@ -1033,7 +1031,7 @@ func (bodyId BodyId) GetMassData() MassData {
 // corresponds to b2Body_SetMassData.
 func (bodyId BodyId) SetMassData(massData MassData) {
 	w := getWorldLocked(bodyId.world0)
-	zero := fixed.Q32Zero()
+	zero := QZero()
 	if !IsValidQ(massData.Mass) || massData.Mass.Less(zero) {
 		panic("dbox2d: mass data has an invalid mass")
 	}
@@ -1054,13 +1052,13 @@ func (bodyId BodyId) SetMassData(massData MassData) {
 
 	if zero.Less(b.mass) {
 		// D-006: the reciprocal is an exact fixed-point division.
-		sim.invMass = fixed.Q32One().Div(b.mass)
+		sim.invMass = QOne().Div(b.mass)
 	} else {
 		sim.invMass = zero
 	}
 	if zero.Less(b.inertia) {
 		// D-006: the reciprocal is an exact fixed-point division.
-		sim.invInertia = fixed.Q32One().Div(b.inertia)
+		sim.invInertia = QOne().Div(b.inertia)
 	} else {
 		sim.invInertia = zero
 	}
@@ -1314,7 +1312,7 @@ func (bodyId BodyId) SetFixedRotation(flag bool) {
 	if b.fixedRotation != flag {
 		b.fixedRotation = flag
 		if state := getBodyState(w, b); state != nil {
-			state.angularVelocity = fixed.Q32Zero()
+			state.angularVelocity = QZero()
 		}
 		updateBodyMassData(w, b)
 	}

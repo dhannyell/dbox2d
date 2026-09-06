@@ -2,8 +2,6 @@ package dbox2d
 
 import (
 	"testing"
-
-	"github.com/dhannyell/fixed"
 )
 
 // sleepPair builds two touching dynamic bodies, merges their island and
@@ -27,7 +25,7 @@ func addStaticCircle(t *testing.T, worldId WorldId, position Vec2) BodyId {
 	bodyDef.Position = position
 	bodyId := CreateBody(worldId, &bodyDef)
 	shapeDef := DefaultShapeDef()
-	circle := Circle{Radius: fixed.Q32Half()}
+	circle := Circle{Radius: QHalf()}
 	CreateCircleShape(bodyId, &shapeDef, &circle)
 	return bodyId
 }
@@ -125,7 +123,7 @@ func TestWakeRestoresTheAwakeSet(t *testing.T) {
 	idA, idB, sleepIndex := sleepPair(t, w, worldId)
 	bodyA := getBodyFullId(w, idA)
 	bodyB := getBodyFullId(w, idB)
-	bodyA.sleepTime = fixed.Q32One()
+	bodyA.sleepTime = QOne()
 
 	createContact(w, firstShape(w, groundId), firstShape(w, idA))
 	ground := &w.contacts[len(w.contacts)-1]
@@ -355,7 +353,7 @@ func TestSleepClearsTheBodyMoveIndex(t *testing.T) {
 	idA := addDynamicCircle(t, worldId, v2(0, 0))
 	addDynamicCircle(t, worldId, v2(1, 0))
 
-	dt := fixed.Q32FromRatio(1, 60)
+	dt := QFromRatio(1, 60)
 	worldId.Step(dt, 4)
 	if getBodyFullId(w, idA).bodyMoveIndex == nullIndex {
 		t.Fatalf("the body has no move index after a step, the test needs one")

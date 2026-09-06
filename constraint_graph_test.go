@@ -2,8 +2,6 @@ package dbox2d
 
 import (
 	"testing"
-
-	"github.com/dhannyell/fixed"
 )
 
 // startTouching creates a contact between the first shapes of two bodies
@@ -95,7 +93,7 @@ func TestStaticContactSkipsColorZero(t *testing.T) {
 	groundDef := DefaultBodyDef()
 	groundId := CreateBody(worldId, &groundDef)
 	shapeDef := DefaultShapeDef()
-	box := MakeBox(fixed.Q32FromInt(1), fixed.Q32FromInt(1))
+	box := MakeBox(QFromInt(1), QFromInt(1))
 	CreatePolygonShape(groundId, &shapeDef, &box)
 
 	idA := addDynamicCircle(t, worldId, v2(0, 1))

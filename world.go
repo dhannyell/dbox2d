@@ -7,8 +7,6 @@ import (
 	"strconv"
 	"strings"
 	"unsafe"
-
-	"github.com/dhannyell/fixed"
 )
 
 // The solver set positions of src/world.h. The first sets have fixed
@@ -745,7 +743,7 @@ func (worldId WorldId) SetRestitutionThreshold(value Q) {
 	if w.locked {
 		panic("dbox2d: the world is locked")
 	}
-	w.restitutionThreshold = value.Max(fixed.Q32Zero()).Min(fixed.Q32MaxValue())
+	w.restitutionThreshold = value.Max(QZero()).Min(QMaxValue())
 }
 
 // GetRestitutionThreshold returns the restitution speed threshold.
@@ -761,7 +759,7 @@ func (worldId WorldId) SetHitEventThreshold(value Q) {
 	if w.locked {
 		panic("dbox2d: the world is locked")
 	}
-	w.hitEventThreshold = value.Max(fixed.Q32Zero()).Min(fixed.Q32MaxValue())
+	w.hitEventThreshold = value.Max(QZero()).Min(QMaxValue())
 }
 
 // GetHitEventThreshold returns the hit-event threshold.
@@ -779,7 +777,7 @@ func (worldId WorldId) SetContactTuning(hertz, dampingRatio, pushSpeed Q) {
 	if w.locked {
 		panic("dbox2d: the world is locked")
 	}
-	zero, maxValue := fixed.Q32Zero(), fixed.Q32MaxValue()
+	zero, maxValue := QZero(), QMaxValue()
 	w.contactHertz = hertz.Max(zero).Min(maxValue)
 	w.contactDampingRatio = dampingRatio.Max(zero).Min(maxValue)
 	w.maxContactPushSpeed = pushSpeed.Max(zero).Min(maxValue)
@@ -1236,8 +1234,8 @@ func (worldId WorldId) CastRay(origin, translation Vec2, filter QueryFilter, fcn
 		panic("dbox2d: CastRay needs a valid ray")
 	}
 
-	zero := fixed.Q32Zero()
-	one := fixed.Q32One()
+	zero := QZero()
+	one := QOne()
 	input := RayCastInput{Origin: origin, Translation: translation, MaxFraction: one}
 	fraction := one
 
@@ -1288,7 +1286,7 @@ func (worldId WorldId) OverlapShape(proxy *ShapeProxy, filter QueryFilter, fcn O
 	}
 
 	aabb := MakeAABB(proxy.Points[:proxy.Count], proxy.Radius)
-	tolerance := linearSlop.Div(fixed.Q32FromInt(10))
+	tolerance := linearSlop.Div(QFromInt(10))
 
 	callback := func(_ int, userData uint64) bool {
 		s := &w.shapes[int(userData)]
@@ -1339,8 +1337,8 @@ func (worldId WorldId) CastRayClosest(origin, translation Vec2, filter QueryFilt
 		panic("dbox2d: CastRayClosest needs a valid ray")
 	}
 
-	zero := fixed.Q32Zero()
-	one := fixed.Q32One()
+	zero := QZero()
+	one := QOne()
 	input := RayCastInput{Origin: origin, Translation: translation, MaxFraction: one}
 	fraction := one
 
@@ -1405,8 +1403,8 @@ func (worldId WorldId) CastShape(proxy *ShapeProxy, translation Vec2, filter Que
 		panic("dbox2d: CastShape needs a valid translation")
 	}
 
-	zero := fixed.Q32Zero()
-	one := fixed.Q32One()
+	zero := QZero()
+	one := QOne()
 
 	var input ShapeCastInput
 	input.Proxy = *proxy
@@ -1460,7 +1458,7 @@ func (worldId WorldId) CastMover(mover *Capsule, translation Vec2, filter QueryF
 	if !IsValidVec2(translation) {
 		panic("dbox2d: CastMover needs a valid translation")
 	}
-	if !linearSlop.Mul(fixed.Q32FromInt(2)).Less(mover.Radius) {
+	if !linearSlop.Mul(QFromInt(2)).Less(mover.Radius) {
 		panic("dbox2d: the mover radius must exceed two slops")
 	}
 
@@ -1469,8 +1467,8 @@ func (worldId WorldId) CastMover(mover *Capsule, translation Vec2, filter QueryF
 		panic("dbox2d: the world is locked")
 	}
 
-	zero := fixed.Q32Zero()
-	one := fixed.Q32One()
+	zero := QZero()
+	one := QOne()
 
 	var input ShapeCastInput
 	input.Proxy.Points[0] = mover.Center1
@@ -1570,8 +1568,8 @@ func (ctx *explosionContext) explosionCallback(_ int, userData uint64) bool {
 
 	transform := getBodyTransformQuick(w, b)
 
-	zero := fixed.Q32Zero()
-	one := fixed.Q32One()
+	zero := QZero()
+	one := QOne()
 
 	input := DistanceInput{
 		ProxyA:     makeShapeDistanceProxy(s),
@@ -1671,8 +1669,8 @@ func drawShape(draw *DebugDraw, shape *shape, transform Transform, color HexColo
 		p1 := TransformPoint(transform, segment.Point1)
 		p2 := TransformPoint(transform, segment.Point2)
 		draw.DrawSegment(p1, p2, color)
-		draw.DrawPoint(p2, fixed.Q32FromInt(4), color)
-		draw.DrawSegment(p1, Lerp(p1, p2, fixed.Q32MustParse("0.1")), ColorPaleGreen)
+		draw.DrawPoint(p2, QFromInt(4), color)
+		draw.DrawSegment(p1, Lerp(p1, p2, QMustParse("0.1")), ColorPaleGreen)
 	}
 }
 
@@ -1733,7 +1731,7 @@ func drawWorldBounds(draw *DebugDraw, w *world) {
 }
 
 func drawWorldNames(draw *DebugDraw, w *world) {
-	offset := Vec2{X: fixed.Q32MustParse("0.05"), Y: fixed.Q32MustParse("0.05")}
+	offset := Vec2{X: QMustParse("0.05"), Y: QMustParse("0.05")}
 	for i := range w.bodies {
 		body := &w.bodies[i]
 		if body.setIndex == nullIndex || body.name[0] == 0 {
@@ -1755,7 +1753,7 @@ func bytesIndex(name []byte) int {
 }
 
 func drawWorldMass(draw *DebugDraw, w *world) {
-	offset := Vec2{X: fixed.Q32MustParse("0.1"), Y: fixed.Q32MustParse("0.1")}
+	offset := Vec2{X: QMustParse("0.1"), Y: QMustParse("0.1")}
 	for setIndex := range w.solverSets {
 		for simIndex := range w.solverSets[setIndex].bodySims {
 			sim := &w.solverSets[setIndex].bodySims[simIndex]
@@ -1763,7 +1761,7 @@ func drawWorldMass(draw *DebugDraw, w *world) {
 			draw.DrawTransform(transform)
 			mass := Q{}
 			if !(sim.invMass == (Q{})) {
-				mass = fixed.Q32One().Div(sim.invMass)
+				mass = QOne().Div(sim.invMass)
 			}
 			draw.DrawString(TransformPoint(transform, offset), "  "+drawNumber(mass, 2), ColorWhite)
 		}
@@ -1802,13 +1800,13 @@ func drawNumber(value Q, places int) string {
 }
 
 func drawContactManifold(draw *DebugDraw, manifold *Manifold, colorIndex int, bounded bool) {
-	axisScale := fixed.Q32MustParse("0.3")
+	axisScale := QMustParse("0.3")
 	for pointIndex := range manifold.PointCount {
 		point := &manifold.Points[pointIndex]
 		if draw.DrawGraphColors {
-			size := fixed.Q32FromInt(5)
+			size := QFromInt(5)
 			if colorIndex == overflowIndex {
-				size = fixed.Q32MustParse("7.5")
+				size = QMustParse("7.5")
 			}
 			draw.DrawPoint(point.Point, size, graphColors[colorIndex])
 		} else if linearSlop.Less(point.Separation) {
@@ -1816,11 +1814,11 @@ func drawContactManifold(draw *DebugDraw, manifold *Manifold, colorIndex int, bo
 			if bounded {
 				color = ColorGainsboro
 			}
-			draw.DrawPoint(point.Point, fixed.Q32FromInt(5), color)
+			draw.DrawPoint(point.Point, QFromInt(5), color)
 		} else if point.Persisted {
-			draw.DrawPoint(point.Point, fixed.Q32FromInt(5), ColorBlue)
+			draw.DrawPoint(point.Point, QFromInt(5), ColorBlue)
 		} else {
-			draw.DrawPoint(point.Point, fixed.Q32FromInt(10), ColorGreen)
+			draw.DrawPoint(point.Point, QFromInt(10), ColorGreen)
 		}
 		if draw.DrawContactNormals {
 			draw.DrawSegment(point.Point, MulAdd(point.Point, axisScale, manifold.Normal), ColorDimGray)
@@ -1830,7 +1828,7 @@ func drawContactManifold(draw *DebugDraw, manifold *Manifold, colorIndex int, bo
 				impulse, places = point.NormalImpulse, 1
 			}
 			draw.DrawSegment(point.Point, MulAdd(point.Point, impulse, manifold.Normal), ColorMagenta)
-			draw.DrawString(point.Point, drawNumber(impulse.Mul(fixed.Q32FromInt(1000)), places), ColorWhite)
+			draw.DrawString(point.Point, drawNumber(impulse.Mul(QFromInt(1000)), places), ColorWhite)
 		}
 		if draw.DrawContactFeatures {
 			draw.DrawString(point.Point, strconv.Itoa(int(point.Id)), ColorOrange)
@@ -1839,7 +1837,7 @@ func drawContactManifold(draw *DebugDraw, manifold *Manifold, colorIndex int, bo
 			draw.DrawSegment(point.Point, MulAdd(point.Point, point.TangentImpulse, RightPerp(manifold.Normal)), ColorYellow)
 			impulse, places := point.TangentImpulse, 2
 			if bounded {
-				impulse, places = impulse.Mul(fixed.Q32FromInt(1000)), 1
+				impulse, places = impulse.Mul(QFromInt(1000)), 1
 			}
 			draw.DrawString(point.Point, drawNumber(impulse, places), ColorWhite)
 		}
@@ -1893,7 +1891,7 @@ func drawWithBounds(draw *DebugDraw, w *world) {
 			body := &w.bodies[bodyID]
 			sim := &w.solverSets[body.setIndex].bodySims[body.localIndex]
 			transform := Transform{P: sim.center, Q: sim.transform.Q}
-			offset := Vec2{X: fixed.Q32MustParse("0.1"), Y: fixed.Q32MustParse("0.1")}
+			offset := Vec2{X: QMustParse("0.1"), Y: QMustParse("0.1")}
 			if draw.DrawBodyNames && body.name[0] != 0 {
 				draw.DrawString(TransformPoint(transform, offset), string(body.name[:bytesIndex(body.name[:])]), ColorBlueViolet)
 			}

@@ -2,8 +2,6 @@ package dbox2d
 
 import (
 	"testing"
-
-	"github.com/dhannyell/fixed"
 )
 
 // TestChecksumIsOrderIndependent pins the commutative fold: two worlds with
@@ -45,7 +43,7 @@ func TestChecksumIsOrderIndependent(t *testing.T) {
 // the body and shape folds. The second world reverses both object creation and
 // contact orientation, but represents the same physical state.
 func TestChecksumContactsIgnoreCreationOrder(t *testing.T) {
-	positions := [3]Vec2{v2(0, 0), {X: fixed.Q32MustParse("0.75")}, v2(4, 0)}
+	positions := [3]Vec2{v2(0, 0), {X: QMustParse("0.75")}, v2(4, 0)}
 	build := func(order [3]int, reverseContact bool) WorldId {
 		worldId := createTestWorld(t)
 		var bodies [3]BodyId
@@ -80,7 +78,7 @@ func TestChecksumContactsIgnoreCreationOrder(t *testing.T) {
 func TestChecksumSeesContactState(t *testing.T) {
 	worldId := createTestWorld(t)
 	idA := addDynamicCircle(t, worldId, v2(0, 0))
-	idB := addDynamicCircle(t, worldId, Vec2{X: fixed.Q32MustParse("0.75")})
+	idB := addDynamicCircle(t, worldId, Vec2{X: QMustParse("0.75")})
 	w := getWorldFromId(worldId)
 	shapeA := firstShape(w, idA)
 	shapeB := firstShape(w, idB)
@@ -102,7 +100,7 @@ func TestChecksumSeesContactState(t *testing.T) {
 		t.Fatal("updating the contact manifold did not change the checksum")
 	}
 
-	cs.manifold.Points[0].NormalImpulse = fixed.Q32One()
+	cs.manifold.Points[0].NormalImpulse = QOne()
 	if Checksum(worldId) == withManifold {
 		t.Fatal("a stored contact impulse did not change the checksum")
 	}
@@ -117,7 +115,7 @@ func TestChecksumSeesAStateChange(t *testing.T) {
 
 	w := getWorldFromId(worldId)
 	b := getBodyFullId(w, bodyId)
-	getBodyState(w, b).linearVelocity = Vec2{X: fixed.Q32One()}
+	getBodyState(w, b).linearVelocity = Vec2{X: QOne()}
 	if Checksum(worldId) == before {
 		t.Errorf("a velocity change did not change the checksum")
 	}
@@ -148,14 +146,14 @@ func TestChecksumSeesFutureBehaviour(t *testing.T) {
 		bodyDef.LinearDamping = damping
 		bodyId := CreateBody(worldId, &bodyDef)
 		shapeDef := DefaultShapeDef()
-		box := MakeSquare(fixed.Q32One())
+		box := MakeSquare(QOne())
 		CreatePolygonShape(bodyId, &shapeDef, &box)
 		return worldId
 	}
 
-	base := build(v2(0, -10), fixed.Q32Zero())
-	differentGravity := build(v2(0, -9), fixed.Q32Zero())
-	differentDamping := build(v2(0, -10), fixed.Q32One())
+	base := build(v2(0, -10), QZero())
+	differentGravity := build(v2(0, -9), QZero())
+	differentDamping := build(v2(0, -10), QOne())
 	if Checksum(base) == Checksum(differentGravity) {
 		t.Errorf("world gravity did not change the checksum")
 	}
@@ -209,7 +207,7 @@ func TestChecksumMatchesDeterministicWitness(t *testing.T) {
 		bodies[i] = id
 		w := getWorldFromId(worldId)
 		b := getBodyFullId(w, id)
-		getBodyState(w, b).angularVelocity = fixed.Q32MustParse("0.1")
+		getBodyState(w, b).angularVelocity = QMustParse("0.1")
 	}
 
 	// Only the boxes 0 and 1 overlap, and the broadphase pairs them on the

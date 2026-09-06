@@ -11,7 +11,7 @@ import (
 
 // stepDt returns the recommended fixed time step of 1/60 second.
 func stepDt() Q {
-	return fixed.Q32One().Div(fixed.Q32FromInt(60))
+	return QOne().Div(QFromInt(60))
 }
 
 // addDynamicBox creates a dynamic body with a unit box at the position.
@@ -22,7 +22,7 @@ func addDynamicBox(t *testing.T, worldId WorldId, position Vec2) BodyId {
 	bodyDef.Position = position
 	bodyId := CreateBody(worldId, &bodyDef)
 	shapeDef := DefaultShapeDef()
-	box := MakeSquare(fixed.Q32One())
+	box := MakeSquare(QOne())
 	CreatePolygonShape(bodyId, &shapeDef, &box)
 	return bodyId
 }
@@ -48,15 +48,15 @@ func TestStepAppliesGravityExactly(t *testing.T) {
 	const subStepCount = 4
 	const stepCount = 8
 
-	h := dt.Div(fixed.Q32FromInt(subStepCount))
+	h := dt.Div(QFromInt(subStepCount))
 	gravity := worldId.GetGravity()
 
 	// The scalar mirror of the loop: velocity gains h*g per sub-step and the
 	// position gains h*v after each velocity update.
-	wantVelocityY := fixed.Q32Zero()
+	wantVelocityY := QZero()
 	wantPositionY := bodyId.GetPosition().Y
 	for range stepCount {
-		deltaY := fixed.Q32Zero()
+		deltaY := QZero()
 		for range subStepCount {
 			wantVelocityY = wantVelocityY.Add(h.Mul(gravity.Y))
 			deltaY = deltaY.Add(h.Mul(wantVelocityY))
@@ -77,7 +77,7 @@ func TestStepAppliesGravityExactly(t *testing.T) {
 	if !bodyId.GetPosition().Y.Eq(wantPositionY) {
 		t.Errorf("position y = %v, want %v", bodyId.GetPosition().Y, wantPositionY)
 	}
-	if !bodyId.GetPosition().X.Eq(fixed.Q32Zero()) {
+	if !bodyId.GetPosition().X.Eq(QZero()) {
 		t.Errorf("position x moved to %v", bodyId.GetPosition().X)
 	}
 }
@@ -92,13 +92,13 @@ func TestStepAppliesDampingByDivision(t *testing.T) {
 
 	bodyDef := DefaultBodyDef()
 	bodyDef.Type = DynamicBody
-	bodyDef.LinearVelocity = Vec2{X: fixed.Q32FromInt(12), Y: fixed.Q32FromInt(-7)}
-	bodyDef.AngularVelocity = fixed.Q32MustParse("0.25")
-	bodyDef.LinearDamping = fixed.Q32MustParse("0.4")
-	bodyDef.AngularDamping = fixed.Q32MustParse("0.7")
+	bodyDef.LinearVelocity = Vec2{X: QFromInt(12), Y: QFromInt(-7)}
+	bodyDef.AngularVelocity = QMustParse("0.25")
+	bodyDef.LinearDamping = QMustParse("0.4")
+	bodyDef.AngularDamping = QMustParse("0.7")
 	bodyId := CreateBody(worldId, &bodyDef)
 	shapeDef := DefaultShapeDef()
-	box := MakeSquare(fixed.Q32One())
+	box := MakeSquare(QOne())
 	CreatePolygonShape(bodyId, &shapeDef, &box)
 
 	w := getWorldFromId(worldId)
@@ -108,8 +108,8 @@ func TestStepAppliesDampingByDivision(t *testing.T) {
 	worldId.Step(dt, 1)
 
 	state := getBodyState(w, b)
-	linearDenominator := fixed.Q32One().Add(dt.Mul(bodyDef.LinearDamping))
-	angularDenominator := fixed.Q32One().Add(dt.Mul(bodyDef.AngularDamping))
+	linearDenominator := QOne().Add(dt.Mul(bodyDef.LinearDamping))
+	angularDenominator := QOne().Add(dt.Mul(bodyDef.AngularDamping))
 	wantLinear := Vec2{
 		X: initialState.linearVelocity.X.Div(linearDenominator),
 		Y: initialState.linearVelocity.Y.Div(linearDenominator),
@@ -133,18 +133,18 @@ func TestStepConvertsTorqueAndArcSpeedToTurns(t *testing.T) {
 
 	bodyDef := DefaultBodyDef()
 	bodyDef.Type = DynamicBody
-	bodyDef.AngularVelocity = fixed.Q32MustParse("0.02")
-	bodyDef.SleepThreshold = fixed.Q32MustParse("0.1")
+	bodyDef.AngularVelocity = QMustParse("0.02")
+	bodyDef.SleepThreshold = QMustParse("0.1")
 	bodyId := CreateBody(worldId, &bodyDef)
 	shapeDef := DefaultShapeDef()
-	box := MakeSquare(fixed.Q32One())
+	box := MakeSquare(QOne())
 	CreatePolygonShape(bodyId, &shapeDef, &box)
 
 	w := getWorldFromId(worldId)
 	b := getBodyFullId(w, bodyId)
 	sim := getBodySim(w, b)
 	sim.torque = tau
-	b.sleepTime = fixed.Q32One()
+	b.sleepTime = QOne()
 
 	dt := stepDt()
 	wantAngular := bodyDef.AngularVelocity.Add(dt.Mul(sim.invInertia).Mul(sim.torque).Div(tau))
@@ -154,7 +154,7 @@ func TestStepConvertsTorqueAndArcSpeedToTurns(t *testing.T) {
 	if !state.angularVelocity.Eq(wantAngular) {
 		t.Errorf("angular velocity = %v, want %v", state.angularVelocity, wantAngular)
 	}
-	if !b.sleepTime.Eq(fixed.Q32Zero()) {
+	if !b.sleepTime.Eq(QZero()) {
 		t.Errorf("sleep time = %v, want zero for the rotating body", b.sleepTime)
 	}
 }
@@ -171,10 +171,10 @@ func TestStepRefreshesFastBodyBoundsWithoutAHit(t *testing.T) {
 
 	bodyDef := DefaultBodyDef()
 	bodyDef.Type = DynamicBody
-	bodyDef.LinearVelocity = Vec2{X: fixed.Q32FromInt(100)}
+	bodyDef.LinearVelocity = Vec2{X: QFromInt(100)}
 	bodyId := CreateBody(worldId, &bodyDef)
 	shapeDef := DefaultShapeDef()
-	box := MakeSquare(fixed.Q32One())
+	box := MakeSquare(QOne())
 	shapeId := CreatePolygonShape(bodyId, &shapeDef, &box)
 
 	w := getWorldFromId(worldId)
@@ -207,7 +207,7 @@ func TestStepRejectsInvalidInput(t *testing.T) {
 	worldId := createTestWorld(t)
 
 	t.Run("saturated time step", func(t *testing.T) {
-		requirePanic(t, func() { worldId.Step(fixed.Q32MaxValue(), 4) })
+		requirePanic(t, func() { worldId.Step(QMaxValue(), 4) })
 	})
 	t.Run("non-positive sub-step count", func(t *testing.T) {
 		requirePanic(t, func() { worldId.Step(stepDt(), 0) })
@@ -240,16 +240,16 @@ func TestStepTracksSleepTime(t *testing.T) {
 
 	w := getWorldFromId(worldId)
 	resting := getBodyFullId(w, restingId)
-	wantSleep := dt.Mul(fixed.Q32FromInt(stepCount))
+	wantSleep := dt.Mul(QFromInt(stepCount))
 	if !resting.sleepTime.Eq(wantSleep) {
 		t.Errorf("sleep time at rest = %v, want %v", resting.sleepTime, wantSleep)
 	}
 
 	// A push above the sleep threshold resets the sleep time.
 	moving := getBodyFullId(w, movingId)
-	getBodyState(w, moving).linearVelocity = Vec2{X: fixed.Q32One()}
+	getBodyState(w, moving).linearVelocity = Vec2{X: QOne()}
 	worldId.Step(dt, 4)
-	if !moving.sleepTime.Eq(fixed.Q32Zero()) {
+	if !moving.sleepTime.Eq(QZero()) {
 		t.Errorf("sleep time in motion = %v, want zero", moving.sleepTime)
 	}
 }
@@ -264,15 +264,15 @@ func TestStepAllocatesNothing(t *testing.T) {
 	def.EnableSleep = false
 	worldId := CreateWorld(&def)
 	t.Cleanup(func() { DestroyWorld(worldId) })
-	boxOnGround(t, worldId, fixed.Q32Zero())
+	boxOnGround(t, worldId, QZero())
 	var boxIds [8]BodyId
 	for i := range 8 {
 		boxIds[i] = addDynamicBox(t, worldId, v2(10+i*3, 0))
 	}
 	jointDef := DefaultRevoluteJointDef()
 	jointDef.BodyIdA, jointDef.BodyIdB = boxIds[0], boxIds[1]
-	jointDef.LocalAnchorA = Vec2{X: fixed.Q32FromInt(2)}
-	jointDef.LocalAnchorB = Vec2{X: fixed.Q32FromInt(-1)}
+	jointDef.LocalAnchorA = Vec2{X: QFromInt(2)}
+	jointDef.LocalAnchorB = Vec2{X: QFromInt(-1)}
 	CreateRevoluteJoint(worldId, &jointDef)
 	w := getWorldFromId(worldId)
 
@@ -299,7 +299,7 @@ func TestStepIsReproducibleBitForBit(t *testing.T) {
 			id := addDynamicBox(t, worldId, v2(i*3, i))
 			w := getWorldFromId(worldId)
 			b := getBodyFullId(w, id)
-			getBodyState(w, b).angularVelocity = fixed.Q32MustParse("0.1")
+			getBodyState(w, b).angularVelocity = QMustParse("0.1")
 		}
 		return worldId
 	}
@@ -330,7 +330,7 @@ func TestStepPutsARestingIslandToSleep(t *testing.T) {
 	movingId := addDynamicBox(t, worldId, v2(10, 0))
 	w := getWorldFromId(worldId)
 	moving := getBodyFullId(w, movingId)
-	getBodyState(w, moving).linearVelocity = Vec2{X: fixed.Q32One()}
+	getBodyState(w, moving).linearVelocity = Vec2{X: QOne()}
 
 	dt := stepDt()
 	// The sleep time is one half second. A rounded 1/60 times 30 falls one
@@ -413,19 +413,19 @@ func boxOnGround(t *testing.T, worldId WorldId, height Q) BodyId {
 	w := getWorldFromId(worldId)
 
 	groundDef := DefaultBodyDef()
-	groundDef.Position = Vec2{Y: fixed.Q32Half().Neg()}
+	groundDef.Position = Vec2{Y: QHalf().Neg()}
 	groundId := CreateBody(worldId, &groundDef)
 	shapeDef := DefaultShapeDef()
 	shapeDef.EnableContactEvents = true
 	shapeDef.EnableHitEvents = true
-	ground := MakeBox(fixed.Q32FromInt(5), fixed.Q32Half())
+	ground := MakeBox(QFromInt(5), QHalf())
 	CreatePolygonShape(groundId, &shapeDef, &ground)
 
 	boxDef := DefaultBodyDef()
 	boxDef.Type = DynamicBody
-	boxDef.Position = Vec2{Y: fixed.Q32Half().Add(height)}
+	boxDef.Position = Vec2{Y: QHalf().Add(height)}
 	boxId := CreateBody(worldId, &boxDef)
-	unit := MakeBox(fixed.Q32Half(), fixed.Q32Half())
+	unit := MakeBox(QHalf(), QHalf())
 	CreatePolygonShape(boxId, &shapeDef, &unit)
 
 	_ = w
@@ -438,7 +438,7 @@ func boxOnGround(t *testing.T, worldId WorldId, height Q) BodyId {
 func TestStepLandsAFallingBox(t *testing.T) {
 	worldId := createTestWorld(t)
 	w := getWorldFromId(worldId)
-	boxId := boxOnGround(t, worldId, fixed.Q32MustParse("0.05"))
+	boxId := boxOnGround(t, worldId, QMustParse("0.05"))
 	box := getBodyFullId(w, boxId)
 
 	dt := stepDt()
@@ -447,8 +447,8 @@ func TestStepLandsAFallingBox(t *testing.T) {
 	}
 
 	sim := getBodySim(w, box)
-	tolerance := fixed.Q32MustParse("0.01")
-	if !withinQ(sim.center.Y, fixed.Q32Half(), tolerance) {
+	tolerance := QMustParse("0.01")
+	if !withinQ(sim.center.Y, QHalf(), tolerance) {
 		t.Errorf("the box rests at y %v, want 0.5", sim.center.Y)
 	}
 	if box.setIndex < firstSleepingSet {
@@ -467,7 +467,7 @@ func TestStepLandsAFallingBox(t *testing.T) {
 func TestStepReportsBeginAndEndTouch(t *testing.T) {
 	worldId := createTestWorld(t)
 	w := getWorldFromId(worldId)
-	boxId := boxOnGround(t, worldId, fixed.Q32Zero())
+	boxId := boxOnGround(t, worldId, QZero())
 	box := getBodyFullId(w, boxId)
 
 	dt := stepDt()
@@ -481,7 +481,7 @@ func TestStepReportsBeginAndEndTouch(t *testing.T) {
 	if begin.ShapeIdB != shapeIdOf(w, firstShape(w, boxId)) {
 		t.Errorf("the begin event names the wrong shape")
 	}
-	if begin.Manifold.PointCount == 0 || !begin.Manifold.Points[0].NormalImpulse.Eq(fixed.Q32Zero()) {
+	if begin.Manifold.PointCount == 0 || !begin.Manifold.Points[0].NormalImpulse.Eq(QZero()) {
 		t.Errorf("the begin manifold has %d points and impulse %v, want points and zero", begin.Manifold.PointCount, begin.Manifold.Points[0].NormalImpulse)
 	}
 
@@ -493,10 +493,10 @@ func TestStepReportsBeginAndEndTouch(t *testing.T) {
 	// Lift the box out of the speculative margin. The bounds refresh on
 	// the next finalize, so the contact survives that step and separates.
 	sim := getBodySim(w, box)
-	lift := fixed.Q32One()
+	lift := QOne()
 	sim.center.Y = sim.center.Y.Add(lift)
 	sim.transform.P.Y = sim.transform.P.Y.Add(lift)
-	getBodyState(w, box).linearVelocity = Vec2{Y: fixed.Q32FromInt(5)}
+	getBodyState(w, box).linearVelocity = Vec2{Y: QFromInt(5)}
 	worldId.Step(dt, 4)
 
 	events = worldId.GetContactEvents()
@@ -518,7 +518,7 @@ func TestStepReportsBeginAndEndTouch(t *testing.T) {
 func TestStepDestroysADisjointContact(t *testing.T) {
 	worldId := createTestWorld(t)
 	w := getWorldFromId(worldId)
-	boxId := boxOnGround(t, worldId, fixed.Q32Zero())
+	boxId := boxOnGround(t, worldId, QZero())
 	box := getBodyFullId(w, boxId)
 
 	dt := stepDt()
@@ -530,10 +530,10 @@ func TestStepDestroysADisjointContact(t *testing.T) {
 	// Carry the box far away. The finalize of this step refreshes the
 	// bounds; the collide of the next step sees no overlap.
 	sim := getBodySim(w, box)
-	far := fixed.Q32FromInt(20)
+	far := QFromInt(20)
 	sim.center.Y = sim.center.Y.Add(far)
 	sim.transform.P.Y = sim.transform.P.Y.Add(far)
-	getBodyState(w, box).linearVelocity = Vec2{Y: fixed.Q32FromInt(5)}
+	getBodyState(w, box).linearVelocity = Vec2{Y: QFromInt(5)}
 	worldId.Step(dt, 4)
 	worldId.Step(dt, 4)
 
@@ -591,14 +591,14 @@ func TestStepReportsMoveEvents(t *testing.T) {
 // where the reference would divide by zero.
 func TestStepKeepsAZeroContactFrequencyFinite(t *testing.T) {
 	def := DefaultWorldDef()
-	def.ContactHertz = fixed.Q32Zero()
+	def.ContactHertz = QZero()
 	worldId := CreateWorld(&def)
 	t.Cleanup(func() { DestroyWorld(worldId) })
 	w := getWorldFromId(worldId)
-	boxOnGround(t, worldId, fixed.Q32Zero())
+	boxOnGround(t, worldId, QZero())
 
 	worldId.Step(stepDt(), 4)
-	if !w.contactSpeed.Eq(fixed.Q32Zero()) {
+	if !w.contactSpeed.Eq(QZero()) {
 		t.Errorf("the contact speed is %v, want zero", w.contactSpeed)
 	}
 }
@@ -616,8 +616,8 @@ func validateWorld(w *world) {
 func TestStepReportsAHitEvent(t *testing.T) {
 	worldId := createTestWorld(t)
 	w := getWorldFromId(worldId)
-	boxId := boxOnGround(t, worldId, fixed.Q32Half())
-	getBodyState(w, getBodyFullId(w, boxId)).linearVelocity = Vec2{Y: fixed.Q32FromInt(-3)}
+	boxId := boxOnGround(t, worldId, QHalf())
+	getBodyState(w, getBodyFullId(w, boxId)).linearVelocity = Vec2{Y: QFromInt(-3)}
 
 	dt := stepDt()
 	for range 30 {
@@ -636,7 +636,7 @@ func TestStepReportsAHitEvent(t *testing.T) {
 		if !w.hitEventThreshold.Less(hit.ApproachSpeed) {
 			t.Errorf("approach speed = %v, want above the threshold %v", hit.ApproachSpeed, w.hitEventThreshold)
 		}
-		if !hit.Normal.Y.Eq(fixed.Q32One()) || !withinQ(hit.Point.Y, fixed.Q32Zero(), fixed.Q32MustParse("0.05")) {
+		if !hit.Normal.Y.Eq(QOne()) || !withinQ(hit.Point.Y, QZero(), QMustParse("0.05")) {
 			t.Errorf("hit normal %v at %v, want the ground normal near y = 0", hit.Normal, hit.Point)
 		}
 		validateWorld(w)
@@ -652,15 +652,15 @@ func TestStepOrdersEventsByContactId(t *testing.T) {
 	w := getWorldFromId(worldId)
 
 	groundDef := DefaultBodyDef()
-	groundDef.Position = Vec2{Y: fixed.Q32Half().Neg()}
+	groundDef.Position = Vec2{Y: QHalf().Neg()}
 	groundId := CreateBody(worldId, &groundDef)
 	shapeDef := DefaultShapeDef()
 	shapeDef.EnableContactEvents = true
 	shapeDef.EnableHitEvents = true
-	ground := MakeBox(fixed.Q32FromInt(5), fixed.Q32Half())
+	ground := MakeBox(QFromInt(5), QHalf())
 	CreatePolygonShape(groundId, &shapeDef, &ground)
 
-	unit := MakeBox(fixed.Q32Half(), fixed.Q32Half())
+	unit := MakeBox(QHalf(), QHalf())
 	// The right box is created first, so the creation order of the
 	// contacts, not the position, decides the event order. Both fall from
 	// half a metre with the same speed, so the broadphase creates their
@@ -670,10 +670,10 @@ func TestStepOrdersEventsByContactId(t *testing.T) {
 	for i, x := range []int{3, 0} {
 		boxDef := DefaultBodyDef()
 		boxDef.Type = DynamicBody
-		boxDef.Position = Vec2{X: fixed.Q32FromInt(x), Y: fixed.Q32One()}
+		boxDef.Position = Vec2{X: QFromInt(x), Y: QOne()}
 		bodies[i] = CreateBody(worldId, &boxDef)
 		shapes[i] = CreatePolygonShape(bodies[i], &shapeDef, &unit)
-		getBodyState(w, getBodyFullId(w, bodies[i])).linearVelocity = Vec2{Y: fixed.Q32FromInt(-3)}
+		getBodyState(w, getBodyFullId(w, bodies[i])).linearVelocity = Vec2{Y: QFromInt(-3)}
 	}
 
 	dt := stepDt()
@@ -696,9 +696,9 @@ func TestStepOrdersEventsByContactId(t *testing.T) {
 	for i := range bodies {
 		b := getBodyFullId(w, bodies[i])
 		sim := getBodySim(w, b)
-		sim.center.Y = sim.center.Y.Add(fixed.Q32One())
-		sim.transform.P.Y = sim.transform.P.Y.Add(fixed.Q32One())
-		getBodyState(w, b).linearVelocity = Vec2{Y: fixed.Q32FromInt(5)}
+		sim.center.Y = sim.center.Y.Add(QOne())
+		sim.transform.P.Y = sim.transform.P.Y.Add(QOne())
+		getBodyState(w, b).linearVelocity = Vec2{Y: QFromInt(5)}
 	}
 	worldId.Step(dt, 4)
 	events = worldId.GetContactEvents()
@@ -731,8 +731,8 @@ func TestSmallPyramidStaysStable(t *testing.T) {
 	if first != second {
 		t.Errorf("two builds of the pyramid differ: %d and %d", first, second)
 	}
-	want := fixed.Q32Half().Mul(fixed.Q32FromInt(2*rows - 1))
-	if !withinQ(topY, want, fixed.Q32MustParse("0.02")) {
+	want := QHalf().Mul(QFromInt(2*rows - 1))
+	if !withinQ(topY, want, QMustParse("0.02")) {
 		t.Errorf("the top box rests at y = %v, want %v", topY, want)
 	}
 	if setIndex < firstSleepingSet {
@@ -753,14 +753,14 @@ func TestStepLandsABoxOnAChainSegment(t *testing.T) {
 	groundId := CreateBody(worldId, &groundDef)
 	chainDef := DefaultChainDef()
 	chainDef.Points = []Vec2{
-		{X: fixed.Q32FromInt(6)},
-		{X: fixed.Q32FromInt(5)},
-		{X: fixed.Q32FromInt(-5)},
-		{X: fixed.Q32FromInt(-6)},
+		{X: QFromInt(6)},
+		{X: QFromInt(5)},
+		{X: QFromInt(-5)},
+		{X: QFromInt(-6)},
 	}
 	CreateChain(groundId, &chainDef)
 
-	boxId := addDynamicBox(t, worldId, Vec2{Y: fixed.Q32FromInt(2)})
+	boxId := addDynamicBox(t, worldId, Vec2{Y: QFromInt(2)})
 	box := getBodyFullId(w, boxId)
 
 	dt := stepDt()
@@ -772,8 +772,8 @@ func TestStepLandsABoxOnAChainSegment(t *testing.T) {
 	// The helper box has a half extent of one, so it rests with its
 	// center one unit above the floor.
 	sim := getBodySim(w, box)
-	tolerance := fixed.Q32MustParse("0.01")
-	if !sim.center.Y.Sub(fixed.Q32One()).Abs().Less(tolerance) {
+	tolerance := QMustParse("0.01")
+	if !sim.center.Y.Sub(QOne()).Abs().Less(tolerance) {
 		t.Fatalf("box center %v, want y near 1", sim.center)
 	}
 	if box.contactCount != 1 {
@@ -802,7 +802,7 @@ func addPlate(t *testing.T, worldId WorldId, bodyType BodyType, x int) BodyId {
 	bodyDef.Position = v2(x, 0)
 	bodyId := CreateBody(worldId, &bodyDef)
 	shapeDef := DefaultShapeDef()
-	plate := MakeBox(fixed.Q32FromRatio(1, 20), fixed.Q32One())
+	plate := MakeBox(QFromRatio(1, 20), QOne())
 	CreatePolygonShape(bodyId, &shapeDef, &plate)
 	return bodyId
 }
@@ -813,12 +813,12 @@ func addProjectile(t *testing.T, worldId WorldId, isBullet bool) BodyId {
 	t.Helper()
 	bodyDef := DefaultBodyDef()
 	bodyDef.Type = DynamicBody
-	bodyDef.Position = Vec2{X: fixed.Q32MustParse("3.5")}
+	bodyDef.Position = Vec2{X: QMustParse("3.5")}
 	bodyDef.LinearVelocity = v2(200, 0)
 	bodyDef.IsBullet = isBullet
 	bodyId := CreateBody(worldId, &bodyDef)
 	shapeDef := DefaultShapeDef()
-	box := MakeSquare(fixed.Q32FromRatio(1, 10))
+	box := MakeSquare(QFromRatio(1, 10))
 	CreatePolygonShape(bodyId, &shapeDef, &box)
 	return bodyId
 }
@@ -833,7 +833,7 @@ func bodyX(worldId WorldId, bodyId BodyId) Q {
 // instead. With the stage disabled the same box tunnels through.
 func TestStepStopsAFastBodyAtAStaticPlate(t *testing.T) {
 	// The plate face sits at x = 4.95 and the box half extent is 0.1.
-	face := fixed.Q32MustParse("4.85")
+	face := QMustParse("4.85")
 
 	t.Run("continuous", func(t *testing.T) {
 		worldId := continuousWorld(t, true)
@@ -845,7 +845,7 @@ func TestStepStopsAFastBodyAtAStaticPlate(t *testing.T) {
 		validateWorld(w)
 
 		x := bodyX(worldId, boxId)
-		if !x.Less(face) || !fixed.Q32MustParse("4.8").Less(x) {
+		if !x.Less(face) || !QMustParse("4.8").Less(x) {
 			t.Fatalf("x %v, want just under %v", x, face)
 		}
 		if sim := getBodySim(w, getBodyFullId(w, boxId)); !sim.isFast {
@@ -867,7 +867,7 @@ func TestStepStopsAFastBodyAtAStaticPlate(t *testing.T) {
 
 		worldId.Step(stepDt(), 4)
 
-		if x := bodyX(worldId, boxId); !fixed.Q32FromInt(6).Less(x) {
+		if x := bodyX(worldId, boxId); !QFromInt(6).Less(x) {
 			t.Fatalf("x %v, want past the plate", x)
 		}
 	})
@@ -887,7 +887,7 @@ func TestStepBulletStopsAtADynamicPlate(t *testing.T) {
 		validateWorld(w)
 
 		x := bodyX(worldId, boxId)
-		if !x.Less(fixed.Q32MustParse("4.85")) || !fixed.Q32MustParse("4.8").Less(x) {
+		if !x.Less(QMustParse("4.85")) || !QMustParse("4.8").Less(x) {
 			t.Fatalf("x %v, want just under 4.85", x)
 		}
 
@@ -895,7 +895,7 @@ func TestStepBulletStopsAtADynamicPlate(t *testing.T) {
 		worldId.Step(stepDt(), 4)
 		worldId.Step(stepDt(), 4)
 		validateWorld(w)
-		if plateX := bodyX(worldId, plateId); !fixed.Q32FromInt(5).Less(plateX) {
+		if plateX := bodyX(worldId, plateId); !QFromInt(5).Less(plateX) {
 			t.Fatalf("plate x %v, want pushed past 5", plateX)
 		}
 		if x := bodyX(worldId, boxId); !x.Less(bodyX(worldId, plateId)) {
@@ -910,7 +910,7 @@ func TestStepBulletStopsAtADynamicPlate(t *testing.T) {
 
 		worldId.Step(stepDt(), 4)
 
-		if x := bodyX(worldId, boxId); !fixed.Q32FromInt(6).Less(x) {
+		if x := bodyX(worldId, boxId); !QFromInt(6).Less(x) {
 			t.Fatalf("x %v, want past the plate", x)
 		}
 	})
@@ -931,11 +931,11 @@ func TestStepFastBodyCrossesAChainJunction(t *testing.T) {
 	shapeDef := DefaultShapeDef()
 	chainDef := DefaultChainDef()
 	chainDef.Points = []Vec2{
-		{X: fixed.Q32FromInt(30)},
-		{X: fixed.Q32FromInt(20)},
-		{X: fixed.Q32FromInt(8)},
-		{X: fixed.Q32FromInt(-10)},
-		{X: fixed.Q32FromInt(-20)},
+		{X: QFromInt(30)},
+		{X: QFromInt(20)},
+		{X: QFromInt(8)},
+		{X: QFromInt(-10)},
+		{X: QFromInt(-20)},
 	}
 	CreateChain(groundId, &chainDef)
 
@@ -944,14 +944,14 @@ func TestStepFastBodyCrossesAChainJunction(t *testing.T) {
 	// before the junction.
 	bodyDef := DefaultBodyDef()
 	bodyDef.Type = DynamicBody
-	bodyDef.Position = Vec2{X: fixed.Q32FromInt(6), Y: fixed.Q32MustParse("0.6")}
+	bodyDef.Position = Vec2{X: QFromInt(6), Y: QMustParse("0.6")}
 	bodyDef.LinearVelocity = v2(200, -60)
 	boxId := CreateBody(worldId, &bodyDef)
-	boxShape := MakeSquare(fixed.Q32FromRatio(1, 10))
+	boxShape := MakeSquare(QFromRatio(1, 10))
 	CreatePolygonShape(boxId, &shapeDef, &boxShape)
 	box := getBodyFullId(w, boxId)
 
-	junction := fixed.Q32FromInt(8)
+	junction := QFromInt(8)
 	for range 3 {
 		worldId.Step(stepDt(), 4)
 		validateWorld(w)
@@ -960,11 +960,11 @@ func TestStepFastBodyCrossesAChainJunction(t *testing.T) {
 	if x := bodyX(worldId, boxId); !junction.Less(x) {
 		t.Fatalf("x %v, want past the junction at %v", x, junction)
 	}
-	if y := getBodyTransformQuick(w, box).P.Y; !fixed.Q32Zero().Less(y) {
+	if y := getBodyTransformQuick(w, box).P.Y; !QZero().Less(y) {
 		t.Fatalf("y %v, want the box above the floor", y)
 	}
 	state := getBodyState(w, box)
-	if !fixed.Q32FromInt(100).Less(state.linearVelocity.X) {
+	if !QFromInt(100).Less(state.linearVelocity.X) {
 		t.Fatalf("velocity x %v, want the box still moving", state.linearVelocity.X)
 	}
 }
@@ -982,23 +982,23 @@ func TestStepSwingsAPendulum(t *testing.T) {
 
 	bobDef := DefaultBodyDef()
 	bobDef.Type = DynamicBody
-	bobDef.Position = Vec2{X: fixed.Q32One()}
+	bobDef.Position = Vec2{X: QOne()}
 	bobId := CreateBody(worldId, &bobDef)
 	shapeDef := DefaultShapeDef()
-	bob := MakeSquare(fixed.Q32MustParse("0.1"))
+	bob := MakeSquare(QMustParse("0.1"))
 	CreatePolygonShape(bobId, &shapeDef, &bob)
 
 	def := DefaultRevoluteJointDef()
 	def.BodyIdA = pivotId
 	def.BodyIdB = bobId
-	def.LocalAnchorB = Vec2{X: fixed.Q32One().Neg()}
+	def.LocalAnchorB = Vec2{X: QOne().Neg()}
 	CreateRevoluteJoint(worldId, &def)
 
 	fixed.ResetSaturationCount()
 	body := getBodyFullId(w, bobId)
 	slack := linearSlop.Add(linearSlop)
-	one := fixed.Q32One()
-	lowest := fixed.Q32Zero()
+	one := QOne()
+	lowest := QZero()
 	dt := stepDt()
 	for i := range 120 {
 		worldId.Step(dt, 4)
@@ -1009,7 +1009,7 @@ func TestStepSwingsAPendulum(t *testing.T) {
 		}
 		lowest = lowest.Min(center.Y)
 	}
-	if !lowest.Less(fixed.Q32MustParse("-0.9")) {
+	if !lowest.Less(QMustParse("-0.9")) {
 		t.Errorf("the bob only fell to y = %v", lowest)
 	}
 	if n := fixed.SaturationCount(); n != 0 {
@@ -1033,7 +1033,7 @@ func TestStepPullsTheRopeTight(t *testing.T) {
 	def := DefaultDistanceJointDef()
 	def.BodyIdA = idA
 	def.BodyIdB = idB
-	def.Length = fixed.Q32One()
+	def.Length = QOne()
 	CreateDistanceJoint(worldId, &def)
 
 	fixed.ResetSaturationCount()
@@ -1044,7 +1044,7 @@ func TestStepPullsTheRopeTight(t *testing.T) {
 		worldId.Step(dt, 4)
 	}
 	gap := getBodySim(w, bodyB).center.Sub(getBodySim(w, bodyA).center).Len()
-	if !withinQ(gap, fixed.Q32One(), linearSlop.Add(linearSlop)) {
+	if !withinQ(gap, QOne(), linearSlop.Add(linearSlop)) {
 		t.Errorf("the rope is %v long, want 1", gap)
 	}
 	if n := fixed.SaturationCount(); n != 0 {
@@ -1058,7 +1058,7 @@ func TestStepPullsTheRopeTight(t *testing.T) {
 // gravity and stops at one, still on the axis, and no operation saturates.
 func TestStepSlidesToTheStop(t *testing.T) {
 	worldDef := DefaultWorldDef()
-	worldDef.Gravity = Vec2{X: fixed.Q32FromInt(10)}
+	worldDef.Gravity = Vec2{X: QFromInt(10)}
 	worldId := CreateWorld(&worldDef)
 	t.Cleanup(func() { DestroyWorld(worldId) })
 	w := getWorldFromId(worldId)
@@ -1071,8 +1071,8 @@ func TestStepSlidesToTheStop(t *testing.T) {
 	def.BodyIdA = groundId
 	def.BodyIdB = boxId
 	def.EnableLimit = true
-	def.LowerTranslation = fixed.Q32Zero()
-	def.UpperTranslation = fixed.Q32One()
+	def.LowerTranslation = QZero()
+	def.UpperTranslation = QOne()
 	CreatePrismaticJoint(worldId, &def)
 
 	fixed.ResetSaturationCount()
@@ -1083,7 +1083,7 @@ func TestStepSlidesToTheStop(t *testing.T) {
 		worldId.Step(dt, 4)
 	}
 	center := getBodySim(w, body).center
-	if !withinQ(center.X, fixed.Q32One(), slack) || !withinQ(center.Y, fixed.Q32Zero(), slack) {
+	if !withinQ(center.X, QOne(), slack) || !withinQ(center.Y, QZero(), slack) {
 		t.Errorf("the box rests at %v, want (1, 0)", center)
 	}
 	if n := fixed.SaturationCount(); n != 0 {
@@ -1105,12 +1105,12 @@ func TestStepSettlesTheSuspension(t *testing.T) {
 
 	groundDef := DefaultBodyDef()
 	groundId := CreateBody(worldId, &groundDef)
-	wheelId := addDynamicCircle(t, worldId, Vec2{Y: fixed.Q32Half()})
+	wheelId := addDynamicCircle(t, worldId, Vec2{Y: QHalf()})
 
 	def := DefaultWheelJointDef()
 	def.BodyIdA = groundId
 	def.BodyIdB = wheelId
-	def.Hertz = fixed.Q32FromInt(2)
+	def.Hertz = QFromInt(2)
 	CreateWheelJoint(worldId, &def)
 
 	fixed.ResetSaturationCount()
@@ -1121,7 +1121,7 @@ func TestStepSettlesTheSuspension(t *testing.T) {
 		worldId.Step(dt, 4)
 	}
 	center := getBodySim(w, body).center
-	if !withinQ(center.X, fixed.Q32Zero(), slack) || !withinQ(center.Y, fixed.Q32Zero(), slack) {
+	if !withinQ(center.X, QZero(), slack) || !withinQ(center.Y, QZero(), slack) {
 		t.Errorf("the wheel rests at %v, want (0, 0)", center)
 	}
 	if n := fixed.SaturationCount(); n != 0 {
@@ -1144,7 +1144,7 @@ func TestStepWeldsTwoBoxes(t *testing.T) {
 		def.Position = position
 		id := CreateBody(worldId, &def)
 		shapeDef := DefaultShapeDef()
-		box := MakeSquare(fixed.Q32MustParse("0.25"))
+		box := MakeSquare(QMustParse("0.25"))
 		CreatePolygonShape(id, &shapeDef, &box)
 		return id
 	}
@@ -1154,13 +1154,13 @@ func TestStepWeldsTwoBoxes(t *testing.T) {
 	def := DefaultWeldJointDef()
 	def.BodyIdA = idA
 	def.BodyIdB = idB
-	def.LocalAnchorA = Vec2{X: fixed.Q32Half()}
-	def.LocalAnchorB = Vec2{X: fixed.Q32Half().Neg()}
+	def.LocalAnchorA = Vec2{X: QHalf()}
+	def.LocalAnchorB = Vec2{X: QHalf().Neg()}
 	CreateWeldJoint(worldId, &def)
 
 	bodyA := getBodyFullId(w, idA)
 	bodyB := getBodyFullId(w, idB)
-	getBodyState(w, bodyB).angularVelocity = fixed.Q32Half()
+	getBodyState(w, bodyB).angularVelocity = QHalf()
 
 	fixed.ResetSaturationCount()
 	dt := stepDt()
@@ -1170,11 +1170,11 @@ func TestStepWeldsTwoBoxes(t *testing.T) {
 	simA := getBodySim(w, bodyA)
 	simB := getBodySim(w, bodyB)
 	angle := RelativeAngle(simB.transform.Q, simA.transform.Q).Abs()
-	if !angle.Less(fixed.Q32MustParse("0.0001")) {
+	if !angle.Less(QMustParse("0.0001")) {
 		t.Errorf("the relative angle is %v turn, want below 1e-4", angle)
 	}
 	gap := simB.center.Sub(simA.center).Len()
-	if !withinQ(gap, fixed.Q32One(), linearSlop.Add(linearSlop)) {
+	if !withinQ(gap, QOne(), linearSlop.Add(linearSlop)) {
 		t.Errorf("the centers are %v apart, want 1", gap)
 	}
 	if n := fixed.SaturationCount(); n != 0 {
@@ -1201,9 +1201,9 @@ func TestStepDrivesToTheOffset(t *testing.T) {
 	def := DefaultMotorJointDef()
 	def.BodyIdA = groundId
 	def.BodyIdB = circleId
-	def.LinearOffset = Vec2{X: fixed.Q32One()}
-	def.MaxForce = fixed.Q32FromInt(1000)
-	def.MaxTorque = fixed.Q32FromInt(1000)
+	def.LinearOffset = Vec2{X: QOne()}
+	def.MaxForce = QFromInt(1000)
+	def.MaxTorque = QFromInt(1000)
 	CreateMotorJoint(worldId, &def)
 
 	fixed.ResetSaturationCount()
@@ -1214,7 +1214,7 @@ func TestStepDrivesToTheOffset(t *testing.T) {
 	}
 	center := getBodySim(w, body).center
 	slack := linearSlop.Add(linearSlop)
-	if !withinQ(center.X, fixed.Q32One(), slack) || !withinQ(center.Y, fixed.Q32Zero(), slack) {
+	if !withinQ(center.X, QOne(), slack) || !withinQ(center.Y, QZero(), slack) {
 		t.Errorf("the circle rests at %v, want (1, 0)", center)
 	}
 	if n := fixed.SaturationCount(); n != 0 {
@@ -1240,10 +1240,10 @@ func TestStepDragsToTheTarget(t *testing.T) {
 	def := DefaultMouseJointDef()
 	def.BodyIdA = groundId
 	def.BodyIdB = circleId
-	def.Hertz = fixed.Q32FromInt(5)
-	def.MaxForce = fixed.Q32FromInt(1000)
+	def.Hertz = QFromInt(5)
+	def.MaxForce = QFromInt(1000)
 	jointId := CreateMouseJoint(worldId, &def)
-	target := Vec2{X: fixed.Q32One()}
+	target := Vec2{X: QOne()}
 	getJointSim(w, getJointFullId(w, jointId)).mouseJoint.targetA = target
 
 	fixed.ResetSaturationCount()
@@ -1253,7 +1253,7 @@ func TestStepDragsToTheTarget(t *testing.T) {
 		worldId.Step(dt, 4)
 	}
 	center := getBodySim(w, body).center
-	if gap := center.Sub(target).Len(); !gap.Less(fixed.Q32MustParse("0.05")) {
+	if gap := center.Sub(target).Len(); !gap.Less(QMustParse("0.05")) {
 		t.Errorf("the circle rests at %v, %v from the target", center, gap)
 	}
 	if n := fixed.SaturationCount(); n != 0 {
@@ -1271,24 +1271,24 @@ func TestMoverStopsOnTheGround(t *testing.T) {
 	worldId := createTestWorld(t)
 
 	groundDef := DefaultBodyDef()
-	groundDef.Position = Vec2{Y: fixed.Q32Half().Neg()}
+	groundDef.Position = Vec2{Y: QHalf().Neg()}
 	groundId := CreateBody(worldId, &groundDef)
 	shapeDef := DefaultShapeDef()
-	ground := MakeBox(fixed.Q32FromInt(5), fixed.Q32Half())
+	ground := MakeBox(QFromInt(5), QHalf())
 	CreatePolygonShape(groundId, &shapeDef, &ground)
 
-	radius := fixed.Q32MustParse("0.3")
+	radius := QMustParse("0.3")
 	mover := Capsule{
 		Center1: Vec2{Y: radius},
-		Center2: Vec2{Y: radius.Add(fixed.Q32Half())},
+		Center2: Vec2{Y: radius.Add(QHalf())},
 		Radius:  radius,
 	}
 	// Bottom of the capsule starts a unit above the ground top (y = 0).
-	start := fixed.Q32One()
+	start := QOne()
 	mover.Center1.Y = mover.Center1.Y.Add(start)
 	mover.Center2.Y = mover.Center2.Y.Add(start)
 
-	targetDelta := Vec2{Y: fixed.Q32MustParse("-0.05")}
+	targetDelta := Vec2{Y: QMustParse("-0.05")}
 	var lastNormal Vec2
 
 	for range 60 {
@@ -1309,7 +1309,7 @@ func TestMoverStopsOnTheGround(t *testing.T) {
 	if !withinQ(bottom, linearSlop, slack) {
 		t.Errorf("the mover bottom rests at %v, want near linearSlop above the ground", bottom)
 	}
-	if !fixed.Q32MustParse("0.9").Less(lastNormal.Y) {
+	if !QMustParse("0.9").Less(lastNormal.Y) {
 		t.Errorf("the collected plane normal is %v, want to point up", lastNormal)
 	}
 }
@@ -1322,7 +1322,7 @@ func preSolveScene(t *testing.T, worldId WorldId) BodyId {
 	groundDef.Type = StaticBody
 	groundId := CreateBody(worldId, &groundDef)
 	groundShapeDef := DefaultShapeDef()
-	ground := MakeBox(fixed.Q32FromInt(5), fixed.Q32One())
+	ground := MakeBox(QFromInt(5), QOne())
 	CreatePolygonShape(groundId, &groundShapeDef, &ground)
 
 	boxDef := DefaultBodyDef()
@@ -1331,7 +1331,7 @@ func preSolveScene(t *testing.T, worldId WorldId) BodyId {
 	boxId := CreateBody(worldId, &boxDef)
 	boxShapeDef := DefaultShapeDef()
 	boxShapeDef.EnablePreSolveEvents = true
-	box := MakeSquare(fixed.Q32One())
+	box := MakeSquare(QOne())
 	CreatePolygonShape(boxId, &boxShapeDef, &box)
 	return boxId
 }
@@ -1349,7 +1349,7 @@ func TestPreSolveFalseLetsTheBoxThrough(t *testing.T) {
 		worldId.Step(dt, 4)
 	}
 
-	if y := boxId.GetPosition().Y; !y.Less(fixed.Q32Zero()) {
+	if y := boxId.GetPosition().Y; !y.Less(QZero()) {
 		t.Fatalf("box y = %v, want below the plate (fell through)", y)
 	}
 }

@@ -1,7 +1,5 @@
 package dbox2d
 
-import "github.com/dhannyell/fixed"
-
 // This file corresponds to src/weld_joint.c of the reference. The angles
 // are turns (D-004); the angular error enters C in radians.
 
@@ -20,7 +18,7 @@ func getWeldJointTorque(w *world, base *jointSim) Q {
 
 // SetLinearHertz changes the weld joint linear frequency (b2WeldJoint_SetLinearHertz).
 func (jointId JointId) SetLinearHertz(hertz Q) {
-	zero := fixed.Q32Zero()
+	zero := QZero()
 	if !IsValidQ(hertz) || hertz.Less(zero) {
 		panic("dbox2d: SetLinearHertz needs a valid non-negative hertz")
 	}
@@ -38,7 +36,7 @@ func (jointId JointId) GetLinearHertz() Q {
 
 // SetLinearDampingRatio changes the weld joint linear damping ratio (b2WeldJoint_SetLinearDampingRatio).
 func (jointId JointId) SetLinearDampingRatio(dampingRatio Q) {
-	zero := fixed.Q32Zero()
+	zero := QZero()
 	if !IsValidQ(dampingRatio) || dampingRatio.Less(zero) {
 		panic("dbox2d: SetLinearDampingRatio needs a valid non-negative damping ratio")
 	}
@@ -56,7 +54,7 @@ func (jointId JointId) GetLinearDampingRatio() Q {
 
 // SetAngularHertz changes the weld joint angular frequency (b2WeldJoint_SetAngularHertz).
 func (jointId JointId) SetAngularHertz(hertz Q) {
-	zero := fixed.Q32Zero()
+	zero := QZero()
 	if !IsValidQ(hertz) || hertz.Less(zero) {
 		panic("dbox2d: SetAngularHertz needs a valid non-negative hertz")
 	}
@@ -74,7 +72,7 @@ func (jointId JointId) GetAngularHertz() Q {
 
 // SetAngularDampingRatio changes the weld joint angular damping ratio (b2WeldJoint_SetAngularDampingRatio).
 func (jointId JointId) SetAngularDampingRatio(dampingRatio Q) {
-	zero := fixed.Q32Zero()
+	zero := QZero()
 	if !IsValidQ(dampingRatio) || dampingRatio.Less(zero) {
 		panic("dbox2d: SetAngularDampingRatio needs a valid non-negative damping ratio")
 	}
@@ -160,12 +158,12 @@ func prepareWeldJoint(base *jointSim, context *stepContext) {
 	joint.deltaAngle = RelativeAngle(qB, qA).Sub(joint.referenceAngle)
 	joint.deltaAngle = UnwindAngle(joint.deltaAngle)
 
-	zero := fixed.Q32Zero()
+	zero := QZero()
 	ka := iA.Add(iB)
 	// D-006: the reference multiplies by the reciprocal of ka.
 	joint.axialMass = zero
 	if zero.Less(ka) {
-		joint.axialMass = fixed.Q32One().Div(ka)
+		joint.axialMass = QOne().Div(ka)
 	}
 
 	if joint.linearHertz.Eq(zero) {
@@ -239,8 +237,8 @@ func solveWeldJoint(base *jointSim, context *stepContext, useBias bool) {
 	vB := stateB.linearVelocity
 	wB := stateB.angularVelocity.Mul(tau)
 
-	zero := fixed.Q32Zero()
-	one := fixed.Q32One()
+	zero := QZero()
+	one := QOne()
 
 	// angular constraint
 	{

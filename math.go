@@ -1,19 +1,8 @@
 package dbox2d
 
-import "github.com/dhannyell/fixed"
-
-// The scalar, the vector and the rotation come from the fixed-point module.
-// This package adds only the shapes and the operations that module lacks.
-type (
-	// Q is a signed Q32.32 fixed-point number.
-	Q = fixed.Q32
-
-	// Vec2 is a 2D vector. It represents a point or a free vector.
-	Vec2 = fixed.Vec2
-
-	// Rot is a 2D rotation, stored as a sine and cosine pair.
-	Rot = fixed.Rot
-)
+// The scalar, the vector and the rotation come from the scalar layer
+// (scalar_fixed.go). This file adds the shapes and the operations that
+// layer lacks.
 
 // Transform is a 2D rigid transform.
 type Transform struct {
@@ -35,17 +24,17 @@ type Plane struct {
 
 var (
 	// upstream B2_PI 3.14159265359f
-	pi = fixed.Q32MustParse("3.14159265359")
+	pi = QMustParse("3.14159265359")
 
 	// One turn in radians. An angle is a turn here, so the integrators
 	// that the reference writes in radians scale by this factor.
 	tau = pi.Add(pi)
 
 	// upstream 100.0f * FLT_EPSILON, about 1.2e-5. One raw unit is 2^-32.
-	normalizedTolerance = fixed.Q32FromRaw(1 << 16)
+	normalizedTolerance = QFromRatio(1, 1<<16)
 
 	// upstream 0.0006f, kept as it is written
-	rotNormalizedTolerance = fixed.Q32MustParse("0.0006")
+	rotNormalizedTolerance = QMustParse("0.0006")
 )
 
 // Pi is the ratio of a circumference to its diameter. An angle is a turn in
@@ -55,12 +44,9 @@ func Pi() Q { return pi }
 // Vec2Zero returns the zero vector.
 func Vec2Zero() Vec2 { return Vec2{} }
 
-// RotIdentity returns the rotation by zero turns.
-func RotIdentity() Rot { return fixed.RotIdentity() }
-
 // TransformIdentity returns the transform that moves and rotates nothing.
 func TransformIdentity() Transform {
-	return Transform{P: Vec2{}, Q: fixed.RotIdentity()}
+	return Transform{P: Vec2{}, Q: RotIdentity()}
 }
 
 // Mat22Zero returns the zero matrix.
@@ -70,7 +56,7 @@ func Mat22Zero() Mat22 { return Mat22{} }
 // no NaN and no infinity; it saturates instead, so a saturated value is the
 // signal that a computation left the representable range.
 func IsValidQ(a Q) bool {
-	return !a.Eq(fixed.Q32MinValue()) && !a.Eq(fixed.Q32MaxValue())
+	return !a.Eq(QMinValue()) && !a.Eq(QMaxValue())
 }
 
 // IsValidVec2 reports whether v is a usable vector.
@@ -133,7 +119,7 @@ func Neg(a Vec2) Vec2 {
 // It weighs both ends, unlike the Lerp method of the fixed-point module,
 // which adds a scaled difference. The two round differently.
 func Lerp(a, b Vec2, t Q) Vec2 {
-	omt := fixed.Q32One().Sub(t)
+	omt := QOne().Sub(t)
 	return Vec2{
 		X: omt.Mul(a.X).Add(t.Mul(b.X)),
 		Y: omt.Mul(a.Y).Add(t.Mul(b.Y)),
@@ -178,7 +164,7 @@ func Clamp(v, a, b Vec2) Vec2 {
 // IsNormalized reports whether a has unit length.
 func IsNormalized(a Vec2) bool {
 	aa := a.Dot(a)
-	return fixed.Q32One().Sub(aa).Abs().Less(normalizedTolerance)
+	return QOne().Sub(aa).Abs().Less(normalizedTolerance)
 }
 
 // GetLengthAndNormalize returns the length of v and the unit vector with the
@@ -193,7 +179,7 @@ func GetLengthAndNormalize(v Vec2) (Q, Vec2) {
 // is invalid, so IsValidRotation reports the bad state instead of hiding it
 // behind the identity.
 func NormalizeRot(q Rot) Rot {
-	zero := fixed.Q32Zero()
+	zero := QZero()
 	if q.Sin.Eq(zero) && q.Cos.Eq(zero) {
 		return Rot{}
 	}
@@ -216,11 +202,6 @@ func IntegrateRotation(q1 Rot, deltaAngle Q) Rot {
 	return NormalizeRot(q2)
 }
 
-// MakeRot returns the rotation by the angle t, in turns.
-func MakeRot(t Q) Rot {
-	return fixed.RotFromTurns(t)
-}
-
 // ComputeRotationBetweenUnitVectors returns the rotation that carries the
 // unit vector v1 onto the unit vector v2. It panics when either vector is not
 // a unit vector, because the result would be a rotation of the wrong scale.
@@ -236,13 +217,13 @@ func ComputeRotationBetweenUnitVectors(v1, v2 Vec2) Rot {
 // IsNormalizedRot reports whether q has unit length.
 func IsNormalizedRot(q Rot) bool {
 	qq := q.Sin.Mul(q.Sin).Add(q.Cos.Mul(q.Cos))
-	one := fixed.Q32One()
+	one := QOne()
 	return one.Sub(rotNormalizedTolerance).Less(qq) && qq.Less(one.Add(rotNormalizedTolerance))
 }
 
 // NLerp interpolates between q1 and q2 by t and renormalizes.
 func NLerp(q1, q2 Rot, t Q) Rot {
-	omt := fixed.Q32One().Sub(t)
+	omt := QOne().Sub(t)
 	q := Rot{
 		Cos: omt.Mul(q1.Cos).Add(t.Mul(q2.Cos)),
 		Sin: omt.Mul(q1.Sin).Add(t.Mul(q2.Sin)),
@@ -269,7 +250,7 @@ func ComputeAngularVelocity(q1, q2 Rot, invH Q) Q {
 
 // RotGetAngle returns the angle of q in turns, in the range [-0.5, 0.5].
 func RotGetAngle(q Rot) Q {
-	return fixed.Atan2Turns(q.Sin, q.Cos)
+	return atan2Turns(q.Sin, q.Cos)
 }
 
 // RotGetXAxis returns the x axis of q.
@@ -311,7 +292,7 @@ func RelativeAngle(b, a Rot) Q {
 	// cos(b - a) = bc * ac + bs * as
 	s := b.Sin.Mul(a.Cos).Sub(b.Cos.Mul(a.Sin))
 	c := b.Cos.Mul(a.Cos).Add(b.Sin.Mul(a.Sin))
-	return fixed.Atan2Turns(s, c)
+	return atan2Turns(s, c)
 }
 
 // UnwindAngle reduces an angle in turns to the range [-0.5, 0.5]. One turn
@@ -393,7 +374,7 @@ func MulMV(m Mat22, v Vec2) Vec2 {
 func GetInverse22(m Mat22) Mat22 {
 	a, b, c, d := m.Cx.X, m.Cy.X, m.Cx.Y, m.Cy.Y
 	det := a.Mul(d).Sub(b.Mul(c))
-	if det.Eq(fixed.Q32Zero()) {
+	if det.Eq(QZero()) {
 		return Mat22{}
 	}
 
@@ -408,7 +389,7 @@ func GetInverse22(m Mat22) Mat22 {
 func Solve22(m Mat22, b Vec2) Vec2 {
 	a11, a12, a21, a22 := m.Cx.X, m.Cy.X, m.Cx.Y, m.Cy.Y
 	det := a11.Mul(a22).Sub(a12.Mul(a21))
-	if det.Eq(fixed.Q32Zero()) {
+	if det.Eq(QZero()) {
 		return Vec2{}
 	}
 
@@ -434,8 +415,8 @@ func SpringDamper(hertz, dampingRatio, position, velocity, timeStep Q) Q {
 	omega := tau.Mul(hertz)
 	omegaH := omega.Mul(timeStep)
 	num := velocity.Sub(omega.Mul(omegaH).Mul(position))
-	den := fixed.Q32One().Add(fixed.Q32FromInt(2).Mul(dampingRatio).Mul(omegaH)).Add(omegaH.Mul(omegaH))
-	if den.Eq(fixed.Q32Zero()) {
+	den := QOne().Add(QFromInt(2).Mul(dampingRatio).Mul(omegaH)).Add(omegaH.Mul(omegaH))
+	if den.Eq(QZero()) {
 		return velocity
 	}
 	return num.Div(den)

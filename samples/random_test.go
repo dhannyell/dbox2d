@@ -7,8 +7,6 @@ import (
 	"testing"
 
 	"github.com/dhannyell/dbox2d"
-
-	"github.com/dhannyell/fixed"
 )
 
 func TestRandomIntSequence(t *testing.T) {
@@ -23,8 +21,8 @@ func TestRandomIntSequence(t *testing.T) {
 
 func TestRandomFloatRangeBounds(t *testing.T) {
 	randomSeed = randSeed
-	lo := fixed.Q32MustParse("-2.5")
-	hi := fixed.Q32MustParse("3.25")
+	lo := dbox2d.QMustParse("-2.5")
+	hi := dbox2d.QMustParse("3.25")
 	for range 1000 {
 		got := randomFloatRange(lo, hi)
 		if got.Less(lo) || got.Greater(hi) {
@@ -37,12 +35,12 @@ func TestRandomFloatRangeBounds(t *testing.T) {
 // reference layouts.
 func TestRandomHelpersStayInRange(t *testing.T) {
 	randomSeed = randSeed
-	extent := fixed.Q32FromInt(2)
+	extent := dbox2d.QFromInt(2)
 	for range 200 {
 		if v := randomIntRange(3, 8); v < 3 || v > 8 {
 			t.Fatalf("randomIntRange: got %d outside [3, 8]", v)
 		}
-		if v := randomFloat(); v.Less(fixed.Q32One().Neg()) || v.Greater(fixed.Q32One()) {
+		if v := randomFloat(); v.Less(dbox2d.QOne().Neg()) || v.Greater(dbox2d.QOne()) {
 			t.Fatalf("randomFloat: got %s outside [-1, 1]", v)
 		}
 		p := randomVec2(extent.Neg(), extent)

@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/dhannyell/dbox2d"
-	"github.com/dhannyell/fixed"
 )
 
 // TestSolvePlanesSinglePlaneProjects checks the projection onto one rigid
@@ -12,7 +11,7 @@ import (
 func TestSolvePlanesSinglePlaneProjects(t *testing.T) {
 	planes := []dbox2d.CollisionPlane{{
 		Plane:     dbox2d.Plane{Normal: pt("0", "1")},
-		PushLimit: fixed.Q32FromInt(100000),
+		PushLimit: dbox2d.QFromInt(100000),
 	}}
 
 	result := dbox2d.SolvePlanes(pt("1", "-1"), planes)
@@ -25,8 +24,8 @@ func TestSolvePlanesSinglePlaneProjects(t *testing.T) {
 // displacement aimed into two rigid constraints.
 func TestSolvePlanesCornerConverges(t *testing.T) {
 	planes := []dbox2d.CollisionPlane{
-		{Plane: dbox2d.Plane{Normal: pt("1", "0")}, PushLimit: fixed.Q32FromInt(100000)},
-		{Plane: dbox2d.Plane{Normal: pt("0", "1")}, PushLimit: fixed.Q32FromInt(100000)},
+		{Plane: dbox2d.Plane{Normal: pt("1", "0")}, PushLimit: dbox2d.QFromInt(100000)},
+		{Plane: dbox2d.Plane{Normal: pt("0", "1")}, PushLimit: dbox2d.QFromInt(100000)},
 	}
 
 	result := dbox2d.SolvePlanes(pt("-1", "-1"), planes)
@@ -46,11 +45,11 @@ func TestSolvePlanesCornerConverges(t *testing.T) {
 func TestSolvePlanesLowPushLimitLetsThrough(t *testing.T) {
 	planes := []dbox2d.CollisionPlane{{
 		Plane:     dbox2d.Plane{Normal: pt("0", "1")},
-		PushLimit: fixed.Q32MustParse("0.1"),
+		PushLimit: dbox2d.QMustParse("0.1"),
 	}}
 
 	result := dbox2d.SolvePlanes(pt("0", "-1"), planes)
-	if !near(result.Translation.Y, fixed.Q32MustParse("-0.9"), tol(1, 10000)) {
+	if !near(result.Translation.Y, dbox2d.QMustParse("-0.9"), tol(1, 10000)) {
 		t.Errorf("translation y = %v, want -0.9", result.Translation.Y)
 	}
 }
@@ -61,12 +60,12 @@ func TestClipVectorRemovesNormalComponent(t *testing.T) {
 	normal := pt("0", "1")
 	planes := []dbox2d.CollisionPlane{{
 		Plane:        dbox2d.Plane{Normal: normal},
-		Push:         fixed.Q32One(),
+		Push:         dbox2d.QOne(),
 		ClipVelocity: true,
 	}}
 
 	result := dbox2d.ClipVector(pt("1", "-2"), planes)
-	if !near(result.Dot(normal), fixed.Q32Zero(), tol(1, 100000)) {
+	if !near(result.Dot(normal), dbox2d.QZero(), tol(1, 100000)) {
 		t.Errorf("normal component = %v, want 0", result.Dot(normal))
 	}
 }
@@ -74,11 +73,11 @@ func TestClipVectorRemovesNormalComponent(t *testing.T) {
 // TestCollideMoverAndPolygonReportsUpNormal checks the contact orientation
 // for a capsule standing on a box.
 func TestCollideMoverAndPolygonReportsUpNormal(t *testing.T) {
-	box := dbox2d.MakeBox(fixed.Q32One(), fixed.Q32One())
+	box := dbox2d.MakeBox(dbox2d.QOne(), dbox2d.QOne())
 	mover := dbox2d.Capsule{
 		Center1: pt("0", "1.4"),
 		Center2: pt("0", "2.4"),
-		Radius:  fixed.Q32Half(),
+		Radius:  dbox2d.QHalf(),
 	}
 
 	result := dbox2d.CollideMoverAndPolygon(&mover, &box)

@@ -84,6 +84,23 @@ upstream file to its Go counterpart and to how faithful that port is.
 `dbox2d` is not affiliated with the Box2D project, and it is neither endorsed
 nor supported by its author. Report defects here, never upstream.
 
+## Scalar modes
+
+The library computes with one scalar type per build. Today there is one mode:
+`Q` is a signed Q32.32 fixed-point number from
+[fixed](https://github.com/dhannyell/fixed). One file, `scalar_fixed.go`, owns
+the type and its constructors; outside the tests and the raw-format helpers,
+no other file names the fixed module. Build a value with the constructors of
+the layer:
+
+- `QZero()`, `QOne()`, `QHalf()`
+- `QFromInt(i)`, `QFromRatio(num, den)`, `QMustParse("0.35")`
+- `QMaxValue()`, `QMinValue()`
+- `RotIdentity()`, `MakeRot(turns)`
+
+The build tag `dbox2d_float` is reserved for a floating-point mode. It does not
+build yet.
+
 ## Install
 
 ```sh

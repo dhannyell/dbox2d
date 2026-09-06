@@ -1,7 +1,5 @@
 package dbox2d
 
-import "github.com/dhannyell/fixed"
-
 // PlaneResult is the collision plane and contact point for a mover collision.
 type PlaneResult struct {
 	Plane Plane
@@ -25,7 +23,7 @@ type PlaneSolverResult struct {
 
 // SolvePlanes ports b2SolvePlanes. Pass Huge as PushLimit for a rigid plane.
 func SolvePlanes(targetDelta Vec2, planes []CollisionPlane) PlaneSolverResult {
-	zero := fixed.Q32Zero()
+	zero := QZero()
 	for i := range planes {
 		planes[i].Push = zero
 	}
@@ -61,7 +59,7 @@ func SolvePlanes(targetDelta Vec2, planes []CollisionPlane) PlaneSolverResult {
 
 // ClipVector ports b2ClipVector.
 func ClipVector(vector Vec2, planes []CollisionPlane) Vec2 {
-	zero := fixed.Q32Zero()
+	zero := QZero()
 	v := vector
 
 	for i := range planes {

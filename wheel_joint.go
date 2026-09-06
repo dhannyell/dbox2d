@@ -1,7 +1,5 @@
 package dbox2d
 
-import "github.com/dhannyell/fixed"
-
 func drawWheelJoint(draw *DebugDraw, base *jointSim, transformA, transformB Transform) {
 	joint := &base.wheelJoint
 	pA := TransformPoint(transformA, base.localOriginAnchorA)
@@ -11,15 +9,15 @@ func drawWheelJoint(draw *DebugDraw, base *jointSim, transformA, transformB Tran
 	if joint.enableLimit {
 		lower := MulAdd(pA, joint.lowerTranslation, axis)
 		upper := MulAdd(pA, joint.upperTranslation, axis)
-		perp := LeftPerp(axis).Mul(fixed.Q32MustParse("0.1"))
+		perp := LeftPerp(axis).Mul(QMustParse("0.1"))
 		draw.DrawSegment(lower, upper, ColorGray)
 		draw.DrawSegment(lower.Sub(perp), lower.Add(perp), ColorGreen)
 		draw.DrawSegment(upper.Sub(perp), upper.Add(perp), ColorRed)
 	} else {
 		draw.DrawSegment(pA.Sub(axis), pA.Add(axis), ColorGray)
 	}
-	draw.DrawPoint(pA, fixed.Q32FromInt(5), ColorGray)
-	draw.DrawPoint(pB, fixed.Q32FromInt(5), ColorDimGray)
+	draw.DrawPoint(pA, QFromInt(5), ColorGray)
+	draw.DrawPoint(pB, QFromInt(5), ColorDimGray)
 }
 
 // This file corresponds to src/wheel_joint.c of the reference. The motor
@@ -127,8 +125,8 @@ func prepareWheelJoint(base *jointSim, context *stepContext) {
 	axisA := joint.axisA
 	perpA := LeftPerp(axisA)
 
-	zero := fixed.Q32Zero()
-	one := fixed.Q32One()
+	zero := QZero()
+	one := QOne()
 
 	// perpendicular constraint (keep wheel on line)
 	s1 := Cross(d.Add(rA), perpA)
@@ -235,8 +233,8 @@ func solveWheelJoint(base *jointSim, context *stepContext, useBias bool) {
 	vB := stateB.linearVelocity
 	wB := stateB.angularVelocity.Mul(tau)
 
-	zero := fixed.Q32Zero()
-	one := fixed.Q32One()
+	zero := QZero()
+	one := QOne()
 	fixedRotation := iA.Add(iB).Eq(zero)
 
 	// current anchors

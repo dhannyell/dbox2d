@@ -1,7 +1,5 @@
 package dbox2d
 
-import "github.com/dhannyell/fixed"
-
 // makeId packs two feature indices into a contact point id. It corresponds
 // to B2_MAKE_ID in src/manifold.c.
 func makeId(a, b int) uint16 {
@@ -14,12 +12,12 @@ func makeCapsule(p1, p2 Vec2, radius Q) Polygon {
 	var shape Polygon
 	shape.Vertices[0] = p1
 	shape.Vertices[1] = p2
-	shape.Centroid = Lerp(p1, p2, fixed.Q32Half())
+	shape.Centroid = Lerp(p1, p2, QHalf())
 
 	d := p2.Sub(p1)
 	// The reference asserts the length against FLT_EPSILON. The exact zero
 	// is the Q form. See D-003 and D-012.
-	if d.Dot(d).Eq(fixed.Q32Zero()) {
+	if d.Dot(d).Eq(QZero()) {
 		panic("dbox2d: degenerate capsule")
 	}
 	axis := d.Normalize()
@@ -55,7 +53,7 @@ func CollideCircles(circleA *Circle, xfA Transform, circleB *Circle, xfB Transfo
 
 	cA := MulAdd(pointA, radiusA, normal)
 	cB := MulAdd(pointB, radiusB.Neg(), normal)
-	contactPointA := Lerp(cA, cB, fixed.Q32Half())
+	contactPointA := Lerp(cA, cB, QHalf())
 
 	manifold.Normal = RotateVector(xfA.Q, normal)
 	mp := &manifold.Points[0]
@@ -87,7 +85,7 @@ func CollideCapsuleAndCircle(capsuleA *Capsule, xfA Transform, circleB *Circle, 
 	var pA Vec2
 	s1 := pB.Sub(p1).Dot(e)
 	s2 := p2.Sub(pB).Dot(e)
-	zero := fixed.Q32Zero()
+	zero := QZero()
 	if s1.Less(zero) {
 		// The p1 region.
 		pA = p1
@@ -111,7 +109,7 @@ func CollideCapsuleAndCircle(capsuleA *Capsule, xfA Transform, circleB *Circle, 
 
 	cA := MulAdd(pA, radiusA, normal)
 	cB := MulAdd(pB, radiusB.Neg(), normal)
-	contactPointA := Lerp(cA, cB, fixed.Q32Half())
+	contactPointA := Lerp(cA, cB, QHalf())
 
 	manifold.Normal = RotateVector(xfA.Q, normal)
 	mp := &manifold.Points[0]
@@ -129,8 +127,8 @@ func CollideCapsuleAndCircle(capsuleA *Capsule, xfA Transform, circleB *Circle, 
 func CollidePolygonAndCircle(polygonA *Polygon, xfA Transform, circleB *Circle, xfB Transform) Manifold {
 	var manifold Manifold
 	speculative := SpeculativeDistance()
-	zero := fixed.Q32Zero()
-	half := fixed.Q32Half()
+	zero := QZero()
+	half := QHalf()
 
 	xf := InvMulTransforms(xfA, xfB)
 
@@ -142,7 +140,7 @@ func CollidePolygonAndCircle(polygonA *Polygon, xfA Transform, circleB *Circle, 
 
 	// Find the minimum separating edge. The seed follows D-009.
 	normalIndex := 0
-	separation := fixed.Q32MinValue()
+	separation := QMinValue()
 	vertexCount := polygonA.Count
 	for i := range vertexCount {
 		s := polygonA.Normals[i].Dot(center.Sub(polygonA.Vertices[i]))
@@ -259,9 +257,9 @@ func CollideCapsules(capsuleA *Capsule, xfA Transform, capsuleB *Capsule, xfB Tr
 	dd1 := d1.Dot(d1)
 	dd2 := d2.Dot(d2)
 
-	zero := fixed.Q32Zero()
-	one := fixed.Q32One()
-	half := fixed.Q32Half()
+	zero := QZero()
+	one := QOne()
+	half := QHalf()
 	linearSlop := LinearSlop()
 
 	// The reference asserts both lengths against FLT_EPSILON squared. The
@@ -366,7 +364,7 @@ func CollideCapsules(capsuleA *Capsule, xfA Transform, capsuleB *Capsule, xfB Tr
 		}
 
 		// Biased to avoid feature flip-flop; upstream 0.1f * B2_LINEAR_SLOP.
-		slopBias := linearSlop.Div(fixed.Q32FromInt(10))
+		slopBias := linearSlop.Div(QFromInt(10))
 		if !separationA.Add(slopBias).Less(separationB) {
 			manifold.Normal = normalA
 
@@ -546,9 +544,9 @@ func clipPolygons(polyA, polyB *Polygon, edgeA, edgeB int, flip bool) Manifold {
 	v21 := poly2.Vertices[i21]
 	v22 := poly2.Vertices[i22]
 
-	tangent := CrossSV(fixed.Q32One(), normal)
+	tangent := CrossSV(QOne(), normal)
 
-	zero := fixed.Q32Zero()
+	zero := QZero()
 	lower1 := zero
 	upper1 := v12.Sub(v11).Dot(tangent)
 
@@ -581,7 +579,7 @@ func clipPolygons(polyA, polyB *Polygon, edgeA, edgeB int, flip bool) Manifold {
 	r2 := poly2.Radius
 
 	// Put the contact points at the midpoint, accounting for the radii.
-	half := fixed.Q32Half()
+	half := QHalf()
 	vLower = MulAdd(vLower, half.Mul(r1.Sub(r2).Sub(separationLower)), normal)
 	vUpper = MulAdd(vUpper, half.Mul(r1.Sub(r2).Sub(separationUpper)), normal)
 
@@ -618,14 +616,14 @@ func findMaxSeparation(poly1, poly2 *Polygon) (Q, int) {
 
 	bestIndex := 0
 	// The seed follows D-009.
-	maxSeparation := fixed.Q32MinValue()
+	maxSeparation := QMinValue()
 	for i := range count1 {
 		// Get the poly1 normal and vertex.
 		n := poly1.Normals[i]
 		v1 := poly1.Vertices[i]
 
 		// Find the deepest poly2 point for normal i.
-		si := fixed.Q32MaxValue()
+		si := QMaxValue()
 		for j := range count2 {
 			sij := n.Dot(poly2.Vertices[j].Sub(v1))
 			if sij.Less(si) {
@@ -649,9 +647,9 @@ func CollidePolygons(polygonA *Polygon, xfA Transform, polygonB *Polygon, xfB Tr
 	origin := polygonA.Vertices[0]
 	linearSlop := LinearSlop()
 	speculativeDistance := SpeculativeDistance()
-	zero := fixed.Q32Zero()
-	one := fixed.Q32One()
-	half := fixed.Q32Half()
+	zero := QZero()
+	one := QOne()
+	half := QHalf()
 
 	// Shift polygon A to the origin.
 	sfA := Transform{P: xfA.P.Add(RotateVector(xfA.Q, origin)), Q: xfA.Q}
@@ -695,7 +693,7 @@ func CollidePolygons(polygonA *Polygon, xfA Transform, polygonB *Polygon, xfB Tr
 
 		// Find the incident edge on polygon B.
 		edgeB = 0
-		minDot := fixed.Q32MaxValue()
+		minDot := QMaxValue()
 		for i := range localPolyB.Count {
 			dot := searchDirection.Dot(localPolyB.Normals[i])
 			if dot.Less(minDot) {
@@ -710,7 +708,7 @@ func CollidePolygons(polygonA *Polygon, xfA Transform, polygonB *Polygon, xfB Tr
 
 		// Find the incident edge on polygon A.
 		edgeA = 0
-		minDot := fixed.Q32MaxValue()
+		minDot := QMaxValue()
 		for i := range localPolyA.Count {
 			dot := searchDirection.Dot(localPolyA.Normals[i])
 			if dot.Less(minDot) {
@@ -724,7 +722,7 @@ func CollidePolygons(polygonA *Polygon, xfA Transform, polygonB *Polygon, xfB Tr
 
 	// The slop keeps vertex-vertex normals safely normalizable; upstream
 	// 0.1f * B2_LINEAR_SLOP.
-	slopBias := linearSlop.Div(fixed.Q32FromInt(10))
+	slopBias := linearSlop.Div(QFromInt(10))
 	if slopBias.Less(separationA) || slopBias.Less(separationB) {
 		// The edges are disjoint. Find the closest points of the reference
 		// edge and the incident edge.
@@ -761,7 +759,7 @@ func CollidePolygons(polygonA *Polygon, xfA Transform, polygonB *Polygon, xfB Tr
 		// Attempt to clip the edges.
 		manifold = clipPolygons(&localPolyA, &localPolyB, edgeA, edgeB, flip)
 
-		minSeparation := fixed.Q32MaxValue()
+		minSeparation := QMaxValue()
 		for i := range manifold.PointCount {
 			minSeparation = minSeparation.Min(manifold.Points[i].Separation)
 		}
@@ -850,7 +848,7 @@ func CollideSegmentAndCircle(segmentA *Segment, xfA Transform, circleB *Circle, 
 // CollideSegmentAndPolygon computes the contact manifold of a segment and a
 // polygon. It corresponds to b2CollideSegmentAndPolygon in src/manifold.c.
 func CollideSegmentAndPolygon(segmentA *Segment, xfA Transform, polygonB *Polygon, xfB Transform) Manifold {
-	polygonA := makeCapsule(segmentA.Point1, segmentA.Point2, fixed.Q32Zero())
+	polygonA := makeCapsule(segmentA.Point1, segmentA.Point2, QZero())
 	return CollidePolygons(&polygonA, xfA, polygonB, xfB)
 }
 
@@ -859,7 +857,7 @@ func CollideSegmentAndPolygon(segmentA *Segment, xfA Transform, polygonB *Polygo
 // b2CollideChainSegmentAndCircle in src/manifold.c.
 func CollideChainSegmentAndCircle(segmentA *ChainSegment, xfA Transform, circleB *Circle, xfB Transform) Manifold {
 	var manifold Manifold
-	zero := fixed.Q32Zero()
+	zero := QZero()
 
 	xf := InvMulTransforms(xfA, xfB)
 
@@ -921,7 +919,7 @@ func CollideChainSegmentAndCircle(segmentA *ChainSegment, xfA Transform, circleB
 
 	cA := pA
 	cB := MulAdd(pB, radius.Neg(), normal)
-	contactPointA := Lerp(cA, cB, fixed.Q32Half())
+	contactPointA := Lerp(cA, cB, QHalf())
 
 	manifold.Normal = RotateVector(xfA.Q, normal)
 
@@ -951,7 +949,7 @@ func clipSegments(a1, a2, b1, b2 Vec2, normal Vec2, ra, rb Q, id1, id2 uint16) M
 
 	tangent := LeftPerp(normal)
 
-	zero := fixed.Q32Zero()
+	zero := QZero()
 
 	// Barycentric coordinates of each point relative to a1 along the tangent.
 	lower1 := zero
@@ -983,7 +981,7 @@ func clipSegments(a1, a2, b1, b2 Vec2, normal Vec2, ra, rb Q, id1, id2 uint16) M
 	separationUpper := vUpper.Sub(a1).Dot(normal)
 
 	// Put the contact points at the midpoint, accounting for the radii.
-	half := fixed.Q32Half()
+	half := QHalf()
 	vLower = MulAdd(vLower, half.Mul(ra.Sub(rb).Sub(separationLower)), normal)
 	vUpper = MulAdd(vUpper, half.Mul(ra.Sub(rb).Sub(separationUpper)), normal)
 
@@ -1033,8 +1031,8 @@ type chainSegmentParams struct {
 // https://box2d.org/posts/2020/06/ghost-collisions/. It corresponds to the
 // static b2ClassifyNormal in src/manifold.c.
 func classifyNormal(params chainSegmentParams, normal Vec2) normalType {
-	zero := fixed.Q32Zero()
-	sinTol := fixed.Q32FromRatio(1, 100)
+	zero := QZero()
+	sinTol := QFromRatio(1, 100)
 
 	if !zero.Less(normal.Dot(params.edge1)) {
 		// Normal points towards the segment tail
@@ -1067,7 +1065,7 @@ func classifyNormal(params chainSegmentParams, normal Vec2) normalType {
 // src/manifold.c.
 func CollideChainSegmentAndPolygon(segmentA *ChainSegment, xfA Transform, polygonB *Polygon, xfB Transform, cache *SimplexCache) Manifold {
 	var manifold Manifold
-	zero := fixed.Q32Zero()
+	zero := QZero()
 
 	xf := InvMulTransforms(xfA, xfB)
 
@@ -1082,7 +1080,7 @@ func CollideChainSegmentAndPolygon(segmentA *ChainSegment, xfA Transform, polygo
 	var smoothParams chainSegmentParams
 	smoothParams.edge1 = edge1
 
-	convexTol := fixed.Q32FromRatio(1, 100)
+	convexTol := QFromRatio(1, 100)
 	edge0 := p1.Sub(segmentA.Ghost1).Normalize()
 	smoothParams.normal0 = RightPerp(edge0)
 	smoothParams.convex1 = !Cross(edge0, edge1).Less(convexTol)
@@ -1145,7 +1143,7 @@ func CollideChainSegmentAndPolygon(segmentA *ChainSegment, xfA Transform, polygo
 	incidentIndex := -1
 	incidentNormal := -1
 
-	if !behind1 && linearSlop.Div(fixed.Q32FromInt(10)).Less(output.Distance) {
+	if !behind1 && linearSlop.Div(QFromInt(10)).Less(output.Distance) {
 		// The closest features may be two vertices or an edge and a vertex even when there should
 		// be face contact
 
@@ -1269,7 +1267,7 @@ func CollideChainSegmentAndPolygon(segmentA *ChainSegment, xfA Transform, polygo
 		}
 	} else {
 		// SAT edge normal. The FLT_MAX seeds become the Q extremes (D-009).
-		edgeSeparation := fixed.Q32MaxValue()
+		edgeSeparation := QMaxValue()
 
 		for i := range count {
 			s := normal1.Dot(vertices[i].Sub(p1))
@@ -1281,7 +1279,7 @@ func CollideChainSegmentAndPolygon(segmentA *ChainSegment, xfA Transform, polygo
 
 		// Check convex neighbor for edge separation
 		if smoothParams.convex1 {
-			s0 := fixed.Q32MaxValue()
+			s0 := QMaxValue()
 
 			for i := range count {
 				s := smoothParams.normal0.Dot(vertices[i].Sub(p1))
@@ -1300,7 +1298,7 @@ func CollideChainSegmentAndPolygon(segmentA *ChainSegment, xfA Transform, polygo
 
 		// Check convex neighbor for edge separation
 		if smoothParams.convex2 {
-			s2 := fixed.Q32MaxValue()
+			s2 := QMaxValue()
 
 			for i := range count {
 				s := smoothParams.normal2.Dot(vertices[i].Sub(p2))
@@ -1318,7 +1316,7 @@ func CollideChainSegmentAndPolygon(segmentA *ChainSegment, xfA Transform, polygo
 		}
 
 		// SAT polygon normals
-		polygonSeparation := fixed.Q32MinValue()
+		polygonSeparation := QMinValue()
 		referenceIndex := -1
 
 		for i := range count {

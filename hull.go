@@ -1,7 +1,5 @@
 package dbox2d
 
-import "github.com/dhannyell/fixed"
-
 // recurseHull is the quickhull recursion. It returns the hull of the points
 // that lie to the right of the edge p1-p2, excluding p1 and p2.
 func recurseHull(p1, p2 Vec2, ps []Vec2) Hull {
@@ -19,7 +17,7 @@ func recurseHull(p1, p2 Vec2, ps []Vec2) Hull {
 	var rightPoints [MaxPolygonVertices]Vec2
 	rightCount := 0
 
-	zero := fixed.Q32Zero()
+	zero := QZero()
 
 	bestIndex := 0
 	bestDistance := Cross(ps[bestIndex].Sub(p1), e)
@@ -41,7 +39,7 @@ func recurseHull(p1, p2 Vec2, ps []Vec2) Hull {
 		}
 	}
 
-	if bestDistance.Less(fixed.Q32FromInt(2).Mul(linearSlop)) {
+	if bestDistance.Less(QFromInt(2).Mul(linearSlop)) {
 		return hull
 	}
 
@@ -90,15 +88,15 @@ func ComputeHull(points []Vec2) Hull {
 	count = min(count, MaxPolygonVertices)
 
 	aabb := AABB{
-		LowerBound: Vec2{X: fixed.Q32MaxValue(), Y: fixed.Q32MaxValue()},
-		UpperBound: Vec2{X: fixed.Q32MinValue(), Y: fixed.Q32MinValue()},
+		LowerBound: Vec2{X: QMaxValue(), Y: QMaxValue()},
+		UpperBound: Vec2{X: QMinValue(), Y: QMinValue()},
 	}
 
 	// Perform aggressive point welding. First point always remains.
 	// Also compute the bounding box for later.
 	var ps [MaxPolygonVertices]Vec2
 	n := 0
-	tolSqr := fixed.Q32FromInt(16).Mul(linearSlop).Mul(linearSlop)
+	tolSqr := QFromInt(16).Mul(linearSlop).Mul(linearSlop)
 	for i := range count {
 		aabb.LowerBound = Min(aabb.LowerBound, points[i])
 		aabb.UpperBound = Max(aabb.UpperBound, points[i])
@@ -168,7 +166,7 @@ func ComputeHull(points []Vec2) Hull {
 
 	e := p2.Sub(p1).Normalize()
 
-	twoSlops := fixed.Q32FromInt(2).Mul(linearSlop)
+	twoSlops := QFromInt(2).Mul(linearSlop)
 
 	for i := range n {
 		d := Cross(ps[i].Sub(p1), e)
@@ -261,7 +259,7 @@ func ValidateHull(hull *Hull) bool {
 		return false
 	}
 
-	zero := fixed.Q32Zero()
+	zero := QZero()
 
 	// test that every point is behind every edge
 	for i := range hull.Count {
