@@ -2,6 +2,7 @@ package dbox2d
 
 import (
 	"math/bits"
+	"time"
 
 	"github.com/dhannyell/fixed"
 )
@@ -591,7 +592,9 @@ func solve(w *world, context *stepContext) {
 	w.stepIndex += 1
 
 	// Merge islands
+	mergeIslandsStart := time.Now()
 	mergeAwakeIslands(w)
+	w.profile.MergeIslands = millisecondsSince(mergeIslandsStart)
 
 	// Are there any awake bodies? This scenario should not be important for profiling.
 	awake := &w.solverSets[awakeSet]
@@ -603,6 +606,8 @@ func solve(w *world, context *stepContext) {
 
 	// Solve constraints using graph coloring
 	{
+		prepareStagesStart := time.Now()
+
 		// Prepare buffers for bullets
 		context.bulletBodyCount = 0
 		context.bulletBodies, context.bulletBodyMem = arenaSlice[int](&w.arena, awakeBodyCount, "bullet bodies")
@@ -632,6 +637,14 @@ func solve(w *world, context *stepContext) {
 			contactBase += count
 		}
 
+		w.profile.PrepareStages = millisecondsSince(prepareStagesStart)
+
+		// The reference times the parallel launch of the stage loop below
+		// as solveConstraints; the port runs the same stages inline on one
+		// worker, so the zone wraps the whole substep loop and the split.
+		solveConstraintsStart := time.Now()
+		ticks := time.Now()
+
 		// The reference runs the overflow color first in each stage, then
 		// the active colors in order. In each stage the joints go before
 		// the contacts, as the joint stage of the reference finishes
@@ -644,9 +657,11 @@ func solve(w *world, context *stepContext) {
 		for i := range overflowIndex {
 			prepareContacts(context, i)
 		}
+		w.profile.PrepareConstraints += millisecondsAndReset(&ticks)
 
 		for range context.subStepCount {
 			integrateVelocitiesTask(0, awakeBodyCount, context)
+			w.profile.IntegrateVelocities += millisecondsAndReset(&ticks)
 
 			warmStartJoints(context, overflowIndex)
 			warmStartContacts(context, overflowIndex)
@@ -654,6 +669,7 @@ func solve(w *world, context *stepContext) {
 				warmStartJoints(context, i)
 				warmStartContacts(context, i)
 			}
+			w.profile.WarmStart += millisecondsAndReset(&ticks)
 
 			useBias := true
 			solveJoints(context, overflowIndex, useBias)
@@ -662,8 +678,10 @@ func solve(w *world, context *stepContext) {
 				solveJoints(context, i, useBias)
 				solveContacts(context, i, useBias)
 			}
+			w.profile.SolveImpulses += millisecondsAndReset(&ticks)
 
 			integratePositionsTask(0, awakeBodyCount, context)
+			w.profile.IntegratePositions += millisecondsAndReset(&ticks)
 
 			useBias = false
 			solveJoints(context, overflowIndex, useBias)
@@ -672,17 +690,20 @@ func solve(w *world, context *stepContext) {
 				solveJoints(context, i, useBias)
 				solveContacts(context, i, useBias)
 			}
+			w.profile.RelaxImpulses += millisecondsAndReset(&ticks)
 		}
 
 		applyRestitution(context, overflowIndex)
 		for i := range overflowIndex {
 			applyRestitution(context, i)
 		}
+		w.profile.ApplyRestitution += millisecondsAndReset(&ticks)
 
 		storeImpulses(context, overflowIndex)
 		for i := range overflowIndex {
 			storeImpulses(context, i)
 		}
+		w.profile.StoreImpulses += millisecondsAndReset(&ticks)
 
 		// Split an awake island. This modifies:
 		// - stack allocator
@@ -691,9 +712,15 @@ func solve(w *world, context *stepContext) {
 		// The reference runs the split beside the constraint solve. The
 		// split cannot run beside the body finalize.
 		if w.splitIslandId != nullIndex {
+			splitStart := time.Now()
 			splitIsland(w, w.splitIslandId)
+			w.profile.SplitIslands += millisecondsSince(splitStart)
 		}
 		w.splitIslandId = nullIndex
+
+		w.profile.SolveConstraints = millisecondsSince(solveConstraintsStart)
+
+		transformsStart := time.Now()
 
 		// Prepare the enlarged body and island bit sets used in body finalization.
 		awakeIslandCount := len(awake.islandSims)
@@ -710,10 +737,14 @@ func solve(w *world, context *stepContext) {
 			colors[i].contactConstraints = nil
 		}
 		w.arena.freeItem(constraintMem)
+
+		w.profile.Transforms = millisecondsSince(transformsStart)
 	}
 
 	// Report hit events
 	{
+		hitEventsStart := time.Now()
+
 		if len(w.contactHitEvents) != 0 {
 			panic("dbox2d: the hit events are not clear")
 		}
@@ -755,10 +786,14 @@ func solve(w *world, context *stepContext) {
 				}
 			}
 		}
+
+		w.profile.HitEvents = millisecondsSince(hitEventsStart)
 	}
 
 	// Refit the broad-phase. The tree rebuild already ran in collide.
 	{
+		refitStart := time.Now()
+
 		enlargedBodyBitSet := &w.taskContext.enlargedSimBitSet
 
 		// Enlarge broad-phase proxies and build move array
@@ -810,12 +845,16 @@ func solve(w *world, context *stepContext) {
 				word = word & (word - 1)
 			}
 		}
+
+		w.profile.Refit = millisecondsSince(refitStart)
 	}
 
 	// Continuous collision of the bullet bodies. The reference sweeps them
 	// in parallel and enlarges their proxies serially; the port runs both
 	// on one worker, in the buffer order.
 	if context.bulletBodyCount > 0 {
+		bulletsStart := time.Now()
+
 		// Fast bullet bodies
 		// Note: a bullet body may be moving slow
 		for i := range context.bulletBodyCount {
@@ -867,6 +906,8 @@ func solve(w *world, context *stepContext) {
 				shapeId = s.nextShapeId
 			}
 		}
+
+		w.profile.Bullets = millisecondsSince(bulletsStart)
 	}
 
 	// Need to free this even if no bullets got processed.
@@ -878,6 +919,8 @@ func solve(w *world, context *stepContext) {
 	// Island sleeping
 	// This must be done last because putting islands to sleep invalidates the enlarged body bits.
 	if w.enableSleep {
+		sleepIslandsStart := time.Now()
+
 		// Collect split island candidate for the next time step. No need to split if sleeping is disabled.
 		if w.splitIslandId != nullIndex {
 			panic("dbox2d: the split candidate is not clear")
@@ -903,6 +946,8 @@ func solve(w *world, context *stepContext) {
 			islandId := islands[islandIndex].islandId
 			trySleepIsland(w, islandId)
 		}
+
+		w.profile.SleepIslands = millisecondsSince(sleepIslandsStart)
 	}
 }
 

@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>dbox2d samples</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #1e1e1e; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+  #fallback {
+    display: none; position: fixed; inset: 0; place-items: center;
+    color: #ddd; font: 16px sans-serif; text-align: center;
+  }
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<div id="fallback">This page needs a browser with WebGPU.</div>
+<script src="wasm_exec.js"></script>
+<script>
+if (!navigator.gpu) {
+  document.getElementById("canvas").style.display = "none";
+  document.getElementById("fallback").style.display = "grid";
+} else {
+  const go = new Go();
+  WebAssembly.instantiateStreaming(fetch("app.wasm"), go.importObject).then((result) => {
+    // The js backend of the webgpu module reads linear memory through
+    // this global when it writes buffers and textures.
+    window.wasm = result;
+    go.run(result.instance);
+  });
+}
+</script>
+</body>
+</html>

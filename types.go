@@ -67,6 +67,32 @@ type Counters struct {
 	ColorCounts                                                                                           [graphColorCount]int
 }
 
+// Profile holds the wall-clock cost of the last Step, in milliseconds.
+type Profile struct {
+	Step                float64
+	Pairs               float64
+	Collide             float64
+	Solve               float64
+	MergeIslands        float64
+	PrepareStages       float64
+	SolveConstraints    float64
+	PrepareConstraints  float64
+	IntegrateVelocities float64
+	WarmStart           float64
+	SolveImpulses       float64
+	IntegratePositions  float64
+	RelaxImpulses       float64
+	ApplyRestitution    float64
+	StoreImpulses       float64
+	SplitIslands        float64
+	Transforms          float64
+	HitEvents           float64
+	Refit               float64
+	Bullets             float64
+	SleepIslands        float64
+	Sensors             float64
+}
+
 // FrictionCallback mixes the friction values of two shapes.
 type FrictionCallback func(frictionA Q, userMaterialIdA int, frictionB Q, userMaterialIdB int) Q
 

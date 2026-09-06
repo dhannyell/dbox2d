@@ -1,7 +1,11 @@
 package dbox2d
 
 import (
+	"bytes"
+	"fmt"
 	"math/rand"
+	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/dhannyell/fixed"
@@ -87,6 +91,116 @@ func TestWorldGetCounters(t *testing.T) {
 	}
 	if counters.IslandCount == 0 || counters.TreeHeight == 0 {
 		t.Fatalf("counters = %+v, want islands and a dynamic tree", counters)
+	}
+}
+
+// TestDumpMemoryStatsListsEverySection pins the section order and labels of
+// DumpMemoryStats against the reference's box2d_memory.txt layout.
+func TestDumpMemoryStatsListsEverySection(t *testing.T) {
+	worldId := createTestWorld(t)
+	bodyA := addDynamicBox(t, worldId, v2(0, 0))
+	bodyB := addDynamicBox(t, worldId, v2(1, 0))
+	addDynamicBox(t, worldId, v2(2, 0))
+
+	jointDef := DefaultDistanceJointDef()
+	jointDef.BodyIdA = bodyA
+	jointDef.BodyIdB = bodyB
+	CreateDistanceJoint(worldId, &jointDef)
+	for range 4 {
+		worldId.Step(stepDt(), 4)
+	}
+
+	var buf bytes.Buffer
+	worldId.DumpMemoryStats(&buf)
+	dump := buf.String()
+
+	sections := []string{"id pools\n", "world arrays\n", "broad-phase\n", "solver sets\n", "constraint graph\n", "stack allocator:"}
+	last := -1
+	for _, section := range sections {
+		i := strings.Index(dump, "\n"+section)
+		if i < 0 && strings.HasPrefix(dump, section) {
+			i = 0
+		}
+		if i < 0 {
+			t.Fatalf("dump missing section %q:\n%s", section, dump)
+		}
+		if i < last {
+			t.Fatalf("section %q out of order:\n%s", section, dump)
+		}
+		last = i
+	}
+
+	if !strings.Contains(dump, "bodies: ") {
+		t.Fatalf("dump missing bodies line:\n%s", dump)
+	}
+	var bodies int
+	for _, line := range strings.Split(dump, "\n") {
+		if v, ok := strings.CutPrefix(line, "bodies: "); ok {
+			_, _ = fmt.Sscanf(v, "%d", &bodies)
+		}
+	}
+	if bodies <= 0 {
+		t.Errorf("bodies = %d, want > 0", bodies)
+	}
+
+	if got := strings.Count(dump, "contact sim: "); got != 2 {
+		t.Errorf("contact sim lines = %d, want 2:\n%s", got, dump)
+	}
+
+	if !regexp.MustCompile(`moveSet: \d+ \(\d+, \d+\)`).MatchString(dump) {
+		t.Errorf("moveSet line missing count/capacity suffix:\n%s", dump)
+	}
+}
+
+// TestStepFillsTheProfile pins that GetProfile reports non-negative parts
+// that sum consistently, and that a zero time step leaves it zeroed.
+func TestStepFillsTheProfile(t *testing.T) {
+	worldId := createTestWorld(t)
+
+	groundDef := DefaultBodyDef()
+	groundId := CreateBody(worldId, &groundDef)
+	groundShapeDef := DefaultShapeDef()
+	ground := MakeBox(fixed.Q32FromInt(50), fixed.Q32One())
+	CreatePolygonShape(groundId, &groundShapeDef, &ground)
+
+	// A stack of boxes, not a handful: the timer resolution of some hosts
+	// is coarse, so the step needs enough work to read back above zero.
+	for i := range 200 {
+		addDynamicBox(t, worldId, v2(i%10, 3+2*(i/10)))
+	}
+
+	for range 10 {
+		worldId.Step(stepDt(), 4)
+	}
+
+	p := worldId.GetProfile()
+	if p.Step <= 0 {
+		t.Fatalf("Step = %v, want > 0", p.Step)
+	}
+	parts := []float64{
+		p.Pairs, p.Collide, p.Solve, p.MergeIslands, p.PrepareStages, p.SolveConstraints,
+		p.PrepareConstraints, p.IntegrateVelocities, p.WarmStart, p.SolveImpulses, p.IntegratePositions,
+		p.RelaxImpulses, p.ApplyRestitution, p.StoreImpulses, p.SplitIslands, p.Transforms, p.HitEvents,
+		p.Refit, p.Bullets, p.SleepIslands, p.Sensors,
+	}
+	for _, part := range parts {
+		if part < 0 {
+			t.Fatalf("profile = %+v, want no negative part", p)
+		}
+	}
+
+	const slack = 0.5
+	if top := p.Pairs + p.Collide + p.Solve + p.Sensors; top > p.Step+slack {
+		t.Errorf("Pairs+Collide+Solve+Sensors = %v, want <= Step (%v) + %v", top, p.Step, slack)
+	}
+	if sub := p.MergeIslands + p.PrepareStages + p.SolveConstraints + p.Transforms + p.HitEvents +
+		p.Refit + p.Bullets + p.SleepIslands; sub > p.Solve+slack {
+		t.Errorf("solve parts sum = %v, want <= Solve (%v) + %v", sub, p.Solve, slack)
+	}
+
+	worldId.Step(fixed.Q32Zero(), 4)
+	if got := worldId.GetProfile(); got != (Profile{}) {
+		t.Errorf("GetProfile() after a zero time step = %+v, want zero", got)
 	}
 }
 

@@ -83,12 +83,12 @@ func TestHashSetGrowsAndKeepsEveryKey(t *testing.T) {
 func TestHashSetClearAndDestroy(t *testing.T) {
 	set := createSet(32)
 	capacity := len(set.items)
-	bytes := getHashSetBytes(&set)
+	bytes := set.byteCount()
 	set.addKey(shapePairKey(1, 2))
 	set.addKey(shapePairKey(3, 4))
 
 	clearSet(&set)
-	if set.count != 0 || len(set.items) != capacity || getHashSetBytes(&set) != bytes {
+	if set.count != 0 || len(set.items) != capacity || set.byteCount() != bytes {
 		t.Fatal("clear changed the set allocation")
 	}
 	for _, item := range set.items {
@@ -101,7 +101,7 @@ func TestHashSetClearAndDestroy(t *testing.T) {
 	}
 
 	destroySet(&set)
-	if set.items != nil || set.count != 0 || getHashSetBytes(&set) != 0 {
+	if set.items != nil || set.count != 0 || set.byteCount() != 0 {
 		t.Fatal("destroy left set storage or accounting behind")
 	}
 }

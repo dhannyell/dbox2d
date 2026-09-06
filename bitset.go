@@ -59,6 +59,12 @@ func inPlaceUnion(setA *bitSet, setB *bitSet) {
 	}
 }
 
+// byteCount returns the storage reserved by the block capacity. It
+// corresponds to b2GetBitSetBytes in src/bitset.h.
+func (b *bitSet) byteCount() int {
+	return cap(b.bits) * 8
+}
+
 // setBit sets one bit. The bit must be inside the block count.
 func (s *bitSet) setBit(bitIndex int) {
 	blockIndex := bitIndex / 64

@@ -55,9 +55,9 @@ func clearSet(s *hashSet) {
 	s.count = 0
 }
 
-// getHashSetBytes returns the storage occupied by the item array. It
-// corresponds to b2GetHashSetBytes in src/table.c.
-func getHashSetBytes(s *hashSet) int {
+// byteCount returns the storage occupied by the item array. It corresponds
+// to b2GetHashSetBytes in src/table.c.
+func (s *hashSet) byteCount() int {
 	return len(s.items) * int(unsafe.Sizeof(setItem{}))
 }
 
