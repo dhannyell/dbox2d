@@ -113,7 +113,9 @@ jobs:
         if: matrix.goarch == 'wasm'
         run: echo "$(go env GOROOT)/lib/wasm" >> "$GITHUB_PATH"
       - name: Test
-        run: go test -timeout 600s -tags "${{ matrix.tags }}" ./...
+        # Fixed mode is bit-identical on every target, so the slow scene traces
+        # run only on the 64-bit jobs; the witness hashes still cover 386 and wasm.
+        run: go test -timeout 600s ${{ matrix.tags == '' && (matrix.goarch == '386' || matrix.goarch == 'wasm') && '-short' || '' }} -tags "${{ matrix.tags }}" ./...
 
   race:
     name: race (amd64)

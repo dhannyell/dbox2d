@@ -633,7 +633,9 @@ Numbering is sequential from `D-001` and never reused.
   gated: the test reports the first divergent step and the largest residue of each sampled step.
   smash keeps an equal hash through step 69 in float mode, and the test gates that count. Scenes over 5 000 bodies (joint_grid,
   large_pyramid, many_pyramids, smash) have no step-1 dump, so only the body count and the hash
-  report apply.
+  report apply. Scene traces are skipped under `go test -short`: they take minutes on 32-bit and
+  wasm targets, where fixed mode is bit-identical by construction and the witness hashes already
+  hold.
 
   The traces found one port bug: the colored contacts clamped by maxContactPushSpeed instead of
   contactSpeed; the fix changed both witnesses.
