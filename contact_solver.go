@@ -280,24 +280,25 @@ func warmStartContactRange(startIndex, endIndex int, context *stepContext, const
 // b2SolveContactsTask in src/contact_solver.c.
 func solveContactsTask(startIndex, endIndex int, context *stepContext, colorIndex int, useBias bool) {
 	constraints := context.graph.colors[colorIndex].contactConstraints
-	solveContactRange(startIndex, endIndex, context, constraints, useBias)
+	// Colored contacts clamp by the contact speed, per b2SolveContactsTask.
+	solveContactRange(startIndex, endIndex, context, constraints, useBias, context.world.contactSpeed)
 }
 
 // solveOverflowContacts solves the overflow contacts. It corresponds to
 // b2SolveOverflowContacts in src/contact_solver.c.
 func solveOverflowContacts(context *stepContext, useBias bool) {
 	constraints := context.graph.colors[overflowIndex].contactConstraints
-	solveContactRange(0, len(constraints), context, constraints, useBias)
+	// Overflow contacts clamp by the push speed, per b2SolveOverflowContacts.
+	solveContactRange(0, len(constraints), context, constraints, useBias, context.world.maxContactPushSpeed)
 }
 
-func solveContactRange(startIndex, endIndex int, context *stepContext, constraints []contactConstraint, useBias bool) {
+func solveContactRange(startIndex, endIndex int, context *stepContext, constraints []contactConstraint, useBias bool, pushout Q) {
 	w := context.world
 	awake := &w.solverSets[awakeSet]
 	states := awake.bodyStates
 	constraints = constraints[startIndex:endIndex]
 
 	invH := context.invH
-	pushout := w.maxContactPushSpeed
 
 	// This is a dummy body to represent a static body since static bodies don't have a solver body.
 	dummyState := identityBodyState()
