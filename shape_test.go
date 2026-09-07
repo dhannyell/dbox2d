@@ -1,10 +1,6 @@
 package dbox2d
 
-import (
-	"testing"
-
-	"github.com/dhannyell/fixed"
-)
+import "testing"
 
 // TestShapeAccessorsRoundTrip verifies shape data and event flag accessors.
 func TestShapeAccessorsRoundTrip(t *testing.T) {
@@ -199,8 +195,8 @@ func TestRayCastHitsShape(t *testing.T) {
 		t.Fatalf("hit normal = %v, want (-1, 0)", output.Normal)
 	}
 	wantPoint := Vec2{X: QHalf().Neg()}
-	if !withinQ(output.Point.X, wantPoint.X, fixed.Q32FromRaw(16)) ||
-		!withinQ(output.Point.Y, wantPoint.Y, fixed.Q32FromRaw(16)) {
+	if !withinQ(output.Point.X, wantPoint.X, qUlps(16)) ||
+		!withinQ(output.Point.Y, wantPoint.Y, qUlps(16)) {
 		t.Fatalf("hit point = %v, want %v", output.Point, wantPoint)
 	}
 }
@@ -215,7 +211,7 @@ func TestGetClosestPointOutsidePolygon(t *testing.T) {
 
 	got := shapeId.GetClosestPoint(v2(3, 0))
 	want := Vec2{X: QHalf()}
-	if !withinQ(got.X, want.X, fixed.Q32FromRaw(16)) || !withinQ(got.Y, want.Y, fixed.Q32FromRaw(16)) {
+	if !withinQ(got.X, want.X, qUlps(16)) || !withinQ(got.Y, want.Y, qUlps(16)) {
 		t.Fatalf("closest point = %v, want %v", got, want)
 	}
 }

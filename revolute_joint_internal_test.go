@@ -303,7 +303,8 @@ func TestSolveRevoluteJointTracksTheFloat64Mirror(t *testing.T) {
 	const limit = 1e-5
 	check := func(name string, got Q, want float64) {
 		t.Helper()
-		if diff := math.Abs(qToF64(got) - want); diff > limit {
+		diff := math.Abs(qToF64(got) - want)
+		if diff > mirrorTolerance(limit, want) {
 			t.Errorf("%s: Q %v, float64 %v, diff %g", name, qToF64(got), want, diff)
 		}
 	}

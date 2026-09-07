@@ -67,8 +67,8 @@ func sensorQueryCallback(_ int, userData uint64, context *sensorQueryContext) bo
 	var cache SimplexCache
 	output := ShapeDistance(&input, &cache, nil)
 
-	// D-012: sensor overlap requires an exact zero distance.
-	if !output.Distance.Eq(QZero()) {
+	// D-012: the sensor guard reads the scalar mode; see DIVERGENCES.md.
+	if !sensorOverlaps(output.Distance) {
 		return true
 	}
 

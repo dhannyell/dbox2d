@@ -3,8 +3,6 @@ package dbox2d
 import (
 	"math"
 	"testing"
-
-	"github.com/dhannyell/fixed"
 )
 
 // This file tests the distance joint solver with hand-computed cases and
@@ -52,7 +50,7 @@ func TestDistanceRigidStopsTheBox(t *testing.T) {
 	prepareJointsTask(0, len(context.joints), context)
 	solveJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex, false)
 
-	tolerance := fixed.Q32FromRaw(1 << 12)
+	tolerance := qUlps(1 << 12)
 	js := getJointSim(w, j)
 	if !withinQ(js.distanceJoint.impulse, QOne().Neg(), tolerance) {
 		t.Errorf("impulse is %v, want -1", js.distanceJoint.impulse)
@@ -92,7 +90,7 @@ func TestDistanceUpperLimitHoldsTheRope(t *testing.T) {
 	prepareJointsTask(0, len(context.joints), context)
 	solveJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex, false)
 
-	tolerance := fixed.Q32FromRaw(1 << 12)
+	tolerance := qUlps(1 << 12)
 	js := getJointSim(w, j)
 	if !js.distanceJoint.lowerImpulse.Eq(QZero()) || !withinQ(js.distanceJoint.upperImpulse, QOne(), tolerance) {
 		t.Errorf("the limit impulses are %v and %v, want 0 and 1", js.distanceJoint.lowerImpulse, js.distanceJoint.upperImpulse)
@@ -123,7 +121,7 @@ func TestDistanceMotorSaturatesAtTheForce(t *testing.T) {
 	prepareJointsTask(0, len(context.joints), context)
 	solveJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex, false)
 
-	tolerance := fixed.Q32FromRaw(1 << 12)
+	tolerance := qUlps(1 << 12)
 	js := getJointSim(w, j)
 	twelfths := QFromRatio(5, 12)
 	if !withinQ(js.distanceJoint.motorImpulse, twelfths, tolerance) {
@@ -304,7 +302,8 @@ func mirrorBodies(t *testing.T, worldId WorldId) (BodyId, BodyId) {
 // checkMirror compares one Q result against the float64 mirror.
 func checkMirror(t *testing.T, name string, got Q, want, limit float64) {
 	t.Helper()
-	if diff := math.Abs(qToF64(got) - want); diff > limit {
+	diff := math.Abs(qToF64(got) - want)
+	if diff > mirrorTolerance(limit, want) {
 		t.Errorf("%s: Q %v, float64 %v, diff %g", name, qToF64(got), want, diff)
 	}
 }
@@ -393,7 +392,7 @@ func TestDistanceJointAccessorsRoundTrip(t *testing.T) {
 	def.BodyIdA = groundId
 	def.BodyIdB = bodyId
 	jointId := CreateDistanceJoint(worldId, &def)
-	tolerance := fixed.Q32FromRaw(1 << 12)
+	tolerance := qUlps(1 << 12)
 
 	qCases := []struct {
 		name string
@@ -452,7 +451,7 @@ func TestDistanceJointGetCurrentLength(t *testing.T) {
 	def.BodyIdA = groundId
 	def.BodyIdB = bodyId
 	jointId := CreateDistanceJoint(worldId, &def)
-	if got := jointId.GetCurrentLength(); !withinQ(got, QFromInt(2), fixed.Q32FromRaw(1<<12)) {
+	if got := jointId.GetCurrentLength(); !withinQ(got, QFromInt(2), qUlps(1<<12)) {
 		t.Errorf("current length = %v, want 2", got)
 	}
 }

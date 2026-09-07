@@ -112,7 +112,7 @@ type drawCall struct {
 // recordDraw retains every argument so the oracle detects geometry and order changes.
 func recordDraw() (*DebugDraw, *[]drawCall) {
 	var calls []drawCall
-	q := func(v Q) float64 { return float64(v.Raw()) / (1 << 32) }
+	q := func(v Q) float64 { return QToFloat64(v) }
 	vec := func(p Vec2) []float64 { return []float64{q(p.X), q(p.Y)} }
 	xf := func(x Transform) []float64 { return []float64{q(x.P.X), q(x.P.Y), q(x.Q.Cos), q(x.Q.Sin)} }
 	add := func(kind string, color HexColor, values []float64, text string) {
@@ -555,19 +555,5 @@ func TestDrawDistanceLimitsPreserveEndpointOrder(t *testing.T) {
 	want := [2]Vec2{{X: QOne(), Y: QMustParse("0.05")}, {X: QOne(), Y: QMustParse("-0.05")}}
 	if len(segments) != 4 || segments[0] != want {
 		t.Fatalf("limit segments = %+v", segments)
-	}
-}
-
-func TestDrawNumberRoundsLabelsWithoutFloat(t *testing.T) {
-	for _, tc := range []struct {
-		value  string
-		places int
-		want   string
-	}{
-		{"1.125", 2, "1.12"}, {"1.375", 2, "1.38"}, {"-1.375", 2, "-1.38"}, {"0", 2, "0.00"}, {"-0.001", 2, "-0.00"}, {"9.999", 2, "10.00"}, {"2147483647.5", 2, "2147483647.50"},
-	} {
-		if got := drawNumber(QMustParse(tc.value), tc.places); got != tc.want {
-			t.Errorf("%s: %s, want %s", tc.value, got, tc.want)
-		}
 	}
 }

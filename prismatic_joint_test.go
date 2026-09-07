@@ -3,8 +3,6 @@ package dbox2d
 import (
 	"math"
 	"testing"
-
-	"github.com/dhannyell/fixed"
 )
 
 // This file tests the prismatic joint solver with hand-computed cases and
@@ -54,7 +52,7 @@ func TestPrismaticBlockHoldsTheLine(t *testing.T) {
 	prepareJointsTask(0, len(context.joints), context)
 	solveJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex, false)
 
-	tolerance := fixed.Q32FromRaw(1 << 12)
+	tolerance := qUlps(1 << 12)
 	js := getJointSim(w, j)
 	impulse := js.prismaticJoint.impulse
 	if !withinQ(impulse.X, QOne().Neg(), tolerance) || !withinQ(impulse.Y, QFromRatio(-1, 6), tolerance) {
@@ -91,7 +89,7 @@ func TestPrismaticUpperLimitStopsTheSlide(t *testing.T) {
 	prepareJointsTask(0, len(context.joints), context)
 	solveJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex, false)
 
-	tolerance := fixed.Q32FromRaw(1 << 12)
+	tolerance := qUlps(1 << 12)
 	js := getJointSim(w, j)
 	if !js.prismaticJoint.lowerImpulse.Eq(QZero()) || !withinQ(js.prismaticJoint.upperImpulse, QOne(), tolerance) {
 		t.Errorf("the limit impulses are %v and %v, want 0 and 1", js.prismaticJoint.lowerImpulse, js.prismaticJoint.upperImpulse)
@@ -125,7 +123,7 @@ func TestPrismaticMotorSaturatesAtTheForce(t *testing.T) {
 	prepareJointsTask(0, len(context.joints), context)
 	solveJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex, false)
 
-	tolerance := fixed.Q32FromRaw(1 << 12)
+	tolerance := qUlps(1 << 12)
 	js := getJointSim(w, j)
 	twelfths := QFromRatio(5, 12)
 	if !withinQ(js.prismaticJoint.motorImpulse, twelfths, tolerance) {
@@ -380,7 +378,7 @@ func TestPrismaticJointAccessorsRoundTrip(t *testing.T) {
 	def.BodyIdA = groundId
 	def.BodyIdB = bodyId
 	jointId := CreatePrismaticJoint(worldId, &def)
-	tolerance := fixed.Q32FromRaw(1 << 12)
+	tolerance := qUlps(1 << 12)
 
 	qCases := []struct {
 		name string
@@ -438,7 +436,7 @@ func TestPrismaticJointGetTranslation(t *testing.T) {
 	def.BodyIdB = bodyId
 	def.LocalAxisA = Vec2{X: QOne()}
 	jointId := CreatePrismaticJoint(worldId, &def)
-	if got := jointId.GetTranslation(); !withinQ(got, QHalf(), fixed.Q32FromRaw(1<<12)) {
+	if got := jointId.GetTranslation(); !withinQ(got, QHalf(), qUlps(1<<12)) {
 		t.Errorf("translation = %v, want 0.5", got)
 	}
 }

@@ -114,6 +114,10 @@ func (b *Base) DrawTextLine(format string, args ...any) {
 	b.textLine += b.textIncrement
 }
 
+// Steps returns the number of steps simulated so far; the host overlay
+// reads it through a type assertion, like World.
+func (b *Base) Steps() int { return b.StepCount }
+
 // World returns the sample's world id. Sample hides it behind Step and the
 // input methods; a host that needs it (memory stats, checksums) type-asserts
 // for this method instead of widening the interface.

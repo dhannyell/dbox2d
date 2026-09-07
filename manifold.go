@@ -16,8 +16,8 @@ func makeCapsule(p1, p2 Vec2, radius Q) Polygon {
 
 	d := p2.Sub(p1)
 	// The reference asserts the length against FLT_EPSILON. The exact zero
-	// is the Q form. See D-003 and D-012.
-	if d.Dot(d).Eq(QZero()) {
+	// is mode-aware. See D-003 and D-012.
+	if !scalarEpsilon.Less(d.Dot(d)) {
 		panic("dbox2d: degenerate capsule")
 	}
 	axis := d.Normalize()
@@ -167,9 +167,9 @@ func CollidePolygonAndCircle(polygonA *Polygon, xfA Transform, circleB *Circle, 
 	u1 := center.Sub(v1).Dot(v2.Sub(v1))
 	u2 := center.Sub(v2).Dot(v1.Sub(v2))
 
-	// The reference guards the vertex regions with FLT_EPSILON. In Q any
-	// exactly positive separation is safe to normalize. See D-012.
-	if u1.Less(zero) && zero.Less(separation) {
+	// The reference guards the vertex regions with FLT_EPSILON; the guard
+	// reads the scalar mode. See D-012.
+	if u1.Less(zero) && scalarEpsilon.Less(separation) {
 		// The circle center is closest to v1 and safely outside the polygon.
 		normal := center.Sub(v1).Normalize()
 		separation = center.Sub(v1).Dot(normal)
@@ -189,7 +189,7 @@ func CollidePolygonAndCircle(polygonA *Polygon, xfA Transform, circleB *Circle, 
 		mp.Separation = cB.Sub(cA).Dot(normal)
 		mp.Id = 0
 		manifold.PointCount = 1
-	} else if u2.Less(zero) && zero.Less(separation) {
+	} else if u2.Less(zero) && scalarEpsilon.Less(separation) {
 		// The circle center is closest to v2 and safely outside the polygon.
 		normal := center.Sub(v2).Normalize()
 		separation = center.Sub(v2).Dot(normal)
@@ -263,8 +263,8 @@ func CollideCapsules(capsuleA *Capsule, xfA Transform, capsuleB *Capsule, xfB Tr
 	linearSlop := LinearSlop()
 
 	// The reference asserts both lengths against FLT_EPSILON squared. The
-	// exact zero is the Q form. See D-003 and D-012.
-	if dd1.Eq(zero) || dd2.Eq(zero) {
+	// guard reads the scalar mode. See D-003 and D-012.
+	if !scalarEpsilonSq.Less(dd1) || !scalarEpsilonSq.Less(dd2) {
 		panic("dbox2d: degenerate capsule")
 	}
 
@@ -441,10 +441,10 @@ func CollideCapsules(capsuleA *Capsule, xfA Transform, capsuleB *Capsule, xfB Tr
 
 	if manifold.PointCount == 0 {
 		// Single point collision. The reference guards the normalization
-		// with FLT_EPSILON squared; the exact zero is the Q form (G4b).
+		// with FLT_EPSILON squared; the guard reads the scalar mode (G4b).
 		// See D-012.
 		normal := closest2.Sub(closest1)
-		if zero.Less(normal.Dot(normal)) {
+		if scalarEpsilonSq.Less(normal.Dot(normal)) {
 			normal = normal.Normalize()
 		} else {
 			normal = LeftPerp(u1)
@@ -560,15 +560,15 @@ func clipPolygons(polyA, polyB *Polygon, edgeA, edgeB int, flip bool) Manifold {
 	}
 
 	// The reference guards each lerp span with FLT_EPSILON. In Q the span is
-	// always exactly positive here, because the disjoint test above bounds
-	// it. The exact zero test stays for structure. See D-012.
+	// always positive here, because the disjoint test above bounds it. The
+	// guard reads the scalar mode. See D-012.
 	vLower := v22
-	if lower2.Less(lower1) && zero.Less(upper2.Sub(lower2)) {
+	if lower2.Less(lower1) && scalarEpsilon.Less(upper2.Sub(lower2)) {
 		vLower = Lerp(v22, v21, lower1.Sub(lower2).Div(upper2.Sub(lower2)))
 	}
 
 	vUpper := v21
-	if upper1.Less(upper2) && zero.Less(upper2.Sub(lower2)) {
+	if upper1.Less(upper2) && scalarEpsilon.Less(upper2.Sub(lower2)) {
 		vUpper = Lerp(v22, v21, upper1.Sub(lower2).Div(upper2.Sub(lower2)))
 	}
 
@@ -965,15 +965,15 @@ func clipSegments(a1, a2, b1, b2 Vec2, normal Vec2, ra, rb Q, id1, id2 uint16) M
 	}
 
 	// The reference guards each lerp span with FLT_EPSILON. In Q the span is
-	// always exactly positive here, because the overlap test above bounds
-	// it. The exact zero test stays for structure. See D-012.
+	// always positive here, because the overlap test above bounds it. The
+	// guard reads the scalar mode. See D-012.
 	vLower := b2
-	if lower2.Less(lower1) && zero.Less(upper2.Sub(lower2)) {
+	if lower2.Less(lower1) && scalarEpsilon.Less(upper2.Sub(lower2)) {
 		vLower = Lerp(b2, b1, lower1.Sub(lower2).Div(upper2.Sub(lower2)))
 	}
 
 	vUpper := b1
-	if upper1.Less(upper2) && zero.Less(upper2.Sub(lower2)) {
+	if upper1.Less(upper2) && scalarEpsilon.Less(upper2.Sub(lower2)) {
 		vUpper = Lerp(b2, b1, upper1.Sub(lower2).Div(upper2.Sub(lower2)))
 	}
 

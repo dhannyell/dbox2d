@@ -3,8 +3,6 @@ package dbox2d
 import (
 	"math"
 	"testing"
-
-	"github.com/dhannyell/fixed"
 )
 
 // This file tests the motor joint solver with hand-computed cases and with
@@ -153,7 +151,7 @@ func TestMotorDrivesTowardTheOffset(t *testing.T) {
 	prepareJointsTask(0, len(context.joints), context)
 	solveJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex, false)
 
-	tolerance := fixed.Q32FromRaw(1 << 12)
+	tolerance := qUlps(1 << 12)
 	js := getJointSim(w, j)
 	twelfths := QFromRatio(5, 12)
 	impulse := js.motorJoint.linearImpulse
@@ -196,7 +194,7 @@ func TestMotorTurnsTowardTheAngularOffset(t *testing.T) {
 	prepareJointsTask(0, len(context.joints), context)
 	solveJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex, false)
 
-	tolerance := fixed.Q32FromRaw(1 << 12)
+	tolerance := qUlps(1 << 12)
 	js := getJointSim(w, j)
 	if !withinQ(js.motorJoint.angularImpulse, QFromRatio(5, 12), tolerance) {
 		t.Errorf("angularImpulse is %v, want 5/12", js.motorJoint.angularImpulse)

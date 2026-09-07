@@ -1624,11 +1624,11 @@ func (ctx *explosionContext) explosionCallback(_ int, userData uint64) bool {
 	}
 
 	direction := closestPoint.Sub(ctx.position)
-	// D-012: the reference's epsilon guard becomes an exact zero test.
-	if direction.LenSq().Eq(zero) {
-		direction = Vec2{X: one}
-	} else {
+	// D-012: the guard reads the scalar mode; see DIVERGENCES.md.
+	if QFromInt(100).Mul(scalarEpsilonSq).Less(direction.LenSq()) {
 		direction = direction.Normalize()
+	} else {
+		direction = Vec2{X: one}
 	}
 
 	localLine := InvRotateVector(transform.Q, LeftPerp(direction))

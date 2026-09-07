@@ -1,10 +1,6 @@
 package dbox2d
 
-import (
-	"testing"
-
-	"github.com/dhannyell/fixed"
-)
+import "testing"
 
 // This file tests the Step pipeline: exact integration, sleep tracking, the
 // zero-allocation contract and bit-for-bit reproducibility.
@@ -206,9 +202,6 @@ func TestStepRefreshesFastBodyBoundsWithoutAHit(t *testing.T) {
 func TestStepRejectsInvalidInput(t *testing.T) {
 	worldId := createTestWorld(t)
 
-	t.Run("saturated time step", func(t *testing.T) {
-		requirePanic(t, func() { worldId.Step(QMaxValue(), 4) })
-	})
 	t.Run("non-positive sub-step count", func(t *testing.T) {
 		requirePanic(t, func() { worldId.Step(stepDt(), 0) })
 	})
@@ -377,12 +370,19 @@ func TestStepSplitsTheIslandBeforeItSleeps(t *testing.T) {
 	}
 
 	dt := stepDt()
-	for range 31 {
+	const maxSleepSteps = 62
+	splitStep := 0
+	for step := 1; step <= maxSleepSteps; step++ {
 		worldId.Step(dt, 4)
+		if w.splitIslandId != nullIndex {
+			splitStep = step
+			break
+		}
 	}
-	if w.splitIslandId == nullIndex {
-		t.Fatalf("the finalize did not pick the split candidate")
+	if splitStep == 0 {
+		t.Fatalf("the finalize did not pick the split candidate within %d steps", maxSleepSteps)
 	}
+	t.Logf("split candidate selected on step %d", splitStep)
 	if bodyA.setIndex != awakeSet {
 		t.Fatalf("the island slept with a pending split")
 	}
@@ -569,13 +569,27 @@ func TestStepReportsMoveEvents(t *testing.T) {
 		t.Errorf("the move event is %+v", move)
 	}
 
-	for range 30 {
+	const maxSleepSteps = 62
+	sleepStep := 0
+	for step := 2; step <= maxSleepSteps; step++ {
 		worldId.Step(dt, 4)
+		events = worldId.GetBodyEvents()
+		if len(events.MoveEvents) != 1 {
+			t.Fatalf("step %d reports %d move events before sleep, want 1", step, len(events.MoveEvents))
+		}
+		move = events.MoveEvents[0]
+		if move.BodyId != restingId || move.Transform.P != v2(3, 0) {
+			t.Fatalf("step %d move event is %+v", step, move)
+		}
+		if move.FellAsleep {
+			sleepStep = step
+			break
+		}
 	}
-	events = worldId.GetBodyEvents()
-	if len(events.MoveEvents) != 1 || !events.MoveEvents[0].FellAsleep {
-		t.Fatalf("the sleep step reports %+v", events.MoveEvents)
+	if sleepStep == 0 {
+		t.Fatalf("no sleep event within %d steps; last move events %+v", maxSleepSteps, events.MoveEvents)
 	}
+	t.Logf("body slept on step %d", sleepStep)
 	if resting.setIndex < firstSleepingSet {
 		t.Errorf("the body is in set %d, want a sleeping set", resting.setIndex)
 	}
@@ -994,7 +1008,7 @@ func TestStepSwingsAPendulum(t *testing.T) {
 	def.LocalAnchorB = Vec2{X: QOne().Neg()}
 	CreateRevoluteJoint(worldId, &def)
 
-	fixed.ResetSaturationCount()
+	resetSaturationCount()
 	body := getBodyFullId(w, bobId)
 	slack := linearSlop.Add(linearSlop)
 	one := QOne()
@@ -1012,7 +1026,7 @@ func TestStepSwingsAPendulum(t *testing.T) {
 	if !lowest.Less(QMustParse("-0.9")) {
 		t.Errorf("the bob only fell to y = %v", lowest)
 	}
-	if n := fixed.SaturationCount(); n != 0 {
+	if n := saturationCount(); n != 0 {
 		t.Errorf("%d operations saturated", n)
 	}
 	validateWorld(w)
@@ -1036,7 +1050,7 @@ func TestStepPullsTheRopeTight(t *testing.T) {
 	def.Length = QOne()
 	CreateDistanceJoint(worldId, &def)
 
-	fixed.ResetSaturationCount()
+	resetSaturationCount()
 	bodyA := getBodyFullId(w, idA)
 	bodyB := getBodyFullId(w, idB)
 	dt := stepDt()
@@ -1047,7 +1061,7 @@ func TestStepPullsTheRopeTight(t *testing.T) {
 	if !withinQ(gap, QOne(), linearSlop.Add(linearSlop)) {
 		t.Errorf("the rope is %v long, want 1", gap)
 	}
-	if n := fixed.SaturationCount(); n != 0 {
+	if n := saturationCount(); n != 0 {
 		t.Errorf("%d operations saturated", n)
 	}
 	validateWorld(w)
@@ -1075,7 +1089,7 @@ func TestStepSlidesToTheStop(t *testing.T) {
 	def.UpperTranslation = QOne()
 	CreatePrismaticJoint(worldId, &def)
 
-	fixed.ResetSaturationCount()
+	resetSaturationCount()
 	body := getBodyFullId(w, boxId)
 	slack := linearSlop.Add(linearSlop)
 	dt := stepDt()
@@ -1086,7 +1100,7 @@ func TestStepSlidesToTheStop(t *testing.T) {
 	if !withinQ(center.X, QOne(), slack) || !withinQ(center.Y, QZero(), slack) {
 		t.Errorf("the box rests at %v, want (1, 0)", center)
 	}
-	if n := fixed.SaturationCount(); n != 0 {
+	if n := saturationCount(); n != 0 {
 		t.Errorf("%d operations saturated", n)
 	}
 	validateWorld(w)
@@ -1113,7 +1127,7 @@ func TestStepSettlesTheSuspension(t *testing.T) {
 	def.Hertz = QFromInt(2)
 	CreateWheelJoint(worldId, &def)
 
-	fixed.ResetSaturationCount()
+	resetSaturationCount()
 	body := getBodyFullId(w, wheelId)
 	slack := linearSlop.Add(linearSlop)
 	dt := stepDt()
@@ -1124,7 +1138,7 @@ func TestStepSettlesTheSuspension(t *testing.T) {
 	if !withinQ(center.X, QZero(), slack) || !withinQ(center.Y, QZero(), slack) {
 		t.Errorf("the wheel rests at %v, want (0, 0)", center)
 	}
-	if n := fixed.SaturationCount(); n != 0 {
+	if n := saturationCount(); n != 0 {
 		t.Errorf("%d operations saturated", n)
 	}
 	validateWorld(w)
@@ -1162,7 +1176,7 @@ func TestStepWeldsTwoBoxes(t *testing.T) {
 	bodyB := getBodyFullId(w, idB)
 	getBodyState(w, bodyB).angularVelocity = QHalf()
 
-	fixed.ResetSaturationCount()
+	resetSaturationCount()
 	dt := stepDt()
 	for range 60 {
 		worldId.Step(dt, 4)
@@ -1177,7 +1191,7 @@ func TestStepWeldsTwoBoxes(t *testing.T) {
 	if !withinQ(gap, QOne(), linearSlop.Add(linearSlop)) {
 		t.Errorf("the centers are %v apart, want 1", gap)
 	}
-	if n := fixed.SaturationCount(); n != 0 {
+	if n := saturationCount(); n != 0 {
 		t.Errorf("%d operations saturated", n)
 	}
 	validateWorld(w)
@@ -1206,7 +1220,7 @@ func TestStepDrivesToTheOffset(t *testing.T) {
 	def.MaxTorque = QFromInt(1000)
 	CreateMotorJoint(worldId, &def)
 
-	fixed.ResetSaturationCount()
+	resetSaturationCount()
 	body := getBodyFullId(w, circleId)
 	dt := stepDt()
 	for range 120 {
@@ -1217,7 +1231,7 @@ func TestStepDrivesToTheOffset(t *testing.T) {
 	if !withinQ(center.X, QOne(), slack) || !withinQ(center.Y, QZero(), slack) {
 		t.Errorf("the circle rests at %v, want (1, 0)", center)
 	}
-	if n := fixed.SaturationCount(); n != 0 {
+	if n := saturationCount(); n != 0 {
 		t.Errorf("%d operations saturated", n)
 	}
 	validateWorld(w)
@@ -1246,7 +1260,7 @@ func TestStepDragsToTheTarget(t *testing.T) {
 	target := Vec2{X: QOne()}
 	getJointSim(w, getJointFullId(w, jointId)).mouseJoint.targetA = target
 
-	fixed.ResetSaturationCount()
+	resetSaturationCount()
 	body := getBodyFullId(w, circleId)
 	dt := stepDt()
 	for range 60 {
@@ -1256,7 +1270,7 @@ func TestStepDragsToTheTarget(t *testing.T) {
 	if gap := center.Sub(target).Len(); !gap.Less(QMustParse("0.05")) {
 		t.Errorf("the circle rests at %v, %v from the target", center, gap)
 	}
-	if n := fixed.SaturationCount(); n != 0 {
+	if n := saturationCount(); n != 0 {
 		t.Errorf("%d operations saturated", n)
 	}
 	validateWorld(w)

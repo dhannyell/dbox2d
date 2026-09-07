@@ -330,7 +330,7 @@ func shapeDistanceF64(proxyA, proxyB *f64Proxy, xfA, xfB f64Transform, useRadii 
 	return output
 }
 
-func qToF64(q Q) float64 { return float64(q.Raw()) / 4294967296.0 }
+func qToF64(q Q) float64 { return QToFloat64(q) }
 
 func proxyToF64(p *ShapeProxy) f64Proxy {
 	var out f64Proxy
@@ -400,7 +400,8 @@ func TestShapeDistanceTracksTheFloat64Mirror(t *testing.T) {
 		}
 		compared++
 
-		if diff := math.Abs(qToF64(got.Distance) - want.distance); diff > limit {
+		diff := math.Abs(qToF64(got.Distance) - want.distance)
+		if diff > mirrorTolerance(limit, want.distance) {
 			t.Fatalf("distance differs by %g (Q %v, float %g)", diff, got.Distance, want.distance)
 		}
 	}

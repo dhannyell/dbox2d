@@ -30,9 +30,6 @@ var (
 	// that the reference writes in radians scale by this factor.
 	tau = pi.Add(pi)
 
-	// upstream 100.0f * FLT_EPSILON, about 1.2e-5. One raw unit is 2^-32.
-	normalizedTolerance = QFromRatio(1, 1<<16)
-
 	// upstream 0.0006f, kept as it is written
 	rotNormalizedTolerance = QMustParse("0.0006")
 )
@@ -51,13 +48,6 @@ func TransformIdentity() Transform {
 
 // Mat22Zero returns the zero matrix.
 func Mat22Zero() Mat22 { return Mat22{} }
-
-// IsValidQ reports whether a is a usable value. Fixed-point arithmetic has
-// no NaN and no infinity; it saturates instead, so a saturated value is the
-// signal that a computation left the representable range.
-func IsValidQ(a Q) bool {
-	return !a.Eq(QMinValue()) && !a.Eq(QMaxValue())
-}
 
 // IsValidVec2 reports whether v is a usable vector.
 func IsValidVec2(v Vec2) bool {

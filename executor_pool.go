@@ -10,10 +10,12 @@ import (
 // [startIndex, endIndex) and the worker that runs it.
 type taskFunc func(startIndex, endIndex, workerIndex int, context *stepContext)
 
-// idleSpinLimit is the number of yields a worker spends waiting for the
-// next command before it parks. Parking allocates in the runtime, so a
-// step that follows another step never pays it.
-const idleSpinLimit = 4096
+// idleSpinLimit is the number of atomic loads a worker spends waiting for
+// the next command before it parks: tens of microseconds, enough to bridge
+// two stages of one step, short enough to free the core between two steps.
+// The spin must not yield to the scheduler: with several workers, every
+// yield contends on the runtime lock and costs more than the wait.
+const idleSpinLimit = 1 << 16
 
 // executorCommand is what the caller asks every worker to do. It is
 // reused, so a command never allocates.
@@ -118,9 +120,15 @@ func (e *executor) publish() {
 	}
 }
 
-// await yields until every worker finished the command.
+// await spins until every worker finished the command, then yields so a
+// late worker can get a core.
 func (e *executor) await() {
+	spins := 0
 	for e.pending.Load() != 0 {
+		if spins < idleSpinLimit {
+			spins++
+			continue
+		}
 		runtime.Gosched()
 	}
 }
@@ -136,7 +144,6 @@ func (e *executor) worker(workerIndex int, seen uint32) {
 				continue
 			}
 			spins++
-			runtime.Gosched()
 		}
 		seen = e.generation.Load()
 

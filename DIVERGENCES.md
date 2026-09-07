@@ -141,7 +141,8 @@ Numbering is sequential from `D-001` and never reused.
 - Reason: Q32.32 has no NaN and no infinity. A computation that leaves the
   range saturates instead.
 - Behaviour: `IsValidQ` rejects the two saturation values, and the vector,
-  rotation and box checks build on it.
+  rotation and box checks build on it. In the float mode the reference guard
+  applies; see D-017.
 - Test: TestSaturationMarksAValueInvalid in math_test.go
 
 ### D-006 A reciprocal becomes a division
@@ -226,7 +227,8 @@ Numbering is sequential from `D-001` and never reused.
   Q32.32 does not have.
 - Behaviour: `IsNormalized` compares against 2^16 raw units, about 1.5e-5,
   which is the magnitude of the upstream 1.2e-5. `IsNormalizedRot` keeps the
-  literal 0.0006 of the reference, because that one is a plain number.
+  literal 0.0006 of the reference, because that one is a plain number. In the
+  float mode the reference guard applies; see D-017.
 - Test: TestNormalizedChecksAcceptAUnitPair in math_test.go
 
 ### D-008 An epsilon guard becomes a test against zero
@@ -243,7 +245,8 @@ Numbering is sequential from `D-001` and never reused.
   exact cases now, not near cases. A degenerate area still panics, which
   follows D-003, because a polygon with no area has no centroid or mass.
   `ValidateHull` rejects a zero-length edge before either polygon constructor
-  reaches its redundant edge guard.
+  reaches its redundant edge guard. In the float mode the reference guard
+  applies; see D-017.
 - Test: TestAABBRayCastHitsTheNearFace in aabb_test.go and
   TestRayCastCapsuleDegenerateCases, TestPolygonConstructorsRejectInvalidHull
   and TestComputePolygonMassRejectsZeroArea in geometry_test.go
@@ -392,7 +395,8 @@ Numbering is sequential from `D-001` and never reused.
   than an epsilon band, so two shapes that are merely close, but not
   touching, produce no overlap. `WorldId.Explode` guards the direction
   from an explosion center to a struck shape's closest point the same
-  way: only an exactly zero-length vector falls back to `(1, 0)`.
+  way: only an exactly zero-length vector falls back to `(1, 0)`. In the float
+  mode the reference guard applies; see D-017.
 - Test: TestSegmentDistanceHandlesDegenerateSegments and
   TestShapeDistanceReportsOverlap in distance_test.go,
   TestCollidePolygonAndCircleRegions,
@@ -534,3 +538,58 @@ Numbering is sequential from `D-001` and never reused.
   TestSensorEventsAreWorkerCountIndependent in sensor_test.go,
   TestCountersReportTasks in world_test.go, and the executor tests in
   executor_test.go
+
+### D-017 Two scalar modes
+
+- Files: scalar_fixed.go, scalar_float.go, aabb.go, distance.go, geometry.go,
+  manifold.go, sensor.go, world.go and checksum.go
+- Tier: T2
+- Reason: the reference computes in float32. A float mode gives a line-by-line
+  float comparison against the reference and isolates the cost of the fixed
+  format.
+- Behaviour: the two modes share every file except `scalar_fixed.go` and
+  `scalar_float.go`; only those scalar files select the mode, apart from the
+  executor platform files and tests. `Q` is a struct in both modes: a
+  `fixed.Q32` alias in fixed mode and a struct with one float32 field, `v`, in
+  float mode. Only the constructors make a scalar for callers, so the rest of
+  the package compiles identically in both modes.
+
+  Fixed mode uses Q32.32 from `github.com/dhannyell/fixed`. Float mode uses
+  plain float32 for Add and Sub. Every product and quotient sits inside an
+  explicit float32 conversion. The conversion is a rounding point in the Go
+  spec and prevents fusion with a following add, at no cost in instructions. CI cross-compiles float mode to arm64
+  with `-gcflags=-S` and requires zero `FMADD`, `FMSUB`, `FNMADD`, `FNMSUB`,
+  `FMLA` and `FMLS` instructions. The pinned float witness is checked on
+  amd64, arm64, 386 and wasm.
+
+  An angle is a turn in both modes, per D-004. Fixed mode keeps the CORDIC-
+  style functions of the fixed module. Float `MakeRot` unwinds turns, converts
+  with one product to radians, and applies the reference Bhaskara
+  `b2ComputeCosSin` approximation in float32. `atan2Turns` applies the
+  reference `b2Atan2` polynomial and divides by two pi. It does not call
+  `math.Sin`, `math.Cos` or `math.Atan2`.
+
+  Epsilon guards use exact zero in fixed mode. Float mode uses the reference
+  FLT_EPSILON forms through `scalarEpsilon`, `scalarEpsilonSq`,
+  `belowEpsilon`, `belowEpsilonSq` and `sensorOverlaps`, all defined per mode.
+  Fixed `IsValidQ` rejects the two saturation values. Float `IsValidQ` rejects
+  NaN and Inf as `b2IsValidFloat` does, and `QMaxValue()` is FLT_MAX and is
+  valid. `normalizedTolerance` is 2^-16 in fixed mode and 100 times
+  FLT_EPSILON in float mode. The checksum folds raw Q32.32 bits in fixed mode
+  and `math.Float32bits` in float mode. `Round` follows roundf and `Int`
+  follows the C cast in both modes: halves go away from zero and integers
+  truncate toward zero. `Vec2.Normalize` returns the zero vector below
+  FLT_EPSILON in float mode, as `b2Normalize` does, and only at exact zero in
+  fixed mode.
+
+  The solver stages, order of operations, iteration counts, worker rules,
+  `Huge` (100000), every constant in `constants.go` and the checksum structure
+  never change by mode. `QFromFloat64` and `QToFloat64` exist for camera and
+  other presentation conversions; simulation code never calls them, and CI
+  checks that boundary. Only fixed mode promises that a contact checksum is
+  unchanged when shapes A and B are swapped; the mirrored manifold rounds
+  identically only in exact arithmetic. That property has a fixed-only test.
+- Test: `scalar_float_test.go`; `TestChecksumMatchesDeterministicWitness` with
+  the witness for each mode; the matching `_fixed_test.go` and
+  `_float_test.go` pairs; `qUlps(n)` for n raw fixed units or n float32 ulps at
+  one; the per-mode `mirrorTolerance`; and the CI FMA gate.

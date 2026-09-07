@@ -37,6 +37,7 @@ func newGPUState(window *glfw.Window) (*gpuState, error) {
 	adapter, err := g.instance.RequestAdapter(&wgpu.RequestAdapterOptions{
 		CompatibleSurface: g.surface,
 		PowerPreference:   wgpu.PowerPreferenceHighPerformance,
+		BackendType:       preferredBackend,
 	})
 	if err != nil {
 		g.surface.Release()
@@ -67,11 +68,14 @@ func newGPUState(window *glfw.Window) (*gpuState, error) {
 		return nil, err
 	}
 
+	// One frame of latency makes Present block every frame, like a GL swap
+	// with vsync; the default of two lets the loop run ahead and jitters dt.
 	g.config = &wgpu.SurfaceConfiguration{
-		Usage:       wgpu.TextureUsageRenderAttachment,
-		Format:      format,
-		PresentMode: wgpu.PresentModeFifo,
-		AlphaMode:   alphaMode,
+		Usage:                      wgpu.TextureUsageRenderAttachment,
+		Format:                     format,
+		PresentMode:                wgpu.PresentModeFifo,
+		AlphaMode:                  alphaMode,
+		DesiredMaximumFrameLatency: 1,
 	}
 
 	adapter.Release()

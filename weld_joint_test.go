@@ -3,8 +3,6 @@ package dbox2d
 import (
 	"math"
 	"testing"
-
-	"github.com/dhannyell/fixed"
 )
 
 // This file tests the weld joint solver with hand-computed cases and with
@@ -103,7 +101,7 @@ func TestWeldHoldsTheAnchor(t *testing.T) {
 	prepareJointsTask(0, len(context.joints), context)
 	solveJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex, false)
 
-	tolerance := fixed.Q32FromRaw(1 << 12)
+	tolerance := qUlps(1 << 12)
 	js := getJointSim(w, j)
 	seventh := QFromRatio(1, 7)
 	if !withinQ(js.weldJoint.linearImpulse.X, QZero(), tolerance) || !withinQ(js.weldJoint.linearImpulse.Y, seventh, tolerance) {
@@ -136,7 +134,7 @@ func TestWeldStopsTheSpin(t *testing.T) {
 	prepareJointsTask(0, len(context.joints), context)
 	solveJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex, false)
 
-	tolerance := fixed.Q32FromRaw(1 << 12)
+	tolerance := qUlps(1 << 12)
 	js := getJointSim(w, j)
 	if !withinQ(js.weldJoint.angularImpulse, QFromRatio(-1, 6), tolerance) {
 		t.Errorf("angularImpulse is %v, want -1/6", js.weldJoint.angularImpulse)
