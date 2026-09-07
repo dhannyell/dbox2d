@@ -4,6 +4,7 @@ package dbox2d
 
 import "github.com/dhannyell/fixed"
 
+// The trace stores radians; each mode reaches them on its own path, so the 0-ulp budget of atan2.txt holds.
 func conformanceAtan2Radians(y, x Q) Q { return atan2Turns(y, x).Mul(tau) }
 
 // qUlps returns n raw Q32.32 units, where one ulp is 2^-32.

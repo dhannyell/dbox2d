@@ -4,6 +4,7 @@ package dbox2d
 
 import "math"
 
+// The trace stores radians; each mode reaches them on its own path, so the 0-ulp budget of atan2.txt holds.
 func conformanceAtan2Radians(y, x Q) Q { return atan2TurnsBody(y, x) }
 
 // qUlps returns an absolute tolerance of n float32 ulps at one.

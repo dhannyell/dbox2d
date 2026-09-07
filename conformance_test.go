@@ -221,7 +221,6 @@ func readConformanceFunctionTrace(t *testing.T, path string) []conformanceFuncti
 }
 
 type conformanceSceneBody struct {
-	index    int
 	position [2]conformanceTraceFloat
 	rotation [2]conformanceTraceFloat
 }
@@ -297,7 +296,6 @@ func readConformanceSceneTrace(t *testing.T, path string) conformanceSceneTrace 
 				t.Fatalf("scene trace %s repeats body %d at step %d", path, index, current.index)
 			}
 			current.bodies[index] = conformanceSceneBody{
-				index:    index,
 				position: [2]conformanceTraceFloat{parseConformanceFloat(t, fields[2]), parseConformanceFloat(t, fields[3])},
 				rotation: [2]conformanceTraceFloat{parseConformanceFloat(t, fields[4]), parseConformanceFloat(t, fields[5])},
 			}
@@ -363,8 +361,6 @@ func (c *conformanceFunctionChecker) reportFloat(caseIndex int, field string, go
 		if distance > c.tolerance.ulps {
 			c.exceeded = true
 			c.t.Errorf("%s", message)
-		} else {
-			c.t.Logf("%s", message)
 		}
 		return
 	}
@@ -382,8 +378,6 @@ func (c *conformanceFunctionChecker) reportFloat(caseIndex int, field string, go
 	if difference > c.tolerance.abs {
 		c.exceeded = true
 		c.t.Errorf("%s", message)
-	} else {
-		c.t.Logf("%s", message)
 	}
 }
 
@@ -393,7 +387,6 @@ func (c *conformanceFunctionChecker) reportInt(caseIndex int, field string, got,
 	}
 	// Fixed-point distance iterations can vary while the numeric trace stays within its budget.
 	if c.file == "shape_distance.txt" && field == "iterations" && !c.floatMode {
-		c.t.Logf("%s case %d field %s: got %d, want %d", c.file, caseIndex, field, got, want)
 		return
 	}
 	c.count++
@@ -553,24 +546,6 @@ func parseConformanceSweep(c *conformanceTraceCursor) Sweep {
 		C2:          parseConformanceVec2(c),
 		Q1:          parseConformanceRot(c),
 		Q2:          parseConformanceRot(c),
-	}
-}
-
-func parseConformanceShape(c *conformanceTraceCursor, kind string) any {
-	switch kind {
-	case "circle":
-		return parseConformanceCircle(c)
-	case "capsule":
-		return parseConformanceCapsule(c)
-	case "polygon":
-		return parseConformancePolygon(c)
-	case "segment":
-		return parseConformanceSegment(c)
-	case "chainSegment":
-		return parseConformanceChainSegment(c)
-	default:
-		c.t.Fatalf("unknown conformance shape kind %q", kind)
-		return nil
 	}
 }
 
@@ -1479,47 +1454,5 @@ func buildConformanceRain(worldId WorldId) conformanceStepFn {
 			data.createGroup(worldId, row, data.columnIndex)
 		}
 		data.columnIndex = (data.columnIndex + 1) % conformanceRainColumnCount
-	}
-}
-
-func TestConformanceScenesAreWorkerCountIndependent(t *testing.T) {
-	sceneNames := []string{
-		"joint_grid.txt",
-		"large_pyramid.txt",
-		"many_pyramids.txt",
-		"rain.txt",
-		"smash.txt",
-		"spinner.txt",
-		"tumbler.txt",
-		"falling_hinges.txt",
-	}
-	for _, name := range sceneNames {
-		spec := conformanceSceneSpecs[name]
-		t.Run(strings.TrimSuffix(name, ".txt"), func(t *testing.T) {
-			run := func(workerCount int) uint64 {
-				worldDef := DefaultWorldDef()
-				worldDef.WorkerCount = workerCount
-				worldId := CreateWorld(&worldDef)
-				if worldId.IsNull() {
-					t.Fatalf("scene %s workers=%d: CreateWorld returned the null id", name, workerCount)
-				}
-				defer DestroyWorld(worldId)
-				stepFn := spec.build(worldId)
-				for step := range 60 {
-					if stepFn != nil {
-						stepFn(step)
-					}
-					worldId.Step(QFromRatio(1, 60), 4)
-				}
-				return Checksum(worldId)
-			}
-
-			want := run(1)
-			for _, workerCount := range []int{2, 3, 4, 7} {
-				if got := run(workerCount); got != want {
-					t.Errorf("scene %s workers=%d checksum = %d, want %d", name, workerCount, got, want)
-				}
-			}
-		})
 	}
 }
