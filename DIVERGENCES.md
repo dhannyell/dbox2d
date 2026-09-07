@@ -593,3 +593,48 @@ Numbering is sequential from `D-001` and never reused.
   the witness for each mode; the matching `_fixed_test.go` and
   `_float_test.go` pairs; `qUlps(n)` for n raw fixed units or n float32 ulps at
   one; the per-mode `mirrorTolerance`; and the CI FMA gate.
+
+### D-018 Conformance traces
+
+- Files: conformance_test.go, tools/conformance/main.c, testdata/conformance/ (upstream
+  shared/benchmarks.c, shared/determinism.c, the collision functions of src/manifold.c,
+  src/distance.c, src/hull.c and src/math_functions.c)
+- Tier: T2
+- Reason: the reference has no trace format and no bit-level oracle. The witness of D-011 pins
+  the port to itself. A conformance trace pins the port to the reference C compiled without SIMD
+  and without FMA.
+- Behaviour: The generator in tools/conformance/ links to the frozen reference and writes text
+  traces: 17 function files (the twelve b2Collide* manifolds, b2ShapeDistance, b2TimeOfImpact,
+  b2ComputeHull, b2MakeRot, b2Atan2) with inputs drawn by the generator, and 8 scene files (the
+  seven benchmark scenes and falling_hinges) with one hash of all body transforms per step and
+  full dumps at step 1, the middle step and the last step for scenes of at most 5 000 bodies.
+  Floats are binary32 bit patterns. See tools/conformance/README.md for the format and
+  testdata/conformance/SOURCE.md for the compiler and flags.
+
+  TestConformance reads every trace in both modes. Function traces: float mode is gated in ulps
+  and is exact (0 ulps) for 14 of 17 files. The three non-zero budgets are make_rot 1328 ulps
+  (D-004: the turn is converted to a radian before the reference approximation), shape_distance
+  512 ulps and collide_chain_segment_and_circle 1028 ulps (D-006: a reciprocal became a
+  division; the chain case normalizes a short vector, which amplifies one ulp). Fixed mode is
+  gated by an absolute budget of twice the measured residue: the twelve manifolds between 1e-6
+  and 4e-5, shape_distance 8e-6, time_of_impact 1e-7, make_rot 4e-3 and atan2 6e-5 (D-017:
+  CORDIC against the reference polynomials). compute_hull is exact after a cyclic alignment: the
+  first hull vertex is the point farthest from the AABB center, and a near tie can start the hull
+  at another vertex in Q32.32.
+
+  Scene traces: a step of the solver does not match the reference bit for bit in either mode.
+  D-004 and D-006 change bits inside the first step, and D-013 changes which contacts get a graph
+  color when one body has many contacts; colored and overflow contacts clamp their bias by
+  different speeds (contactSpeed and maxContactPushSpeed, per b2SolveContactsTask and
+  b2SolveOverflowContacts), so the spinner bar diverges by 4e-3 at step 1 with an identical set
+  of contacts. Later steps diverge chaotically. So the gate is the step-1 dump, with a budget per
+  scene and per mode: tumbler 2e-5 fixed and 1e-10 float, rain 4e-5 and 4e-7, falling_hinges
+  4e-3 and 1e-6, spinner 1e-2 in both. The per-step hash and the later dumps are logged, not
+  gated: the test reports the first divergent step and the largest residue of each sampled step.
+  smash keeps an equal hash through step 69 in float mode, and the test gates that count. Scenes over 5 000 bodies (joint_grid,
+  large_pyramid, many_pyramids, smash) have no step-1 dump, so only the body count and the hash
+  report apply.
+
+  The traces found one port bug: the colored contacts clamped by maxContactPushSpeed instead of
+  contactSpeed; the fix changed both witnesses.
+- Test: TestConformance and TestConformanceScenesAreWorkerCountIndependent in conformance_test.go

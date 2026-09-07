@@ -635,6 +635,27 @@ D-014 grew entries.
 | `src/timer.c` | `time` package (`step.go`) | T2 | — | — | The standard clock replaces the platform timers; the profile is its only consumer. Timing never enters a deterministic result. |
 | `src/CMakeLists.txt`, `src/box2d.natvis` | none | — | — | — | Build system and debugger visualizers do not apply. |
 
+## Conformance
+
+The conformance harness lives in `tools/conformance/` and its frozen traces
+live in `testdata/conformance/`. The traces cover collision functions and
+benchmark scenes in both scalar modes.
+
+Regenerate the traces from the reference worktree with `cmake -S
+tools/conformance -B build/conformance -G Ninja -DCMAKE_BUILD_TYPE=Release
+-DBOX2D_SOURCE_DIR=D:/Workspace/dbox2d-ref`, `cmake --build
+build/conformance`, and `./build/conformance/conformance.exe --out
+testdata/conformance`. These commands use one worker with SIMD and FMA
+disabled; reuse the exact commands and paths in `testdata/conformance/SOURCE.md`.
+
+The test reads every trace in fixed and float mode. Function traces use ULP
+budgets in float mode and absolute budgets in fixed mode. Scene step 1 uses a
+per-scene absolute budget in each mode, while hashes and later dumps are logged.
+See DIVERGENCES.md D-018 for the exact budgets and known differences.
+
+Regenerate only when the reference checkout or the trace format changes. Keep
+`-ffp-contract=off` and `BOX2D_DISABLE_SIMD=ON` in the reference build.
+
 ## Coverage
 
 Every file under `src/` and `include/box2d/` of the reference has a row. The

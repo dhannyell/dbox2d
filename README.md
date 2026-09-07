@@ -6,8 +6,11 @@ uses Q32.32 fixed-point arithmetic, while `-tags dbox2d_float` selects
 `float32`. In either mode, equal inputs produce the same result bits on every
 supported architecture and on every run.
 
-Fixed-point mode is useful if you need a strictly deterministic mode, such as for rollback netcode or server-authoritative simulation.
-Float mode is useful in most other scenarios and does not carry the performance penalties associated with fixed-point arithmetic.
+Fixed point is the safer default for cross-platform rollback, replay, and
+authoritative simulation. Float mode is also deterministic on the
+architectures covered by this repository's CI, and is usually faster in the
+measured workloads. A float-mode application must still control its complete
+simulation, not only its physics.
 
 The project is pre-v1. Its public API and import path may change before the
 first stable release. It requires Go 1.26.4 or newer.
@@ -112,6 +115,24 @@ go run -tags dbox2d_float ./cmd/native
 
 The published sample page serves the fixed build by default. Add
 `?mode=float` to load the float build instead.
+
+The port is checked against traces of the reference compiled without SIMD and
+without FMA; the collision functions match the reference bit for bit in float
+mode except at three documented sites, and the fixed mode stays within measured
+budgets. See DIVERGENCES.md D-018.
+
+### Choosing a mode for deterministic simulation
+
+Both modes support deterministic simulation. Q32.32 is the recommended choice
+for cross-platform rollback and replay because its arithmetic has a simpler,
+stronger reproducibility contract.
+
+Float mode is suitable for rollback when an application verifies its whole
+simulation on every supported target. Use a fixed simulation tick, serialize
+all state that affects future frames, use a deterministic random-number
+generator, keep update order stable, and avoid platform-dependent math or
+application logic outside `dbox2d`. Compare checksums regularly in development
+and detect desynchronization in production.
 
 ### Workers and callbacks
 
