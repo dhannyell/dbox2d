@@ -159,7 +159,7 @@ func (a *App) drawFrameOverlay(dtSeconds float64) {
 		steps = c.Steps()
 	}
 	cam := &a.ctx.Camera
-	line := fmt.Sprintf("%.1f ms - step %d - camera (%g, %g, %g)", 1000*dtSeconds, steps, cam.Center.X, cam.Center.Y, cam.Zoom)
+	line := fmt.Sprintf("%.1f ms - step %d - camera (%.6g, %.6g, %.6g)", 1000*dtSeconds, steps, cam.Center.X, cam.Center.Y, cam.Zoom)
 	a.drawer.DrawStringColor(5, cam.Height-20, line, frameOverlayColor)
 }
 
