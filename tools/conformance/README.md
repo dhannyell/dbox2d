@@ -4,24 +4,11 @@ This program generates version 1 collision-function and simulation-scene traces.
 
 ## Build
 
-Run these commands from the repository root:
-
-```sh
-cmake -S tools/conformance -B build/conformance -G Ninja -DCMAKE_BUILD_TYPE=Release -DBOX2D_SOURCE_DIR=D:/Workspace/dbox2d-ref
-cmake --build build/conformance
-```
-
-The standalone CMake project requires CMake 3.22 or newer and C17. It disables SIMD, samples, benchmarks, unit tests, documentation, and validation in the reference build. GCC and Clang use `-ffp-contract=off -fno-fast-math`. MSVC uses `/fp:precise /fp:contract-`.
+The commands, compiler and flags that regenerate the traces are in `testdata/conformance/SOURCE.md`.
 
 The simulation uses one worker and no task callbacks. Each world starts from `b2DefaultWorldDef()`. The benchmark setup functions retain their own sleeping choices. The step size is `1.0f / 60.0f`, with four substeps.
 
 ## Regenerate
-
-Run this command from the repository root:
-
-```sh
-./build/conformance/conformance.exe --out testdata/conformance
-```
 
 The program creates `functions` and `scenes` below the output directory. It resets `g_randomSeed` to `RAND_SEED` before every function and scene.
 
@@ -109,7 +96,7 @@ A sampled step immediately adds one line for every body in canonical order:
 body <zero-based-index> <position-x> <position-y> <rotation-cosine> <rotation-sine>
 ```
 
-The normal sampling policy writes the final step. It also writes step 1 and `floor(total / 2)` when that step has at most 5000 bodies. The checked-in corpus omits every middle dump because the first generated corpus exceeded 4 MB. It also omits the `many_pyramids` final dump, which was the single largest dump. Its per-step hashes remain present. These two size reductions leave all other final and eligible step-1 dumps intact.
+The normal sampling policy writes full dumps at step 1 and at the last step for scenes with at most 5000 bodies; larger scenes retain a final dump only when configured. The checked-in corpus omits the `many_pyramids` final dump, which was the single largest dump. Its per-step hashes remain present. These size reductions leave all other final and eligible step-1 dumps intact.
 
 The canonical order comes from `b2World_OverlapAABB`. The query uses the AABB `[-1000000, -1000000]` to `[1000000, 1000000]` and `b2DefaultQueryFilter()`. The callback maps each reported shape to its body. Body identifiers are deduplicated and sorted by ascending `bodyId.index1`. Static bodies with shapes are included.
 

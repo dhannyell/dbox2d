@@ -607,7 +607,7 @@ Numbering is sequential from `D-001` and never reused.
   traces: 17 function files (the twelve b2Collide* manifolds, b2ShapeDistance, b2TimeOfImpact,
   b2ComputeHull, b2MakeRot, b2Atan2) with inputs drawn by the generator, and 8 scene files (the
   seven benchmark scenes and falling_hinges) with one hash of all body transforms per step and
-  full dumps at step 1, the middle step and the last step for scenes of at most 5 000 bodies.
+  full dumps at step 1 and the last step for scenes of at most 5 000 bodies.
   Floats are binary32 bit patterns. See tools/conformance/README.md for the format and
   testdata/conformance/SOURCE.md for the compiler and flags.
 
@@ -637,4 +637,4 @@ Numbering is sequential from `D-001` and never reused.
 
   The traces found one port bug: the colored contacts clamped by maxContactPushSpeed instead of
   contactSpeed; the fix changed both witnesses.
-- Test: TestConformance and TestConformanceScenesAreWorkerCountIndependent in conformance_test.go
+- Test: TestConformance in conformance_test.go

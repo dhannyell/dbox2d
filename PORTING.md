@@ -641,12 +641,8 @@ The conformance harness lives in `tools/conformance/` and its frozen traces
 live in `testdata/conformance/`. The traces cover collision functions and
 benchmark scenes in both scalar modes.
 
-Regenerate the traces from the reference worktree with `cmake -S
-tools/conformance -B build/conformance -G Ninja -DCMAKE_BUILD_TYPE=Release
--DBOX2D_SOURCE_DIR=D:/Workspace/dbox2d-ref`, `cmake --build
-build/conformance`, and `./build/conformance/conformance.exe --out
-testdata/conformance`. These commands use one worker with SIMD and FMA
-disabled; reuse the exact commands and paths in `testdata/conformance/SOURCE.md`.
+Regenerate the traces with the exact commands in `testdata/conformance/SOURCE.md`;
+they build the reference with one worker, without SIMD and without FMA.
 
 The test reads every trace in fixed and float mode. Function traces use ULP
 budgets in float mode and absolute budgets in fixed mode. Scene step 1 uses a

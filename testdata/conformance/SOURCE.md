@@ -1,6 +1,6 @@
 # Conformance trace source
 
-The reference source is commit `0aa402e` on branch `reference/box2d-v3.1.1`. The generator commit is `c587ffa`.
+The reference source is commit `0aa402e` on branch `reference/box2d-v3.1.1`. The generator is the source at the latest commit that touches `tools/conformance/main.c` (`git log -1 --format=%h -- tools/conformance/main.c`).
 
 The traces were generated with GCC 13.2.0. The strict floating-point flags were `-ffp-contract=off -fno-fast-math` on the entire build. The Release generator and shared-library compilation used `-O3 -DNDEBUG -std=gnu17 -ffp-contract=off -fno-fast-math`. The reference library used the same flags plus `-fvisibility=hidden` and the definition `BOX2D_DISABLE_SIMD`.
 
