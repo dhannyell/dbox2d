@@ -81,7 +81,7 @@ The function records use these input and output sequences:
 | `shape_distance` | proxy A, proxy B, transform A, transform B, use-radii boolean | distance result |
 | `time_of_impact` | proxy A, proxy B, sweep A, sweep B, maximum fraction | time-of-impact result |
 | `compute_hull` | count and eight point slots | hull |
-| `make_rot` | radians, turns | rotation |
+| `make_rot` | turns | rotation |
 | `atan2` | y, x | radians |
 
 The collision files contain 256 cases each. The chain-segment/capsule and chain-segment/polygon inputs and outputs also contain a simplex cache. `shape_distance` has 512 cases. It passes a zero cache and no simplex-history buffer. `time_of_impact` has 256 cases. `compute_hull` has 128 cases. `make_rot` and `atan2` have 1024 cases each.

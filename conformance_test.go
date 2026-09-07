@@ -700,7 +700,6 @@ func runConformanceFunctionCase(t *testing.T, file string, caseIndex int, input,
 		}
 		out.done("function output")
 	case "make_rot.txt":
-		_ = in.float()
 		turns := in.float().q()
 		in.done("function input")
 		got := MakeRot(turns)

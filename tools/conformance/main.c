@@ -23,7 +23,6 @@
 
 #define STRINGIFY_1( x ) #x
 #define STRINGIFY( x ) STRINGIFY_1( x )
-#define INCLUDE_MIDDLE_SAMPLE 0
 
 #if defined( __clang__ )
 #define COMPILER_ID "clang-" STRINGIFY( __clang_major__ ) "." STRINGIFY( __clang_minor__ ) "." STRINGIFY( __clang_patchlevel__ )
@@ -411,7 +410,7 @@ static void makePairTransforms( int caseIndex, float extent, bool oneSided, b2Tr
 	transformB->p = b2Add( transformA->p, b2RotateVector( transformA->q, localOffset ) );
 }
 
-static int writeCollisionTrace( const char* outputDirectory, const char* name, CollisionKind kind )
+static void writeCollisionTrace( const char* outputDirectory, const char* name, CollisionKind kind )
 {
 	FILE* file = openTrace( outputDirectory, "functions", name );
 	writeHeader( file, "function", name );
@@ -595,7 +594,6 @@ static int writeCollisionTrace( const char* outputDirectory, const char* name, C
 		fail( "cannot close collision trace" );
 	}
 	printf( "function %s cases=%d manifolds=%d\n", name, caseCountCollide, touchingCount );
-	return touchingCount;
 }
 
 static b2ShapeProxy makeRandomProxy( int caseIndex, int salt, float extent )
@@ -675,7 +673,7 @@ static b2Sweep makeRandomSweep( void )
 	return sweep;
 }
 
-static int writeTOITrace( const char* outputDirectory )
+static void writeTOITrace( const char* outputDirectory )
 {
 	const char* name = "time_of_impact";
 	FILE* file = openTrace( outputDirectory, "functions", name );
@@ -732,7 +730,6 @@ static int writeTOITrace( const char* outputDirectory )
 		fail( "cannot close TOI trace" );
 	}
 	printf( "function %s cases=%d hits=%d state=%d\n", name, caseCountTOI, hitCount, b2_toiStateHit );
-	return hitCount;
 }
 
 static void writeHullTrace( const char* outputDirectory )
@@ -802,7 +799,6 @@ static void writeMakeRotTrace( const char* outputDirectory )
 		float turns = radians / ( 2.0f * B2_PI );
 		b2Rot rotation = b2MakeRot( radians );
 		fprintf( file, "case %d", caseIndex );
-		writeFloat( file, radians );
 		writeFloat( file, turns );
 		fprintf( file, " |" );
 		writeRot( file, rotation );
@@ -950,11 +946,7 @@ static bool isSampledStep( int step, int totalSteps, int bodyCount, bool writeFi
 	{
 		return true;
 	}
-#if INCLUDE_MIDDLE_SAMPLE
-	return step == totalSteps / 2;
-#else
 	return false;
-#endif
 }
 
 static void writeStep( FILE* file, int step, int totalSteps, const BodyList* list, bool writeFinalBodies )
@@ -1013,7 +1005,6 @@ static void writeSceneTrace( const char* outputDirectory, Scene scene )
 	}
 	b2DestroyWorld( worldId );
 	free( bodies.ids );
-	printf( "scene %s bodies=%d steps=%d\n", scene.name, initialBodyCount, scene.steps );
 }
 
 static int findFallingHingeStepCount( void )
@@ -1066,7 +1057,6 @@ static void writeFallingHingeTrace( const char* outputDirectory )
 	DestroyFallingHinges( &data );
 	b2DestroyWorld( worldId );
 	free( bodies.ids );
-	printf( "scene %s bodies=%d steps=%d\n", name, initialBodyCount, totalSteps );
 }
 
 int main( int argc, char** argv )
