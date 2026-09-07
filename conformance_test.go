@@ -127,7 +127,7 @@ func readConformanceTraceLines(t *testing.T, path, kind string) []string {
 	if err != nil {
 		t.Fatalf("open conformance trace %s: %v", path, err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 1024), 16<<20)
@@ -346,9 +346,8 @@ type conformanceFunctionChecker struct {
 }
 
 func (c *conformanceFunctionChecker) reportFloat(caseIndex int, field string, got Q, want conformanceTraceFloat) {
-	gotBits := uint32(qBits(got))
 	if c.floatMode {
-		gotBits = math.Float32bits(float32(QToFloat64(got)))
+		gotBits := math.Float32bits(float32(QToFloat64(got)))
 		distance := conformanceULPDistance(gotBits, want.bits)
 		if distance == 0 {
 			return
