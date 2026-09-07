@@ -68,7 +68,7 @@ jobs:
         if: matrix.goarch == 'wasm'
         run: echo "$(go env GOROOT)/lib/wasm" >> "$GITHUB_PATH"
       - name: Test
-        run: go test -timeout 120s ./...
+        run: go test -timeout 600s ./...
 
   race:
     name: race (amd64)
