@@ -184,6 +184,8 @@ func (e *executor) parallelForWithSide(itemCount, minRange int, fn taskFunc, sid
 
 	rangeCount := min(e.workerCount, (itemCount+minRange-1)/minRange)
 	rangeSize := (itemCount + rangeCount - 1) / rangeCount
+	// The rounding of rangeSize can leave the last workers past the end.
+	rangeCount = (itemCount + rangeSize - 1) / rangeSize
 	e.command = executorCommand{fn: fn, sideFn: sideFn, context: context, rangeCount: rangeCount, rangeSize: rangeSize, itemCount: itemCount}
 	e.publish()
 

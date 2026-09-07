@@ -90,7 +90,8 @@ func TestParallelForCoversTheRangeOnce(t *testing.T) {
 			}
 			wantRanges := 0
 			if itemCount != 0 {
-				wantRanges = min(workerCount, (itemCount+63)/64)
+				rangeSize := (itemCount + min(workerCount, (itemCount+63)/64) - 1) / min(workerCount, (itemCount+63)/64)
+				wantRanges = (itemCount + rangeSize - 1) / rangeSize
 			}
 			if got := int(atomic.LoadInt32(&state.rangeCount)); got != wantRanges {
 				t.Fatalf("workers=%d items=%d: got %d ranges, want %d", workerCount, itemCount, got, wantRanges)
@@ -304,6 +305,55 @@ func TestStageTableMatchesTheReferenceSizing(t *testing.T) {
 	buildSolverStages(&w, &context, 1)
 	requireSolverBlockLayout(t, w.graphBlocks[:1], 2, 4, 1, graphJointBlock)
 	requireSolverBlockLayout(t, w.graphBlocks[1:], 5, 4, 2, graphContactBlock)
+}
+
+// 97 items over 12 workers round to ranges of 9; the twelfth would start
+// past the end.
+func TestParallelForNeverStartsPastTheEnd(t *testing.T) {
+	e := &executor{workerCount: 12}
+	e.start(12)
+	if e.workerCount < 12 {
+		t.Skip("this platform caps the workers")
+	}
+	const itemCount = 97
+	state := &executorTestState{counts: make([]int32, itemCount), inUse: make([]int32, 12)}
+	context := &stepContext{world: &world{userData: state}}
+	e.parallelFor(itemCount, 8, recordExecutorRange, context)
+	e.stop()
+	if atomic.LoadInt32(&state.bad) != 0 {
+		t.Fatal("a range was empty or inverted")
+	}
+	for i := range state.counts {
+		if got := atomic.LoadInt32(&state.counts[i]); got != 1 {
+			t.Fatalf("index %d: got %d visits, want 1", i, got)
+		}
+	}
+}
+
+// A pause longer than the spin limit parks the workers; the next step
+// must wake them and give the bits of one worker.
+func TestParkedWorkersWakeForTheNextStep(t *testing.T) {
+	stepInParallel(t)
+	run := func(workerCount int) uint64 {
+		def := DefaultWorldDef()
+		def.WorkerCount = workerCount
+		def.EnableSleep = false
+		worldId := CreateWorld(&def)
+		defer DestroyWorld(worldId)
+		buildPyramid(worldId, 20)
+		dt := QOne().Div(QFromInt(60))
+		for i := range 6 {
+			if i%2 == 1 {
+				time.Sleep(30 * time.Millisecond)
+			}
+			worldId.Step(dt, 4)
+		}
+		return Checksum(worldId)
+	}
+	want := run(1)
+	if got := run(4); got != want {
+		t.Fatalf("workers=4: got 0x%x, want 0x%x", got, want)
+	}
 }
 
 // stepInParallel lowers the serial threshold so a small scene reaches the pool.
