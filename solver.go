@@ -716,7 +716,7 @@ func solveContinuous(w *world, bodySimIndex int) {
 	}
 }
 
-func finalizeBodiesTask(startIndex, endIndex int, context *stepContext) {
+func finalizeBodiesTask(startIndex, endIndex, workerIndex int, context *stepContext) {
 	w := context.world
 	enableSleep := w.enableSleep
 	states := context.states
@@ -733,9 +733,11 @@ func finalizeBodiesTask(startIndex, endIndex int, context *stepContext) {
 		panic("dbox2d: the task range is inverted")
 	}
 
-	taskContext := &w.taskContexts[0]
+	taskContext := &w.taskContexts[workerIndex]
 	enlargedSimBitSet := &taskContext.enlargedSimBitSet
 	awakeIslandBitSet := &taskContext.awakeIslandBitSet
+	taskContext.bulletBodies = context.bulletBodies[startIndex:endIndex:endIndex]
+	taskContext.bulletBodyCount = 0
 
 	enableContinuous := w.enableContinuous
 
@@ -805,8 +807,8 @@ func finalizeBodiesTask(startIndex, endIndex int, context *stepContext) {
 				// Store in fast array for the continuous collision stage
 				// This is deterministic because the order of TOI sweeps doesn't matter
 				if sim.isBullet {
-					context.bulletBodies[context.bulletBodyCount] = simIndex
-					context.bulletBodyCount++
+					taskContext.bulletBodies[taskContext.bulletBodyCount] = simIndex
+					taskContext.bulletBodyCount++
 				} else {
 					solveContinuous(w, simIndex)
 				}
@@ -879,6 +881,15 @@ func finalizeBodiesTask(startIndex, endIndex int, context *stepContext) {
 
 			shapeId = s.nextShapeId
 		}
+	}
+}
+
+// bulletBodyTask sweeps a range of bullet bodies. It corresponds to
+// b2BulletBodyTask in src/solver.c.
+func bulletBodyTask(startIndex, endIndex, _ int, context *stepContext) {
+	w := context.world
+	for i := startIndex; i < endIndex; i++ {
+		solveContinuous(w, context.bulletBodies[i])
 	}
 }
 
@@ -1160,6 +1171,7 @@ func solve(w *world, context *stepContext) {
 
 		// The constraint stages run as one persistent-pool job per worker.
 		solveConstraintsStart := time.Now()
+		w.taskCount++
 		w.executor.runContext(solverTask, context)
 
 		// Split an awake island. This modifies:
@@ -1181,15 +1193,29 @@ func solve(w *world, context *stepContext) {
 
 		// Prepare the enlarged body and island bit sets used in body finalization.
 		awakeIslandCount := len(awake.islandSims)
-		taskContext := &w.taskContexts[0]
-		setBitCountAndClear(&taskContext.enlargedSimBitSet, awakeBodyCount)
-		setBitCountAndClear(&taskContext.awakeIslandBitSet, awakeIslandCount)
-		taskContext.splitIslandId = nullIndex
-		taskContext.splitSleepTime = QZero()
+		for i := range w.workerCount {
+			taskContext := &w.taskContexts[i]
+			setBitCountAndClear(&taskContext.enlargedSimBitSet, awakeBodyCount)
+			setBitCountAndClear(&taskContext.awakeIslandBitSet, awakeIslandCount)
+			taskContext.splitIslandId = nullIndex
+			taskContext.splitSleepTime = QZero()
+			taskContext.bulletBodyCount = 0
+		}
 
 		// Finalize bodies. Must happen after the constraint solver and after island splitting.
-		finalizeBodiesTask(0, awakeBodyCount, context)
+		w.taskCount++
+		w.executor.parallelFor(awakeBodyCount, 64, finalizeBodiesTask, context)
 
+		context.bulletBodyCount = w.taskContexts[0].bulletBodyCount
+		for i := 1; i < w.workerCount; i++ {
+			taskContext := &w.taskContexts[i]
+			copy(context.bulletBodies[context.bulletBodyCount:], taskContext.bulletBodies[:taskContext.bulletBodyCount])
+			context.bulletBodyCount += taskContext.bulletBodyCount
+		}
+
+		for i := 1; i < w.workerCount; i++ {
+			inPlaceUnion(&w.taskContexts[0].enlargedSimBitSet, &w.taskContexts[i].enlargedSimBitSet)
+		}
 		for i := range graphColorCount {
 			colors[i].contactConstraints = nil
 		}
@@ -1310,17 +1336,14 @@ func solve(w *world, context *stepContext) {
 		w.profile.Refit = millisecondsSince(refitStart)
 	}
 
-	// Continuous collision of the bullet bodies. The reference sweeps them
-	// in parallel and enlarges their proxies serially; the port runs both
-	// on one worker, in the buffer order.
+	// Continuous collision of the bullet bodies. The proxy refit remains serial.
 	if context.bulletBodyCount > 0 {
 		bulletsStart := time.Now()
 
 		// Fast bullet bodies
 		// Note: a bullet body may be moving slow
-		for i := range context.bulletBodyCount {
-			solveContinuous(w, context.bulletBodies[i])
-		}
+		w.taskCount++
+		w.executor.parallelFor(context.bulletBodyCount, 8, bulletBodyTask, context)
 
 		// Serially enlarge broad-phase proxies for bullet shapes
 		broadPhase := &w.broadPhase
@@ -1386,15 +1409,22 @@ func solve(w *world, context *stepContext) {
 		if w.splitIslandId != nullIndex {
 			panic("dbox2d: the split candidate is not clear")
 		}
-		taskContext := &w.taskContexts[0]
-		if taskContext.splitIslandId != nullIndex {
-			if !QZero().Less(taskContext.splitSleepTime) {
-				panic("dbox2d: the split candidate has no sleep time")
+		// The ranges are fixed and ascending, so the first worker wins a
+		// tie, as the first body wins inside a worker. The reference breaks
+		// ties by island id because of work stealing.
+		splitSleepTimer := QZero()
+		for i := range w.workerCount {
+			taskContext := &w.taskContexts[i]
+			if taskContext.splitIslandId != nullIndex && splitSleepTimer.Less(taskContext.splitSleepTime) {
+				w.splitIslandId = taskContext.splitIslandId
+				splitSleepTimer = taskContext.splitSleepTime
 			}
-			w.splitIslandId = taskContext.splitIslandId
 		}
 
-		awakeIslandBitSet := &taskContext.awakeIslandBitSet
+		awakeIslandBitSet := &w.taskContexts[0].awakeIslandBitSet
+		for i := 1; i < w.workerCount; i++ {
+			inPlaceUnion(awakeIslandBitSet, &w.taskContexts[i].awakeIslandBitSet)
+		}
 
 		// Need to process in reverse because this moves islands to sleeping solver sets.
 		islands := awake.islandSims

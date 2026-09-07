@@ -2,6 +2,7 @@ package dbox2d
 
 import (
 	"math/bits"
+	"slices"
 	"sync/atomic"
 	"time"
 )
@@ -91,6 +92,7 @@ func (worldId WorldId) Step(timeStep Q, subStepCount int) {
 	if w.locked {
 		panic("dbox2d: the world is locked")
 	}
+	w.taskCount = 0
 	if w.workerCount > 1 {
 		w.executor.start(w.workerCount)
 	}
@@ -117,13 +119,14 @@ func (worldId WorldId) Step(timeStep Q, subStepCount int) {
 
 	stepStart := time.Now()
 
-	// Update collision pairs and create contacts
-	pairsStart := time.Now()
-	updateBroadPhasePairs(w)
-	w.profile.Pairs = millisecondsSince(pairsStart)
-
 	context := &w.solverContext
 	context.world = w
+
+	// Update collision pairs and create contacts
+	pairsStart := time.Now()
+	updateBroadPhasePairs(w, context)
+	w.profile.Pairs = millisecondsSince(pairsStart)
+
 	context.dt = timeStep
 	context.invDt = zero
 	context.h = zero
@@ -170,7 +173,7 @@ func (worldId WorldId) Step(timeStep Q, subStepCount int) {
 	}
 
 	sensorsStart := time.Now()
-	overlapSensors(w)
+	overlapSensors(context)
 	w.profile.Sensors = millisecondsSince(sensorsStart)
 
 	w.profile.Step = millisecondsSince(stepStart)
@@ -191,16 +194,15 @@ func (worldId WorldId) Step(timeStep Q, subStepCount int) {
 
 // collideTask updates the manifolds of a run of contact sims and marks the
 // contacts whose touch state changed. It corresponds to b2CollideTask in
-// src/world.c; the port walks each array in place instead of a pointer
-// array.
-func collideTask(contactSims []contactSim, context *stepContext) {
+// src/world.c.
+func collideTask(startIndex, endIndex, workerIndex int, context *stepContext) {
 	w := context.world
-	taskContext := &w.taskContexts[0]
+	taskContext := &w.taskContexts[workerIndex]
 	shapes := w.shapes
 	bodies := w.bodies
 
-	for contactIndex := range contactSims {
-		cs := &contactSims[contactIndex]
+	for contactIndex := startIndex; contactIndex < endIndex; contactIndex++ {
+		cs := context.contacts[contactIndex]
 
 		contactId := cs.contactId
 
@@ -314,19 +316,34 @@ func collide(context *stepContext) {
 
 	// Contact bit set on ids because contact pointers are unstable as they move between touching and not touching.
 	contactIdCapacity := w.contactIdPool.idCapacity()
-	taskContext := &w.taskContexts[0]
-	setBitCountAndClear(&taskContext.contactStateBitSet, contactIdCapacity)
-
-	// The reference gathers the sims into one pointer array for the
-	// parallel-for. The port walks the colors and the awake set in the
-	// same order.
-	for i := range graphColorCount {
-		collideTask(graphColors[i].contactSims, context)
+	for i := range w.workerCount {
+		setBitCountAndClear(&w.taskContexts[i].contactStateBitSet, contactIdCapacity)
 	}
-	collideTask(w.solverSets[awakeSet].contactSims, context)
+
+	// One pointer array over the colors and the awake set, in that order,
+	// so the ranges split evenly.
+	w.contactPointers = slices.Grow(w.contactPointers[:0], contactCount)[:contactCount]
+	contactIndex := 0
+	for i := range graphColorCount {
+		for j := range graphColors[i].contactSims {
+			w.contactPointers[contactIndex] = &graphColors[i].contactSims[j]
+			contactIndex++
+		}
+	}
+	for i := range w.solverSets[awakeSet].contactSims {
+		w.contactPointers[contactIndex] = &w.solverSets[awakeSet].contactSims[i]
+		contactIndex++
+	}
+	context.contacts = w.contactPointers
+	w.taskCount++
+	w.executor.parallelFor(contactCount, 64, collideTask, context)
+	context.contacts = nil
 
 	// Serially update contact state
-	bitSet := &taskContext.contactStateBitSet
+	bitSet := &w.taskContexts[0].contactStateBitSet
+	for i := 1; i < w.workerCount; i++ {
+		inPlaceUnion(bitSet, &w.taskContexts[i].contactStateBitSet)
+	}
 
 	awake := &w.solverSets[awakeSet]
 

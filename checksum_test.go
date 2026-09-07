@@ -248,7 +248,7 @@ func TestStepIsWorkerCountIndependent(t *testing.T) {
 			buildRevoluteChain(worldId)
 		}},
 		{name: "sensors", enableSleep: false, build: func(_ *testing.T, worldId WorldId) {
-			buildPyramidWithSensor(worldId, 10)
+			buildPyramidWithSensors(worldId, 10, 40)
 		}},
 	}
 

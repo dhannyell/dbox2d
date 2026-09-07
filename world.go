@@ -88,6 +88,9 @@ type world struct {
 	// profile times the last Step. The clock never feeds the simulation.
 	profile Profile
 
+	// taskCount counts the tasks of the last Step, inline or not.
+	taskCount int
+
 	// taskContexts holds per-worker scratch for the step stages.
 	taskContexts []taskContext
 
@@ -841,6 +844,7 @@ func (worldId WorldId) GetCounters() Counters {
 		BodyCount: w.bodyIdPool.idCount(), ShapeCount: w.shapeIdPool.idCount(), ContactCount: w.contactIdPool.idCount(),
 		JointCount: w.jointIdPool.idCount(), IslandCount: w.islandIdPool.idCount(), StackUsed: getMaxArenaAllocation(&w.arena),
 		StaticTreeHeight: w.broadPhase.trees[StaticBody].getHeight(),
+		TaskCount:        w.taskCount,
 	}
 	result.TreeHeight = max(w.broadPhase.trees[DynamicBody].getHeight(), w.broadPhase.trees[KinematicBody].getHeight())
 	for i := range graphColorCount {
@@ -1006,6 +1010,15 @@ type taskContext struct {
 
 	// awakeIslandBitSet marks the awake islands by local index.
 	awakeIslandBitSet bitSet
+
+	// bulletBodies is the slice of the step's bullet buffer that covers
+	// this worker's body range; the ranges never overlap.
+	bulletBodies    []int
+	bulletBodyCount int
+
+	// movePairs holds the pair nodes of the moved proxies this worker
+	// queried. It keeps its capacity between steps.
+	movePairs []movePair
 
 	// splitIslandId is the sleepiest island with a pending split.
 	splitIslandId  int

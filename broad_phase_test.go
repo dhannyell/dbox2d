@@ -77,7 +77,7 @@ func TestBroadPhasePairsFollowTheRules(t *testing.T) {
 	}
 	_, _, _ = b, groundA, groundB
 
-	updateBroadPhasePairs(w)
+	updateBroadPhasePairs(w, &w.solverContext)
 	validateWorld(w)
 	w.broadPhase.validate()
 	w.broadPhase.validateNoEnlarged()
@@ -104,7 +104,7 @@ func TestBroadPhasePairsFollowTheRules(t *testing.T) {
 			w.broadPhase.bufferMove(w.shapes[i].proxyKey)
 		}
 	}
-	updateBroadPhasePairs(w)
+	updateBroadPhasePairs(w, &w.solverContext)
 	if got := w.contactIdPool.idCount(); got != 8 {
 		t.Errorf("the second update raised the contact count to %d", got)
 	}
@@ -134,7 +134,7 @@ func TestBroadPhasePairsAreSortedByShapeId(t *testing.T) {
 			w.broadPhase.validate()
 		}
 
-		updateBroadPhasePairs(w)
+		updateBroadPhasePairs(w, &w.solverContext)
 
 		// createContact may flip a pair to its primary register, so the
 		// pair is rebuilt as the broadphase saw it: the smaller proxy key
@@ -248,7 +248,7 @@ func TestBroadPhasePairsMatchBruteForce(t *testing.T) {
 		CreateCircleShape(bodyId, &shapeDef, &circle)
 	}
 
-	updateBroadPhasePairs(w)
+	updateBroadPhasePairs(w, &w.solverContext)
 	validateWorld(w)
 	w.broadPhase.validate()
 

@@ -71,6 +71,7 @@ func restingBox(t *testing.T) (*world, *body, *stepContext) {
 	awake := &w.solverSets[awakeSet]
 	context.sims = awake.bodySims
 	context.states = awake.bodyStates
+	context.bulletBodies = make([]int, len(awake.bodySims))
 
 	return w, getBodyFullId(w, boxId), context
 }
@@ -189,7 +190,7 @@ func TestRestingBoxHoldsItsGround(t *testing.T) {
 		storeOverflowImpulses(context)
 		setBitCountAndClear(&w.taskContexts[0].awakeIslandBitSet, len(w.solverSets[awakeSet].islandSims))
 		w.bodyMoveEvents = resizeMoveEvents(w.bodyMoveEvents, 1)
-		finalizeBodiesTask(0, 1, context)
+		finalizeBodiesTask(0, 1, 0, context)
 	}
 
 	tolerance := QMustParse("0.001")

@@ -789,9 +789,10 @@ func BenchmarkStepPyramid(b *testing.B) {
 	}
 }
 
-// buildPyramidWithSensor lays out the same pyramid as buildPyramid, plus one
-// wide static sensor over the ground and sensor events enabled on the boxes.
-func buildPyramidWithSensor(worldId WorldId, rows int) {
+// buildPyramidWithSensors lays out the same pyramid as buildPyramid, plus
+// sensorCount wide static sensors over the ground and sensor events on the
+// boxes.
+func buildPyramidWithSensors(worldId WorldId, rows, sensorCount int) {
 	half := QHalf()
 	groundDef := DefaultBodyDef()
 	groundDef.Position = Vec2{Y: half.Neg()}
@@ -800,13 +801,15 @@ func buildPyramidWithSensor(worldId WorldId, rows int) {
 	ground := MakeBox(QFromInt(rows), half)
 	CreatePolygonShape(groundId, &shapeDef, &ground)
 
-	sensorDef := DefaultBodyDef()
-	sensorId := CreateBody(worldId, &sensorDef)
 	sensorShapeDef := DefaultShapeDef()
 	sensorShapeDef.IsSensor = true
 	sensorShapeDef.EnableSensorEvents = true
 	sensor := MakeBox(QFromInt(rows), QMustParse("0.05"))
-	CreatePolygonShape(sensorId, &sensorShapeDef, &sensor)
+	for range sensorCount {
+		sensorDef := DefaultBodyDef()
+		sensorId := CreateBody(worldId, &sensorDef)
+		CreatePolygonShape(sensorId, &sensorShapeDef, &sensor)
+	}
 
 	bodyDef := DefaultBodyDef()
 	bodyDef.Type = DynamicBody
@@ -829,7 +832,7 @@ func BenchmarkStepSensors(b *testing.B) {
 	def.EnableSleep = false
 	worldId := CreateWorld(&def)
 	defer DestroyWorld(worldId)
-	buildPyramidWithSensor(worldId, pyramidRows)
+	buildPyramidWithSensors(worldId, pyramidRows, 1)
 
 	dt := QOne().Div(QFromInt(60))
 
@@ -1893,7 +1896,7 @@ func BenchmarkUpdateBroadPhasePairsQ(b *testing.B) {
 	defer DestroyWorld(worldId)
 	buildPyramid(worldId, pyramidRows)
 	w := getWorldFromId(worldId)
-	updateBroadPhasePairs(w)
+	updateBroadPhasePairs(w, &w.solverContext)
 	contacts := w.contactIdPool.idCount()
 	// Step grows the arena after the first pass; the bench does the same.
 	w.arena.grow()
@@ -1909,7 +1912,7 @@ func BenchmarkUpdateBroadPhasePairsQ(b *testing.B) {
 	b.ResetTimer()
 	for range b.N {
 		moveAll()
-		updateBroadPhasePairs(w)
+		updateBroadPhasePairs(w, &w.solverContext)
 	}
 	b.StopTimer()
 	if w.contactIdPool.idCount() != contacts {

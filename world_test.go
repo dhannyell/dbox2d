@@ -92,6 +92,30 @@ func TestWorldGetCounters(t *testing.T) {
 	}
 }
 
+func TestCountersReportTasks(t *testing.T) {
+	run := func(workerCount int) int {
+		def := DefaultWorldDef()
+		def.WorkerCount = workerCount
+		worldId := CreateWorld(&def)
+		if worldId.IsNull() {
+			t.Fatalf("workers=%d: CreateWorld returned the null id", workerCount)
+		}
+		defer DestroyWorld(worldId)
+		buildChecksumWitness(t, worldId)
+		worldId.Step(stepDt(), 4)
+		return worldId.GetCounters().TaskCount
+	}
+
+	one := run(1)
+	four := run(4)
+	if one <= 0 {
+		t.Fatalf("workers=1 reported TaskCount=%d, want > 0", one)
+	}
+	if four != one {
+		t.Fatalf("TaskCount differs by worker count: workers=1: %d, workers=4: %d", one, four)
+	}
+}
+
 // TestDumpMemoryStatsListsEverySection pins the section order and labels of
 // DumpMemoryStats against the reference's box2d_memory.txt layout.
 func TestDumpMemoryStatsListsEverySection(t *testing.T) {
