@@ -73,7 +73,6 @@ instead shifts the result by one raw unit. Write `s.Neg().Mul(x)`.
 | `solver` | Soft Step, warm starting, relax, restitution, islands, coloring. |
 | `broadphase` | Dynamic tree, pair finding, and the executor. |
 | `joints` | The seven joint solvers plus the filter joint, their solver stages, islands and colors. |
-| `later` | Worker tasks. |
 | `surface` | The rest of the public surface: accessors, chains, sensors, the mover, explosions and the closure-based callbacks. |
 
 ## What the inventory found
@@ -143,7 +142,8 @@ to D-007. The notes below record what moved and what did not cross.
 - `b2Perimeter` and `b2EnlargeAABB` live in `src/aabb.h`, so they stay
   unexported. Their consumer is the dynamic tree, order 29, which landed.
 - `B2_GRAPH_COLOR_COUNT` landed with the constraint graph, order 26.
-  `B2_MAX_WORKERS` waits for the worker pool. `B2_NULL_INDEX` and
+  `B2_MAX_WORKERS` landed with the worker pool as `maxWorkers` (D-016).
+  `B2_NULL_INDEX` and
   `B2_MAX_WORLDS` landed with order 10.
 - The module depends on the standard library and on the fixed-point module,
   and on nothing else. `math/bits` and `sync/atomic` arrive with the

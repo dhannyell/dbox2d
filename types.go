@@ -104,13 +104,16 @@ type RestitutionCallback func(restitutionA Q, userMaterialIdA int, restitutionB 
 
 // CustomFilterFcn decides whether two shapes may collide. It corresponds to
 // b2CustomFilterFcn; return false to reject the pair. With several workers
-// it runs on worker goroutines, so it must be safe to call concurrently.
+// it runs on worker goroutines while the step mutates the world: it must
+// not call the world API or query it, must not panic, and must be safe to
+// call concurrently.
 type CustomFilterFcn func(shapeIdA, shapeIdB ShapeId) bool
 
 // PreSolveFcn inspects a contact manifold before the solver runs. It
 // corresponds to b2PreSolveFcn; return false to disable the contact this step.
-// With several workers it runs on worker goroutines, so it must be safe to
-// call concurrently.
+// With several workers it runs on worker goroutines while the step mutates
+// the world: it must not call the world API or query it, must not panic, and
+// must be safe to call concurrently.
 type PreSolveFcn func(shapeIdA, shapeIdB ShapeId, manifold *Manifold) bool
 
 // DefaultWorldDef returns the default world definition.

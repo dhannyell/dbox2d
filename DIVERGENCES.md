@@ -519,6 +519,9 @@ Numbering is sequential from `D-001` and never reused.
   worker both run inline first. The workers spin between commands and
   park after a while; a parked worker may take one runtime object when
   it wakes, so the allocation gate holds per step, not per process. A
+  panic inside a step with several workers leaves the pool waiting on the
+  script: the world can no longer step or be destroyed, and a panic on a
+  worker goroutine ends the process. A
   step with fewer awake bodies than
   `serialBodyThreshold` runs on the caller whatever `WorkerCount` says;
   the reference has no such threshold. The custom filter, the pre-solve
