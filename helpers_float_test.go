@@ -7,8 +7,9 @@ import "math"
 // qUlps returns an absolute tolerance of n float32 ulps at one.
 func qUlps(n int64) Q { return scalarEpsilon.Mul(QFromInt(int(n))) }
 
-// mirrorTolerance covers the measured 2.4379e-4 maximum absolute and
-// 5.4911e-4 maximum relative error; the latter is a small-value floor case.
+// mirrorTolerance has a 2e-4 floor plus 2e-5 per unit of magnitude. The
+// measured maximum error is 2.4379e-4 absolute at |want| > 12, inside the
+// relative term, and 5.4911e-4 relative on small values, inside the floor.
 func mirrorTolerance(_ float64, want float64) float64 {
 	const floor = 2e-4
 	const rel = 2e-5
