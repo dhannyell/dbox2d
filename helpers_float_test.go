@@ -4,6 +4,8 @@ package dbox2d
 
 import "math"
 
+func conformanceAtan2Radians(y, x Q) Q { return atan2TurnsBody(y, x) }
+
 // qUlps returns an absolute tolerance of n float32 ulps at one.
 func qUlps(n int64) Q { return scalarEpsilon.Mul(QFromInt(int(n))) }
 
