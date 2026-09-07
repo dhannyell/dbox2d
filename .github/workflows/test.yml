@@ -68,7 +68,18 @@ jobs:
         if: matrix.goarch == 'wasm'
         run: echo "$(go env GOROOT)/lib/wasm" >> "$GITHUB_PATH"
       - name: Test
-        run: go test ./...
+        run: go test -timeout 120s ./...
+
+  race:
+    name: race (amd64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Race the executor
+        run: go test -race -timeout 300s -run 'WorkerCount|ParallelFor|Executor|SideTask|Sensor|Counters|PendingSplit' .
 
   lint:
     runs-on: ubuntu-latest
