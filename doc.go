@@ -5,6 +5,10 @@
 // every supported architecture, on every run. A world therefore survives a
 // snapshot, a replay and a rollback without drift.
 //
+// The package builds in two scalar modes. The default is Q32.32. The build tag
+// dbox2d_float selects float32 with the same determinism promise; see the
+// README for the mode details and commands.
+//
 // # Fidelity
 //
 // The package is a port of Box2D v3.1.1. It keeps the upstream file

@@ -1,7 +1,7 @@
 # dbox2d
 
-`dbox2d` is a deterministic 2D rigid body solver for Go. It computes with signed
-Q32.32 fixed-point arithmetic from
+`dbox2d` is a deterministic 2D rigid body solver for Go. The default build
+computes with signed Q32.32 fixed-point arithmetic from
 [`fixed`](https://github.com/dhannyell/fixed), so equal inputs produce the same
 result bits on every supported architecture, on every run.
 
@@ -60,8 +60,7 @@ see D-016) and a Go closure carries its own state. Any worker count gives
 the same bits; the test `TestStepIsWorkerCountIndependent` pins it.
 
 See [PORTING.md](PORTING.md) for the full map and
-[DIVERGENCES.md](DIVERGENCES.md) for what changed shape to survive fixed
-point.
+[DIVERGENCES.md](DIVERGENCES.md) for the scalar and structural differences.
 
 `DefaultDebugDraw` supplies no-op callbacks, so a host can implement only the
 operations it needs and call `worldId.Draw(&draw)`. The library walks the
@@ -75,32 +74,66 @@ the upstream order of operations. Years of edge-case work are the reason the
 port exists, and a faithful port lets each function be compared against its
 upstream counterpart.
 
-The port preserves the upstream formulation, not its output bits. Box2D
-computes in floating point; `dbox2d` computes in fixed point, so the two produce
-different trajectories. Every place where fixed-point arithmetic forbids the
-original line is a divergence, and every divergence carries a reason and a
-test in [DIVERGENCES.md](DIVERGENCES.md). [PORTING.md](PORTING.md) maps each
-upstream file to its Go counterpart and to how faithful that port is.
+The port preserves the upstream formulation, not its output bits. The default
+build computes in fixed point; the float build computes in float32, so the two
+modes can produce different trajectories. Every place where fixed-point
+arithmetic forbids the original line is a divergence, and every divergence
+carries a reason and a test in [DIVERGENCES.md](DIVERGENCES.md).
+[PORTING.md](PORTING.md) maps each upstream file to its Go counterpart and to
+how faithful that port is.
 
 `dbox2d` is not affiliated with the Box2D project, and it is neither endorsed
 nor supported by its author. Report defects here, never upstream.
 
 ## Scalar modes
 
-The library computes with one scalar type per build. Today there is one mode:
-`Q` is a signed Q32.32 fixed-point number from
-[fixed](https://github.com/dhannyell/fixed). One file, `scalar_fixed.go`, owns
-the type and its constructors; outside the tests and the raw-format helpers,
-no other file names the fixed module. Build a value with the constructors of
-the layer:
+The library computes with one scalar type per build. `Q` is a struct in both
+modes, so the package compiles through the same constructors and solver code.
+
+| mode | scalar | build tag | cross-platform determinism | notes |
+|---|---|---|---|---|
+| fixed | signed Q32.32 from [fixed](https://github.com/dhannyell/fixed) | default (`!dbox2d_float`) | Q32.32 bits | Fixed-module arithmetic and CORDIC-style trigonometry. |
+| float | `float32` in `Q` | `dbox2d_float` | float32 bits on amd64, arm64, 386 and wasm | Explicit float32 rounding, reference guards and reference trigonometry. |
+
+Float mode computes products, quotients and square roots through float64, then
+converts explicitly to float32. This rounds once and blocks fused multiply-add
+with a following add. CI cross-compiles the float mode to arm64 with
+`-gcflags=-S` and rejects `FMADD`, `FMSUB`, `FNMADD`, `FNMSUB`, `FMLA` and
+`FMLS`. Its pinned witness is checked on amd64, arm64, 386 and wasm.
+
+Build a value with the constructors of the layer:
 
 - `QZero()`, `QOne()`, `QHalf()`
 - `QFromInt(i)`, `QFromRatio(num, den)`, `QMustParse("0.35")`
 - `QMaxValue()`, `QMinValue()`
 - `RotIdentity()`, `MakeRot(turns)`
 
-The build tag `dbox2d_float` is reserved for a floating-point mode. It does not
-build yet.
+The scalar mode also selects trigonometry, epsilon guards, validity checks,
+normalization tolerance and checksum bits. Solver stages, operation order,
+iteration counts, worker rules, `Huge` and the constants in `constants.go` do
+not change. `QFromFloat64` and `QToFloat64` are presentation conversions; the
+simulation does not call them.
+
+| scene | fixed µs/op | float µs/op | float / fixed |
+|---|---|---|---|
+| StepPyramid | 2143 | 733 | 0.34 |
+| StepSensors | 2140 | 738 | 0.35 |
+| StepBullets | 59.0 | 46.8 | 0.79 |
+| StepRevoluteChain | 57.1 | 25.7 | 0.45 |
+
+CPU: AMD Ryzen 7 5800X3D, GOMAXPROCS=16, Windows/amd64, count 6, benchstat.
+
+Build and test the float mode:
+
+```sh
+go build -tags dbox2d_float ./...
+go test -tags dbox2d_float ./...
+cd samples
+go test -tags dbox2d_float ./...
+go run -tags dbox2d_float ./cmd/native
+```
+
+The Pages wasm build stays in the fixed mode.
 
 ## Install
 
@@ -110,8 +143,8 @@ go get github.com/dhannyell/dbox2d
 
 ## Performance
 
-Fixed point buys determinism and pays in speed. The repository measures that
-price with eight benchmark pairs and one bullet composite in
+Fixed point pays in speed against the float64 mirror. The repository measures
+that price with eight benchmark pairs and one bullet composite in
 `bench_test.go`. Each pair runs the Q32.32
 code against a line-by-line `float64` mirror of the same code, which stands
 in for the floating-point formulation of the reference.

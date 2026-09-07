@@ -28,8 +28,9 @@ A name is exported when the reference exports it from `include/box2d/`, plus
 the tolerances of `constants.h`, which content authoring needs. Everything
 else that the reference keeps under `src/` stays unexported here.
 
-The scalar has one owner, `scalar_fixed.go`. It declares `Q`, `Vec2` and `Rot`
-and the constructors that build a scalar. Every other file calls those
+The scalar has two owners: `scalar_fixed.go` is the default Q32.32 mode, and
+`scalar_float.go` is the `dbox2d_float` float32 mode. Both declare `Q`, `Vec2`
+and `Rot` and the constructors that build a scalar. Every other file calls those
 constructors; only the tests that read the raw format still import the fixed
 module. A second scalar mode is a second file under another build tag, not a
 sweep of the solver.
@@ -595,7 +596,7 @@ D-014 grew entries.
 |---|---|---|---|---|---|
 | `src/constants.h` | `constants.go` | T1 | foundation | 1 | Each constant keeps the upstream value in a comment. `B2_LINEAR_SLOP` is 0.005 m; the speculative distance is four slops. |
 | `include/box2d/base.h`, `src/core.h`, `src/core.c` | `core.go` | T1/T2 | foundation | 2 | Platform, SIMD and profiler macros do not cross. Allocation hooks become Go allocation. |
-| `include/box2d/math_functions.h`, `src/math_functions.c` | `math.go` | T1/T2 | foundation | 3 | Vector and rotation come from the fixed-point module. Only the shapes that module lacks stay here: `Transform`, sweeps, validation. |
+| `include/box2d/math_functions.h`, `src/math_functions.c` | `math.go` | T1/T2 | foundation | 3 | Vector and rotation use the per-mode scalar implementations: fixed-module functions in fixed mode, and the reference Bhaskara cosine/sine approximation plus atan polynomial in float mode. Only the shapes those implementations lack stay here: `Transform`, sweeps, validation. |
 | `src/aabb.h` | `aabb.go` | T0 | foundation | 4 | Union, overlap and contains. |
 | `include/box2d/id.h` | `id.go` | T0 | foundation | 5 | Index plus generation handles. |
 | `src/id_pool.h`, `src/id_pool.c` | `id_pool.go` | T0 | foundation | 6 | Free list over a monotonic index. |

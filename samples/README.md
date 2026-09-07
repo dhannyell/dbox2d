@@ -19,6 +19,14 @@ Metal or D3D12.
 
 ```bash
 cd samples && go run ./cmd/native
+cd samples && go run -tags dbox2d_float ./cmd/native
+```
+
+## Test
+
+```bash
+cd samples && go test ./...
+cd samples && go test -tags dbox2d_float ./...
 ```
 
 ## Run the browser host
