@@ -17,6 +17,13 @@ type executorTestState struct {
 	rangeCount int32
 }
 
+type executorSideTestState struct {
+	itemVisits   []int32
+	workerVisits []int32
+	sideCount    int32
+	bad          int32
+}
+
 func recordExecutorRange(startIndex, endIndex, workerIndex int, context *stepContext) {
 	state := context.world.userData.(*executorTestState)
 	if workerIndex < 0 || workerIndex >= len(state.inUse) || startIndex >= endIndex {
@@ -39,6 +46,31 @@ func recordExecutorRange(startIndex, endIndex, workerIndex int, context *stepCon
 func noopExecutorTask(startIndex, endIndex, workerIndex int, context *stepContext) {}
 
 func noopExecutorWorker(workerIndex int, context *stepContext) {}
+
+func noopExecutorSide(context *stepContext) {}
+
+func recordExecutorSide(context *stepContext) {
+	state := context.world.userData.(*executorSideTestState)
+	atomic.AddInt32(&state.sideCount, 1)
+}
+
+func recordExecutorSideRange(startIndex, endIndex, workerIndex int, context *stepContext) {
+	state := context.world.userData.(*executorSideTestState)
+	if workerIndex == len(state.workerVisits)-1 && atomic.LoadInt32(&state.sideCount) != 1 {
+		atomic.StoreInt32(&state.bad, 1)
+	}
+	for i := startIndex; i < endIndex; i++ {
+		atomic.AddInt32(&state.itemVisits[i], 1)
+	}
+}
+
+func recordExecutorSideWorker(workerIndex int, context *stepContext) {
+	state := context.world.userData.(*executorSideTestState)
+	if workerIndex == len(state.workerVisits)-1 && atomic.LoadInt32(&state.sideCount) != 1 {
+		atomic.StoreInt32(&state.bad, 1)
+	}
+	atomic.AddInt32(&state.workerVisits[workerIndex], 1)
+}
 
 func TestParallelForCoversTheRangeOnce(t *testing.T) {
 	for _, workerCount := range []int{1, 2, 3, 4, 8} {
@@ -106,6 +138,48 @@ func TestRunContextVisitsEveryWorker(t *testing.T) {
 		for workerIndex, count := range visits {
 			if got := atomic.LoadInt32(&count); got != 1 {
 				t.Fatalf("workers=%d index=%d: got %d visits, want 1", workerCount, workerIndex, got)
+			}
+		}
+		e.stop()
+	}
+}
+
+func TestSideTaskRunsOnceBeforeTheWorkersFinish(t *testing.T) {
+	for _, requestedWorkerCount := range []int{1, 2, 4} {
+		e := &executor{workerCount: requestedWorkerCount}
+		e.start(requestedWorkerCount)
+		workerCount := e.workerCount
+
+		state := &executorSideTestState{
+			itemVisits:   make([]int32, 1000),
+			workerVisits: make([]int32, workerCount),
+		}
+		context := &stepContext{world: &world{userData: state}}
+		e.parallelForWithSide(1000, 64, recordExecutorSideRange, recordExecutorSide, context)
+		if got := atomic.LoadInt32(&state.sideCount); got != 1 {
+			t.Fatalf("parallelForWithSide workers=%d: side ran %d times, want 1", workerCount, got)
+		}
+		if atomic.LoadInt32(&state.bad) != 0 {
+			t.Fatalf("parallelForWithSide workers=%d: last worker started before the side task", workerCount)
+		}
+		for i := range state.itemVisits {
+			if got := atomic.LoadInt32(&state.itemVisits[i]); got != 1 {
+				t.Fatalf("parallelForWithSide workers=%d index=%d: got %d visits, want 1", workerCount, i, got)
+			}
+		}
+
+		atomic.StoreInt32(&state.sideCount, 0)
+		atomic.StoreInt32(&state.bad, 0)
+		e.runContextWithSide(recordExecutorSideWorker, recordExecutorSide, context)
+		if got := atomic.LoadInt32(&state.sideCount); got != 1 {
+			t.Fatalf("runContextWithSide workers=%d: side ran %d times, want 1", workerCount, got)
+		}
+		if atomic.LoadInt32(&state.bad) != 0 {
+			t.Fatalf("runContextWithSide workers=%d: last worker started before the side task", workerCount)
+		}
+		for workerIndex := range workerCount {
+			if got := atomic.LoadInt32(&state.workerVisits[workerIndex]); got != 1 {
+				t.Fatalf("runContextWithSide workers=%d index=%d: got %d visits, want 1", workerCount, workerIndex, got)
 			}
 		}
 		e.stop()
@@ -243,8 +317,18 @@ func TestParallelForDoesNotAllocate(t *testing.T) {
 		t.Fatalf("parallelFor allocated %f times per run", got)
 	}
 	if got := testing.AllocsPerRun(100, func() {
+		e.parallelForWithSide(1000, 64, noopExecutorTask, noopExecutorSide, nil)
+	}); got != 0 {
+		t.Fatalf("parallelForWithSide allocated %f times per run", got)
+	}
+	if got := testing.AllocsPerRun(100, func() {
 		e.runContext(noopExecutorWorker, nil)
 	}); got != 0 {
 		t.Fatalf("runContext allocated %f times per run", got)
+	}
+	if got := testing.AllocsPerRun(100, func() {
+		e.runContextWithSide(noopExecutorWorker, noopExecutorSide, nil)
+	}); got != 0 {
+		t.Fatalf("runContextWithSide allocated %f times per run", got)
 	}
 }

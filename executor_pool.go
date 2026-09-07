@@ -20,6 +20,7 @@ const idleSpinLimit = 4096
 type executorCommand struct {
 	fn           taskFunc
 	runContextFn func(workerIndex int, context *stepContext)
+	sideFn       func(context *stepContext)
 	context      *stepContext
 	rangeCount   int
 	rangeSize    int
@@ -125,6 +126,9 @@ func (e *executor) worker(workerIndex int, seen uint32) {
 		seen = e.generation.Load()
 
 		command := &e.command
+		if command.sideFn != nil && workerIndex == e.workerCount-1 {
+			command.sideFn(command.context)
+		}
 		switch {
 		case command.fn != nil:
 			if workerIndex < command.rangeCount {
@@ -144,11 +148,19 @@ func (e *executor) worker(workerIndex int, seen uint32) {
 // parallelFor splits [0, itemCount) into at most workerCount ranges of at
 // least minRange items, unless itemCount is smaller. Worker 0 is the caller.
 func (e *executor) parallelFor(itemCount, minRange int, fn taskFunc, context *stepContext) {
-	if itemCount == 0 {
-		return
-	}
+	e.parallelForWithSide(itemCount, minRange, fn, nil, context)
+}
+
+// parallelForWithSide also runs sideFn once, on the last worker before its
+// range; with one worker sideFn runs first on the caller.
+func (e *executor) parallelForWithSide(itemCount, minRange int, fn taskFunc, sideFn func(*stepContext), context *stepContext) {
 	if e.workerCount <= 1 || itemCount <= minRange {
-		fn(0, itemCount, 0, context)
+		if sideFn != nil {
+			sideFn(context)
+		}
+		if itemCount > 0 {
+			fn(0, itemCount, 0, context)
+		}
 		return
 	}
 	if !e.started {
@@ -157,7 +169,7 @@ func (e *executor) parallelFor(itemCount, minRange int, fn taskFunc, context *st
 
 	rangeCount := min(e.workerCount, (itemCount+minRange-1)/minRange)
 	rangeSize := (itemCount + rangeCount - 1) / rangeCount
-	e.command = executorCommand{fn: fn, context: context, rangeCount: rangeCount, rangeSize: rangeSize, itemCount: itemCount}
+	e.command = executorCommand{fn: fn, sideFn: sideFn, context: context, rangeCount: rangeCount, rangeSize: rangeSize, itemCount: itemCount}
 	e.publish()
 
 	fn(0, min(rangeSize, itemCount), 0, context)
@@ -167,14 +179,22 @@ func (e *executor) parallelFor(itemCount, minRange int, fn taskFunc, context *st
 // runContext calls fn once per worker with the step context. Worker 0 is
 // the caller. The context travels in the command, so fn captures nothing.
 func (e *executor) runContext(fn func(workerIndex int, context *stepContext), context *stepContext) {
+	e.runContextWithSide(fn, nil, context)
+}
+
+// runContextWithSide also runs sideFn once, on the last worker before fn.
+func (e *executor) runContextWithSide(fn func(workerIndex int, context *stepContext), sideFn func(*stepContext), context *stepContext) {
 	if e.workerCount <= 1 {
+		if sideFn != nil {
+			sideFn(context)
+		}
 		fn(0, context)
 		return
 	}
 	if !e.started {
 		e.start(e.workerCount)
 	}
-	e.command = executorCommand{runContextFn: fn, context: context}
+	e.command = executorCommand{runContextFn: fn, sideFn: sideFn, context: context}
 	e.publish()
 
 	fn(0, context)

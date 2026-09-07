@@ -260,6 +260,12 @@ func collideTask(startIndex, endIndex, workerIndex int, context *stepContext) {
 	}
 }
 
+// rebuildTreesSide is the side task of collide. It corresponds to
+// b2UpdateTreesTask in src/world.c.
+func rebuildTreesSide(context *stepContext) {
+	context.world.broadPhase.rebuildTrees()
+}
+
 // addNonTouchingContact copies a sim that stopped touching into the awake
 // set. It corresponds to b2AddNonTouchingContact in src/world.c.
 func addNonTouchingContact(w *world, c *contact, cs *contactSim) {
@@ -297,10 +303,6 @@ func removeNonTouchingContact(w *world, setIndex, localIndex int) {
 func collide(context *stepContext) {
 	w := context.world
 
-	// The reference rebuilds the trees on a task beside the collide pass
-	// and finishes it before the refit. One worker rebuilds them first.
-	w.broadPhase.rebuildTrees()
-
 	graphColors := &w.constraintGraph.colors
 	contactCount := 0
 	for i := range graphColorCount {
@@ -311,6 +313,8 @@ func collide(context *stepContext) {
 	contactCount += nonTouchingCount
 
 	if contactCount == 0 {
+		w.taskCount++
+		w.broadPhase.rebuildTrees()
 		return
 	}
 
@@ -335,8 +339,10 @@ func collide(context *stepContext) {
 		contactIndex++
 	}
 	context.contacts = w.contactPointers
-	w.taskCount++
-	w.executor.parallelFor(contactCount, 64, collideTask, context)
+	// The tree rebuild rides beside the pass on the last worker; the
+	// reference lets it run until the refit.
+	w.taskCount += 2
+	w.executor.parallelForWithSide(contactCount, 64, collideTask, rebuildTreesSide, context)
 	context.contacts = nil
 
 	// Serially update contact state

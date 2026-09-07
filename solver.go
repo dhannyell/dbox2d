@@ -304,6 +304,15 @@ func solverTask(workerIndex int, context *stepContext) {
 	solverWorkerTask(worker)
 }
 
+// splitIslandSide is the side task of the solver script. It corresponds
+// to b2SplitIslandTask in src/solver.c.
+func splitIslandSide(context *stepContext) {
+	w := context.world
+	splitStart := time.Now()
+	splitIsland(w, w.splitIslandId)
+	w.profile.SplitIslands += millisecondsSince(splitStart)
+}
+
 func solverMainTask(context *stepContext) {
 	activeColorCount := context.activeColorCount
 	stages := context.stages
@@ -1171,20 +1180,15 @@ func solve(w *world, context *stepContext) {
 
 		// The constraint stages run as one persistent-pool job per worker.
 		solveConstraintsStart := time.Now()
-		w.taskCount++
-		w.executor.runContext(solverTask, context)
-
-		// Split an awake island. This modifies:
-		// - stack allocator
-		// - world island array and solver set
-		// - island indices on bodies, contacts, and joints
-		// The reference runs the split beside the constraint solve. The
-		// split cannot run beside the body finalize.
+		var sideFn func(*stepContext)
 		if w.splitIslandId != nullIndex {
-			splitStart := time.Now()
-			splitIsland(w, w.splitIslandId)
-			w.profile.SplitIslands += millisecondsSince(splitStart)
+			sideFn = splitIslandSide
+			w.taskCount++
 		}
+		// The split writes the islands and their links, which the script
+		// never reads; the body finalize must wait for it.
+		w.taskCount++
+		w.executor.runContextWithSide(solverTask, sideFn, context)
 		w.splitIslandId = nullIndex
 
 		w.profile.SolveConstraints = millisecondsSince(solveConstraintsStart)
