@@ -29,7 +29,7 @@ func checksumBool(h uint64, value bool) uint64 {
 }
 
 func checksumQ(h uint64, value Q) uint64 {
-	return fnvFold(h, uint64(value.Raw()))
+	return fnvFold(h, qBits(value))
 }
 
 func checksumVec2(h uint64, value Vec2) uint64 {
