@@ -1,10 +1,6 @@
 package dbox2d
 
-import (
-	"testing"
-
-	"github.com/dhannyell/fixed"
-)
+import "testing"
 
 // TestBodyAccessorsRoundTrip verifies scalar, data, and boolean accessors.
 func TestBodyAccessorsRoundTrip(t *testing.T) {
@@ -369,7 +365,7 @@ func TestSetTypeKinematicFollowsVelocity(t *testing.T) {
 		worldId.Step(stepDt(), 4)
 	}
 	wantX := QOne()
-	if got := body.GetPosition().X; !withinQ(got, wantX, fixed.Q32FromRaw(64)) {
+	if got := body.GetPosition().X; !withinQ(got, wantX, qUlps(64)) {
 		t.Fatalf("body x = %v, want %v", got, wantX)
 	}
 	validateWorld(w)
@@ -414,7 +410,7 @@ func TestSetTargetTransformDerivesVelocity(t *testing.T) {
 	// (1 m - 0 m) / (1/60 s) = 60 m/s; (0.25 turn - 0 turn) / (1/60 s) = 15 turns/s.
 	linearWant := v2(60, 0)
 	angularWant := QMustParse("0.25").Mul(QFromInt(60))
-	tolerance := fixed.Q32FromRaw(2048)
+	tolerance := qUlps(2048)
 	if got := body.GetLinearVelocity(); !withinQ(got.X, linearWant.X, tolerance) || !withinQ(got.Y, linearWant.Y, tolerance) {
 		t.Errorf("linear velocity = %v, want %v", got, linearWant)
 	}
@@ -468,7 +464,7 @@ func TestApplyAngularImpulseInTurns(t *testing.T) {
 	inertia := bodyId.GetRotationalInertia()
 	bodyId.ApplyAngularImpulse(inertia, true)
 	want := QOne().Div(tau)
-	if !withinQ(bodyId.GetAngularVelocity(), want, fixed.Q32FromRaw(4)) {
+	if !withinQ(bodyId.GetAngularVelocity(), want, qUlps(4)) {
 		t.Fatalf("angular velocity = %v, want %v turns/s", bodyId.GetAngularVelocity(), want)
 	}
 }
@@ -484,7 +480,7 @@ func TestGetLocalPointVelocityUsesTurns(t *testing.T) {
 	bodyId.SetAngularVelocity(w)
 	want := v.Add(CrossSV(tau.Mul(w), r))
 	got := bodyId.GetLocalPointVelocity(r)
-	if !withinQ(got.X, want.X, fixed.Q32FromRaw(8)) || !withinQ(got.Y, want.Y, fixed.Q32FromRaw(8)) {
+	if !withinQ(got.X, want.X, qUlps(8)) || !withinQ(got.Y, want.Y, qUlps(8)) {
 		t.Fatalf("local point velocity = %v, want %v", got, want)
 	}
 }

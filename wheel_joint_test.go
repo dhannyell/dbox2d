@@ -3,8 +3,6 @@ package dbox2d
 import (
 	"math"
 	"testing"
-
-	"github.com/dhannyell/fixed"
 )
 
 // This file tests the wheel joint solver with hand-computed cases and with
@@ -53,7 +51,7 @@ func TestWheelLineHoldsTheBox(t *testing.T) {
 	prepareJointsTask(0, len(context.joints), context)
 	solveJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex, false)
 
-	tolerance := fixed.Q32FromRaw(1 << 12)
+	tolerance := qUlps(1 << 12)
 	js := getJointSim(w, j)
 	if !withinQ(js.wheelJoint.perpImpulse, QOne(), tolerance) {
 		t.Errorf("perpImpulse is %v, want 1", js.wheelJoint.perpImpulse)
@@ -92,7 +90,7 @@ func TestWheelUpperLimitStopsTheTravel(t *testing.T) {
 	prepareJointsTask(0, len(context.joints), context)
 	solveJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex, false)
 
-	tolerance := fixed.Q32FromRaw(1 << 12)
+	tolerance := qUlps(1 << 12)
 	js := getJointSim(w, j)
 	if !js.wheelJoint.lowerImpulse.Eq(QZero()) || !withinQ(js.wheelJoint.upperImpulse, QOne(), tolerance) {
 		t.Errorf("the limit impulses are %v and %v, want 0 and 1", js.wheelJoint.lowerImpulse, js.wheelJoint.upperImpulse)
@@ -121,7 +119,7 @@ func TestWheelMotorSaturatesAtTheTorque(t *testing.T) {
 	prepareJointsTask(0, len(context.joints), context)
 	solveJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex, false)
 
-	tolerance := fixed.Q32FromRaw(1 << 12)
+	tolerance := qUlps(1 << 12)
 	js := getJointSim(w, j)
 	if !withinQ(js.wheelJoint.motorImpulse, QFromRatio(5, 12), tolerance) {
 		t.Errorf("motorImpulse is %v, want 5/12", js.wheelJoint.motorImpulse)

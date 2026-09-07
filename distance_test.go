@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/dhannyell/dbox2d"
-	"github.com/dhannyell/fixed"
 )
 
 func vec(x, y int) dbox2d.Vec2 {
@@ -273,10 +272,8 @@ func randomDistanceInput(rng *rand.Rand) dbox2d.DistanceInput {
 // and checks the iteration bound, the unit normal, a zero saturation
 // count and a fixed witness of the result bits.
 func TestShapeDistanceConvergesOnRandomPairs(t *testing.T) {
-	const witness uint64 = 13937014052321988253
-
 	rng := rand.New(rand.NewSource(1))
-	fixed.ResetSaturationCount()
+	resetSaturationCount()
 	h := fnv.New64a()
 	var buf [8]byte
 
@@ -296,16 +293,16 @@ func TestShapeDistanceConvergesOnRandomPairs(t *testing.T) {
 		}
 
 		for _, q := range []dbox2d.Q{out.Distance, out.PointA.X, out.PointA.Y, out.PointB.X, out.PointB.Y} {
-			binary.LittleEndian.PutUint64(buf[:], uint64(q.Raw()))
+			binary.LittleEndian.PutUint64(buf[:], qBits(q))
 			h.Write(buf[:])
 		}
 	}
 
-	if n := fixed.SaturationCount(); n != 0 {
+	if n := saturationCount(); n != 0 {
 		t.Fatalf("saturation count %d", n)
 	}
-	if got := h.Sum64(); got != witness {
-		t.Fatalf("witness %d, want %d", got, witness)
+	if got := h.Sum64(); got != shapeDistanceWitness {
+		t.Fatalf("witness %d, want %d", got, shapeDistanceWitness)
 	}
 }
 
@@ -555,12 +552,10 @@ func randomTOIInput(rng *rand.Rand) dbox2d.TOIInput {
 // random sweeps against the gap at the reported fraction, pins the bits
 // with a witness and confirms that no operation saturated.
 func TestTimeOfImpactConvergesOnRandomSweeps(t *testing.T) {
-	const witness uint64 = 3402533517278441094
-
 	rng := rand.New(rand.NewSource(11))
 	hash := fnv.New64a()
 	var buf [8]byte
-	fixed.ResetSaturationCount()
+	resetSaturationCount()
 	hits, failed := 0, 0
 
 	for range 1000 {
@@ -597,7 +592,7 @@ func TestTimeOfImpactConvergesOnRandomSweeps(t *testing.T) {
 
 		binary.LittleEndian.PutUint64(buf[:], uint64(out.State))
 		hash.Write(buf[:])
-		binary.LittleEndian.PutUint64(buf[:], uint64(out.Fraction.Raw()))
+		binary.LittleEndian.PutUint64(buf[:], qBits(out.Fraction))
 		hash.Write(buf[:])
 	}
 
@@ -607,11 +602,11 @@ func TestTimeOfImpactConvergesOnRandomSweeps(t *testing.T) {
 	if failed > 10 {
 		t.Fatalf("%d sweeps failed", failed)
 	}
-	if n := fixed.SaturationCount(); n != 0 {
+	if n := saturationCount(); n != 0 {
 		t.Fatalf("%d operations saturated", n)
 	}
-	if got := hash.Sum64(); got != witness {
-		t.Fatalf("witness %d, want %d", got, witness)
+	if got := hash.Sum64(); got != timeOfImpactWitness {
+		t.Fatalf("witness %d, want %d", got, timeOfImpactWitness)
 	}
 }
 

@@ -2006,7 +2006,7 @@ func newF64PyramidBroadPhase() *f64BroadPhase {
 		bp.trees[i] = newF64Tree()
 	}
 	// The fat bounds grow by the speculative distance and the margin.
-	grow := qFloat(speculativeDistance) + qFloat(aabbMargin)
+	grow := QToFloat64(speculativeDistance) + QToFloat64(aabbMargin)
 
 	rows := float64(pyramidRows)
 	ground := f64AABB{-rows - grow, -1 - grow, rows + grow, grow}

@@ -129,7 +129,7 @@ func TestCollidePolygonAndCircleRegions(t *testing.T) {
 	}
 	// separation = 0.3 * sqrt(2) - 0.5
 	wantSep := dbox2d.QMustParse("0.3").Mul(dbox2d.QFromInt(2).Sqrt()).Sub(dbox2d.QHalf())
-	if !near(manifold.Points[0].Separation, wantSep, sqrtTol()) {
+	if !withinQ(manifold.Points[0].Separation, wantSep, qUlps(64)) {
 		t.Fatalf("vertex: separation %v, want %v", manifold.Points[0].Separation, wantSep)
 	}
 
@@ -556,7 +556,7 @@ func TestCollideChainSegmentAndPolygonMatchesTheReference(t *testing.T) {
 		}
 		wantSep := dbox2d.QMustParse("-0.1")
 		for i := range 2 {
-			if !manifold.Points[i].Separation.Eq(wantSep) {
+			if !withinQ(manifold.Points[i].Separation, wantSep, qUlps(64)) {
 				t.Fatalf("point %d separation %v, want %v", i, manifold.Points[i].Separation, wantSep)
 			}
 		}

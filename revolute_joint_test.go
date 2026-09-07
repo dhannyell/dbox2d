@@ -1,10 +1,6 @@
 package dbox2d
 
-import (
-	"testing"
-
-	"github.com/dhannyell/fixed"
-)
+import "testing"
 
 // This file tests the revolute joint solver with hand-computed cases: one
 // prepare and one solve iteration with a known sub-step. The composite
@@ -80,7 +76,7 @@ func TestRevoluteHoldsTheAnchor(t *testing.T) {
 	prepareJointsTask(0, len(context.joints), context)
 	solveJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex, false)
 
-	tolerance := fixed.Q32FromRaw(1 << 12)
+	tolerance := qUlps(1 << 12)
 	js := getJointSim(w, j)
 	seventh := QFromRatio(1, 7)
 	if !withinQ(js.revoluteJoint.linearImpulse.X, QZero(), tolerance) || !withinQ(js.revoluteJoint.linearImpulse.Y, seventh, tolerance) {
@@ -124,7 +120,7 @@ func TestRevoluteLimitStopsTheSpin(t *testing.T) {
 	prepareJointsTask(0, len(context.joints), context)
 	solveJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex, false)
 
-	tolerance := fixed.Q32FromRaw(1 << 12)
+	tolerance := qUlps(1 << 12)
 	js := getJointSim(w, j)
 	sixth := QFromRatio(1, 6)
 	if !js.revoluteJoint.lowerImpulse.Eq(QZero()) || !withinQ(js.revoluteJoint.upperImpulse, sixth, tolerance) {
@@ -155,7 +151,7 @@ func TestRevoluteMotorSaturatesAtTheTorque(t *testing.T) {
 	prepareJointsTask(0, len(context.joints), context)
 	solveJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex, false)
 
-	tolerance := fixed.Q32FromRaw(1 << 12)
+	tolerance := qUlps(1 << 12)
 	js := getJointSim(w, j)
 	if !withinQ(js.revoluteJoint.motorImpulse, QFromRatio(5, 12), tolerance) {
 		t.Errorf("motorImpulse is %v, want 5/12", js.revoluteJoint.motorImpulse)
@@ -192,7 +188,7 @@ func TestRevoluteJointAccessorsRoundTrip(t *testing.T) {
 	def.BodyIdA = groundId
 	def.BodyIdB = bodyId
 	jointId := CreateRevoluteJoint(worldId, &def)
-	tolerance := fixed.Q32FromRaw(1 << 12)
+	tolerance := qUlps(1 << 12)
 
 	qCases := []struct {
 		name string
@@ -249,7 +245,7 @@ func TestRevoluteJointGetAngleInTurns(t *testing.T) {
 	def.BodyIdB = bodyId
 	jointId := CreateRevoluteJoint(worldId, &def)
 	bodyId.SetTransform(Vec2Zero(), MakeRot(QFromRatio(1, 4)))
-	if got := jointId.GetAngle(); !withinQ(got, QFromRatio(1, 4), fixed.Q32FromRaw(1<<12)) {
+	if got := jointId.GetAngle(); !withinQ(got, QFromRatio(1, 4), qUlps(1<<12)) {
 		t.Errorf("angle = %v turns, want 0.25", got)
 	}
 }

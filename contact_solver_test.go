@@ -1,10 +1,6 @@
 package dbox2d
 
-import (
-	"testing"
-
-	"github.com/dhannyell/fixed"
-)
+import "testing"
 
 // withinQ reports whether a and b differ by at most limit.
 func withinQ(a, b, limit Q) bool {
@@ -93,7 +89,7 @@ func TestMakeSoftSplitsTheUnit(t *testing.T) {
 		t.Errorf("biasRate is %v, want %v", soft.biasRate, omega.Div(a1))
 	}
 	one := QOne()
-	tolerance := fixed.Q32FromRaw(4)
+	tolerance := qUlps(4)
 	if !withinQ(soft.massScale.Add(soft.impulseScale), one, tolerance) {
 		t.Errorf("massScale %v + impulseScale %v is not one", soft.massScale, soft.impulseScale)
 	}
@@ -119,7 +115,7 @@ func TestPrepareOverflowContactsBuildsTheMasses(t *testing.T) {
 	if constraint.softness != context.staticSoftness {
 		t.Errorf("a ground contact did not take the static softness")
 	}
-	tolerance := fixed.Q32FromRaw(64)
+	tolerance := qUlps(64)
 	if constraint.invMassB != QOne() || !withinQ(constraint.invIB, QFromInt(6), tolerance) {
 		t.Errorf("the box has inverse mass %v and inverse inertia %v, want 1 and 6", constraint.invMassB, constraint.invIB)
 	}
@@ -268,7 +264,7 @@ func TestRestitutionNeedsTheThreshold(t *testing.T) {
 			}
 			// -restitution * relativeVelocity = 1.5
 			want := QMustParse("1.5")
-			if !withinQ(state.linearVelocity.Y, want, fixed.Q32FromRaw(16)) {
+			if !withinQ(state.linearVelocity.Y, want, qUlps(16)) {
 				t.Errorf("the bounce is %v, want %v", state.linearVelocity.Y, want)
 			}
 		})
