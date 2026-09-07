@@ -193,10 +193,8 @@ func TestChecksumSeesAPendingSplit(t *testing.T) {
 	}
 }
 
-// TestChecksumMatchesDeterministicWitness pins one value across processes and
-// architectures. Every CI target must produce the same integer.
-func TestChecksumMatchesDeterministicWitness(t *testing.T) {
-	worldId := createTestWorld(t)
+func buildChecksumWitness(t *testing.T, worldId WorldId) {
+	t.Helper()
 	var bodies [5]BodyId
 	for i := range 5 {
 		position := v2(i*3, i)
@@ -209,6 +207,13 @@ func TestChecksumMatchesDeterministicWitness(t *testing.T) {
 		b := getBodyFullId(w, id)
 		getBodyState(w, b).angularVelocity = QMustParse("0.1")
 	}
+}
+
+// TestChecksumMatchesDeterministicWitness pins one value across processes and
+// architectures. Every CI target must produce the same integer.
+func TestChecksumMatchesDeterministicWitness(t *testing.T) {
+	worldId := createTestWorld(t)
+	buildChecksumWitness(t, worldId)
 
 	// Only the boxes 0 and 1 overlap, and the broadphase pairs them on the
 	// first step.
@@ -221,6 +226,120 @@ func TestChecksumMatchesDeterministicWitness(t *testing.T) {
 	const want uint64 = 4734897736241209759
 	if got := Checksum(worldId); got != want {
 		t.Errorf("checksum = %d, want %d", got, want)
+	}
+}
+
+func buildSplitStacks(worldId WorldId) BodyId {
+	half := QHalf()
+	groundDef := DefaultBodyDef()
+	groundDef.Position = Vec2{Y: half.Neg()}
+	groundId := CreateBody(worldId, &groundDef)
+	shapeDef := DefaultShapeDef()
+	ground := MakeBox(QFromInt(4), half)
+	CreatePolygonShape(groundId, &shapeDef, &ground)
+
+	bodyDef := DefaultBodyDef()
+	bodyDef.Type = DynamicBody
+	box := MakeSquare(half)
+	x := QFromRatio(3, 4)
+	for i := range 3 {
+		bodyDef.Position = Vec2{X: x.Neg(), Y: QFromInt(i).Add(half)}
+		bodyId := CreateBody(worldId, &bodyDef)
+		CreatePolygonShape(bodyId, &shapeDef, &box)
+
+		bodyDef.Position.X = x
+		bodyId = CreateBody(worldId, &bodyDef)
+		CreatePolygonShape(bodyId, &shapeDef, &box)
+	}
+
+	bodyDef.Position = Vec2{Y: QFromRatio(13, 4)}
+	connectorId := CreateBody(worldId, &bodyDef)
+	connector := MakeBox(QFromRatio(3, 2), QFromRatio(1, 4))
+	CreatePolygonShape(connectorId, &shapeDef, &connector)
+	return connectorId
+}
+
+func TestStepIsWorkerCountIndependent(t *testing.T) {
+	stepInParallel(t)
+	type scene struct {
+		name        string
+		enableSleep bool
+		build       func(*testing.T, WorldId) BodyId
+		destroyStep int
+		expectSplit bool
+	}
+
+	scenes := []scene{
+		{name: "witness", enableSleep: true, build: func(t *testing.T, worldId WorldId) BodyId {
+			buildChecksumWitness(t, worldId)
+			return BodyId{}
+		}},
+		{name: "pyramid", enableSleep: false, build: func(_ *testing.T, worldId WorldId) BodyId {
+			buildPyramid(worldId, 20)
+			return BodyId{}
+		}},
+		{name: "bullets", enableSleep: true, build: func(_ *testing.T, worldId WorldId) BodyId {
+			buildBulletRange(worldId)
+			return BodyId{}
+		}},
+		{name: "revolute chain", enableSleep: true, build: func(_ *testing.T, worldId WorldId) BodyId {
+			buildRevoluteChain(worldId)
+			return BodyId{}
+		}},
+		{name: "sensors", enableSleep: false, build: func(_ *testing.T, worldId WorldId) BodyId {
+			buildPyramidWithSensors(worldId, 10, 40)
+			return BodyId{}
+		}},
+		{name: "split stacks", enableSleep: true, destroyStep: 30, expectSplit: true, build: func(_ *testing.T, worldId WorldId) BodyId {
+			return buildSplitStacks(worldId)
+		}},
+	}
+
+	run := func(scene scene, workerCount int) [4]uint64 {
+		def := DefaultWorldDef()
+		def.WorkerCount = workerCount
+		def.EnableSleep = scene.enableSleep
+		worldId := CreateWorld(&def)
+		if worldId.IsNull() {
+			t.Fatalf("scene %s workers=%d: CreateWorld returned the null id", scene.name, workerCount)
+		}
+		defer DestroyWorld(worldId)
+		destroyId := scene.build(t, worldId)
+
+		var checksums [4]uint64
+		splitCount := 0
+		dt := QFromRatio(1, 60)
+		for step := 1; step <= 120; step++ {
+			if step == scene.destroyStep {
+				DestroyBody(destroyId)
+			}
+			w := getWorldFromId(worldId)
+			beforeSplit := w.splitIslandId
+			beforeIslands := w.islandIdPool.idCount()
+			worldId.Step(dt, 4)
+			if beforeSplit != nullIndex && w.splitIslandId == nullIndex && beforeIslands < w.islandIdPool.idCount() {
+				splitCount++
+			}
+			if step%30 == 0 {
+				checksums[step/30-1] = Checksum(worldId)
+			}
+		}
+		if scene.expectSplit && splitCount == 0 {
+			t.Fatalf("scene %s workers=%d did not split an island", scene.name, workerCount)
+		}
+		return checksums
+	}
+
+	for _, scene := range scenes {
+		want := run(scene, 1)
+		for _, workerCount := range []int{2, 3, 4, 7} {
+			got := run(scene, workerCount)
+			for i := range got {
+				if got[i] != want[i] {
+					t.Fatalf("scene %s workers=%d diverged at step %d: checksum = %d, want %d", scene.name, workerCount, 30*(i+1), got[i], want[i])
+				}
+			}
+		}
 	}
 }
 

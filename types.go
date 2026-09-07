@@ -44,7 +44,11 @@ type WorldDef struct {
 	// RestitutionCallback customizes restitution mixing for new contacts.
 	RestitutionCallback RestitutionCallback
 
-	// Deferred: the task system fields of the reference.
+	// WorkerCount is the number of workers that step the world. 1 steps on
+	// the calling goroutine. 0 picks min(runtime.GOMAXPROCS(0), 64). Any N
+	// produces the same bits; WebAssembly always steps on one worker, and a
+	// step with few awake bodies runs on the caller whatever N says.
+	WorkerCount int
 
 	// Enable sleeping to improve performance.
 	EnableSleep bool
@@ -62,6 +66,7 @@ type WorldDef struct {
 // Counters reports world sizes and solver storage usage for diagnostics.
 type Counters struct {
 	BodyCount, ShapeCount, ContactCount, JointCount, IslandCount, StackUsed, StaticTreeHeight, TreeHeight int
+	TaskCount                                                                                             int
 	ColorCounts                                                                                           [graphColorCount]int
 }
 
@@ -98,11 +103,17 @@ type FrictionCallback func(frictionA Q, userMaterialIdA int, frictionB Q, userMa
 type RestitutionCallback func(restitutionA Q, userMaterialIdA int, restitutionB Q, userMaterialIdB int) Q
 
 // CustomFilterFcn decides whether two shapes may collide. It corresponds to
-// b2CustomFilterFcn; return false to reject the pair.
+// b2CustomFilterFcn; return false to reject the pair. With several workers
+// it runs on worker goroutines while the step mutates the world: it must
+// not call the world API or query it, must not panic, and must be safe to
+// call concurrently.
 type CustomFilterFcn func(shapeIdA, shapeIdB ShapeId) bool
 
 // PreSolveFcn inspects a contact manifold before the solver runs. It
 // corresponds to b2PreSolveFcn; return false to disable the contact this step.
+// With several workers it runs on worker goroutines while the step mutates
+// the world: it must not call the world API or query it, must not panic, and
+// must be safe to call concurrently.
 type PreSolveFcn func(shapeIdA, shapeIdB ShapeId, manifold *Manifold) bool
 
 // DefaultWorldDef returns the default world definition.
@@ -116,6 +127,7 @@ func DefaultWorldDef() WorldDef {
 		MaxContactPushSpeed:  QFromInt(3),
 		// 400 meters per second, faster than the speed of sound
 		MaximumLinearSpeed: QFromInt(400),
+		WorkerCount:        1,
 		EnableSleep:        true,
 		EnableContinuous:   true,
 		internalValue:      secretCookie,

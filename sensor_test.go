@@ -1,6 +1,7 @@
 package dbox2d
 
 import (
+	"slices"
 	"testing"
 )
 
@@ -26,6 +27,65 @@ func addSensorVisitorBox(t *testing.T, worldId WorldId, position Vec2, halfWidth
 	shapeDef.EnableSensorEvents = enableEvents
 	box := MakeBox(halfWidth, halfHeight)
 	return bodyId, CreatePolygonShape(bodyId, &shapeDef, &box)
+}
+
+func normalizeSensorBeginEvents(events []SensorBeginTouchEvent) [][2]int32 {
+	result := make([][2]int32, len(events))
+	for i, event := range events {
+		result[i] = [2]int32{event.SensorShapeId.index1, event.VisitorShapeId.index1}
+	}
+	return result
+}
+
+func normalizeSensorEndEvents(events []SensorEndTouchEvent) [][2]int32 {
+	result := make([][2]int32, len(events))
+	for i, event := range events {
+		result[i] = [2]int32{event.SensorShapeId.index1, event.VisitorShapeId.index1}
+	}
+	return result
+}
+
+// TestSensorEventsAreWorkerCountIndependent compares ordered events from a
+// 40-sensor scene while the visitor enters, leaves, and re-enters.
+func TestSensorEventsAreWorkerCountIndependent(t *testing.T) {
+	stepInParallel(t)
+	build := func(workerCount int) (WorldId, BodyId) {
+		def := DefaultWorldDef()
+		def.WorkerCount = workerCount
+		worldId := CreateWorld(&def)
+		if worldId.IsNull() {
+			t.Fatalf("workers=%d: CreateWorld returned the null id", workerCount)
+		}
+		t.Cleanup(func() { DestroyWorld(worldId) })
+		for range 40 {
+			addSensorBox(t, worldId, Vec2Zero(), QFromInt(4), QFromInt(2))
+		}
+		visitorBodyId, _ := addSensorVisitorBox(t, worldId, Vec2Zero(), QHalf(), QHalf(), true)
+		return worldId, visitorBodyId
+	}
+
+	workerOne, visitorOne := build(1)
+	workerFour, visitorFour := build(4)
+	for step := range 6 {
+		workerOne.Step(stepDt(), 4)
+		workerFour.Step(stepDt(), 4)
+		one := workerOne.GetSensorEvents()
+		four := workerFour.GetSensorEvents()
+		if !slices.Equal(normalizeSensorBeginEvents(one.BeginEvents), normalizeSensorBeginEvents(four.BeginEvents)) {
+			t.Fatalf("step %d begin events differ:\nworkers=1: %+v\nworkers=4: %+v", step, one.BeginEvents, four.BeginEvents)
+		}
+		if !slices.Equal(normalizeSensorEndEvents(one.EndEvents), normalizeSensorEndEvents(four.EndEvents)) {
+			t.Fatalf("step %d end events differ:\nworkers=1: %+v\nworkers=4: %+v", step, one.EndEvents, four.EndEvents)
+		}
+		switch step {
+		case 0:
+			visitorOne.SetTransform(v2(10, 0), RotIdentity())
+			visitorFour.SetTransform(v2(10, 0), RotIdentity())
+		case 1:
+			visitorOne.SetTransform(Vec2Zero(), RotIdentity())
+			visitorFour.SetTransform(Vec2Zero(), RotIdentity())
+		}
+	}
 }
 
 // TestSensorBeginAndEndAroundAFallingBox pins one begin step followed

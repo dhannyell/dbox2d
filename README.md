@@ -54,9 +54,10 @@ cd samples && go run ./cmd/native
 cd samples && CGO_ENABLED=0 GOOS=js GOARCH=wasm go build -o web/app.wasm ./cmd/web
 ```
 
-The task-system fields of `b2Counters` and `b2WorldDef`, and the `void*
-context` of every callback, do not cross: this port has no task system and a
-Go closure carries its own state.
+The task callbacks of `b2WorldDef` and the `void* context` of every
+callback do not cross: the world owns its workers (`WorldDef.WorkerCount`,
+see D-016) and a Go closure carries its own state. Any worker count gives
+the same bits; the test `TestStepIsWorkerCountIndependent` pins it.
 
 See [PORTING.md](PORTING.md) for the full map and
 [DIVERGENCES.md](DIVERGENCES.md) for what changed shape to survive fixed

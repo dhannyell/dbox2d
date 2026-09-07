@@ -273,6 +273,7 @@ func stepF64(sims []f64BodySim, states []f64BodyState, shapes []f64Shape, dt flo
 
 func BenchmarkStep(b *testing.B) {
 	def := DefaultWorldDef()
+	def.WorkerCount = *workersFlag
 	worldId := CreateWorld(&def)
 	defer DestroyWorld(worldId)
 
@@ -769,6 +770,7 @@ func buildPyramid(worldId WorldId, rows int) BodyId {
 
 func BenchmarkStepPyramid(b *testing.B) {
 	def := DefaultWorldDef()
+	def.WorkerCount = *workersFlag
 	def.EnableSleep = false
 	worldId := CreateWorld(&def)
 	defer DestroyWorld(worldId)
@@ -787,9 +789,10 @@ func BenchmarkStepPyramid(b *testing.B) {
 	}
 }
 
-// buildPyramidWithSensor lays out the same pyramid as buildPyramid, plus one
-// wide static sensor over the ground and sensor events enabled on the boxes.
-func buildPyramidWithSensor(worldId WorldId, rows int) {
+// buildPyramidWithSensors lays out the same pyramid as buildPyramid, plus
+// sensorCount wide static sensors over the ground and sensor events on the
+// boxes.
+func buildPyramidWithSensors(worldId WorldId, rows, sensorCount int) {
 	half := QHalf()
 	groundDef := DefaultBodyDef()
 	groundDef.Position = Vec2{Y: half.Neg()}
@@ -798,13 +801,15 @@ func buildPyramidWithSensor(worldId WorldId, rows int) {
 	ground := MakeBox(QFromInt(rows), half)
 	CreatePolygonShape(groundId, &shapeDef, &ground)
 
-	sensorDef := DefaultBodyDef()
-	sensorId := CreateBody(worldId, &sensorDef)
 	sensorShapeDef := DefaultShapeDef()
 	sensorShapeDef.IsSensor = true
 	sensorShapeDef.EnableSensorEvents = true
 	sensor := MakeBox(QFromInt(rows), QMustParse("0.05"))
-	CreatePolygonShape(sensorId, &sensorShapeDef, &sensor)
+	for range sensorCount {
+		sensorDef := DefaultBodyDef()
+		sensorId := CreateBody(worldId, &sensorDef)
+		CreatePolygonShape(sensorId, &sensorShapeDef, &sensor)
+	}
 
 	bodyDef := DefaultBodyDef()
 	bodyDef.Type = DynamicBody
@@ -822,11 +827,13 @@ func buildPyramidWithSensor(worldId WorldId, rows int) {
 // pyramid scene: the sensor system tests every eligible box against the
 // sensor's fattened bounds each step.
 func BenchmarkStepSensors(b *testing.B) {
+	stepInParallel(b)
 	def := DefaultWorldDef()
+	def.WorkerCount = *workersFlag
 	def.EnableSleep = false
 	worldId := CreateWorld(&def)
 	defer DestroyWorld(worldId)
-	buildPyramidWithSensor(worldId, pyramidRows)
+	buildPyramidWithSensors(worldId, pyramidRows, 1)
 
 	dt := QOne().Div(QFromInt(60))
 
@@ -1890,7 +1897,7 @@ func BenchmarkUpdateBroadPhasePairsQ(b *testing.B) {
 	defer DestroyWorld(worldId)
 	buildPyramid(worldId, pyramidRows)
 	w := getWorldFromId(worldId)
-	updateBroadPhasePairs(w)
+	updateBroadPhasePairs(w, &w.solverContext)
 	contacts := w.contactIdPool.idCount()
 	// Step grows the arena after the first pass; the bench does the same.
 	w.arena.grow()
@@ -1906,7 +1913,7 @@ func BenchmarkUpdateBroadPhasePairsQ(b *testing.B) {
 	b.ResetTimer()
 	for range b.N {
 		moveAll()
-		updateBroadPhasePairs(w)
+		updateBroadPhasePairs(w, &w.solverContext)
 	}
 	b.StopTimer()
 	if w.contactIdPool.idCount() != contacts {
@@ -2168,7 +2175,9 @@ func buildBulletRange(worldId WorldId) {
 }
 
 func BenchmarkStepBullets(b *testing.B) {
+	stepInParallel(b)
 	def := DefaultWorldDef()
+	def.WorkerCount = *workersFlag
 	def.Gravity = Vec2Zero()
 	worldId := CreateWorld(&def)
 	defer DestroyWorld(worldId)
@@ -2206,10 +2215,37 @@ func BenchmarkStepBullets(b *testing.B) {
 // pipeline: a chain of 32 unit boxes hangs from a static body by revolute
 // joints and swings under gravity. Step must not allocate.
 func BenchmarkStepRevoluteChain(b *testing.B) {
+	stepInParallel(b)
 	def := DefaultWorldDef()
+	def.WorkerCount = *workersFlag
 	worldId := CreateWorld(&def)
 	defer DestroyWorld(worldId)
+	buildRevoluteChain(worldId)
 
+	dt := QOne().Div(QFromInt(60))
+
+	// Warm up through later self-contacts so contact buffers reach capacity.
+	for range 20000 {
+		worldId.Step(dt, 4)
+	}
+
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		worldId.Step(dt, 4)
+	}
+	b.StopTimer()
+	runtime.ReadMemStats(&after)
+	// A worker that parks may take one runtime sudog when it wakes; the
+	// strict count holds for the caller path only.
+	if *workersFlag == 1 && after.Mallocs != before.Mallocs {
+		b.Fatalf("Step allocated %d times (%d bytes) after warmup", after.Mallocs-before.Mallocs, after.TotalAlloc-before.TotalAlloc)
+	}
+}
+
+func buildRevoluteChain(worldId WorldId) {
 	groundDef := DefaultBodyDef()
 	prevId := CreateBody(worldId, &groundDef)
 
@@ -2229,26 +2265,6 @@ func BenchmarkStepRevoluteChain(b *testing.B) {
 		jointDef.BodyIdB = bodyId
 		CreateRevoluteJoint(worldId, &jointDef)
 		prevId = bodyId
-	}
-
-	dt := QOne().Div(QFromInt(60))
-
-	// Warm up through later self-contacts so contact buffers reach capacity.
-	for range 20000 {
-		worldId.Step(dt, 4)
-	}
-
-	var before, after runtime.MemStats
-	runtime.ReadMemStats(&before)
-	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
-		worldId.Step(dt, 4)
-	}
-	b.StopTimer()
-	runtime.ReadMemStats(&after)
-	if after.Mallocs != before.Mallocs {
-		b.Fatalf("Step allocated %d times (%d bytes) after warmup", after.Mallocs-before.Mallocs, after.TotalAlloc-before.TotalAlloc)
 	}
 }
 

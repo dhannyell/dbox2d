@@ -26,7 +26,8 @@ type movePair struct {
 
 // moveResult is the head of the pair list of one moved proxy.
 type moveResult struct {
-	pairList int
+	pairList    int
+	workerIndex int32
 }
 
 // broadPhase computes the candidate pairs and serves the volume queries.
@@ -43,12 +44,10 @@ type broadPhase struct {
 	moveSet   hashSet
 	moveArray []int
 
-	// The pair query fills moveResults and movePairs from the arena, and
-	// the world creates the contacts from them in deterministic order.
+	// The pair query fills moveResults from the arena and per-worker pairs;
+	// the world creates contacts from them in deterministic order.
 	moveResults   []moveResult
-	movePairs     []movePair
 	moveResultMem []byte
-	movePairMem   []byte
 
 	// pairSet tracks the shape pairs that have a contact.
 	pairSet hashSet
@@ -60,7 +59,6 @@ func createBroadPhase(bp *broadPhase) {
 	bp.moveSet = createSet(16)
 	bp.moveArray = make([]int, 0, 16)
 	bp.moveResults = nil
-	bp.movePairs = nil
 	bp.pairSet = createSet(32)
 
 	for i := range BodyTypeCount {
@@ -171,6 +169,7 @@ func (bp *broadPhase) enlargeProxy(proxyKey int, aabb AABB) {
 type queryPairContext struct {
 	w               *world
 	moveResult      *moveResult
+	pairs           *[]movePair
 	queryTreeType   BodyType
 	queryProxyKey   int
 	queryShapeIndex int
@@ -271,10 +270,9 @@ func (ctx *queryPairContext) pairQueryCallback(proxyId int, userData uint64) boo
 		}
 	}
 
-	// D-010: the arena slice grows by append when the sixteen pairs per
-	// moved proxy run out; the reference takes those from the heap.
-	pairIndex := len(bp.movePairs)
-	bp.movePairs = append(bp.movePairs, movePair{shapeIndexA: shapeIdA, shapeIndexB: shapeIdB, next: nullIndex})
+	pairs := ctx.pairs
+	pairIndex := len(*pairs)
+	*pairs = append(*pairs, movePair{shapeIndexA: shapeIdA, shapeIndexB: shapeIdB, next: nullIndex})
 
 	// D-013: the reference prepends, so the list follows the tree walk.
 	// The port keeps the list sorted by (shapeIdA, shapeIdB), so any tree
@@ -282,35 +280,36 @@ func (ctx *queryPairContext) pairQueryCallback(proxyId int, userData uint64) boo
 	prev := nullIndex
 	cur := ctx.moveResult.pairList
 	for cur != nullIndex {
-		p := &bp.movePairs[cur]
+		p := &(*pairs)[cur]
 		if shapeIdA < p.shapeIndexA || (shapeIdA == p.shapeIndexA && shapeIdB < p.shapeIndexB) {
 			break
 		}
 		prev = cur
 		cur = p.next
 	}
-	bp.movePairs[pairIndex].next = cur
+	(*pairs)[pairIndex].next = cur
 	if prev == nullIndex {
 		ctx.moveResult.pairList = pairIndex
 	} else {
-		bp.movePairs[prev].next = pairIndex
+		(*pairs)[prev].next = pairIndex
 	}
 
 	// continue the query
 	return true
 }
 
-// findPairs queries the trees for every moved proxy in the range and
-// fills its move result. It corresponds to b2FindPairsTask in
-// src/broad_phase.c for one worker.
-func findPairs(w *world, startIndex, endIndex int) {
+// findPairsTask queries the trees for every moved proxy in the range. It
+// corresponds to b2FindPairsTask in src/broad_phase.c.
+func findPairsTask(startIndex, endIndex, workerIndex int, context *stepContext) {
+	w := context.world
 	bp := &w.broadPhase
 
-	ctx := queryPairContext{w: w}
+	ctx := queryPairContext{w: w, pairs: &w.taskContexts[workerIndex].movePairs}
 
 	for i := startIndex; i < endIndex; i++ {
 		// Initialize move result for this moved proxy
 		ctx.moveResult = &bp.moveResults[i]
+		ctx.moveResult.workerIndex = int32(workerIndex)
 		ctx.moveResult.pairList = nullIndex
 
 		proxyKey := bp.moveArray[i]
@@ -351,8 +350,9 @@ func findPairs(w *world, startIndex, endIndex int) {
 // updateBroadPhasePairs finds the new pairs of the moved proxies and
 // creates their contacts in the order of the move array. It corresponds
 // to b2UpdateBroadPhasePairs in src/broad_phase.c.
-func updateBroadPhasePairs(w *world) {
+func updateBroadPhasePairs(w *world, context *stepContext) {
 	bp := &w.broadPhase
+	context.world = w
 
 	moveCount := len(bp.moveArray)
 	if moveCount != bp.moveSet.count {
@@ -366,28 +366,30 @@ func updateBroadPhasePairs(w *world) {
 	alloc := &w.arena
 
 	bp.moveResults, bp.moveResultMem = arenaSlice[moveResult](alloc, moveCount, "move results")
-	movePairCapacity := 16 * moveCount
-	bp.movePairs, bp.movePairMem = arenaSlice[movePair](alloc, movePairCapacity, "move pairs")
-	bp.movePairs = bp.movePairs[:0]
+	for i := range w.workerCount {
+		w.taskContexts[i].movePairs = w.taskContexts[i].movePairs[:0]
+	}
 
-	findPairs(w, 0, moveCount)
+	w.taskCount++
+	w.executor.parallelFor(moveCount, 64, findPairsTask, context)
 
 	// Single-threaded work
 	// - Clear move flags
 	// - Create contacts in deterministic order
 	for i := range moveCount {
 		result := &bp.moveResults[i]
+		pairs := w.taskContexts[result.workerIndex].movePairs
 		pair := result.pairList
 		for pair != nullIndex {
-			shapeIdA := bp.movePairs[pair].shapeIndexA
-			shapeIdB := bp.movePairs[pair].shapeIndexB
+			shapeIdA := pairs[pair].shapeIndexA
+			shapeIdB := pairs[pair].shapeIndexB
 
 			shapeA := &w.shapes[shapeIdA]
 			shapeB := &w.shapes[shapeIdB]
 
 			createContact(w, shapeA, shapeB)
 
-			pair = bp.movePairs[pair].next
+			pair = pairs[pair].next
 		}
 	}
 
@@ -395,9 +397,6 @@ func updateBroadPhasePairs(w *world) {
 	bp.moveArray = bp.moveArray[:0]
 	clearSet(&bp.moveSet)
 
-	alloc.freeItem(bp.movePairMem)
-	bp.movePairs = nil
-	bp.movePairMem = nil
 	alloc.freeItem(bp.moveResultMem)
 	bp.moveResults = nil
 	bp.moveResultMem = nil

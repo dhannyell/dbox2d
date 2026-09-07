@@ -33,7 +33,7 @@
 // # Accumulation
 //
 // Saturated addition is not associative near the range limits. The solver
-// keeps a fixed accumulation order for that reason. An executor that changes
-// the order changes the result bits, so it must prove bit equality against the
-// scalar path.
+// keeps a fixed accumulation order for that reason. The worker count never
+// changes that order: TestStepIsWorkerCountIndependent pins the same checksum
+// for one and for several workers.
 package dbox2d

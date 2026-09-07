@@ -303,9 +303,10 @@ Numbering is sequential from `D-001` and never reused.
   simulation result. A step allocates only when a slice, the arena or a
   graph color grows past its capacity, which happens on the first step that
   activates a contact and then stays flat; the reference grows its arrays
-  and its arena at the same moments. The pair slice of the broadphase
-  grows by append when the sixteen pairs per moved proxy run out; the
-  reference takes single pairs from the heap at the same moment. The
+  and its arena at the same moments. The pair nodes of the broadphase
+  live in one slice per worker that grows by append and keeps its
+  capacity between steps; the reference takes slots from a shared array
+  by an atomic index and single pairs from the heap when it runs out. The
   offset proxy takes a point slice, and the distance solver writes its
   simplex trace into a slice whose length is the capacity of the
   reference. The bullet buffer of the step is a slice over one arena item,
@@ -482,3 +483,54 @@ Numbering is sequential from `D-001` and never reused.
   instead. The reference's trailing chain shapes section is left as
   `todo` and stays absent here.
 - Test: TestDumpMemoryStatsListsEverySection in world_test.go
+
+### D-016 The port owns its workers
+
+- Files: executor.go, executor_wasm.go, executor_pool.go, solver.go,
+  step.go, broad_phase.go, sensor.go, types.go (upstream
+  include/box2d/types.h `b2WorldDef.workerCount`, `enqueueTask`,
+  `finishTask`, `userTaskContext`; src/world.c `b2DefaultAddTaskFcn`;
+  src/solver.c `b2SolverStage`, `b2ExecuteMainStage`, `b2SolverTask`,
+  `b2FinalizeBodiesTask`, `b2BulletBodyTask`; src/broad_phase.c
+  `b2FindPairsTask`; src/sensor.c `b2SensorTask`)
+- Tier: T2
+- Reason: the reference lends its work to a task system the caller
+  supplies through callbacks. A Go package has goroutines and needs no
+  callback to run a loop in parallel; a fixed-point port also needs a
+  guarantee the reference does not give, that the worker count never
+  changes a bit.
+- Behaviour: `WorldDef.WorkerCount` replaces the three task fields. 1
+  steps on the calling goroutine with no goroutine and no atomic; 0 picks
+  `min(GOMAXPROCS, 64)`; `js` and `wasip1` always step on one worker. The
+  world owns a pool of `WorkerCount-1` goroutines that starts on the
+  first `Step` and stops in `DestroyWorld`. The solver script is the one
+  of the reference: stages of blocks, work stealing by compare-and-swap,
+  sync bits per stage, the overflow constraints on worker 0. The parallel
+  loops outside the script (collide, pair finding, sensors, body
+  finalization, bullet sweeps) split into contiguous ascending ranges and
+  range k always runs on worker k, so every per-worker result joins in
+  worker order: the bit sets by union, the bullet list by concatenation,
+  the split candidate by the first worker on a tie, as the first body
+  wins inside one worker; the reference breaks that tie by island id
+  because its work stealing has no order. The pair nodes of a moved proxy
+  live in the slice of the worker that queried it, and the move result
+  records that worker. The island split runs on the last worker beside
+  the script and the tree rebuild beside the collide pass; with one
+  worker both run inline first. The workers spin between commands and
+  park after a while; a parked worker may take one runtime object when
+  it wakes, so the allocation gate holds per step, not per process. A
+  panic inside a step with several workers leaves the pool waiting on the
+  script: the world can no longer step or be destroyed, and a panic on a
+  worker goroutine ends the process. A
+  step with fewer awake bodies than
+  `serialBodyThreshold` runs on the caller whatever `WorkerCount` says;
+  the reference has no such threshold. The custom filter, the pre-solve
+  and the mixing callbacks run on worker goroutines, as in the reference.
+  `Counters.TaskCount` counts the tasks of the last step and does not
+  depend on the worker count. The stage is the
+  seam: a wide or a GPU family replaces the body of one stage and keeps
+  the script.
+- Test: TestStepIsWorkerCountIndependent in checksum_test.go,
+  TestSensorEventsAreWorkerCountIndependent in sensor_test.go,
+  TestCountersReportTasks in world_test.go, and the executor tests in
+  executor_test.go

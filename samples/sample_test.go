@@ -128,3 +128,34 @@ func TestRagdollChecksum(t *testing.T) {
 	}
 	sample.Destroy()
 }
+
+func TestPinnedChecksumsWithFourWorkers(t *testing.T) {
+	tests := []struct {
+		name  string
+		entry func(*samples.SampleContext) samples.Sample
+		want  uint64
+	}{
+		{"Single Box", func(ctx *samples.SampleContext) samples.Sample { return samples.NewSingleBox(ctx) }, singleBoxChecksum},
+		{"Vertical Stack", func(ctx *samples.SampleContext) samples.Sample { return samples.NewVerticalStack(ctx) }, verticalStackChecksum},
+		{"Tumbler", func(ctx *samples.SampleContext) samples.Sample { return samples.NewTumbler(ctx) }, tumblerChecksum},
+		{"Large Pyramid", func(ctx *samples.SampleContext) samples.Sample { return samples.NewLargePyramid(ctx) }, largePyramidChecksum},
+		{"Bridge", func(ctx *samples.SampleContext) samples.Sample { return samples.NewBridge(ctx) }, bridgeChecksum},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := samples.NewSampleContext()
+			ctx.Settings.WorkerCount = 4
+			sample := tt.entry(ctx)
+			for range 60 {
+				sample.Step()
+			}
+			world := sample.(interface{ World() dbox2d.WorldId }).World()
+			got := dbox2d.Checksum(world)
+			if got != tt.want {
+				t.Fatalf("got checksum 0x%x, want 0x%x", got, tt.want)
+			}
+			sample.Destroy()
+		})
+	}
+}

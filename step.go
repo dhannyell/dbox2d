@@ -2,6 +2,8 @@ package dbox2d
 
 import (
 	"math/bits"
+	"slices"
+	"sync/atomic"
 	"time"
 )
 
@@ -49,8 +51,14 @@ type stepContext struct {
 
 	graph *constraintGraph
 
-	// Deferred: the contact pointer array and the worker fields of the
-	// reference serve the parallel executor.
+	// Flat constraint arrays cover colors 0 through 10 in color order.
+	contacts           []*contactSim
+	joints             []*jointSim
+	contactConstraints []contactConstraint
+	stages             []solverStage
+	activeColorCount   int
+	activeColorIndices [graphColorCount]int
+	workerCount        int
 
 	enableWarmStarting bool
 
@@ -63,6 +71,10 @@ type stepContext struct {
 	bulletBodies    []int
 	bulletBodyMem   []byte
 	bulletBodyCount int
+
+	pad0 [64]byte //nolint:unused // Keeps atomicSyncBits on its own cache line.
+
+	atomicSyncBits atomic.Uint32
 }
 
 // Step advances the simulation by timeStep, split into subStepCount
@@ -80,6 +92,11 @@ func (worldId WorldId) Step(timeStep Q, subStepCount int) {
 	if w.locked {
 		panic("dbox2d: the world is locked")
 	}
+	w.taskCount = 0
+	if w.workerCount > 1 {
+		w.executor.start(w.workerCount)
+	}
+	w.executor.serial = len(w.solverSets[awakeSet].bodySims) < serialBodyThreshold
 
 	// Prepare to capture events
 	// Ensure user does not access stale data if there is an early return
@@ -103,15 +120,20 @@ func (worldId WorldId) Step(timeStep Q, subStepCount int) {
 
 	stepStart := time.Now()
 
+	context := &w.solverContext
+	context.world = w
+
 	// Update collision pairs and create contacts
 	pairsStart := time.Now()
-	updateBroadPhasePairs(w)
+	updateBroadPhasePairs(w, context)
 	w.profile.Pairs = millisecondsSince(pairsStart)
 
-	context := stepContext{}
-	context.world = w
 	context.dt = timeStep
+	context.invDt = zero
+	context.h = zero
+	context.invH = zero
 	context.subStepCount = max(1, subStepCount)
+	context.activeColorCount = 0
 
 	if zero.Less(timeStep) {
 		context.invDt = QOne().Div(timeStep)
@@ -141,18 +163,18 @@ func (worldId WorldId) Step(timeStep Q, subStepCount int) {
 
 	// Update contacts
 	collideStart := time.Now()
-	collide(&context)
+	collide(context)
 	w.profile.Collide = millisecondsSince(collideStart)
 
 	// Integrate velocities, solve velocity constraints, and integrate positions.
 	if zero.Less(context.dt) {
 		solveStart := time.Now()
-		solve(w, &context)
+		solve(w, context)
 		w.profile.Solve = millisecondsSince(solveStart)
 	}
 
 	sensorsStart := time.Now()
-	overlapSensors(w)
+	overlapSensors(context)
 	w.profile.Sensors = millisecondsSince(sensorsStart)
 
 	w.profile.Step = millisecondsSince(stepStart)
@@ -173,16 +195,15 @@ func (worldId WorldId) Step(timeStep Q, subStepCount int) {
 
 // collideTask updates the manifolds of a run of contact sims and marks the
 // contacts whose touch state changed. It corresponds to b2CollideTask in
-// src/world.c; the port walks each array in place instead of a pointer
-// array.
-func collideTask(contactSims []contactSim, context *stepContext) {
+// src/world.c.
+func collideTask(startIndex, endIndex, workerIndex int, context *stepContext) {
 	w := context.world
-	taskContext := &w.taskContext
+	taskContext := &w.taskContexts[workerIndex]
 	shapes := w.shapes
 	bodies := w.bodies
 
-	for contactIndex := range contactSims {
-		cs := &contactSims[contactIndex]
+	for contactIndex := startIndex; contactIndex < endIndex; contactIndex++ {
+		cs := context.contacts[contactIndex]
 
 		contactId := cs.contactId
 
@@ -240,6 +261,12 @@ func collideTask(contactSims []contactSim, context *stepContext) {
 	}
 }
 
+// rebuildTreesSide is the side task of collide. It corresponds to
+// b2UpdateTreesTask in src/world.c.
+func rebuildTreesSide(context *stepContext) {
+	context.world.broadPhase.rebuildTrees()
+}
+
 // addNonTouchingContact copies a sim that stopped touching into the awake
 // set. It corresponds to b2AddNonTouchingContact in src/world.c.
 func addNonTouchingContact(w *world, c *contact, cs *contactSim) {
@@ -277,10 +304,6 @@ func removeNonTouchingContact(w *world, setIndex, localIndex int) {
 func collide(context *stepContext) {
 	w := context.world
 
-	// The reference rebuilds the trees on a task beside the collide pass
-	// and finishes it before the refit. One worker rebuilds them first.
-	w.broadPhase.rebuildTrees()
-
 	graphColors := &w.constraintGraph.colors
 	contactCount := 0
 	for i := range graphColorCount {
@@ -291,24 +314,43 @@ func collide(context *stepContext) {
 	contactCount += nonTouchingCount
 
 	if contactCount == 0 {
+		w.taskCount++
+		w.broadPhase.rebuildTrees()
 		return
 	}
 
 	// Contact bit set on ids because contact pointers are unstable as they move between touching and not touching.
 	contactIdCapacity := w.contactIdPool.idCapacity()
-	taskContext := &w.taskContext
-	setBitCountAndClear(&taskContext.contactStateBitSet, contactIdCapacity)
-
-	// The reference gathers the sims into one pointer array for the
-	// parallel-for. The port walks the colors and the awake set in the
-	// same order.
-	for i := range graphColorCount {
-		collideTask(graphColors[i].contactSims, context)
+	for i := range w.workerCount {
+		setBitCountAndClear(&w.taskContexts[i].contactStateBitSet, contactIdCapacity)
 	}
-	collideTask(w.solverSets[awakeSet].contactSims, context)
+
+	// One pointer array over the colors and the awake set, in that order,
+	// so the ranges split evenly.
+	w.contactPointers = slices.Grow(w.contactPointers[:0], contactCount)[:contactCount]
+	contactIndex := 0
+	for i := range graphColorCount {
+		for j := range graphColors[i].contactSims {
+			w.contactPointers[contactIndex] = &graphColors[i].contactSims[j]
+			contactIndex++
+		}
+	}
+	for i := range w.solverSets[awakeSet].contactSims {
+		w.contactPointers[contactIndex] = &w.solverSets[awakeSet].contactSims[i]
+		contactIndex++
+	}
+	context.contacts = w.contactPointers
+	// The tree rebuild rides beside the pass on the last worker; the
+	// reference lets it run until the refit.
+	w.taskCount += 2
+	w.executor.parallelForWithSide(contactCount, 64, collideTask, rebuildTreesSide, context)
+	context.contacts = nil
 
 	// Serially update contact state
-	bitSet := &taskContext.contactStateBitSet
+	bitSet := &w.taskContexts[0].contactStateBitSet
+	for i := 1; i < w.workerCount; i++ {
+		inPlaceUnion(bitSet, &w.taskContexts[i].contactStateBitSet)
+	}
 
 	awake := &w.solverSets[awakeSet]
 

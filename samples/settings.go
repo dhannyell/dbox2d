@@ -12,7 +12,8 @@ package samples
 type Settings struct {
 	Hertz        float64
 	SubStepCount int
-	// WorkerCount is fixed at 1; the port steps on one worker.
+	// WorkerCount is the number of workers that step the world; any value gives
+	// the same bits.
 	WorkerCount int
 
 	Restart         bool

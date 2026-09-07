@@ -66,7 +66,8 @@ type Base struct {
 
 // NewBase builds the world and returns the shared state for a new sample.
 // Like the reference constructor it reseeds the shared random generator, so
-// every scene starts from the same sequence. This port steps on one worker.
+// every scene starts from the same sequence. Worker count does not change the
+// resulting bits.
 func NewBase(ctx *SampleContext) Base {
 	randomSeed = randSeed
 	b := Base{
@@ -87,6 +88,7 @@ func (b *Base) CreateWorld() {
 	}
 	worldDef := dbox2d.DefaultWorldDef()
 	worldDef.EnableSleep = b.Context.Settings.EnableSleep
+	worldDef.WorkerCount = b.Context.Settings.WorkerCount
 	b.WorldId = dbox2d.CreateWorld(&worldDef)
 }
 
@@ -294,7 +296,7 @@ func (b *Base) Step() {
 			ave = scaleProfile(b.TotalProfile, 1/float64(b.StepCount))
 		}
 		m := b.MaxProfile
-		b.DrawTextLine("step [ave] (max) = %5.2f [%6.2f] (%6.2f)", p.Step, ave.Step, m.Step)
+		b.DrawTextLine("step [ave] (max) = %5.2f [%6.2f] (%6.2f) (%d workers)", p.Step, ave.Step, m.Step, s.WorkerCount)
 		b.DrawTextLine("pairs [ave] (max) = %5.2f [%6.2f] (%6.2f)", p.Pairs, ave.Pairs, m.Pairs)
 		b.DrawTextLine("collide [ave] (max) = %5.2f [%6.2f] (%6.2f)", p.Collide, ave.Collide, m.Collide)
 		b.DrawTextLine("solve [ave] (max) = %5.2f [%6.2f] (%6.2f)", p.Solve, ave.Solve, m.Solve)

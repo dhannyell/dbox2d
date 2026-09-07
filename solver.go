@@ -1,9 +1,56 @@
 package dbox2d
 
 import (
+	"math"
 	"math/bits"
+	"runtime"
+	"slices"
+	"sync/atomic"
 	"time"
 )
+
+type solverStageType int
+
+const (
+	stagePrepareJoints solverStageType = iota
+	stagePrepareContacts
+	stageIntegrateVelocities
+	stageWarmStart
+	stageSolve
+	stageIntegratePositions
+	stageRelax
+	stageRestitution
+	stageStoreImpulses
+)
+
+type solverBlockType int
+
+const (
+	bodyBlock solverBlockType = iota
+	jointBlock
+	contactBlock
+	graphJointBlock
+	graphContactBlock
+)
+
+type solverBlock struct {
+	startIndex int
+	count      int
+	blockType  int16
+	syncIndex  atomic.Int32
+}
+
+type solverStage struct {
+	stageType       solverStageType
+	blocks          []solverBlock
+	colorIndex      int
+	completionCount atomic.Int32
+}
+
+type workerContext struct {
+	context     *stepContext
+	workerIndex int
+}
 
 // softness holds the soft constraint coefficients of one sub-step. It
 // corresponds to b2Softness in src/solver.h.
@@ -124,6 +171,269 @@ func integratePositionsTask(startIndex, endIndex int, context *stepContext) {
 		state := &states[i]
 		state.deltaRotation = IntegrateRotation(state.deltaRotation, h.Mul(state.angularVelocity))
 		state.deltaPosition = MulAdd(state.deltaPosition, h, state.linearVelocity)
+	}
+}
+
+func executeBlock(stage *solverStage, context *stepContext, block *solverBlock) {
+	startIndex := block.startIndex
+	endIndex := startIndex + block.count
+	blockType := solverBlockType(block.blockType)
+
+	switch stage.stageType {
+	case stagePrepareJoints:
+		prepareJointsTask(startIndex, endIndex, context)
+	case stagePrepareContacts:
+		prepareContactsTask(startIndex, endIndex, context)
+	case stageIntegrateVelocities:
+		integrateVelocitiesTask(startIndex, endIndex, context)
+	case stageWarmStart:
+		switch blockType {
+		case graphContactBlock:
+			warmStartContactsTask(startIndex, endIndex, context, stage.colorIndex)
+		case graphJointBlock:
+			warmStartJointsTask(startIndex, endIndex, context, stage.colorIndex)
+		}
+	case stageSolve:
+		switch blockType {
+		case graphContactBlock:
+			solveContactsTask(startIndex, endIndex, context, stage.colorIndex, true)
+		case graphJointBlock:
+			solveJointsTask(startIndex, endIndex, context, stage.colorIndex, true)
+		}
+	case stageIntegratePositions:
+		integratePositionsTask(startIndex, endIndex, context)
+	case stageRelax:
+		switch blockType {
+		case graphContactBlock:
+			solveContactsTask(startIndex, endIndex, context, stage.colorIndex, false)
+		case graphJointBlock:
+			solveJointsTask(startIndex, endIndex, context, stage.colorIndex, false)
+		}
+	case stageRestitution:
+		if blockType == graphContactBlock {
+			applyRestitutionTask(startIndex, endIndex, context, stage.colorIndex)
+		}
+	case stageStoreImpulses:
+		storeImpulsesTask(startIndex, endIndex, context)
+	}
+}
+
+func getWorkerStartIndex(workerIndex, blockCount, workerCount int) int {
+	if blockCount <= workerCount {
+		if workerIndex < blockCount {
+			return workerIndex
+		}
+		return nullIndex
+	}
+
+	blocksPerWorker := blockCount / workerCount
+	remainder := blockCount - blocksPerWorker*workerCount
+	return blocksPerWorker*workerIndex + min(remainder, workerIndex)
+}
+
+func executeStage(stage *solverStage, context *stepContext, previousSyncIndex, syncIndex, workerIndex int) {
+	completedCount := 0
+	blocks := stage.blocks
+	blockCount := len(blocks)
+	startIndex := getWorkerStartIndex(workerIndex, blockCount, context.workerCount)
+	if startIndex == nullIndex {
+		return
+	}
+
+	blockIndex := startIndex
+	for blocks[blockIndex].syncIndex.CompareAndSwap(int32(previousSyncIndex), int32(syncIndex)) {
+		executeBlock(stage, context, &blocks[blockIndex])
+		completedCount += 1
+		blockIndex += 1
+		if blockIndex >= blockCount {
+			blockIndex = 0
+		}
+	}
+
+	blockIndex = startIndex - 1
+	for {
+		if blockIndex < 0 {
+			blockIndex = blockCount - 1
+		}
+		if !blocks[blockIndex].syncIndex.CompareAndSwap(int32(previousSyncIndex), int32(syncIndex)) {
+			break
+		}
+
+		executeBlock(stage, context, &blocks[blockIndex])
+		completedCount += 1
+		blockIndex -= 1
+	}
+
+	stage.completionCount.Add(int32(completedCount))
+}
+
+func executeMainStage(stage *solverStage, context *stepContext, syncBits uint32) {
+	if context.workerCount == 1 {
+		for i := range stage.blocks {
+			executeBlock(stage, context, &stage.blocks[i])
+		}
+		return
+	}
+
+	blockCount := len(stage.blocks)
+	if blockCount == 0 {
+		return
+	}
+	if blockCount == 1 {
+		executeBlock(stage, context, &stage.blocks[0])
+		return
+	}
+
+	context.atomicSyncBits.Store(syncBits)
+	syncIndex := int(syncBits >> 16)
+	previousSyncIndex := syncIndex - 1
+	executeStage(stage, context, previousSyncIndex, syncIndex, 0)
+
+	for stage.completionCount.Load() != int32(blockCount) {
+		runtime.Gosched()
+	}
+	stage.completionCount.Store(0)
+}
+
+func solverTask(workerIndex int, context *stepContext) {
+	worker := workerContext{context: context, workerIndex: workerIndex}
+	if worker.workerIndex == 0 {
+		solverMainTask(worker.context)
+		return
+	}
+	solverWorkerTask(worker)
+}
+
+// splitIslandSide is the side task of the solver script. It corresponds
+// to b2SplitIslandTask in src/solver.c.
+func splitIslandSide(context *stepContext) {
+	w := context.world
+	splitStart := time.Now()
+	splitIsland(w, w.splitIslandId)
+	w.profile.SplitIslands += millisecondsSince(splitStart)
+}
+
+func solverMainTask(context *stepContext) {
+	activeColorCount := context.activeColorCount
+	stages := context.stages
+
+	ticks := time.Now()
+	bodySyncIndex := 1
+	stageIndex := 0
+
+	jointSyncIndex := 1
+	syncBits := uint32(jointSyncIndex)<<16 | uint32(stageIndex)
+	executeMainStage(&stages[stageIndex], context, syncBits)
+	stageIndex += 1
+
+	contactSyncIndex := 1
+	syncBits = uint32(contactSyncIndex)<<16 | uint32(stageIndex)
+	executeMainStage(&stages[stageIndex], context, syncBits)
+	stageIndex += 1
+	contactSyncIndex += 1
+
+	graphSyncIndex := 1
+	prepareOverflowJoints(context)
+	prepareOverflowContacts(context)
+	context.world.profile.PrepareConstraints += millisecondsAndReset(&ticks)
+
+	for range context.subStepCount {
+		iterStageIndex := stageIndex
+
+		syncBits = uint32(bodySyncIndex)<<16 | uint32(iterStageIndex)
+		executeMainStage(&stages[iterStageIndex], context, syncBits)
+		iterStageIndex += 1
+		bodySyncIndex += 1
+		context.world.profile.IntegrateVelocities += millisecondsAndReset(&ticks)
+
+		warmStartOverflowJoints(context)
+		warmStartOverflowContacts(context)
+		for range activeColorCount {
+			syncBits = uint32(graphSyncIndex)<<16 | uint32(iterStageIndex)
+			executeMainStage(&stages[iterStageIndex], context, syncBits)
+			iterStageIndex += 1
+		}
+		graphSyncIndex += 1
+		context.world.profile.WarmStart += millisecondsAndReset(&ticks)
+
+		useBias := true
+		solveOverflowJoints(context, useBias)
+		solveOverflowContacts(context, useBias)
+		for range activeColorCount {
+			syncBits = uint32(graphSyncIndex)<<16 | uint32(iterStageIndex)
+			executeMainStage(&stages[iterStageIndex], context, syncBits)
+			iterStageIndex += 1
+		}
+		graphSyncIndex += 1
+		context.world.profile.SolveImpulses += millisecondsAndReset(&ticks)
+
+		syncBits = uint32(bodySyncIndex)<<16 | uint32(iterStageIndex)
+		executeMainStage(&stages[iterStageIndex], context, syncBits)
+		iterStageIndex += 1
+		bodySyncIndex += 1
+		context.world.profile.IntegratePositions += millisecondsAndReset(&ticks)
+
+		useBias = false
+		solveOverflowJoints(context, useBias)
+		solveOverflowContacts(context, useBias)
+		for range activeColorCount {
+			syncBits = uint32(graphSyncIndex)<<16 | uint32(iterStageIndex)
+			executeMainStage(&stages[iterStageIndex], context, syncBits)
+			iterStageIndex += 1
+		}
+		graphSyncIndex += 1
+		context.world.profile.RelaxImpulses += millisecondsAndReset(&ticks)
+	}
+
+	stageIndex += 2 + 3*activeColorCount
+	applyOverflowRestitution(context)
+	iterStageIndex := stageIndex
+	for range activeColorCount {
+		syncBits = uint32(graphSyncIndex)<<16 | uint32(iterStageIndex)
+		executeMainStage(&stages[iterStageIndex], context, syncBits)
+		iterStageIndex += 1
+	}
+	stageIndex += activeColorCount
+	context.world.profile.ApplyRestitution += millisecondsAndReset(&ticks)
+
+	storeOverflowImpulses(context)
+	syncBits = uint32(contactSyncIndex)<<16 | uint32(stageIndex)
+	executeMainStage(&stages[stageIndex], context, syncBits)
+	context.world.profile.StoreImpulses += millisecondsAndReset(&ticks)
+
+	if context.workerCount > 1 {
+		context.atomicSyncBits.Store(math.MaxUint32)
+	}
+	if stageIndex+1 != len(stages) {
+		panic("dbox2d: the solver stage script is incomplete")
+	}
+}
+
+func solverWorkerTask(worker workerContext) {
+	context := worker.context
+	workerIndex := worker.workerIndex
+	stages := context.stages
+	lastSyncBits := uint32(0)
+	for {
+		syncBits := context.atomicSyncBits.Load()
+		spinCount := 0
+		for syncBits == lastSyncBits {
+			spinCount += 1
+			if spinCount >= 5 {
+				runtime.Gosched()
+				spinCount = 0
+			}
+			syncBits = context.atomicSyncBits.Load()
+		}
+
+		if syncBits == math.MaxUint32 {
+			break
+		}
+
+		stageIndex := int(syncBits & 0xFFFF)
+		syncIndex := int(syncBits >> 16)
+		executeStage(&stages[stageIndex], context, syncIndex-1, syncIndex, workerIndex)
+		lastSyncBits = syncBits
 	}
 }
 
@@ -415,7 +725,7 @@ func solveContinuous(w *world, bodySimIndex int) {
 	}
 }
 
-func finalizeBodiesTask(startIndex, endIndex int, context *stepContext) {
+func finalizeBodiesTask(startIndex, endIndex, workerIndex int, context *stepContext) {
 	w := context.world
 	enableSleep := w.enableSleep
 	states := context.states
@@ -432,9 +742,11 @@ func finalizeBodiesTask(startIndex, endIndex int, context *stepContext) {
 		panic("dbox2d: the task range is inverted")
 	}
 
-	taskContext := &w.taskContext
+	taskContext := &w.taskContexts[workerIndex]
 	enlargedSimBitSet := &taskContext.enlargedSimBitSet
 	awakeIslandBitSet := &taskContext.awakeIslandBitSet
+	taskContext.bulletBodies = context.bulletBodies[startIndex:endIndex:endIndex]
+	taskContext.bulletBodyCount = 0
 
 	enableContinuous := w.enableContinuous
 
@@ -504,8 +816,8 @@ func finalizeBodiesTask(startIndex, endIndex int, context *stepContext) {
 				// Store in fast array for the continuous collision stage
 				// This is deterministic because the order of TOI sweeps doesn't matter
 				if sim.isBullet {
-					context.bulletBodies[context.bulletBodyCount] = simIndex
-					context.bulletBodyCount++
+					taskContext.bulletBodies[taskContext.bulletBodyCount] = simIndex
+					taskContext.bulletBodyCount++
 				} else {
 					solveContinuous(w, simIndex)
 				}
@@ -581,11 +893,210 @@ func finalizeBodiesTask(startIndex, endIndex int, context *stepContext) {
 	}
 }
 
+// bulletBodyTask sweeps a range of bullet bodies. It corresponds to
+// b2BulletBodyTask in src/solver.c.
+func bulletBodyTask(startIndex, endIndex, _ int, context *stepContext) {
+	w := context.world
+	for i := startIndex; i < endIndex; i++ {
+		solveContinuous(w, context.bulletBodies[i])
+	}
+}
+
+func setSolverStage(stage *solverStage, stageType solverStageType, blocks []solverBlock, colorIndex int) {
+	stage.stageType = stageType
+	stage.blocks = blocks
+	stage.colorIndex = colorIndex
+	stage.completionCount.Store(0)
+}
+
+func buildSolverStages(w *world, context *stepContext, awakeBodyCount int) {
+	const blocksPerWorker = 4
+	maxBlockCount := blocksPerWorker * context.workerCount
+
+	bodyBlockSize := 32
+	bodyBlockCount := 0
+	if awakeBodyCount > bodyBlockSize*maxBlockCount {
+		bodyBlockSize = awakeBodyCount / maxBlockCount
+		bodyBlockCount = maxBlockCount
+	} else {
+		bodyBlockCount = ((awakeBodyCount - 1) >> 5) + 1
+	}
+
+	var colorContactCounts [graphColorCount]int
+	var colorContactBlockSizes [graphColorCount]int
+	var colorContactBlockCounts [graphColorCount]int
+	var colorJointCounts [graphColorCount]int
+	var colorJointBlockSizes [graphColorCount]int
+	var colorJointBlockCounts [graphColorCount]int
+	graphBlockCount := 0
+
+	for c := range context.activeColorCount {
+		colorIndex := context.activeColorIndices[c]
+		color := &context.graph.colors[colorIndex]
+		colorContactCount := len(color.contactSims)
+		colorJointCount := len(color.jointSims)
+
+		colorContactCounts[c] = colorContactCount
+		if colorContactCount > blocksPerWorker*maxBlockCount {
+			colorContactBlockSizes[c] = colorContactCount / maxBlockCount
+			colorContactBlockCounts[c] = maxBlockCount
+		} else if colorContactCount > 0 {
+			colorContactBlockSizes[c] = blocksPerWorker
+			colorContactBlockCounts[c] = ((colorContactCount - 1) >> 2) + 1
+		}
+
+		colorJointCounts[c] = colorJointCount
+		if colorJointCount > blocksPerWorker*maxBlockCount {
+			colorJointBlockSizes[c] = colorJointCount / maxBlockCount
+			colorJointBlockCounts[c] = maxBlockCount
+		} else if colorJointCount > 0 {
+			colorJointBlockSizes[c] = blocksPerWorker
+			colorJointBlockCounts[c] = ((colorJointCount - 1) >> 2) + 1
+		}
+
+		graphBlockCount += colorJointBlockCounts[c] + colorContactBlockCounts[c]
+	}
+
+	contactCount := len(context.contacts)
+	contactBlockSize := blocksPerWorker
+	contactBlockCount := 0
+	if contactCount > 0 {
+		contactBlockCount = ((contactCount - 1) >> 2) + 1
+	}
+	if contactCount > contactBlockSize*maxBlockCount {
+		contactBlockSize = contactCount / maxBlockCount
+		contactBlockCount = maxBlockCount
+	}
+
+	jointCount := len(context.joints)
+	jointBlockSize := blocksPerWorker
+	jointBlockCount := 0
+	if jointCount > 0 {
+		jointBlockCount = ((jointCount - 1) >> 2) + 1
+	}
+	if jointCount > jointBlockSize*maxBlockCount {
+		jointBlockSize = jointCount / maxBlockCount
+		jointBlockCount = maxBlockCount
+	}
+
+	stageCount := 5 + 4*context.activeColorCount
+	w.solverStages = slices.Grow(w.solverStages[:0], stageCount)[:stageCount]
+	w.bodyBlocks = slices.Grow(w.bodyBlocks[:0], bodyBlockCount)[:bodyBlockCount]
+	w.jointBlocks = slices.Grow(w.jointBlocks[:0], jointBlockCount)[:jointBlockCount]
+	w.contactBlocks = slices.Grow(w.contactBlocks[:0], contactBlockCount)[:contactBlockCount]
+	w.graphBlocks = slices.Grow(w.graphBlocks[:0], graphBlockCount)[:graphBlockCount]
+
+	for i := range bodyBlockCount {
+		block := &w.bodyBlocks[i]
+		block.startIndex = i * bodyBlockSize
+		block.count = bodyBlockSize
+		block.blockType = int16(bodyBlock)
+		block.syncIndex.Store(0)
+	}
+	w.bodyBlocks[bodyBlockCount-1].count = awakeBodyCount - (bodyBlockCount-1)*bodyBlockSize
+
+	for i := range jointBlockCount {
+		block := &w.jointBlocks[i]
+		block.startIndex = i * jointBlockSize
+		block.count = jointBlockSize
+		block.blockType = int16(jointBlock)
+		block.syncIndex.Store(0)
+	}
+	if jointBlockCount > 0 {
+		w.jointBlocks[jointBlockCount-1].count = jointCount - (jointBlockCount-1)*jointBlockSize
+	}
+
+	for i := range contactBlockCount {
+		block := &w.contactBlocks[i]
+		block.startIndex = i * contactBlockSize
+		block.count = contactBlockSize
+		block.blockType = int16(contactBlock)
+		block.syncIndex.Store(0)
+	}
+	if contactBlockCount > 0 {
+		w.contactBlocks[contactBlockCount-1].count = contactCount - (contactBlockCount-1)*contactBlockSize
+	}
+
+	var graphColorBlocks [graphColorCount][]solverBlock
+	graphBlockBase := 0
+	for c := range context.activeColorCount {
+		colorBlockBase := graphBlockBase
+		colorJointBlockCount := colorJointBlockCounts[c]
+		colorJointBlockSize := colorJointBlockSizes[c]
+		for j := range colorJointBlockCount {
+			block := &w.graphBlocks[graphBlockBase+j]
+			block.startIndex = j * colorJointBlockSize
+			block.count = colorJointBlockSize
+			block.blockType = int16(graphJointBlock)
+			block.syncIndex.Store(0)
+		}
+		if colorJointBlockCount > 0 {
+			lastBlock := &w.graphBlocks[graphBlockBase+colorJointBlockCount-1]
+			lastBlock.count = colorJointCounts[c] - (colorJointBlockCount-1)*colorJointBlockSize
+			graphBlockBase += colorJointBlockCount
+		}
+
+		colorContactBlockCount := colorContactBlockCounts[c]
+		colorContactBlockSize := colorContactBlockSizes[c]
+		for j := range colorContactBlockCount {
+			block := &w.graphBlocks[graphBlockBase+j]
+			block.startIndex = j * colorContactBlockSize
+			block.count = colorContactBlockSize
+			block.blockType = int16(graphContactBlock)
+			block.syncIndex.Store(0)
+		}
+		if colorContactBlockCount > 0 {
+			lastBlock := &w.graphBlocks[graphBlockBase+colorContactBlockCount-1]
+			lastBlock.count = colorContactCounts[c] - (colorContactBlockCount-1)*colorContactBlockSize
+			graphBlockBase += colorContactBlockCount
+		}
+
+		graphColorBlocks[c] = w.graphBlocks[colorBlockBase:graphBlockBase]
+	}
+	if graphBlockBase != graphBlockCount {
+		panic("dbox2d: the graph block table is incomplete")
+	}
+
+	stageIndex := 0
+	setSolverStage(&w.solverStages[stageIndex], stagePrepareJoints, w.jointBlocks, nullIndex)
+	stageIndex += 1
+	setSolverStage(&w.solverStages[stageIndex], stagePrepareContacts, w.contactBlocks, nullIndex)
+	stageIndex += 1
+	setSolverStage(&w.solverStages[stageIndex], stageIntegrateVelocities, w.bodyBlocks, nullIndex)
+	stageIndex += 1
+	for c := range context.activeColorCount {
+		setSolverStage(&w.solverStages[stageIndex], stageWarmStart, graphColorBlocks[c], context.activeColorIndices[c])
+		stageIndex += 1
+	}
+	for c := range context.activeColorCount {
+		setSolverStage(&w.solverStages[stageIndex], stageSolve, graphColorBlocks[c], context.activeColorIndices[c])
+		stageIndex += 1
+	}
+	setSolverStage(&w.solverStages[stageIndex], stageIntegratePositions, w.bodyBlocks, nullIndex)
+	stageIndex += 1
+	for c := range context.activeColorCount {
+		setSolverStage(&w.solverStages[stageIndex], stageRelax, graphColorBlocks[c], context.activeColorIndices[c])
+		stageIndex += 1
+	}
+	for c := range context.activeColorCount {
+		setSolverStage(&w.solverStages[stageIndex], stageRestitution, graphColorBlocks[c], context.activeColorIndices[c])
+		stageIndex += 1
+	}
+	setSolverStage(&w.solverStages[stageIndex], stageStoreImpulses, w.contactBlocks, nullIndex)
+	stageIndex += 1
+	if stageIndex != stageCount {
+		panic("dbox2d: the solver stage table is incomplete")
+	}
+
+	context.stages = w.solverStages
+	if context.workerCount > 1 {
+		context.atomicSyncBits.Store(0)
+	}
+}
+
 // solve merges the islands, runs the constraint stages over the awake set,
-// finalizes the bodies and puts the sleepy islands to sleep. The reference
-// splits the same order into parallel stages over the graph colors; the
-// port runs them on one worker, so only the overflow color solves. It
-// corresponds to b2Solve and b2SolverTask in src/solver.c.
+// finalizes the bodies and puts the sleepy islands to sleep. It corresponds
+// to b2Solve and b2SolverTask in src/solver.c.
 func solve(w *world, context *stepContext) {
 	w.stepIndex += 1
 
@@ -618,102 +1129,66 @@ func solve(w *world, context *stepContext) {
 
 		w.bodyMoveEvents = resizeMoveEvents(w.bodyMoveEvents, awakeBodyCount)
 
-		// Deferred: the constraint pointers per color and the stage
-		// blocks serve the parallel executor.
-
 		// One contiguous scratch serves every color, as the SIMD scratch of
 		// the reference does.
-		contactCount := 0
-		for i := range graphColorCount {
-			contactCount += len(colors[i].contactSims)
+		activeContactCount := 0
+		activeJointCount := 0
+		for i := range overflowIndex {
+			colorContactCount := len(colors[i].contactSims)
+			colorJointCount := len(colors[i].jointSims)
+			activeContactCount += colorContactCount
+			activeJointCount += colorJointCount
+			if colorContactCount+colorJointCount > 0 {
+				context.activeColorIndices[context.activeColorCount] = i
+				context.activeColorCount += 1
+			}
 		}
+
+		w.contactPointers = slices.Grow(w.contactPointers[:0], activeContactCount)[:activeContactCount]
+		w.jointPointers = slices.Grow(w.jointPointers[:0], activeJointCount)[:activeJointCount]
+		context.contacts = w.contactPointers
+		context.joints = w.jointPointers
+		context.workerCount = w.executor.activeWorkerCount()
+
+		contactCount := activeContactCount + len(colors[overflowIndex].contactSims)
 		contactConstraints, constraintMem := arenaSlice[contactConstraint](&w.arena, contactCount, "contact constraint")
+		context.contactConstraints = contactConstraints[:activeContactCount:activeContactCount]
 		contactBase := 0
+		jointBase := 0
 		for i := range graphColorCount {
-			count := len(colors[i].contactSims)
-			colors[i].contactConstraints = contactConstraints[contactBase : contactBase+count : contactBase+count]
-			contactBase += count
+			color := &colors[i]
+			colorContactCount := len(color.contactSims)
+			color.contactConstraints = contactConstraints[contactBase : contactBase+colorContactCount : contactBase+colorContactCount]
+
+			if i < overflowIndex {
+				for j := range colorContactCount {
+					context.contacts[contactBase+j] = &color.contactSims[j]
+				}
+
+				colorJointCount := len(color.jointSims)
+				for j := range colorJointCount {
+					context.joints[jointBase+j] = &color.jointSims[j]
+				}
+				jointBase += colorJointCount
+			}
+
+			contactBase += colorContactCount
 		}
+		buildSolverStages(w, context, awakeBodyCount)
 
 		w.profile.PrepareStages = millisecondsSince(prepareStagesStart)
 
-		// The reference times the parallel launch of the stage loop below
-		// as solveConstraints; the port runs the same stages inline on one
-		// worker, so the zone wraps the whole substep loop and the split.
+		// The constraint stages run as one persistent-pool job per worker.
 		solveConstraintsStart := time.Now()
-		ticks := time.Now()
-
-		// The reference runs the overflow color first in each stage, then
-		// the active colors in order. In each stage the joints go before
-		// the contacts, as the joint stage of the reference finishes
-		// before the contact stage starts.
-		prepareJoints(context, overflowIndex)
-		for i := range overflowIndex {
-			prepareJoints(context, i)
-		}
-		prepareContacts(context, overflowIndex)
-		for i := range overflowIndex {
-			prepareContacts(context, i)
-		}
-		w.profile.PrepareConstraints += millisecondsAndReset(&ticks)
-
-		for range context.subStepCount {
-			integrateVelocitiesTask(0, awakeBodyCount, context)
-			w.profile.IntegrateVelocities += millisecondsAndReset(&ticks)
-
-			warmStartJoints(context, overflowIndex)
-			warmStartContacts(context, overflowIndex)
-			for i := range overflowIndex {
-				warmStartJoints(context, i)
-				warmStartContacts(context, i)
-			}
-			w.profile.WarmStart += millisecondsAndReset(&ticks)
-
-			useBias := true
-			solveJoints(context, overflowIndex, useBias)
-			solveContacts(context, overflowIndex, useBias)
-			for i := range overflowIndex {
-				solveJoints(context, i, useBias)
-				solveContacts(context, i, useBias)
-			}
-			w.profile.SolveImpulses += millisecondsAndReset(&ticks)
-
-			integratePositionsTask(0, awakeBodyCount, context)
-			w.profile.IntegratePositions += millisecondsAndReset(&ticks)
-
-			useBias = false
-			solveJoints(context, overflowIndex, useBias)
-			solveContacts(context, overflowIndex, useBias)
-			for i := range overflowIndex {
-				solveJoints(context, i, useBias)
-				solveContacts(context, i, useBias)
-			}
-			w.profile.RelaxImpulses += millisecondsAndReset(&ticks)
-		}
-
-		applyRestitution(context, overflowIndex)
-		for i := range overflowIndex {
-			applyRestitution(context, i)
-		}
-		w.profile.ApplyRestitution += millisecondsAndReset(&ticks)
-
-		storeImpulses(context, overflowIndex)
-		for i := range overflowIndex {
-			storeImpulses(context, i)
-		}
-		w.profile.StoreImpulses += millisecondsAndReset(&ticks)
-
-		// Split an awake island. This modifies:
-		// - stack allocator
-		// - world island array and solver set
-		// - island indices on bodies, contacts, and joints
-		// The reference runs the split beside the constraint solve. The
-		// split cannot run beside the body finalize.
+		var sideFn func(*stepContext)
 		if w.splitIslandId != nullIndex {
-			splitStart := time.Now()
-			splitIsland(w, w.splitIslandId)
-			w.profile.SplitIslands += millisecondsSince(splitStart)
+			sideFn = splitIslandSide
+			w.taskCount++
 		}
+		// The split writes the islands and their links, which the script
+		// never reads; the body finalize must wait for it.
+		w.taskCount++
+		w.executor.runContextWithSide(solverTask, sideFn, context)
 		w.splitIslandId = nullIndex
 
 		w.profile.SolveConstraints = millisecondsSince(solveConstraintsStart)
@@ -722,18 +1197,36 @@ func solve(w *world, context *stepContext) {
 
 		// Prepare the enlarged body and island bit sets used in body finalization.
 		awakeIslandCount := len(awake.islandSims)
-		taskContext := &w.taskContext
-		setBitCountAndClear(&taskContext.enlargedSimBitSet, awakeBodyCount)
-		setBitCountAndClear(&taskContext.awakeIslandBitSet, awakeIslandCount)
-		taskContext.splitIslandId = nullIndex
-		taskContext.splitSleepTime = QZero()
+		for i := range w.workerCount {
+			taskContext := &w.taskContexts[i]
+			setBitCountAndClear(&taskContext.enlargedSimBitSet, awakeBodyCount)
+			setBitCountAndClear(&taskContext.awakeIslandBitSet, awakeIslandCount)
+			taskContext.splitIslandId = nullIndex
+			taskContext.splitSleepTime = QZero()
+			taskContext.bulletBodyCount = 0
+		}
 
 		// Finalize bodies. Must happen after the constraint solver and after island splitting.
-		finalizeBodiesTask(0, awakeBodyCount, context)
+		w.taskCount++
+		w.executor.parallelFor(awakeBodyCount, 64, finalizeBodiesTask, context)
 
+		context.bulletBodyCount = w.taskContexts[0].bulletBodyCount
+		for i := 1; i < w.workerCount; i++ {
+			taskContext := &w.taskContexts[i]
+			copy(context.bulletBodies[context.bulletBodyCount:], taskContext.bulletBodies[:taskContext.bulletBodyCount])
+			context.bulletBodyCount += taskContext.bulletBodyCount
+		}
+
+		for i := 1; i < w.workerCount; i++ {
+			inPlaceUnion(&w.taskContexts[0].enlargedSimBitSet, &w.taskContexts[i].enlargedSimBitSet)
+		}
 		for i := range graphColorCount {
 			colors[i].contactConstraints = nil
 		}
+		context.contactConstraints = nil
+		context.joints = nil
+		context.contacts = nil
+		context.stages = nil
 		w.arena.freeItem(constraintMem)
 
 		w.profile.Transforms = millisecondsSince(transformsStart)
@@ -792,7 +1285,7 @@ func solve(w *world, context *stepContext) {
 	{
 		refitStart := time.Now()
 
-		enlargedBodyBitSet := &w.taskContext.enlargedSimBitSet
+		enlargedBodyBitSet := &w.taskContexts[0].enlargedSimBitSet
 
 		// Enlarge broad-phase proxies and build move array
 		// Apply shape AABB changes to broad-phase. This also create the move array which must be
@@ -847,17 +1340,14 @@ func solve(w *world, context *stepContext) {
 		w.profile.Refit = millisecondsSince(refitStart)
 	}
 
-	// Continuous collision of the bullet bodies. The reference sweeps them
-	// in parallel and enlarges their proxies serially; the port runs both
-	// on one worker, in the buffer order.
+	// Continuous collision of the bullet bodies. The proxy refit remains serial.
 	if context.bulletBodyCount > 0 {
 		bulletsStart := time.Now()
 
 		// Fast bullet bodies
 		// Note: a bullet body may be moving slow
-		for i := range context.bulletBodyCount {
-			solveContinuous(w, context.bulletBodies[i])
-		}
+		w.taskCount++
+		w.executor.parallelFor(context.bulletBodyCount, 8, bulletBodyTask, context)
 
 		// Serially enlarge broad-phase proxies for bullet shapes
 		broadPhase := &w.broadPhase
@@ -923,15 +1413,22 @@ func solve(w *world, context *stepContext) {
 		if w.splitIslandId != nullIndex {
 			panic("dbox2d: the split candidate is not clear")
 		}
-		taskContext := &w.taskContext
-		if taskContext.splitIslandId != nullIndex {
-			if !QZero().Less(taskContext.splitSleepTime) {
-				panic("dbox2d: the split candidate has no sleep time")
+		// The ranges are fixed and ascending, so the first worker wins a
+		// tie, as the first body wins inside a worker. The reference breaks
+		// ties by island id because of work stealing.
+		splitSleepTimer := QZero()
+		for i := range w.workerCount {
+			taskContext := &w.taskContexts[i]
+			if taskContext.splitIslandId != nullIndex && splitSleepTimer.Less(taskContext.splitSleepTime) {
+				w.splitIslandId = taskContext.splitIslandId
+				splitSleepTimer = taskContext.splitSleepTime
 			}
-			w.splitIslandId = taskContext.splitIslandId
 		}
 
-		awakeIslandBitSet := &taskContext.awakeIslandBitSet
+		awakeIslandBitSet := &w.taskContexts[0].awakeIslandBitSet
+		for i := 1; i < w.workerCount; i++ {
+			inPlaceUnion(awakeIslandBitSet, &w.taskContexts[i].awakeIslandBitSet)
+		}
 
 		// Need to process in reverse because this moves islands to sleeping solver sets.
 		islands := awake.islandSims

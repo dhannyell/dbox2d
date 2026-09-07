@@ -71,9 +71,8 @@ instead shifts the result by one raw unit. Write `s.Neg().Mul(x)`.
 | `foundation` | Constants, transforms, geometry, mass, world state, integration only. |
 | `manifolds` | Narrowphase and contact bookkeeping. |
 | `solver` | Soft Step, warm starting, relax, restitution, islands, coloring. |
-| `broadphase` | Dynamic tree, pair finding, and the second executor. |
+| `broadphase` | Dynamic tree, pair finding, and the executor. |
 | `joints` | The seven joint solvers plus the filter joint, their solver stages, islands and colors. |
-| `later` | Worker tasks. |
 | `surface` | The rest of the public surface: accessors, chains, sensors, the mover, explosions and the closure-based callbacks. |
 
 ## What the inventory found
@@ -143,7 +142,8 @@ to D-007. The notes below record what moved and what did not cross.
 - `b2Perimeter` and `b2EnlargeAABB` live in `src/aabb.h`, so they stay
   unexported. Their consumer is the dynamic tree, order 29, which landed.
 - `B2_GRAPH_COLOR_COUNT` landed with the constraint graph, order 26.
-  `B2_MAX_WORKERS` waits for the worker pool. `B2_NULL_INDEX` and
+  `B2_MAX_WORKERS` landed with the worker pool as `maxWorkers` (D-016).
+  `B2_NULL_INDEX` and
   `B2_MAX_WORLDS` landed with order 10.
 - The module depends on the standard library and on the fixed-point module,
   and on nothing else. `math/bits` and `sync/atomic` arrive with the
@@ -181,8 +181,9 @@ adds no arithmetic divergence.
   `Get` prefix goes away, as Go style asks.
 - A definition struct keeps `internalValue` unexported, so only its
   `Default` function can satisfy `checkDef`.
-- `b2WorldDef` drops the task-system fields and the mixing callbacks. The
-  task system does not cross; the callbacks arrive with the contact solver.
+- `b2WorldDef` drops the task callbacks and the mixing callbacks. The
+  world owns its workers behind `WorkerCount` (D-016); the mixing
+  callbacks arrive with the contact solver.
   The debug draw and `b2RayResult` wait with their consumers.
 - The union inside `b2Shape` becomes five plain fields, one per geometry,
   because Go has no union. The `type` field of `b2Body` becomes `bodyType`,
@@ -227,8 +228,9 @@ assertions retained by the step, and D-004 and D-006 grew `solver.go` entries.
 - `Checksum` covers the deterministic world configuration and all canonical
   body and shape state. Per-body and per-shape sums make equivalent worlds
   independent of internal ids and creation order.
-- One worker replaces the task system. The stage order is the contract that
-  a second executor must keep.
+- The world owns its workers (D-016). The stage order is the contract
+  that every worker count keeps; the test of worker-count independence
+  pins it.
 
 **Order 18 has landed**: `arena.go`.
 
@@ -356,30 +358,33 @@ constraint scratch from one arena block. See D-004 and D-006.
   the body inverse mass do. The guard against a zero mass is an exact
   test.
 - The reference solves the colors with the wide `Task` family and the
-  overflow color with the scalar `Overflow` family. One worker cannot run
-  two contacts at once, so the scalar family runs per color in the order
-  of the reference: the overflow color first, then colors 0 to 10. The
-  `Task` family stays T2 until a second executor exists.
+  overflow color with the scalar `Overflow` family. The port runs the
+  scalar family in both places: the overflow color on worker 0, then the
+  colors in blocks of four contacts that the workers steal. The wide
+  `Task` family stays T2 until a wide scalar exists.
 
-**Order 23 is complete for one worker**: `solve` follows `b2Solve`: the
-island merge, the overflow constraints from the arena, the five contact
-stages per sub-step, the restitution and the impulse store, the pending
-island split, the body finalize with the island sleep bookkeeping, and the
-sleep tail in reverse island order. The world gains one `taskContext`.
+**Order 23 is complete**: `solve` follows `b2Solve`: the island merge,
+the overflow constraints from the arena, the stage script of blocks per
+sub-step, the restitution and the impulse store, the island split beside
+the script, the body finalize with the island sleep bookkeeping, and the
+sleep tail in reverse island order. The world keeps one `taskContext` per
+worker.
 
-- The reference runs the island split beside the constraint solve on a
-  task. The port runs it after the impulse store and before the body
-  finalize, which is the only order the reference forbids.
-- The color occupancy count, the contact pointers, the stage blocks and
-  the per-worker contexts serve the parallel executor and wait with it.
+- The island split runs on the last worker while the other workers run
+  the script; with one worker it runs inline before the script. Both
+  orders finish before the body finalize, the only order the reference
+  forbids.
+- The stage blocks, the contact and joint pointer arrays and the
+  per-worker contexts are the ones of the reference; see D-016.
 - The broad-phase refit landed with order 30 and the continuous collision
   stage with order 32.
 
 **Order 28 has landed with the collide block and the events**: `step.go`
 gains `collide`, which follows `b2Collide` and `b2UpdateContact`: the
 graph colors and the awake set refresh every contact sim, and the state
-bit set records each begin, end or disjoint transition. The serial pass
-walks the set bits with `bits.TrailingZeros64`. `world.go` gains
+bit set of each worker records each begin, end or disjoint transition;
+the union of the sets feeds the serial pass, which walks the set bits
+with `bits.TrailingZeros64`. `world.go` gains
 `GetBodyEvents` and `GetContactEvents`; `types.go` gains the event
 structs.
 
@@ -431,11 +436,13 @@ pair set moves from the world to the broadphase. `shape.go` gains
 `shouldShapesCollide` and `shouldQueryCollide`; `body.go` gains
 `shouldBodiesCollide` without its joint loop.
 
-- The pair query runs inline for one worker. The atomic pair index of the
-  reference is the length of the pair slice.
-- The pairs of one moved proxy link by index into the pair slice, not by
-  pointer. When the sixteen pairs per moved proxy run out the slice grows
-  by append instead of taking single pairs from the heap (D-010).
+- The pair query splits the move array in ranges of at least 64 proxies.
+  Each worker keeps its own pair slice; the atomic pair index of the
+  reference is the length of that slice, and the move result records the
+  worker that filled it (D-016).
+- The pairs of one moved proxy link by index into the worker's pair
+  slice, not by pointer. The slice grows by append and keeps its capacity
+  between steps instead of taking single pairs from the heap (D-010).
 - The reference prepends each pair, so the contact order of one moved
   proxy follows the tree walk. The port keeps the list sorted by shape
   pair, so any tree with the same leaves creates the same contacts in the
@@ -449,8 +456,9 @@ pair set moves from the world to the broadphase. `shape.go` gains
   pairs once the world locks, `collide` rebuilds the dynamic and the
   kinematic trees first, the finalize marks the enlarged shapes and the
   sims, and the refit after the hit events enlarges the proxies in sim
-  order. The reference runs the rebuild on a task beside the collide
-  pass; one worker runs it before.
+  order. The rebuild runs on the last worker beside the collide pass and
+  finishes with it; the reference lets it run until the refit. One
+  worker runs it before the pass.
 - The default shape definition invokes contact creation, so a static
   shape joins the move buffer on creation, as upstream.
 - The determinism witness kept its value: the broadphase pairs the same
@@ -501,10 +509,12 @@ entries; the determinism witness of D-011 did not move.
   flags a body as fast when its top speed over the step exceeds half its
   minimum extent, runs `solveContinuous` inline for a plain fast body and
   buffers a bullet in `stepContext.bulletBodies`, a slice from the arena
-  per D-010. The refit pass buffers the moves of a fast bullet, then the
-  bullet pass sweeps each bullet and enlarges its proxies serially; the
-  reference runs the sweeps in parallel and the single worker keeps the
-  buffer order. The query callback is a method value per D-014. The
+  per D-010; each worker fills the part of the slice that covers its
+  body range, and the parts join in worker order, where the reference
+  uses an atomic index (D-016). The refit pass buffers the moves of a
+  fast bullet, then the bullet pass sweeps the bullets in ranges of eight
+  and enlarges their proxies serially in the buffer order. The query
+  callback is a method value per D-014. The
   global counters of the reference do not cross.
 - A fast body without a hit keeps the tight bounds of its end transform,
   as the reference does; the fat bounds still contain them.
@@ -572,11 +582,10 @@ D-014 grew entries.
   same points as the reference. `WorldId.DumpMemoryStats` closes the
   remaining surface: it writes the same six sections to an `io.Writer`
   in place of opening a fixed file name, per D-015. The `byteCount` and
-  `taskCount` fields of `b2Counters`, the task fields of `b2WorldDef`,
-  and the `void* context` parameter of every callback function type do
-  not cross either: the first two serve the task system that never
-  crossed, and the callback context is the job a Go closure already
-  does, per D-014.
+  task callbacks of `b2WorldDef` and the `void* context` parameter of
+  every callback function type do not cross either: the world owns its
+  workers behind `WorkerCount` and `Counters.TaskCount` (D-016), and the
+  callback context is the job a Go closure already does, per D-014.
 
 ## The map
 
@@ -607,15 +616,15 @@ D-014 grew entries.
 | `src/manifold.c` | `manifold.go` | T0/T1 | manifolds | 20 | Nine `FLT_EPSILON` sites become exact zero tests, one T2 entry each. The chain segment colliders landed with order 32. |
 | `src/contact.h`, `src/contact.c` | `contact.go` | T0 | manifolds | 21 | Contact bookkeeping and the collide dispatch table. The island and graph branches landed with orders 25 and 26. |
 | `src/table.h`, `src/table.c` | `table.go` | T0 | manifolds | 22 | Open-addressing set of contact pairs. |
-| `src/solver.h`, `src/solver.c` | `solver.go` | T0/T1/T2 | solver | 23 | Nine ordered stages, from prepare joints to store impulses. `makeSoft` landed with order 24. The integration tasks and the body finalize landed with order 16; the single-worker stage order with the per-color contact stages, the island split and the sleep tail landed with order 23; the enlarged body bits and the broadphase refit landed with order 30; the continuous stage landed with order 32; the joint stages landed with order 33; see D-004 and D-006. |
-| `src/contact_solver.h`, `src/contact_solver.c` | `contact_solver.go` | T0/T1/T2 | solver | 24 | The scalar stages landed and serve every color; see D-004 and D-006. The wide `Task` family is T2 until the second executor exists. |
+| `src/solver.h`, `src/solver.c` | `solver.go` | T0/T1/T2 | solver | 23 | Nine ordered stages, from prepare joints to store impulses. `makeSoft` landed with order 24. The integration tasks and the body finalize landed with order 16; the stage script with the per-color contact stages, the island split and the sleep tail landed with order 23; the stage blocks and the worker pool landed with D-016; the enlarged body bits and the broadphase refit landed with order 30; the continuous stage landed with order 32; the joint stages landed with order 33; see D-004 and D-006. |
+| `src/contact_solver.h`, `src/contact_solver.c` | `contact_solver.go` | T0/T1/T2 | solver | 24 | The scalar stages landed and serve every color; see D-004 and D-006. The wide `Task` family is T2 until a wide scalar exists. |
 | `src/island.h`, `src/island.c` | `island.go` | T0 | solver | 25 | Island linking, merging and splitting landed; the wake calls and the sleep path landed when order 13 completed. The joint lists landed with order 33. |
 | `src/constraint_graph.h`, `src/constraint_graph.c` | `constraint_graph.go` | T0 | solver | 26 | Eleven colors plus the overflow color landed. The color schedule is the parallel contract. The joint functions landed with order 33. |
 | `src/bitset.h`, `src/bitset.c` | `bitset.go` | T0 | broadphase | 27 | Set, clear, test, grow and union landed. Backs the constraint graph and the contact state of the step. |
 | `src/ctz.h` | `math/bits` | T2 | broadphase | 28 | The standard library replaces the compiler intrinsics. Landed with the collide block in `step.go`. |
 | `src/dynamic_tree.c` | `dynamic_tree.go` | T0/T2 | broadphase | 29 | Landed. Fattened AABBs, surface-area heuristic, rotation rebalance, box query, ray cast, shape cast, partial rebuild. See D-009 and D-014. |
 | `src/broad_phase.h`, `src/broad_phase.c` | `broad_phase.go` | T0/T2 | broadphase | 30 | Landed. Three trees, the move buffer, the pair query and the pair set. The pair list of each moved proxy is sorted by shape id, so any equivalent tree gives the same world. See D-010 and D-013. |
-| `src/atomic.h` | `sync/atomic` | T2 | broadphase | 31 | Needed only when a second executor exists. The pair index of the broadphase is the length of the pair slice for one worker. |
+| `src/atomic.h` | `sync/atomic` | T1 | broadphase | 31 | Landed with the executor: the sync bits and the block indices of the solver script, the completion counts and the pool's generation. The pair index of the broadphase is the length of each worker's pair slice; see D-016. |
 | `include/box2d/box2d.h` | public API | T0/T2 | all stages | 34 | Landed. The whole 3.1.1 surface is ported; see the surface note above, D-014 and D-015. |
 | `src/joint.h`, `src/joint.c` | `joint.go` | T0/T2 | joints | 33 | Landed. Types, definitions, storage, creation, destruction, the island and graph hooks, the set transfers and the prepare, warm start and solve dispatch. Accessors landed with order 34; debug draw and dump do not cross. See D-003, D-004 and D-006. |
 | `src/distance_joint.c`, `src/motor_joint.c`, `src/mouse_joint.c`, `src/prismatic_joint.c`, `src/revolute_joint.c`, `src/weld_joint.c`, `src/wheel_joint.c` | one file each | T0/T2 | joints | 33 | Landed. Force and torque reports, prepare, warm start and solve of each type; the filter joint has no solver. Accessors landed with order 34; debug draw and dump do not cross. See D-004, D-006 and D-009. |

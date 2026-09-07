@@ -20,7 +20,7 @@ type sensor struct {
 	shapeId   int
 }
 
-// sensorTaskContext stores the changed sensors of one serial task. It
+// sensorTaskContext stores the changed sensors of one worker. It
 // corresponds to b2SensorTaskContext in src/sensor.h.
 type sensorTaskContext struct {
 	eventBits bitSet
@@ -96,18 +96,13 @@ func cmpShapeRefs(a, b shapeRef) int {
 	return 0
 }
 
-// sensorTask queries every sensor and marks changed overlap sets. It
-// corresponds to b2SensorTask in src/sensor.c; the port runs serially.
-func sensorTask(w *world) {
-	sensorCount := len(w.sensors)
-	if sensorCount == 0 {
-		return
-	}
+// sensorTask queries a range of sensors and marks changed overlap sets. It
+// corresponds to b2SensorTask in src/sensor.c.
+func sensorTask(startIndex, endIndex, workerIndex int, context *stepContext) {
+	w := context.world
+	taskContext := &w.sensorTaskContexts[workerIndex]
 
-	taskContext := &w.sensorTaskContexts[0]
-	setBitCountAndClear(&taskContext.eventBits, sensorCount)
-
-	for sensorIndex := range w.sensors {
+	for sensorIndex := startIndex; sensorIndex < endIndex; sensorIndex++ {
 		s := &w.sensors[sensorIndex]
 		s.overlaps2 = s.overlaps2[:0]
 
@@ -161,13 +156,22 @@ func sensorTask(w *world) {
 
 // overlapSensors publishes deterministic begin and end events. It
 // corresponds to b2OverlapSensors in src/sensor.c.
-func overlapSensors(w *world) {
-	sensorTask(w)
+func overlapSensors(context *stepContext) {
+	w := context.world
 	if len(w.sensors) == 0 {
 		return
 	}
 
+	for i := range w.workerCount {
+		setBitCountAndClear(&w.sensorTaskContexts[i].eventBits, len(w.sensors))
+	}
+	w.taskCount++
+	w.executor.parallelFor(len(w.sensors), 16, sensorTask, context)
+
 	eventBits := &w.sensorTaskContexts[0].eventBits
+	for i := 1; i < w.workerCount; i++ {
+		inPlaceUnion(eventBits, &w.sensorTaskContexts[i].eventBits)
+	}
 	for blockIndex := range eventBits.bits {
 		bitsWord := eventBits.bits[blockIndex]
 		for bitsWord != 0 {
