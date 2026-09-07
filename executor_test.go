@@ -38,7 +38,7 @@ func recordExecutorRange(startIndex, endIndex, workerIndex int, context *stepCon
 
 func noopExecutorTask(startIndex, endIndex, workerIndex int, context *stepContext) {}
 
-func noopExecutorWorker(workerIndex int) {}
+func noopExecutorWorker(workerIndex int, context *stepContext) {}
 
 func TestParallelForCoversTheRangeOnce(t *testing.T) {
 	for _, workerCount := range []int{1, 2, 3, 4, 8} {
@@ -89,20 +89,20 @@ func TestParallelForCoversTheRangeOnce(t *testing.T) {
 	}
 }
 
-func TestRunVisitsEveryWorker(t *testing.T) {
+func TestRunContextVisitsEveryWorker(t *testing.T) {
 	for _, workerCount := range []int{1, 2, 3, 4, 8} {
 		e := &executor{workerCount: workerCount}
 		e.start(workerCount)
 		// The platform may cap the pool; wasm always has one worker.
 		workerCount = e.workerCount
 		visits := make([]int32, workerCount)
-		e.run(func(workerIndex int) {
+		e.runContext(func(workerIndex int, _ *stepContext) {
 			if workerIndex < 0 || workerIndex >= len(visits) {
 				t.Errorf("got worker index %d", workerIndex)
 				return
 			}
 			atomic.AddInt32(&visits[workerIndex], 1)
-		})
+		}, nil)
 		for workerIndex, count := range visits {
 			if got := atomic.LoadInt32(&count); got != 1 {
 				t.Fatalf("workers=%d index=%d: got %d visits, want 1", workerCount, workerIndex, got)
@@ -143,6 +143,95 @@ func TestEffectiveWorkerCount(t *testing.T) {
 	}
 }
 
+func TestGetWorkerStartIndexMatchesTheReference(t *testing.T) {
+	tests := []struct {
+		workerIndex int
+		blockCount  int
+		workerCount int
+		want        int
+	}{
+		{workerIndex: 0, blockCount: 1, workerCount: 4, want: 0},
+		{workerIndex: 1, blockCount: 1, workerCount: 4, want: nullIndex},
+		{workerIndex: 0, blockCount: 10, workerCount: 4, want: 0},
+		{workerIndex: 1, blockCount: 10, workerCount: 4, want: 3},
+		{workerIndex: 2, blockCount: 10, workerCount: 4, want: 6},
+		{workerIndex: 3, blockCount: 10, workerCount: 4, want: 8},
+		{workerIndex: 3, blockCount: 3, workerCount: 4, want: nullIndex},
+	}
+
+	for _, test := range tests {
+		if got := getWorkerStartIndex(test.workerIndex, test.blockCount, test.workerCount); got != test.want {
+			t.Errorf("getWorkerStartIndex(%d, %d, %d) = %d, want %d", test.workerIndex, test.blockCount, test.workerCount, got, test.want)
+		}
+	}
+}
+
+func requireSolverBlockLayout(t *testing.T, blocks []solverBlock, itemCount, blockSize, blockCount int, blockType solverBlockType) {
+	t.Helper()
+	if len(blocks) != blockCount {
+		t.Fatalf("got %d blocks, want %d", len(blocks), blockCount)
+	}
+	for i := range blocks {
+		block := &blocks[i]
+		wantCount := blockSize
+		if i == blockCount-1 {
+			wantCount = itemCount - i*blockSize
+		}
+		if block.startIndex != i*blockSize || int(block.count) != wantCount || solverBlockType(block.blockType) != blockType {
+			t.Fatalf("block %d = {start:%d count:%d type:%d}, want {start:%d count:%d type:%d}", i, block.startIndex, block.count, block.blockType, i*blockSize, wantCount, blockType)
+		}
+	}
+}
+
+func TestStageTableMatchesTheReferenceSizing(t *testing.T) {
+	const blocksPerWorker = 4
+	workerCounts := []int{1, 4, 8}
+
+	for _, workerCount := range workerCounts {
+		maxBlockCount := blocksPerWorker * workerCount
+		for _, awakeBodyCount := range []int{1, 32, 33, 1000, 100000} {
+			blockSize := 32
+			blockCount := ((awakeBodyCount - 1) >> 5) + 1
+			if awakeBodyCount > blockSize*maxBlockCount {
+				blockSize = awakeBodyCount / maxBlockCount
+				blockCount = maxBlockCount
+			}
+
+			w := world{}
+			context := stepContext{workerCount: workerCount}
+			buildSolverStages(&w, &context, awakeBodyCount)
+			requireSolverBlockLayout(t, w.bodyBlocks, awakeBodyCount, blockSize, blockCount, bodyBlock)
+		}
+
+		for _, contactCount := range []int{1, 4, 5, 17, 10000} {
+			blockSize := blocksPerWorker
+			blockCount := ((contactCount - 1) >> 2) + 1
+			if contactCount > blockSize*maxBlockCount {
+				blockSize = contactCount / maxBlockCount
+				blockCount = maxBlockCount
+			}
+
+			graph := constraintGraph{}
+			graph.colors[0].contactSims = make([]contactSim, contactCount)
+			w := world{}
+			context := stepContext{graph: &graph, activeColorCount: 1, workerCount: workerCount}
+			context.activeColorIndices[0] = 0
+			buildSolverStages(&w, &context, 1)
+			requireSolverBlockLayout(t, w.graphBlocks, contactCount, blockSize, blockCount, graphContactBlock)
+		}
+	}
+
+	graph := constraintGraph{}
+	graph.colors[0].jointSims = make([]jointSim, 2)
+	graph.colors[0].contactSims = make([]contactSim, 5)
+	w := world{}
+	context := stepContext{graph: &graph, activeColorCount: 1, workerCount: 4}
+	context.activeColorIndices[0] = 0
+	buildSolverStages(&w, &context, 1)
+	requireSolverBlockLayout(t, w.graphBlocks[:1], 2, 4, 1, graphJointBlock)
+	requireSolverBlockLayout(t, w.graphBlocks[1:], 5, 4, 2, graphContactBlock)
+}
+
 func TestParallelForDoesNotAllocate(t *testing.T) {
 	e := &executor{workerCount: 4}
 	e.start(4)
@@ -154,8 +243,8 @@ func TestParallelForDoesNotAllocate(t *testing.T) {
 		t.Fatalf("parallelFor allocated %f times per run", got)
 	}
 	if got := testing.AllocsPerRun(100, func() {
-		e.run(noopExecutorWorker)
+		e.runContext(noopExecutorWorker, nil)
 	}); got != 0 {
-		t.Fatalf("run allocated %f times per run", got)
+		t.Fatalf("runContext allocated %f times per run", got)
 	}
 }

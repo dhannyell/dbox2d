@@ -25,6 +25,12 @@ func jointContext(w *world) *stepContext {
 	awake := &w.solverSets[awakeSet]
 	context.sims = awake.bodySims
 	context.states = awake.bodyStates
+	for i := range overflowIndex {
+		joints := w.constraintGraph.colors[i].jointSims
+		for j := range joints {
+			context.joints = append(context.joints, &joints[j])
+		}
+	}
 	return context
 }
 
@@ -71,8 +77,8 @@ func TestRevoluteHoldsTheAnchor(t *testing.T) {
 	state.linearVelocity = Vec2{Y: QOne().Neg()}
 
 	context := jointContext(w)
-	prepareJoints(context, j.colorIndex)
-	solveJoints(context, j.colorIndex, false)
+	prepareJointsTask(0, len(context.joints), context)
+	solveJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex, false)
 
 	tolerance := fixed.Q32FromRaw(1 << 12)
 	js := getJointSim(w, j)
@@ -115,8 +121,8 @@ func TestRevoluteLimitStopsTheSpin(t *testing.T) {
 	state.angularVelocity = QOne().Div(tau)
 
 	context := jointContext(w)
-	prepareJoints(context, j.colorIndex)
-	solveJoints(context, j.colorIndex, false)
+	prepareJointsTask(0, len(context.joints), context)
+	solveJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex, false)
 
 	tolerance := fixed.Q32FromRaw(1 << 12)
 	js := getJointSim(w, j)
@@ -146,8 +152,8 @@ func TestRevoluteMotorSaturatesAtTheTorque(t *testing.T) {
 	state := getBodyState(w, box)
 
 	context := jointContext(w)
-	prepareJoints(context, j.colorIndex)
-	solveJoints(context, j.colorIndex, false)
+	prepareJointsTask(0, len(context.joints), context)
+	solveJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex, false)
 
 	tolerance := fixed.Q32FromRaw(1 << 12)
 	js := getJointSim(w, j)
@@ -167,7 +173,7 @@ func TestRevoluteMotorSaturatesAtTheTorque(t *testing.T) {
 
 	// The warm start applies the stored impulse again on a fresh state.
 	state.angularVelocity = QZero()
-	warmStartJoints(context, j.colorIndex)
+	warmStartJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex)
 	wB = state.angularVelocity.Mul(tau)
 	if !withinQ(wB, QFromRatio(5, 2), tolerance) {
 		t.Errorf("the warm start gives wB %v rad/s, want 2.5", wB)

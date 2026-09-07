@@ -51,8 +51,8 @@ func TestPrismaticBlockHoldsTheLine(t *testing.T) {
 	state.angularVelocity = QOne().Div(tau)
 
 	context := jointContext(w)
-	prepareJoints(context, j.colorIndex)
-	solveJoints(context, j.colorIndex, false)
+	prepareJointsTask(0, len(context.joints), context)
+	solveJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex, false)
 
 	tolerance := fixed.Q32FromRaw(1 << 12)
 	js := getJointSim(w, j)
@@ -88,8 +88,8 @@ func TestPrismaticUpperLimitStopsTheSlide(t *testing.T) {
 	state.linearVelocity = Vec2{X: QOne()}
 
 	context := jointContext(w)
-	prepareJoints(context, j.colorIndex)
-	solveJoints(context, j.colorIndex, false)
+	prepareJointsTask(0, len(context.joints), context)
+	solveJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex, false)
 
 	tolerance := fixed.Q32FromRaw(1 << 12)
 	js := getJointSim(w, j)
@@ -122,8 +122,8 @@ func TestPrismaticMotorSaturatesAtTheForce(t *testing.T) {
 	state := getBodyState(w, box)
 
 	context := jointContext(w)
-	prepareJoints(context, j.colorIndex)
-	solveJoints(context, j.colorIndex, false)
+	prepareJointsTask(0, len(context.joints), context)
+	solveJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex, false)
 
 	tolerance := fixed.Q32FromRaw(1 << 12)
 	js := getJointSim(w, j)
@@ -137,7 +137,7 @@ func TestPrismaticMotorSaturatesAtTheForce(t *testing.T) {
 
 	// The warm start applies the stored impulse again on a fresh state.
 	state.linearVelocity = Vec2Zero()
-	warmStartJoints(context, j.colorIndex)
+	warmStartJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex)
 	if !withinQ(state.linearVelocity.X, twelfths, tolerance) {
 		t.Errorf("the warm start gives vB.x %v, want 5/12", state.linearVelocity.X)
 	}

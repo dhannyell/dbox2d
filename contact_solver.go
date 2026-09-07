@@ -45,22 +45,31 @@ type contactConstraint struct {
 // The solver works in radians per second, so each stage scales the
 // velocity by one turn on load and divides by one turn on store.
 
-// The reference solves the overflow color with the scalar family below and
-// the other colors with a SIMD family over eight contacts at a time. The
-// port has one worker, so the scalar family serves every color. Contacts
-// of one color share no dynamic body, so the order inside a color cannot
-// change the result and the schedule of the reference holds.
+// The scalar family serves every color. Contacts of one active color share
+// no dynamic body, while overflow stages remain whole-color operations.
 
-// prepareContacts builds the constraints of one color from its contact
-// sims. It corresponds to b2PrepareOverflowContacts in
-// src/contact_solver.c.
-func prepareContacts(context *stepContext, colorIndex int) {
+// prepareContactsTask builds constraints for a range of the flat contact
+// array. It corresponds to b2PrepareContactsTask in src/contact_solver.c.
+func prepareContactsTask(startIndex, endIndex int, context *stepContext) {
+	prepareContactRange(startIndex, endIndex, context, context.contacts, nil, context.contactConstraints)
+}
+
+// prepareOverflowContacts builds the overflow contact constraints. It
+// corresponds to b2PrepareOverflowContacts in src/contact_solver.c.
+func prepareOverflowContacts(context *stepContext) {
+	color := &context.graph.colors[overflowIndex]
+	prepareContactRange(0, len(color.contactSims), context, nil, color.contactSims, color.contactConstraints)
+}
+
+func prepareContactRange(startIndex, endIndex int, context *stepContext, contacts []*contactSim, contactSims []contactSim, constraints []contactConstraint) {
 	w := context.world
-	graph := &w.constraintGraph
-	color := &graph.colors[colorIndex]
-	constraints := color.contactConstraints
-	contacts := color.contactSims
 	awakeStates := context.states
+	constraints = constraints[startIndex:endIndex]
+	if contacts != nil {
+		contacts = contacts[startIndex:endIndex]
+	} else {
+		contactSims = contactSims[startIndex:endIndex]
+	}
 
 	// Stiffer for static contacts to avoid bodies getting pushed through the ground
 	contactSoftness := context.contactSoftness
@@ -73,8 +82,13 @@ func prepareContacts(context *stepContext, colorIndex int) {
 		warmStartScale = one
 	}
 
-	for i := range contacts {
-		cs := &contacts[i]
+	for i := range endIndex - startIndex {
+		var cs *contactSim
+		if contacts != nil {
+			cs = contacts[i]
+		} else {
+			cs = &contactSims[i]
+		}
 
 		manifold := &cs.manifold
 		pointCount := manifold.PointCount
@@ -195,21 +209,30 @@ func constraintStates(states []bodyState, dummy *bodyState, constraint *contactC
 	return stateA, stateB
 }
 
-// warmStartContacts applies the impulses of the previous step. It
-// corresponds to b2WarmStartOverflowContacts in src/contact_solver.c.
-func warmStartContacts(context *stepContext, colorIndex int) {
+// warmStartContactsTask applies stored impulses to a contact range. It
+// corresponds to b2WarmStartContactsTask in src/contact_solver.c.
+func warmStartContactsTask(startIndex, endIndex int, context *stepContext, colorIndex int) {
+	constraints := context.graph.colors[colorIndex].contactConstraints
+	warmStartContactRange(startIndex, endIndex, context, constraints)
+}
+
+// warmStartOverflowContacts applies stored impulses to the overflow color.
+// It corresponds to b2WarmStartOverflowContacts in src/contact_solver.c.
+func warmStartOverflowContacts(context *stepContext) {
+	constraints := context.graph.colors[overflowIndex].contactConstraints
+	warmStartContactRange(0, len(constraints), context, constraints)
+}
+
+func warmStartContactRange(startIndex, endIndex int, context *stepContext, constraints []contactConstraint) {
 	w := context.world
-	graph := &w.constraintGraph
-	color := &graph.colors[colorIndex]
-	constraints := color.contactConstraints
-	contactCount := len(color.contactSims)
 	awake := &w.solverSets[awakeSet]
 	states := awake.bodyStates
+	constraints = constraints[startIndex:endIndex]
 
 	// This is a dummy state to represent a static body because static bodies don't have a solver body.
 	dummyState := identityBodyState()
 
-	for i := range contactCount {
+	for i := range endIndex - startIndex {
 		constraint := &constraints[i]
 
 		stateA, stateB := constraintStates(states, &dummyState, constraint)
@@ -253,18 +276,25 @@ func warmStartContacts(context *stepContext, colorIndex int) {
 	}
 }
 
-// solveContacts runs one iteration of non-penetration, friction and
-// rolling resistance. With useBias the soft constraint pushes the bodies
-// apart; without it the pass only relaxes the velocities. It corresponds
-// to b2SolveOverflowContacts in src/contact_solver.c.
-func solveContacts(context *stepContext, colorIndex int, useBias bool) {
+// solveContactsTask solves a contact range. It corresponds to
+// b2SolveContactsTask in src/contact_solver.c.
+func solveContactsTask(startIndex, endIndex int, context *stepContext, colorIndex int, useBias bool) {
+	constraints := context.graph.colors[colorIndex].contactConstraints
+	solveContactRange(startIndex, endIndex, context, constraints, useBias)
+}
+
+// solveOverflowContacts solves the overflow contacts. It corresponds to
+// b2SolveOverflowContacts in src/contact_solver.c.
+func solveOverflowContacts(context *stepContext, useBias bool) {
+	constraints := context.graph.colors[overflowIndex].contactConstraints
+	solveContactRange(0, len(constraints), context, constraints, useBias)
+}
+
+func solveContactRange(startIndex, endIndex int, context *stepContext, constraints []contactConstraint, useBias bool) {
 	w := context.world
-	graph := &w.constraintGraph
-	color := &graph.colors[colorIndex]
-	constraints := color.contactConstraints
-	contactCount := len(color.contactSims)
 	awake := &w.solverSets[awakeSet]
 	states := awake.bodyStates
+	constraints = constraints[startIndex:endIndex]
 
 	invH := context.invH
 	pushout := w.maxContactPushSpeed
@@ -274,7 +304,7 @@ func solveContacts(context *stepContext, colorIndex int, useBias bool) {
 
 	zero := QZero()
 	one := QOne()
-	for i := range contactCount {
+	for i := range endIndex - startIndex {
 		constraint := &constraints[i]
 		mA := constraint.invMassA
 		iA := constraint.invIA
@@ -401,17 +431,25 @@ func solveContacts(context *stepContext, colorIndex int, useBias bool) {
 	}
 }
 
-// applyRestitution adds the bounce after the sub-steps. Only a point that
-// approached faster than the threshold and carried an impulse bounces. It
-// corresponds to b2ApplyOverflowRestitution in src/contact_solver.c.
-func applyRestitution(context *stepContext, colorIndex int) {
+// applyRestitutionTask applies restitution to a contact range. It
+// corresponds to b2ApplyRestitutionTask in src/contact_solver.c.
+func applyRestitutionTask(startIndex, endIndex int, context *stepContext, colorIndex int) {
+	constraints := context.graph.colors[colorIndex].contactConstraints
+	applyRestitutionRange(startIndex, endIndex, context, constraints)
+}
+
+// applyOverflowRestitution applies restitution to the overflow contacts.
+// It corresponds to b2ApplyOverflowRestitution in src/contact_solver.c.
+func applyOverflowRestitution(context *stepContext) {
+	constraints := context.graph.colors[overflowIndex].contactConstraints
+	applyRestitutionRange(0, len(constraints), context, constraints)
+}
+
+func applyRestitutionRange(startIndex, endIndex int, context *stepContext, constraints []contactConstraint) {
 	w := context.world
-	graph := &w.constraintGraph
-	color := &graph.colors[colorIndex]
-	constraints := color.contactConstraints
-	contactCount := len(color.contactSims)
 	awake := &w.solverSets[awakeSet]
 	states := awake.bodyStates
+	constraints = constraints[startIndex:endIndex]
 
 	threshold := w.restitutionThreshold
 
@@ -419,7 +457,7 @@ func applyRestitution(context *stepContext, colorIndex int) {
 	dummyState := identityBodyState()
 
 	zero := QZero()
-	for i := range contactCount {
+	for i := range endIndex - startIndex {
 		constraint := &constraints[i]
 
 		restitution := constraint.restitution
@@ -493,18 +531,36 @@ func applyRestitution(context *stepContext, colorIndex int) {
 	}
 }
 
-// storeImpulses writes the impulses back into the manifolds for the warm
-// start of the next step. It corresponds to b2StoreOverflowImpulses in
-// src/contact_solver.c.
-func storeImpulses(context *stepContext, colorIndex int) {
-	graph := &context.world.constraintGraph
-	color := &graph.colors[colorIndex]
-	constraints := color.contactConstraints
-	contacts := color.contactSims
+// storeImpulsesTask stores a range of flat contact impulses. It corresponds
+// to b2StoreImpulsesTask in src/contact_solver.c.
+func storeImpulsesTask(startIndex, endIndex int, context *stepContext) {
+	storeImpulseRange(startIndex, endIndex, context.contacts, nil, context.contactConstraints)
+}
 
-	for i := range contacts {
+// storeOverflowImpulses stores the overflow contact impulses. It
+// corresponds to b2StoreOverflowImpulses in src/contact_solver.c.
+func storeOverflowImpulses(context *stepContext) {
+	color := &context.graph.colors[overflowIndex]
+	storeImpulseRange(0, len(color.contactSims), nil, color.contactSims, color.contactConstraints)
+}
+
+func storeImpulseRange(startIndex, endIndex int, contacts []*contactSim, contactSims []contactSim, constraints []contactConstraint) {
+	constraints = constraints[startIndex:endIndex]
+	if contacts != nil {
+		contacts = contacts[startIndex:endIndex]
+	} else {
+		contactSims = contactSims[startIndex:endIndex]
+	}
+
+	for i := range endIndex - startIndex {
 		constraint := &constraints[i]
-		manifold := &contacts[i].manifold
+		var contact *contactSim
+		if contacts != nil {
+			contact = contacts[i]
+		} else {
+			contact = &contactSims[i]
+		}
+		manifold := &contact.manifold
 		pointCount := manifold.PointCount
 
 		for j := range pointCount {
@@ -517,6 +573,3 @@ func storeImpulses(context *stepContext, colorIndex int) {
 		manifold.RollingImpulse = constraint.rollingImpulse
 	}
 }
-
-// Deferred: the Task family of the reference, which is the SIMD form of the
-// same five stages. It arrives with the second executor.

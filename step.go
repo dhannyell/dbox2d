@@ -2,6 +2,7 @@ package dbox2d
 
 import (
 	"math/bits"
+	"sync/atomic"
 	"time"
 )
 
@@ -49,8 +50,14 @@ type stepContext struct {
 
 	graph *constraintGraph
 
-	// Deferred: the contact pointer array and the worker fields of the
-	// reference serve the parallel executor.
+	// Flat constraint arrays cover colors 0 through 10 in color order.
+	contacts           []*contactSim
+	joints             []*jointSim
+	contactConstraints []contactConstraint
+	stages             []solverStage
+	activeColorCount   int
+	activeColorIndices [graphColorCount]int
+	workerCount        int
 
 	enableWarmStarting bool
 
@@ -63,6 +70,10 @@ type stepContext struct {
 	bulletBodies    []int
 	bulletBodyMem   []byte
 	bulletBodyCount int
+
+	pad0 [64]byte //nolint:unused // Keeps atomicSyncBits on its own cache line.
+
+	atomicSyncBits atomic.Uint32
 }
 
 // Step advances the simulation by timeStep, split into subStepCount
@@ -111,10 +122,14 @@ func (worldId WorldId) Step(timeStep Q, subStepCount int) {
 	updateBroadPhasePairs(w)
 	w.profile.Pairs = millisecondsSince(pairsStart)
 
-	context := stepContext{}
+	context := &w.solverContext
 	context.world = w
 	context.dt = timeStep
+	context.invDt = zero
+	context.h = zero
+	context.invH = zero
 	context.subStepCount = max(1, subStepCount)
+	context.activeColorCount = 0
 
 	if zero.Less(timeStep) {
 		context.invDt = QOne().Div(timeStep)
@@ -144,13 +159,13 @@ func (worldId WorldId) Step(timeStep Q, subStepCount int) {
 
 	// Update contacts
 	collideStart := time.Now()
-	collide(&context)
+	collide(context)
 	w.profile.Collide = millisecondsSince(collideStart)
 
 	// Integrate velocities, solve velocity constraints, and integrate positions.
 	if zero.Less(context.dt) {
 		solveStart := time.Now()
-		solve(w, &context)
+		solve(w, context)
 		w.profile.Solve = millisecondsSince(solveStart)
 	}
 

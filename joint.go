@@ -1462,35 +1462,73 @@ func solveJoint(js *jointSim, context *stepContext, useBias bool) {
 	}
 }
 
-// prepareJoints prepares the joints of one color. It corresponds to
-// b2PrepareOverflowJoints in src/joint.c and to b2PrepareJointsTask in
-// src/solver.c.
-func prepareJoints(context *stepContext, colorIndex int) {
-	joints := context.graph.colors[colorIndex].jointSims
+// prepareJointsTask prepares a range of the flat joint array. It
+// corresponds to b2PrepareJointsTask in src/solver.c.
+func prepareJointsTask(startIndex, endIndex int, context *stepContext) {
+	prepareJointRange(startIndex, endIndex, context, context.joints, nil)
+}
 
-	for i := range joints {
-		prepareJoint(&joints[i], context)
+// prepareOverflowJoints prepares the overflow joints. It corresponds to
+// b2PrepareOverflowJoints in src/joint.c.
+func prepareOverflowJoints(context *stepContext) {
+	joints := context.graph.colors[overflowIndex].jointSims
+	prepareJointRange(0, len(joints), context, nil, joints)
+}
+
+func prepareJointRange(startIndex, endIndex int, context *stepContext, jointPointers []*jointSim, joints []jointSim) {
+	if jointPointers != nil {
+		jointPointers = jointPointers[startIndex:endIndex]
+	} else {
+		joints = joints[startIndex:endIndex]
+	}
+
+	for i := range endIndex - startIndex {
+		if jointPointers != nil {
+			prepareJoint(jointPointers[i], context)
+		} else {
+			prepareJoint(&joints[i], context)
+		}
 	}
 }
 
-// warmStartJoints applies the stored impulses of the joints of one color.
-// It corresponds to b2WarmStartOverflowJoints in src/joint.c and to
-// b2WarmStartJointsTask in src/solver.c.
-func warmStartJoints(context *stepContext, colorIndex int) {
+// warmStartJointsTask applies stored impulses to a joint range. It
+// corresponds to b2WarmStartJointsTask in src/solver.c.
+func warmStartJointsTask(startIndex, endIndex int, context *stepContext, colorIndex int) {
 	joints := context.graph.colors[colorIndex].jointSims
+	warmStartJointRange(startIndex, endIndex, context, joints)
+}
 
-	for i := range joints {
+// warmStartOverflowJoints applies stored impulses to the overflow joints.
+// It corresponds to b2WarmStartOverflowJoints in src/joint.c.
+func warmStartOverflowJoints(context *stepContext) {
+	joints := context.graph.colors[overflowIndex].jointSims
+	warmStartJointRange(0, len(joints), context, joints)
+}
+
+func warmStartJointRange(startIndex, endIndex int, context *stepContext, joints []jointSim) {
+	joints = joints[startIndex:endIndex]
+	for i := range endIndex - startIndex {
 		warmStartJoint(&joints[i], context)
 	}
 }
 
-// solveJoints runs one iteration over the joints of one color. It
-// corresponds to b2SolveOverflowJoints in src/joint.c and to
+// solveJointsTask solves a joint range. It corresponds to
 // b2SolveJointsTask in src/solver.c.
-func solveJoints(context *stepContext, colorIndex int, useBias bool) {
+func solveJointsTask(startIndex, endIndex int, context *stepContext, colorIndex int, useBias bool) {
 	joints := context.graph.colors[colorIndex].jointSims
+	solveJointRange(startIndex, endIndex, context, joints, useBias)
+}
 
-	for i := range joints {
+// solveOverflowJoints solves the overflow joints. It corresponds to
+// b2SolveOverflowJoints in src/joint.c.
+func solveOverflowJoints(context *stepContext, useBias bool) {
+	joints := context.graph.colors[overflowIndex].jointSims
+	solveJointRange(0, len(joints), context, joints, useBias)
+}
+
+func solveJointRange(startIndex, endIndex int, context *stepContext, joints []jointSim, useBias bool) {
+	joints = joints[startIndex:endIndex]
+	for i := range endIndex - startIndex {
 		solveJoint(&joints[i], context, useBias)
 	}
 }

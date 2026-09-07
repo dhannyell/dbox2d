@@ -193,10 +193,8 @@ func TestChecksumSeesAPendingSplit(t *testing.T) {
 	}
 }
 
-// TestChecksumMatchesDeterministicWitness pins one value across processes and
-// architectures. Every CI target must produce the same integer.
-func TestChecksumMatchesDeterministicWitness(t *testing.T) {
-	worldId := createTestWorld(t)
+func buildChecksumWitness(t *testing.T, worldId WorldId) {
+	t.Helper()
 	var bodies [5]BodyId
 	for i := range 5 {
 		position := v2(i*3, i)
@@ -209,6 +207,13 @@ func TestChecksumMatchesDeterministicWitness(t *testing.T) {
 		b := getBodyFullId(w, id)
 		getBodyState(w, b).angularVelocity = QMustParse("0.1")
 	}
+}
+
+// TestChecksumMatchesDeterministicWitness pins one value across processes and
+// architectures. Every CI target must produce the same integer.
+func TestChecksumMatchesDeterministicWitness(t *testing.T) {
+	worldId := createTestWorld(t)
+	buildChecksumWitness(t, worldId)
 
 	// Only the boxes 0 and 1 overlap, and the broadphase pairs them on the
 	// first step.
@@ -221,6 +226,64 @@ func TestChecksumMatchesDeterministicWitness(t *testing.T) {
 	const want uint64 = 4734897736241209759
 	if got := Checksum(worldId); got != want {
 		t.Errorf("checksum = %d, want %d", got, want)
+	}
+}
+
+func TestStepIsWorkerCountIndependent(t *testing.T) {
+	type scene struct {
+		name        string
+		enableSleep bool
+		build       func(*testing.T, WorldId)
+	}
+
+	scenes := []scene{
+		{name: "witness", enableSleep: true, build: buildChecksumWitness},
+		{name: "pyramid", enableSleep: false, build: func(_ *testing.T, worldId WorldId) {
+			buildPyramid(worldId, 20)
+		}},
+		{name: "bullets", enableSleep: true, build: func(_ *testing.T, worldId WorldId) {
+			buildBulletRange(worldId)
+		}},
+		{name: "revolute chain", enableSleep: true, build: func(_ *testing.T, worldId WorldId) {
+			buildRevoluteChain(worldId)
+		}},
+		{name: "sensors", enableSleep: false, build: func(_ *testing.T, worldId WorldId) {
+			buildPyramidWithSensor(worldId, 10)
+		}},
+	}
+
+	run := func(scene scene, workerCount int) [4]uint64 {
+		def := DefaultWorldDef()
+		def.WorkerCount = workerCount
+		def.EnableSleep = scene.enableSleep
+		worldId := CreateWorld(&def)
+		if worldId.IsNull() {
+			t.Fatalf("scene %s workers=%d: CreateWorld returned the null id", scene.name, workerCount)
+		}
+		defer DestroyWorld(worldId)
+		scene.build(t, worldId)
+
+		var checksums [4]uint64
+		dt := QFromRatio(1, 60)
+		for step := 1; step <= 120; step++ {
+			worldId.Step(dt, 4)
+			if step%30 == 0 {
+				checksums[step/30-1] = Checksum(worldId)
+			}
+		}
+		return checksums
+	}
+
+	for _, scene := range scenes {
+		want := run(scene, 1)
+		for _, workerCount := range []int{2, 3, 4, 7} {
+			got := run(scene, workerCount)
+			for i := range got {
+				if got[i] != want[i] {
+					t.Fatalf("scene %s workers=%d diverged at step %d: checksum = %d, want %d", scene.name, workerCount, 30*(i+1), got[i], want[i])
+				}
+			}
+		}
 	}
 }
 

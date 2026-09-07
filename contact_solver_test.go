@@ -65,6 +65,7 @@ func restingBox(t *testing.T) (*world, *body, *stepContext) {
 	context.invH = QFromInt(240)
 	context.maxLinearVelocity = w.maxLinearSpeed
 	context.enableWarmStarting = w.enableWarmStarting
+	context.graph = &w.constraintGraph
 	context.contactSoftness = makeSoft(w.contactHertz, w.contactDampingRatio, context.h)
 	context.staticSoftness = makeSoft(w.contactHertz.Add(w.contactHertz), w.contactDampingRatio, context.h)
 	awake := &w.solverSets[awakeSet]
@@ -108,7 +109,7 @@ func TestPrepareOverflowContactsBuildsTheMasses(t *testing.T) {
 	state := getBodyState(w, box)
 	state.linearVelocity = Vec2{Y: QFromInt(-3)}
 
-	prepareContacts(context, overflowIndex)
+	prepareOverflowContacts(context)
 
 	constraint := &w.constraintGraph.colors[overflowIndex].contactConstraints[0]
 	if constraint.indexA != nullIndex || constraint.indexB != box.localIndex {
@@ -146,8 +147,8 @@ func TestWarmStartReappliesTheStoredImpulse(t *testing.T) {
 	m := &w.constraintGraph.colors[overflowIndex].contactSims[0].manifold
 	m.Points[0].NormalImpulse = QFromInt(2)
 
-	prepareContacts(context, overflowIndex)
-	warmStartContacts(context, overflowIndex)
+	prepareOverflowContacts(context)
+	warmStartOverflowContacts(context)
 
 	state := getBodyState(w, box)
 	if !state.linearVelocity.Y.Eq(QFromInt(2)) || !state.angularVelocity.Eq(QZero()) {
@@ -156,8 +157,8 @@ func TestWarmStartReappliesTheStoredImpulse(t *testing.T) {
 
 	w.enableWarmStarting = false
 	state.linearVelocity = Vec2Zero()
-	prepareContacts(context, overflowIndex)
-	warmStartContacts(context, overflowIndex)
+	prepareOverflowContacts(context)
+	warmStartOverflowContacts(context)
 	if !state.linearVelocity.Y.Eq(QZero()) {
 		t.Errorf("the warm start moved the box with warm starting off")
 	}
@@ -176,16 +177,16 @@ func TestRestingBoxHoldsItsGround(t *testing.T) {
 		// The collide pass refreshes the separation on each step. The box
 		// does not rotate, so the anchors stay put.
 		m.Points[0].Separation = sim.center.Y.Sub(QHalf())
-		prepareContacts(context, overflowIndex)
+		prepareOverflowContacts(context)
 		for range context.subStepCount {
 			integrateVelocitiesTask(0, 1, context)
-			warmStartContacts(context, overflowIndex)
-			solveContacts(context, overflowIndex, true)
+			warmStartOverflowContacts(context)
+			solveOverflowContacts(context, true)
 			integratePositionsTask(0, 1, context)
-			solveContacts(context, overflowIndex, false)
+			solveOverflowContacts(context, false)
 		}
-		applyRestitution(context, overflowIndex)
-		storeImpulses(context, overflowIndex)
+		applyOverflowRestitution(context)
+		storeOverflowImpulses(context)
 		setBitCountAndClear(&w.taskContexts[0].awakeIslandBitSet, len(w.solverSets[awakeSet].islandSims))
 		w.bodyMoveEvents = resizeMoveEvents(w.bodyMoveEvents, 1)
 		finalizeBodiesTask(0, 1, context)
@@ -217,8 +218,8 @@ func TestFrictionSaturatesAtTheNormalImpulse(t *testing.T) {
 	state := getBodyState(w, box)
 	state.linearVelocity = Vec2{X: QFromInt(100), Y: QFromInt(-1)}
 
-	prepareContacts(context, overflowIndex)
-	solveContacts(context, overflowIndex, true)
+	prepareOverflowContacts(context)
+	solveOverflowContacts(context, true)
 
 	cp := &w.constraintGraph.colors[overflowIndex].contactConstraints[0].points[0]
 	constraint := &w.constraintGraph.colors[overflowIndex].contactConstraints[0]
@@ -253,10 +254,10 @@ func TestRestitutionNeedsTheThreshold(t *testing.T) {
 			state := getBodyState(w, box)
 			state.linearVelocity = Vec2{Y: QMustParse(tc.fall)}
 
-			prepareContacts(context, overflowIndex)
-			solveContacts(context, overflowIndex, true)
+			prepareOverflowContacts(context)
+			solveOverflowContacts(context, true)
 			before := state.linearVelocity.Y
-			applyRestitution(context, overflowIndex)
+			applyOverflowRestitution(context)
 
 			if !tc.bounce {
 				if !state.linearVelocity.Y.Eq(before) {
@@ -281,9 +282,9 @@ func TestStoreOverflowImpulsesFillsTheManifold(t *testing.T) {
 	state := getBodyState(w, box)
 	state.linearVelocity = Vec2{X: QFromInt(1), Y: QFromInt(-2)}
 
-	prepareContacts(context, overflowIndex)
-	solveContacts(context, overflowIndex, true)
-	storeImpulses(context, overflowIndex)
+	prepareOverflowContacts(context)
+	solveOverflowContacts(context, true)
+	storeOverflowImpulses(context)
 
 	cp := &w.constraintGraph.colors[overflowIndex].contactConstraints[0].points[0]
 	mp := &w.constraintGraph.colors[overflowIndex].contactSims[0].manifold.Points[0]

@@ -50,8 +50,8 @@ func TestWheelLineHoldsTheBox(t *testing.T) {
 	state.linearVelocity = Vec2{X: QOne(), Y: QOne()}
 
 	context := jointContext(w)
-	prepareJoints(context, j.colorIndex)
-	solveJoints(context, j.colorIndex, false)
+	prepareJointsTask(0, len(context.joints), context)
+	solveJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex, false)
 
 	tolerance := fixed.Q32FromRaw(1 << 12)
 	js := getJointSim(w, j)
@@ -89,8 +89,8 @@ func TestWheelUpperLimitStopsTheTravel(t *testing.T) {
 	state.linearVelocity = Vec2{Y: QOne()}
 
 	context := jointContext(w)
-	prepareJoints(context, j.colorIndex)
-	solveJoints(context, j.colorIndex, false)
+	prepareJointsTask(0, len(context.joints), context)
+	solveJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex, false)
 
 	tolerance := fixed.Q32FromRaw(1 << 12)
 	js := getJointSim(w, j)
@@ -118,8 +118,8 @@ func TestWheelMotorSaturatesAtTheTorque(t *testing.T) {
 	state := getBodyState(w, box)
 
 	context := jointContext(w)
-	prepareJoints(context, j.colorIndex)
-	solveJoints(context, j.colorIndex, false)
+	prepareJointsTask(0, len(context.joints), context)
+	solveJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex, false)
 
 	tolerance := fixed.Q32FromRaw(1 << 12)
 	js := getJointSim(w, j)
@@ -139,7 +139,7 @@ func TestWheelMotorSaturatesAtTheTorque(t *testing.T) {
 
 	// The warm start applies the stored impulse again on a fresh state.
 	state.angularVelocity = QZero()
-	warmStartJoints(context, j.colorIndex)
+	warmStartJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex)
 	wB = state.angularVelocity.Mul(tau)
 	if !withinQ(wB, QFromRatio(5, 2), tolerance) {
 		t.Errorf("the warm start gives wB %v rad/s, want 2.5", wB)

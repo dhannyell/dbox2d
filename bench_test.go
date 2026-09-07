@@ -2214,27 +2214,7 @@ func BenchmarkStepRevoluteChain(b *testing.B) {
 	def.WorkerCount = *workersFlag
 	worldId := CreateWorld(&def)
 	defer DestroyWorld(worldId)
-
-	groundDef := DefaultBodyDef()
-	prevId := CreateBody(worldId, &groundDef)
-
-	boxDef := DefaultBodyDef()
-	boxDef.Type = DynamicBody
-	boxDef.EnableSleep = false
-	shapeDef := DefaultShapeDef()
-	box := MakeBox(QHalf(), QHalf())
-	jointDef := DefaultRevoluteJointDef()
-	jointDef.LocalAnchorA = Vec2{X: QHalf()}
-	jointDef.LocalAnchorB = Vec2{X: QHalf().Neg()}
-	for i := range 32 {
-		boxDef.Position = Vec2{X: QFromInt(i + 1)}
-		bodyId := CreateBody(worldId, &boxDef)
-		CreatePolygonShape(bodyId, &shapeDef, &box)
-		jointDef.BodyIdA = prevId
-		jointDef.BodyIdB = bodyId
-		CreateRevoluteJoint(worldId, &jointDef)
-		prevId = bodyId
-	}
+	buildRevoluteChain(worldId)
 
 	dt := QOne().Div(QFromInt(60))
 
@@ -2254,6 +2234,29 @@ func BenchmarkStepRevoluteChain(b *testing.B) {
 	runtime.ReadMemStats(&after)
 	if after.Mallocs != before.Mallocs {
 		b.Fatalf("Step allocated %d times (%d bytes) after warmup", after.Mallocs-before.Mallocs, after.TotalAlloc-before.TotalAlloc)
+	}
+}
+
+func buildRevoluteChain(worldId WorldId) {
+	groundDef := DefaultBodyDef()
+	prevId := CreateBody(worldId, &groundDef)
+
+	boxDef := DefaultBodyDef()
+	boxDef.Type = DynamicBody
+	boxDef.EnableSleep = false
+	shapeDef := DefaultShapeDef()
+	box := MakeBox(QHalf(), QHalf())
+	jointDef := DefaultRevoluteJointDef()
+	jointDef.LocalAnchorA = Vec2{X: QHalf()}
+	jointDef.LocalAnchorB = Vec2{X: QHalf().Neg()}
+	for i := range 32 {
+		boxDef.Position = Vec2{X: QFromInt(i + 1)}
+		bodyId := CreateBody(worldId, &boxDef)
+		CreatePolygonShape(bodyId, &shapeDef, &box)
+		jointDef.BodyIdA = prevId
+		jointDef.BodyIdB = bodyId
+		CreateRevoluteJoint(worldId, &jointDef)
+		prevId = bodyId
 	}
 }
 

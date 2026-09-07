@@ -24,6 +24,14 @@ type world struct {
 	sensorTaskContexts []sensorTaskContext
 	workerCount        int
 	executor           executor
+	solverContext      stepContext
+	solverStages       []solverStage
+	bodyBlocks         []solverBlock
+	jointBlocks        []solverBlock
+	contactBlocks      []solverBlock
+	graphBlocks        []solverBlock
+	contactPointers    []*contactSim
+	jointPointers      []*jointSim
 
 	// constraintGraph colors the awake touching contacts.
 	constraintGraph constraintGraph
