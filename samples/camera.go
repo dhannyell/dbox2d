@@ -6,24 +6,19 @@ package samples
 
 import (
 	"github.com/dhannyell/dbox2d"
-	"github.com/dhannyell/fixed"
 )
-
-// q32FractionBits is the fractional width of dbox2d.Q (Q32.32); it converts
-// between the simulation's fixed point and the camera's float64 math.
-const q32FractionBits = 32
 
 // FromFloat64 and ToFloat64 are presentation helpers; the simulation never
 // calls them.
 
-// FromFloat64 converts a float64 to the simulation's fixed-point type.
+// FromFloat64 converts a float64 to the simulation's scalar.
 func FromFloat64(f float64) dbox2d.Q {
-	return fixed.Q32FromRaw(int64(f * (1 << q32FractionBits)))
+	return dbox2d.QFromFloat64(f)
 }
 
-// ToFloat64 converts the simulation's fixed-point type to a float64.
+// ToFloat64 converts the simulation's scalar to a float64.
 func ToFloat64(q dbox2d.Q) float64 {
-	return float64(q.Raw()) / (1 << q32FractionBits)
+	return dbox2d.QToFloat64(q)
 }
 
 // Vec2f is a screen- or camera-space vector. Presentation math stays in

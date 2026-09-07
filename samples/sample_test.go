@@ -23,11 +23,6 @@ func TestSamplesStepWithoutPanic(t *testing.T) {
 	}
 }
 
-// singleBoxChecksum pins the world state after 60 steps of Single Box; a
-// change here means the physics changed.
-const singleBoxChecksum uint64 = 0x59758871b1c2509e
-const verticalStackChecksum uint64 = 0xa4e992a5474561dd
-
 func TestSingleBoxChecksum(t *testing.T) {
 	ctx := samples.NewSampleContext()
 	sample := samples.NewSingleBox(ctx).(*samples.SingleBox)
@@ -54,10 +49,6 @@ func TestVerticalStackChecksum(t *testing.T) {
 	sample.Destroy()
 }
 
-// tumblerChecksum pins the world state after 60 steps of Tumbler; a change
-// here means the physics changed.
-const tumblerChecksum uint64 = 0x19424e411cbc3122
-
 func TestTumblerChecksum(t *testing.T) {
 	ctx := samples.NewSampleContext()
 	sample := samples.NewTumbler(ctx).(*samples.Tumbler)
@@ -78,10 +69,6 @@ func ExampleEntries() {
 	// Output: Benchmark / Barrel
 }
 
-// largePyramidChecksum pins the world state after 60 steps of Large Pyramid;
-// a change here means the physics changed.
-const largePyramidChecksum uint64 = 0x0e249d83448947f5
-
 func TestLargePyramidChecksum(t *testing.T) {
 	ctx := samples.NewSampleContext()
 	sample := samples.NewLargePyramid(ctx).(*samples.LargePyramid)
@@ -95,10 +82,6 @@ func TestLargePyramidChecksum(t *testing.T) {
 	sample.Destroy()
 }
 
-// bridgeChecksum pins the world state after 60 steps of Bridge; a change
-// here means the physics changed.
-const bridgeChecksum uint64 = 0xa3b4b42d3965e7a1
-
 func TestBridgeChecksum(t *testing.T) {
 	ctx := samples.NewSampleContext()
 	sample := samples.NewBridge(ctx).(*samples.Bridge)
@@ -111,10 +94,6 @@ func TestBridgeChecksum(t *testing.T) {
 	}
 	sample.Destroy()
 }
-
-// ragdollChecksum pins the world state after 60 steps of Ragdoll; a change
-// here means the physics changed.
-const ragdollChecksum uint64 = 0x7f9c4d6a592c96f7
 
 func TestRagdollChecksum(t *testing.T) {
 	ctx := samples.NewSampleContext()
