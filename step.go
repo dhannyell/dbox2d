@@ -96,6 +96,7 @@ func (worldId WorldId) Step(timeStep Q, subStepCount int) {
 	if w.workerCount > 1 {
 		w.executor.start(w.workerCount)
 	}
+	w.executor.serial = len(w.solverSets[awakeSet].bodySims) < serialBodyThreshold
 
 	// Prepare to capture events
 	// Ensure user does not access stale data if there is an early return

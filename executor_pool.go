@@ -31,10 +31,17 @@ type executorCommand struct {
 // Worker 0 is the goroutine that called Step; workers 1..N-1 spin on the
 // generation counter and park between steps. With one worker nothing here
 // touches a goroutine or an atomic.
+// serialBodyThreshold is the awake body count under which a step runs on
+// one worker whatever WorkerCount says: measured on a pyramid, four workers
+// lose at 15 bodies and win from 66. Tests lower it to reach the pool.
+var serialBodyThreshold = 64
+
 type executor struct {
 	workerCount int
 	started     bool
 	stopped     bool
+	// serial routes the current step to the caller; the bits do not change.
+	serial bool
 
 	command executorCommand
 
@@ -77,6 +84,14 @@ func (e *executor) start(n int) {
 		e.workers.Add(1)
 		go e.worker(workerIndex, seen)
 	}
+}
+
+// activeWorkerCount is the worker count of the current step.
+func (e *executor) activeWorkerCount() int {
+	if e.serial || e.workerCount <= 1 {
+		return 1
+	}
+	return e.workerCount
 }
 
 // stop releases the workers and waits for them to exit.
@@ -154,7 +169,7 @@ func (e *executor) parallelFor(itemCount, minRange int, fn taskFunc, context *st
 // parallelForWithSide also runs sideFn once, on the last worker before its
 // range; with one worker sideFn runs first on the caller.
 func (e *executor) parallelForWithSide(itemCount, minRange int, fn taskFunc, sideFn func(*stepContext), context *stepContext) {
-	if e.workerCount <= 1 || itemCount <= minRange {
+	if e.activeWorkerCount() == 1 || itemCount <= minRange {
 		if sideFn != nil {
 			sideFn(context)
 		}
@@ -184,7 +199,7 @@ func (e *executor) runContext(fn func(workerIndex int, context *stepContext), co
 
 // runContextWithSide also runs sideFn once, on the last worker before fn.
 func (e *executor) runContextWithSide(fn func(workerIndex int, context *stepContext), sideFn func(*stepContext), context *stepContext) {
-	if e.workerCount <= 1 {
+	if e.activeWorkerCount() == 1 {
 		if sideFn != nil {
 			sideFn(context)
 		}

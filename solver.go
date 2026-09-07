@@ -1148,7 +1148,7 @@ func solve(w *world, context *stepContext) {
 		w.jointPointers = slices.Grow(w.jointPointers[:0], activeJointCount)[:activeJointCount]
 		context.contacts = w.contactPointers
 		context.joints = w.jointPointers
-		context.workerCount = w.workerCount
+		context.workerCount = w.executor.activeWorkerCount()
 
 		contactCount := activeContactCount + len(colors[overflowIndex].contactSims)
 		contactConstraints, constraintMem := arenaSlice[contactConstraint](&w.arena, contactCount, "contact constraint")

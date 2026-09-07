@@ -827,6 +827,7 @@ func buildPyramidWithSensors(worldId WorldId, rows, sensorCount int) {
 // pyramid scene: the sensor system tests every eligible box against the
 // sensor's fattened bounds each step.
 func BenchmarkStepSensors(b *testing.B) {
+	stepInParallel(b)
 	def := DefaultWorldDef()
 	def.WorkerCount = *workersFlag
 	def.EnableSleep = false
@@ -2174,6 +2175,7 @@ func buildBulletRange(worldId WorldId) {
 }
 
 func BenchmarkStepBullets(b *testing.B) {
+	stepInParallel(b)
 	def := DefaultWorldDef()
 	def.WorkerCount = *workersFlag
 	def.Gravity = Vec2Zero()
@@ -2213,6 +2215,7 @@ func BenchmarkStepBullets(b *testing.B) {
 // pipeline: a chain of 32 unit boxes hangs from a static body by revolute
 // joints and swings under gravity. Step must not allocate.
 func BenchmarkStepRevoluteChain(b *testing.B) {
+	stepInParallel(b)
 	def := DefaultWorldDef()
 	def.WorkerCount = *workersFlag
 	worldId := CreateWorld(&def)

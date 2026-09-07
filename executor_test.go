@@ -306,6 +306,41 @@ func TestStageTableMatchesTheReferenceSizing(t *testing.T) {
 	requireSolverBlockLayout(t, w.graphBlocks[1:], 5, 4, 2, graphContactBlock)
 }
 
+// stepInParallel lowers the serial threshold so a small scene reaches the pool.
+func stepInParallel(tb testing.TB) {
+	tb.Helper()
+	old := serialBodyThreshold
+	serialBodyThreshold = 0
+	tb.Cleanup(func() { serialBodyThreshold = old })
+}
+
+// A world under the threshold never publishes a command; one over it does.
+func TestSmallWorldsStepOnOneWorker(t *testing.T) {
+	steps := func(rows int) uint32 {
+		def := DefaultWorldDef()
+		def.WorkerCount = 4
+		def.EnableSleep = false
+		worldId := CreateWorld(&def)
+		defer DestroyWorld(worldId)
+		buildPyramid(worldId, rows)
+		w := getWorldFromId(worldId)
+		dt := QOne().Div(QFromInt(60))
+		for range 3 {
+			worldId.Step(dt, 4)
+		}
+		return w.executor.generation.Load()
+	}
+	if w := effectiveWorkerCount(4); w == 1 {
+		t.Skip("this platform steps on one worker")
+	}
+	if got := steps(5); got != 0 {
+		t.Fatalf("15 bodies published %d commands, want 0", got)
+	}
+	if got := steps(20); got == 0 {
+		t.Fatalf("210 bodies published no command")
+	}
+}
+
 func TestParallelForDoesNotAllocate(t *testing.T) {
 	e := &executor{workerCount: 4}
 	e.start(4)

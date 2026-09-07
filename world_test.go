@@ -93,6 +93,7 @@ func TestWorldGetCounters(t *testing.T) {
 }
 
 func TestCountersReportTasks(t *testing.T) {
+	stepInParallel(t)
 	run := func(workerCount int) int {
 		def := DefaultWorldDef()
 		def.WorkerCount = workerCount

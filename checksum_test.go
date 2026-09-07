@@ -260,6 +260,7 @@ func buildSplitStacks(worldId WorldId) BodyId {
 }
 
 func TestStepIsWorkerCountIndependent(t *testing.T) {
+	stepInParallel(t)
 	type scene struct {
 		name        string
 		enableSleep bool

@@ -48,6 +48,7 @@ func normalizeSensorEndEvents(events []SensorEndTouchEvent) [][2]int32 {
 // TestSensorEventsAreWorkerCountIndependent compares ordered events from a
 // 40-sensor scene while the visitor enters, leaves, and re-enters.
 func TestSensorEventsAreWorkerCountIndependent(t *testing.T) {
+	stepInParallel(t)
 	build := func(workerCount int) (WorldId, BodyId) {
 		def := DefaultWorldDef()
 		def.WorkerCount = workerCount
