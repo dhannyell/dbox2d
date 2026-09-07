@@ -46,7 +46,8 @@ type WorldDef struct {
 
 	// WorkerCount is the number of workers that step the world. 1 steps on
 	// the calling goroutine. 0 picks min(runtime.GOMAXPROCS(0), 64). Any N
-	// produces the same bits; WebAssembly always steps on one worker.
+	// produces the same bits; WebAssembly always steps on one worker, and a
+	// step with few awake bodies runs on the caller whatever N says.
 	WorkerCount int
 
 	// Enable sleeping to improve performance.
@@ -102,11 +103,14 @@ type FrictionCallback func(frictionA Q, userMaterialIdA int, frictionB Q, userMa
 type RestitutionCallback func(restitutionA Q, userMaterialIdA int, restitutionB Q, userMaterialIdB int) Q
 
 // CustomFilterFcn decides whether two shapes may collide. It corresponds to
-// b2CustomFilterFcn; return false to reject the pair.
+// b2CustomFilterFcn; return false to reject the pair. With several workers
+// it runs on worker goroutines, so it must be safe to call concurrently.
 type CustomFilterFcn func(shapeIdA, shapeIdB ShapeId) bool
 
 // PreSolveFcn inspects a contact manifold before the solver runs. It
 // corresponds to b2PreSolveFcn; return false to disable the contact this step.
+// With several workers it runs on worker goroutines, so it must be safe to
+// call concurrently.
 type PreSolveFcn func(shapeIdA, shapeIdB ShapeId, manifold *Manifold) bool
 
 // DefaultWorldDef returns the default world definition.
