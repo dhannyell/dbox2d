@@ -95,9 +95,9 @@ modes, so the package compiles through the same constructors and solver code.
 | fixed | signed Q32.32 from [fixed](https://github.com/dhannyell/fixed) | default (`!dbox2d_float`) | Q32.32 bits | Fixed-module arithmetic and CORDIC-style trigonometry. |
 | float | `float32` in `Q` | `dbox2d_float` | float32 bits on amd64, arm64, 386 and wasm | Explicit float32 rounding, reference guards and reference trigonometry. |
 
-Float mode computes products, quotients and square roots through float64, then
-converts explicitly to float32. This rounds once and blocks fused multiply-add
-with a following add. CI cross-compiles the float mode to arm64 with
+Float mode wraps every product and quotient in an explicit float32 conversion.
+The conversion is a rounding point in the Go spec, so the compiler cannot fuse
+the product with a following add. The bits equal a plain float32 multiply. CI cross-compiles the float mode to arm64 with
 `-gcflags=-S` and rejects `FMADD`, `FMSUB`, `FNMADD`, `FNMSUB`, `FMLA` and
 `FMLS`. Its pinned witness is checked on amd64, arm64, 386 and wasm.
 
@@ -116,10 +116,10 @@ simulation does not call them.
 
 | scene | fixed µs/op | float µs/op | float / fixed |
 |---|---|---|---|
-| StepPyramid | 2143 | 733 | 0.34 |
-| StepSensors | 2140 | 738 | 0.35 |
-| StepBullets | 59.0 | 46.8 | 0.79 |
-| StepRevoluteChain | 57.1 | 25.7 | 0.45 |
+| StepPyramid | 2143 | 497 | 0.23 |
+| StepSensors | 2140 | 500 | 0.23 |
+| StepBullets | 59.0 | 43.9 | 0.74 |
+| StepRevoluteChain | 57.1 | 20.3 | 0.36 |
 
 CPU: AMD Ryzen 7 5800X3D, GOMAXPROCS=16, Windows/amd64, count 6, benchstat.
 

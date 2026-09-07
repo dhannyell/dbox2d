@@ -8,10 +8,11 @@ import (
 )
 
 // The library has one scalar per build mode. This file is the float mode:
-// float32. Every product and division goes through float64 and back through
-// an explicit float32 conversion, which rounds once and stops the compiler
-// from fusing it with a following add (Go spec: an explicit conversion
-// rounds).
+// float32. Every product and division sits inside an explicit float32
+// conversion. The conversion is a no-op on the value, but the Go spec makes
+// it a rounding point, so the compiler cannot fuse the product with a
+// following add. No float64 detour: it costs three conversions per product
+// for the same bits.
 
 type (
 	// Q is a float32 scalar. Only the constructors make one.
@@ -172,15 +173,11 @@ func (q Q) Add(o Q) Q { return Q{q.v + o.v} }
 // Sub returns q-o.
 func (q Q) Sub(o Q) Q { return Q{q.v - o.v} }
 
-// Mul returns q*o, rounded once to float32.
-func (q Q) Mul(o Q) Q {
-	return Q{float32(float64(q.v) * float64(o.v))}
-}
+// Mul returns q*o. The conversion blocks fusion with a following add.
+func (q Q) Mul(o Q) Q { return Q{float32(q.v * o.v)} }
 
-// Div returns q/o, rounded once to float32.
-func (q Q) Div(o Q) Q {
-	return Q{float32(float64(q.v) / float64(o.v))}
-}
+// Div returns q/o. The conversion blocks fusion with a following add.
+func (q Q) Div(o Q) Q { return Q{float32(q.v / o.v)} }
 
 // Sqrt returns the square root, rounded once to float32.
 func (q Q) Sqrt() Q { return Q{float32(math.Sqrt(float64(q.v)))} }

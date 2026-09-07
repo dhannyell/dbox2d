@@ -555,9 +555,9 @@ Numbering is sequential from `D-001` and never reused.
   the package compiles identically in both modes.
 
   Fixed mode uses Q32.32 from `github.com/dhannyell/fixed`. Float mode uses
-  plain float32 for Add and Sub. Every product, quotient and square root uses
-  float64 and an explicit float32 conversion. The conversion rounds once and
-  prevents fusion with a following add. CI cross-compiles float mode to arm64
+  plain float32 for Add and Sub. Every product and quotient sits inside an
+  explicit float32 conversion. The conversion is a rounding point in the Go
+  spec and prevents fusion with a following add, at no cost in instructions. CI cross-compiles float mode to arm64
   with `-gcflags=-S` and requires zero `FMADD`, `FMSUB`, `FNMADD`, `FNMSUB`,
   `FMLA` and `FMLS` instructions. The pinned float witness is checked on
   amd64, arm64, 386 and wasm.
