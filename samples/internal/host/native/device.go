@@ -37,6 +37,7 @@ func newGPUState(window *glfw.Window) (*gpuState, error) {
 	adapter, err := g.instance.RequestAdapter(&wgpu.RequestAdapterOptions{
 		CompatibleSurface: g.surface,
 		PowerPreference:   wgpu.PowerPreferenceHighPerformance,
+		BackendType:       preferredBackend,
 	})
 	if err != nil {
 		g.surface.Release()
