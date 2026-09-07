@@ -109,8 +109,8 @@ Prismatic, Wheel, Bridge, Ball & Chain, Cantilever, Fixed Rotation,
 Breakable, Separation, User Constraint, Driving, Ragdoll, Soft Body,
 Doohickey, Scissor Lift, Gear Lift, Door, Scale Ragdoll.
 
-The other categories of the reference are not ported yet. The scenes run
-on one worker; the reference's task system did not cross.
+The other categories of the reference are not ported yet. The scenes produce
+the same bits with any worker count.
 
 ## Layout
 

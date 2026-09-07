@@ -7,6 +7,7 @@
 package app
 
 import (
+	"runtime"
 	"strings"
 
 	"github.com/dhannyell/dbox2d/samples"
@@ -76,8 +77,19 @@ func (a *App) buildControls() {
 	a.mu.SliderEx(&hertz, 5, 240, 1, "%.0f hz", microui.MU_OPT_ALIGNCENTER)
 	s.Hertz = float64(hertz)
 
-	a.mu.LayoutRow(1, []int{-1}, 0)
-	a.mu.Label("Workers: 1")
+	if runtime.GOARCH == "wasm" {
+		s.WorkerCount = 1
+		a.mu.LayoutRow(1, []int{-1}, 0)
+		a.mu.Label("Workers: 1 (wasm)")
+	} else {
+		workers := float32(s.WorkerCount)
+		a.mu.LayoutRow(2, []int{80, -1}, 0)
+		a.mu.Label("Workers")
+		if a.mu.SliderEx(&workers, 1, float32(runtime.GOMAXPROCS(0)), 1, "%.0f", microui.MU_OPT_ALIGNCENTER) != 0 {
+			s.WorkerCount = int(workers)
+			s.Restart = true
+		}
+	}
 
 	for _, cb := range a.checkboxes() {
 		a.mu.LayoutRow(1, []int{-1}, 0)
