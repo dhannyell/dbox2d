@@ -18,14 +18,14 @@ func SegmentDistance(p1, q1, p2, q2 Vec2) SegmentDistanceResult {
 	rd2 := r.Dot(d2)
 
 	// The reference compares dd against FLT_EPSILON squared. Q has no
-	// rounding noise, so an exact zero selects the branch. See D-012.
-	if dd1.Eq(zero) || dd2.Eq(zero) {
+	// rounding noise; the guard reads the scalar mode. See D-012.
+	if belowEpsilonSq(dd1) || belowEpsilonSq(dd2) {
 		// Handle all degeneracies.
-		if !dd1.Eq(zero) {
+		if !belowEpsilonSq(dd1) {
 			// Segment 2 is degenerate.
 			result.Fraction1 = rd1.Neg().Div(dd1).Clamp(zero, one)
 			result.Fraction2 = zero
-		} else if !dd2.Eq(zero) {
+		} else if !belowEpsilonSq(dd2) {
 			// Segment 1 is degenerate.
 			result.Fraction1 = zero
 			result.Fraction2 = rd2.Div(dd2).Clamp(zero, one)
@@ -488,7 +488,7 @@ func ShapeDistance(input *DistanceInput, cache *SimplexCache, simplexes []Simple
 		}
 
 		// Ensure the search direction is numerically fit.
-		if d.Dot(d).Eq(zero) {
+		if belowEpsilonSq(d.Dot(d)) {
 			// This is unlikely but could lead to bad cycling.
 			// The branch predictor seems to make this check have low cost.
 

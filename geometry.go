@@ -31,7 +31,7 @@ func computePolygonCentroid(vertices []Vec2) Vec2 {
 		area = area.Add(a)
 	}
 
-	if !QZero().Less(area) {
+	if !scalarEpsilon.Less(area) {
 		panic("dbox2d: a polygon centroid needs a positive area")
 	}
 	center = center.Div(area)
@@ -66,7 +66,7 @@ func MakePolygon(hull *Hull, radius Q) Polygon {
 			i2 = i + 1
 		}
 		edge := shape.Vertices[i2].Sub(shape.Vertices[i1])
-		if edge.Dot(edge).Eq(QZero()) {
+		if !scalarEpsilonSq.Less(edge.Dot(edge)) {
 			panic("dbox2d: a polygon edge has zero length")
 		}
 		shape.Normals[i] = CrossVS(edge, QOne()).Normalize()
@@ -109,7 +109,7 @@ func MakeOffsetRoundedPolygon(hull *Hull, position Vec2, rotation Rot, radius Q)
 			i2 = i + 1
 		}
 		edge := shape.Vertices[i2].Sub(shape.Vertices[i1])
-		if edge.Dot(edge).Eq(QZero()) {
+		if !scalarEpsilonSq.Less(edge.Dot(edge)) {
 			panic("dbox2d: a polygon edge has zero length")
 		}
 		shape.Normals[i] = CrossVS(edge, QOne()).Normalize()
@@ -357,7 +357,7 @@ func ComputePolygonMass(shape *Polygon, density Q) MassData {
 	massData.Mass = density.Mul(area)
 
 	// Center of mass, shift back from origin at r
-	if !zero.Less(area) {
+	if !scalarEpsilon.Less(area) {
 		panic("dbox2d: ComputePolygonMass needs a positive area")
 	}
 	center = center.Div(area)
@@ -553,7 +553,7 @@ func RayCastCapsule(input *RayCastInput, shape *Capsule) CastOutput {
 
 	capsuleLength, a := GetLengthAndNormalize(e)
 
-	if capsuleLength.Eq(zero) {
+	if belowEpsilon(capsuleLength) {
 		// Capsule is really a circle
 		circle := Circle{Center: v1, Radius: shape.Radius}
 		return RayCastCircle(input, &circle)
@@ -604,7 +604,7 @@ func RayCastCapsule(input *RayCastInput, shape *Capsule) CastOutput {
 
 	// Cramer's rule [a -u]
 	den := a.X.Neg().Mul(u.Y).Add(u.X.Mul(a.Y))
-	if den.Eq(zero) {
+	if belowEpsilon(den.Abs()) {
 		// Ray is parallel to capsule and outside infinite length capsule
 		return output
 	}

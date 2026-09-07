@@ -128,7 +128,7 @@ func aabbRayCast(a AABB, p1, p2 Vec2) CastOutput {
 	normal := Vec2Zero()
 
 	// x-coordinate
-	if absD.X.Eq(zero) {
+	if belowEpsilon(absD.X) {
 		// parallel
 		if p.X.Less(a.LowerBound.X) || a.UpperBound.X.Less(p.X) {
 			return output
@@ -161,7 +161,7 @@ func aabbRayCast(a AABB, p1, p2 Vec2) CastOutput {
 	}
 
 	// y-coordinate
-	if absD.Y.Eq(zero) {
+	if belowEpsilon(absD.Y) {
 		// parallel
 		if p.Y.Less(a.LowerBound.Y) || a.UpperBound.Y.Less(p.Y) {
 			return output
