@@ -5,6 +5,8 @@
 package app
 
 import (
+	"fmt"
+
 	"github.com/dhannyell/dbox2d"
 	"github.com/dhannyell/dbox2d/samples"
 	"github.com/dhannyell/dbox2d/samples/internal/draw"
@@ -93,11 +95,14 @@ func (a *App) Sample() samples.Sample { return a.sample }
 // Settings returns the settings a host or the tools window mutate.
 func (a *App) Settings() *samples.Settings { return &a.ctx.Settings }
 
+// frameOverlayColor is the green of the reference's bottom-left overlay.
+var frameOverlayColor = draw.RGBA8{R: 153, G: 230, B: 153, A: 255}
+
 // Frame runs one iteration: pending restart or selection, the UI, the
 // sample's Step, then the batches and UI commands the frame drew.
+// dtSeconds is the host's wall-clock frame time. Only the overlay reads it:
+// Base.Step paces itself from Settings.Hertz.
 func (a *App) Frame(dtSeconds float64) (*draw.Batches, []render.UICommand) {
-	_ = dtSeconds // the port never reads wall-clock; Base.Step paces itself from Settings.Hertz
-
 	s := &a.ctx.Settings
 	entries := samples.Entries()
 
@@ -138,7 +143,24 @@ func (a *App) Frame(dtSeconds float64) (*draw.Batches, []render.UICommand) {
 
 	a.sample.Step()
 
+	if a.showUI {
+		a.drawFrameOverlay(dtSeconds)
+	}
+
 	return &a.drawer.Batches, a.collectUICommands()
+}
+
+// drawFrameOverlay draws the reference's bottom-left line: frame time in
+// milliseconds, step count and camera. It runs after Step so the count is
+// the one the frame simulated.
+func (a *App) drawFrameOverlay(dtSeconds float64) {
+	steps := 0
+	if c, ok := a.sample.(interface{ Steps() int }); ok {
+		steps = c.Steps()
+	}
+	cam := &a.ctx.Camera
+	line := fmt.Sprintf("%.1f ms - step %d - camera (%g, %g, %g)", 1000*dtSeconds, steps, cam.Center.X, cam.Center.Y, cam.Zoom)
+	a.drawer.DrawStringColor(5, cam.Height-20, line, frameOverlayColor)
 }
 
 // worldOf type-asserts for Base.World, since Sample hides the world id

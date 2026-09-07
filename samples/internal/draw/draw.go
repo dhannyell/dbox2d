@@ -147,7 +147,12 @@ var (
 
 // DrawString appends one overlay line at a fixed screen position, in pixels.
 func (d *Draw) DrawString(x, y int, s string) {
-	d.Batches.Text = append(d.Batches.Text, TextItem{X: float32(x), Y: float32(y), Text: s, Color: drawStringColor})
+	d.DrawStringColor(x, y, s, drawStringColor)
+}
+
+// DrawStringColor is DrawString with a caller-chosen colour.
+func (d *Draw) DrawStringColor(x, y int, s string, c RGBA8) {
+	d.Batches.Text = append(d.Batches.Text, TextItem{X: float32(x), Y: float32(y), Text: s, Color: c})
 }
 
 // DrawStringAt appends one overlay line at a world position, converted to

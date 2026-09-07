@@ -1,10 +1,12 @@
 package app_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/dhannyell/dbox2d/samples"
 	"github.com/dhannyell/dbox2d/samples/internal/app"
+	"github.com/dhannyell/dbox2d/samples/internal/draw"
 )
 
 // fakeMeasurer avoids rasterizing a real font just to lay out the tools
@@ -58,5 +60,33 @@ func TestAppRunsTheTumblerHeadless(t *testing.T) {
 	a.Frame(1.0 / 60)
 	if a.Settings().Restart {
 		t.Fatalf("Restart was not cleared by the next frame")
+	}
+}
+
+// The bottom-left overlay reports the host's frame time and follows the
+// UI toggle, as in the reference.
+func TestFrameOverlayFollowsTheUIToggle(t *testing.T) {
+	a := app.New(fakeMeasurer{})
+	a.Resize(1920, 1080)
+
+	overlay := func(b *draw.Batches) string {
+		for _, item := range b.Text {
+			if strings.Contains(item.Text, " ms - step ") {
+				return item.Text
+			}
+		}
+		return ""
+	}
+
+	b, _ := a.Frame(0.0125)
+	line := overlay(b)
+	if !strings.HasPrefix(line, "12.5 ms - step 1 - camera (") {
+		t.Fatalf("overlay = %q, want the 12.5 ms line for step 1", line)
+	}
+
+	a.KeyDown(samples.KeyTab, 0)
+	b, _ = a.Frame(0.0125)
+	if line := overlay(b); line != "" {
+		t.Fatalf("overlay %q still drawn with the UI hidden", line)
 	}
 }
