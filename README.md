@@ -133,7 +133,8 @@ go test -tags dbox2d_float ./...
 go run -tags dbox2d_float ./cmd/native
 ```
 
-The Pages wasm build stays in the fixed mode.
+The Pages site serves both modes: `app.wasm` is the fixed build and
+`?mode=float` loads `app-float.wasm`.
 
 ## Install
 
