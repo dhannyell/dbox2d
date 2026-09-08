@@ -4,7 +4,7 @@ go 1.26.4
 
 require github.com/dhannyell/dbox2d v0.4.0
 
-require github.com/dhannyell/fixed v0.7.0 // indirect
+require github.com/dhannyell/fixed v0.8.0 // indirect
 
 require (
 	github.com/dhannyell/webgpu v1.35.2

@@ -2,4 +2,4 @@ module github.com/dhannyell/dbox2d
 
 go 1.26.4
 
-require github.com/dhannyell/fixed v0.7.0
+require github.com/dhannyell/fixed v0.8.0
