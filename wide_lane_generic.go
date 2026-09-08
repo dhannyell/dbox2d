@@ -83,6 +83,15 @@ func (a laneW) Mul(b laneW) laneW {
 	return out
 }
 
+// Div returns the lane-wise quotient, rounded once like the scalar division.
+func (a laneW) Div(b laneW) laneW {
+	var out laneW
+	for i := range out.v {
+		out.v[i] = a.v[i] / b.v[i]
+	}
+	return out
+}
+
 // MulAdd returns a plus the separately rounded product of b and c.
 func (a laneW) MulAdd(b, c laneW) laneW { return a.Add(b.Mul(c)) }
 

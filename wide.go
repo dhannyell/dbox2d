@@ -36,48 +36,60 @@ type bodyStateW struct {
 	dq rotW
 }
 
-// gatherBodies loads body states and substitutes identity for null bodies.
-func gatherBodies(states []bodyState, indices *[wideWidth]int) bodyStateW {
-	var vx, vy, w, dpx, dpy, dqc, dqs [wideWidth]float32
+// bodyScratchW carries the gathered scalars between the body states and the lanes.
+type bodyScratchW struct{ vx, vy, w, dpx, dpy, dqc, dqs [wideWidth]float32 }
+
+// gatherBodies fills every lane of the scratch: real bodies from the states, null lanes as the identity.
+func gatherBodies(states []bodyState, indices *[wideWidth]int, s *bodyScratchW) {
 	for j := range wideWidth {
 		idx := indices[j]
 		if idx == nullIndex {
-			dqc[j] = 1
+			s.vx[j], s.vy[j], s.w[j], s.dpx[j], s.dpy[j], s.dqs[j] = 0, 0, 0, 0, 0, 0
+			s.dqc[j] = 1
 			continue
 		}
-		s := &states[idx]
-		vx[j] = s.linearVelocity.X.v
-		vy[j] = s.linearVelocity.Y.v
-		w[j] = s.angularVelocity.Mul(tau).v
-		dpx[j] = s.deltaPosition.X.v
-		dpy[j] = s.deltaPosition.Y.v
-		dqc[j] = s.deltaRotation.Cos.v
-		dqs[j] = s.deltaRotation.Sin.v
+		b := &states[idx]
+		s.vx[j] = b.linearVelocity.X.v
+		s.vy[j] = b.linearVelocity.Y.v
+		s.w[j] = b.angularVelocity.v
+		s.dpx[j] = b.deltaPosition.X.v
+		s.dpy[j] = b.deltaPosition.Y.v
+		s.dqc[j] = b.deltaRotation.Cos.v
+		s.dqs[j] = b.deltaRotation.Sin.v
 	}
-	var body bodyStateW
-	body.v.x = laneLoad(&vx).toAcc()
-	body.v.y = laneLoad(&vy).toAcc()
-	body.w = laneLoad(&w).toAcc()
-	body.dp = vec2W{x: laneLoad(&dpx), y: laneLoad(&dpy)}
-	body.dq = rotW{c: laneLoad(&dqc), s: laneLoad(&dqs)}
-	return body
 }
 
-// scatterBodies writes only real-body velocities back in turns per second.
-func scatterBodies(states []bodyState, indices *[wideWidth]int, b *bodyStateW) {
-	var vx, vy, w [wideWidth]float32
-	b.v.x.toLane().store(&vx)
-	b.v.y.toLane().store(&vy)
-	b.w.toLane().store(&w)
+// loadBodyVelocityW builds the velocity lanes; the angular velocity becomes radians per second.
+func loadBodyVelocityW(s *bodyScratchW, tauW laneW, b *bodyStateW) {
+	b.v.x = laneLoad(&s.vx).toAcc()
+	b.v.y = laneLoad(&s.vy).toAcc()
+	b.w = laneLoad(&s.w).Mul(tauW).toAcc()
+}
+
+// loadBodyDeltaW builds the delta position and delta rotation lanes.
+func loadBodyDeltaW(s *bodyScratchW, b *bodyStateW) {
+	b.dp = vec2W{x: laneLoad(&s.dpx), y: laneLoad(&s.dpy)}
+	b.dq = rotW{c: laneLoad(&s.dqc), s: laneLoad(&s.dqs)}
+}
+
+// storeBodyW writes the velocities to the scratch, the angular velocity back in turns per second.
+func storeBodyW(b *bodyStateW, tauW laneW, s *bodyScratchW) {
+	b.v.x.toLane().store(&s.vx)
+	b.v.y.toLane().store(&s.vy)
+	b.w.toLane().Div(tauW).store(&s.w)
+}
+
+// scatterBodies writes the real-body velocities back from the scratch.
+func scatterBodies(states []bodyState, indices *[wideWidth]int, s *bodyScratchW) {
 	for j := range wideWidth {
 		idx := indices[j]
 		if idx == nullIndex {
 			continue
 		}
-		s := &states[idx]
-		s.linearVelocity.X.v = vx[j]
-		s.linearVelocity.Y.v = vy[j]
-		s.angularVelocity = Q{v: w[j]}.Div(tau)
+		b := &states[idx]
+		b.linearVelocity.X.v = s.vx[j]
+		b.linearVelocity.Y.v = s.vy[j]
+		b.angularVelocity.v = s.w[j]
 	}
 }
 

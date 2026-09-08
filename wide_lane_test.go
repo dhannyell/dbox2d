@@ -73,7 +73,8 @@ func wideArithmeticInputsValid(a, b, c [wideWidth]float32) bool {
 		product := float32(b[i] * c[i])
 		productSum := a[i] + product
 		productDifference := a[i] - product
-		if math.IsNaN(float64(sum)) || math.IsNaN(float64(difference)) || math.IsNaN(float64(product)) || math.IsNaN(float64(productSum)) || math.IsNaN(float64(productDifference)) {
+		quotient := float32(a[i] / b[i])
+		if math.IsNaN(float64(sum)) || math.IsNaN(float64(difference)) || math.IsNaN(float64(product)) || math.IsNaN(float64(productSum)) || math.IsNaN(float64(productDifference)) || math.IsNaN(float64(quotient)) {
 			return false
 		}
 	}
@@ -127,22 +128,24 @@ func TestLaneArithmeticRoundsTwice(t *testing.T) {
 			continue
 		}
 
-		var gotAdd, gotSub, gotMul, gotMulAdd, gotMulSub [wideWidth]float32
+		var gotAdd, gotSub, gotMul, gotDiv, gotMulAdd, gotMulSub [wideWidth]float32
 		var gotMin, gotMax [wideWidth]float32
 		laneLoad(&a).Add(laneLoad(&b)).store(&gotAdd)
 		laneLoad(&a).Sub(laneLoad(&b)).store(&gotSub)
 		laneLoad(&a).Mul(laneLoad(&b)).store(&gotMul)
+		laneLoad(&a).Div(laneLoad(&b)).store(&gotDiv)
 		laneLoad(&a).MulAdd(laneLoad(&b), laneLoad(&c)).store(&gotMulAdd)
 		laneLoad(&a).MulSub(laneLoad(&b), laneLoad(&c)).store(&gotMulSub)
 		laneLoad(&a).Min(laneLoad(&b)).store(&gotMin)
 		laneLoad(&a).Max(laneLoad(&b)).store(&gotMax)
 
-		var wantAdd, wantSub, wantMul, wantMulAdd, wantMulSub [wideWidth]float32
+		var wantAdd, wantSub, wantMul, wantDiv, wantMulAdd, wantMulSub [wideWidth]float32
 		var wantMin, wantMax [wideWidth]float32
 		for i := range a {
 			wantAdd[i] = a[i] + b[i]
 			wantSub[i] = a[i] - b[i]
 			wantMul[i] = a[i] * b[i]
+			wantDiv[i] = float32(a[i] / b[i])
 			product := float32(b[i] * c[i])
 			wantMulAdd[i] = a[i] + product
 			wantMulSub[i] = a[i] - product
@@ -161,6 +164,7 @@ func TestLaneArithmeticRoundsTwice(t *testing.T) {
 		wideCheckBits(t, "add", gotAdd, wantAdd)
 		wideCheckBits(t, "sub", gotSub, wantSub)
 		wideCheckBits(t, "mul", gotMul, wantMul)
+		wideCheckBits(t, "div", gotDiv, wantDiv)
 		wideCheckBits(t, "mul-add", gotMulAdd, wantMulAdd)
 		wideCheckBits(t, "mul-sub", gotMulSub, wantMulSub)
 		wideCheckBits(t, "min", gotMin, wantMin)

@@ -196,11 +196,18 @@ func warmStartContactsTaskWide(startIndex, endIndex int, context *stepContext, c
 	states := context.states
 	constraints := context.graph.colors[colorIndex].contactConstraintsWide
 	negOne := laneSplat(Q{v: -1})
+	tauW := laneSplat(tau)
+	var scratchA, scratchB bodyScratchW
 
 	for i := startIndex; i < endIndex; i++ {
 		constraint := &constraints[i]
-		bodyA := gatherBodies(states, &constraint.indexA)
-		bodyB := gatherBodies(states, &constraint.indexB)
+		gatherBodies(states, &constraint.indexA, &scratchA)
+		gatherBodies(states, &constraint.indexB, &scratchB)
+		var bodyA, bodyB bodyStateW
+		loadBodyVelocityW(&scratchA, tauW, &bodyA)
+		loadBodyDeltaW(&scratchA, &bodyA)
+		loadBodyVelocityW(&scratchB, tauW, &bodyB)
+		loadBodyDeltaW(&scratchB, &bodyB)
 		tangentX := constraint.normal.y
 		tangentY := negOne.Mul(constraint.normal.x)
 
@@ -236,8 +243,10 @@ func warmStartContactsTaskWide(startIndex, endIndex int, context *stepContext, c
 
 		bodyA.w = bodyA.w.Sub(constraint.invIA.Mul(constraint.rollingImpulse.toLane()).toAcc())
 		bodyB.w = bodyB.w.Add(constraint.invIB.Mul(constraint.rollingImpulse.toLane()).toAcc())
-		scatterBodies(states, &constraint.indexA, &bodyA)
-		scatterBodies(states, &constraint.indexB, &bodyB)
+		storeBodyW(&bodyA, tauW, &scratchA)
+		storeBodyW(&bodyB, tauW, &scratchB)
+		scatterBodies(states, &constraint.indexA, &scratchA)
+		scatterBodies(states, &constraint.indexB, &scratchB)
 	}
 }
 
@@ -251,11 +260,18 @@ func solveContactsTaskWide(startIndex, endIndex int, context *stepContext, color
 	zero := laneZero()
 	one := laneSplat(QOne())
 	negOne := laneSplat(Q{v: -1})
+	tauW := laneSplat(tau)
+	var scratchA, scratchB bodyScratchW
 
 	for i := startIndex; i < endIndex; i++ {
 		constraint := &constraints[i]
-		bodyA := gatherBodies(states, &constraint.indexA)
-		bodyB := gatherBodies(states, &constraint.indexB)
+		gatherBodies(states, &constraint.indexA, &scratchA)
+		gatherBodies(states, &constraint.indexB, &scratchB)
+		var bodyA, bodyB bodyStateW
+		loadBodyVelocityW(&scratchA, tauW, &bodyA)
+		loadBodyDeltaW(&scratchA, &bodyA)
+		loadBodyVelocityW(&scratchB, tauW, &bodyB)
+		loadBodyDeltaW(&scratchB, &bodyB)
 
 		biasRate := zero
 		massScale := one
@@ -429,8 +445,10 @@ func solveContactsTaskWide(startIndex, endIndex int, context *stepContext, color
 		bodyA.w = bodyA.w.Sub(constraint.invIA.Mul(deltaLambdaAcc.toLane()).toAcc())
 		bodyB.w = bodyB.w.Add(constraint.invIB.Mul(deltaLambdaAcc.toLane()).toAcc())
 
-		scatterBodies(states, &constraint.indexA, &bodyA)
-		scatterBodies(states, &constraint.indexB, &bodyB)
+		storeBodyW(&bodyA, tauW, &scratchA)
+		storeBodyW(&bodyB, tauW, &scratchB)
+		scatterBodies(states, &constraint.indexA, &scratchA)
+		scatterBodies(states, &constraint.indexB, &scratchB)
 	}
 }
 
@@ -443,6 +461,8 @@ func applyRestitutionTaskWide(startIndex, endIndex int, context *stepContext, co
 	zero := laneZero()
 	one := laneSplat(QOne())
 	negOne := laneSplat(Q{v: -1})
+	tauW := laneSplat(tau)
+	var scratchA, scratchB bodyScratchW
 
 	for i := startIndex; i < endIndex; i++ {
 		constraint := &constraints[i]
@@ -452,8 +472,13 @@ func applyRestitutionTaskWide(startIndex, endIndex int, context *stepContext, co
 			continue
 		}
 
-		bodyA := gatherBodies(states, &constraint.indexA)
-		bodyB := gatherBodies(states, &constraint.indexB)
+		gatherBodies(states, &constraint.indexA, &scratchA)
+		gatherBodies(states, &constraint.indexB, &scratchB)
+		var bodyA, bodyB bodyStateW
+		loadBodyVelocityW(&scratchA, tauW, &bodyA)
+		loadBodyDeltaW(&scratchA, &bodyA)
+		loadBodyVelocityW(&scratchB, tauW, &bodyB)
+		loadBodyDeltaW(&scratchB, &bodyB)
 		normal := constraint.normal
 
 		{
@@ -526,8 +551,10 @@ func applyRestitutionTaskWide(startIndex, endIndex int, context *stepContext, co
 			bodyB.w = bodyB.w.Add(constraint.invIB.Mul(crossW(rB, p)).toAcc())
 		}
 
-		scatterBodies(states, &constraint.indexA, &bodyA)
-		scatterBodies(states, &constraint.indexB, &bodyB)
+		storeBodyW(&bodyA, tauW, &scratchA)
+		storeBodyW(&bodyB, tauW, &scratchB)
+		scatterBodies(states, &constraint.indexA, &scratchA)
+		scatterBodies(states, &constraint.indexB, &scratchB)
 	}
 }
 

@@ -65,6 +65,9 @@ func (a laneW) Sub(b laneW) laneW { return laneW{v: a.v.Sub(b.v)} }
 // Mul returns the lane-wise product.
 func (a laneW) Mul(b laneW) laneW { return laneW{v: a.v.Mul(b.v)} }
 
+// Div returns the lane-wise quotient, rounded once like the scalar division.
+func (a laneW) Div(b laneW) laneW { return laneW{v: a.v.Div(b.v)} }
+
 // MulAdd returns a plus the separately rounded product of b and c.
 func (a laneW) MulAdd(b, c laneW) laneW { return a.Add(b.Mul(c)) }
 
