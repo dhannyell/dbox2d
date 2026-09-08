@@ -359,10 +359,10 @@ constraint scratch from one arena block. See D-004 and D-006.
   the body inverse mass do. The guard against a zero mass is an exact
   test.
 - The reference solves the colors with the wide `Task` family and the
-  overflow color with the scalar `Overflow` family. The port runs the
-  scalar family in both places: the overflow color on worker 0, then the
-  colors in blocks of four contacts that the workers steal. The wide
-  `Task` family stays T2 until a wide scalar exists.
+  overflow color with the scalar `Overflow` family. The default build runs
+  the scalar family in both places: the overflow color on worker 0, then the
+  colors in blocks of four contacts that the workers steal. The wide `Task`
+  family landed under the `dbox2d_wide` tag, in float mode; see D-019.
 
 **Order 23 is complete**: `solve` follows `b2Solve`: the island merge,
 the overflow constraints from the arena, the stage script of blocks per
@@ -617,8 +617,8 @@ D-014 grew entries.
 | `src/manifold.c` | `manifold.go` | T0/T1 | manifolds | 20 | Nine `FLT_EPSILON` sites become exact zero tests, one T2 entry each. The chain segment colliders landed with order 32. |
 | `src/contact.h`, `src/contact.c` | `contact.go` | T0 | manifolds | 21 | Contact bookkeeping and the collide dispatch table. The island and graph branches landed with orders 25 and 26. |
 | `src/table.h`, `src/table.c` | `table.go` | T0 | manifolds | 22 | Open-addressing set of contact pairs. |
-| `src/solver.h`, `src/solver.c` | `solver.go` | T0/T1/T2 | solver | 23 | Nine ordered stages, from prepare joints to store impulses. `makeSoft` landed with order 24. The integration tasks and the body finalize landed with order 16; the stage script with the per-color contact stages, the island split and the sleep tail landed with order 23; the stage blocks and the worker pool landed with D-016; the enlarged body bits and the broadphase refit landed with order 30; the continuous stage landed with order 32; the joint stages landed with order 33; see D-004 and D-006. |
-| `src/contact_solver.h`, `src/contact_solver.c` | `contact_solver.go` | T0/T1/T2 | solver | 24 | The scalar stages landed and serve every color; see D-004 and D-006. The wide `Task` family is T2 until a wide scalar exists. |
+| `src/solver.h`, `src/solver.c` | `solver.go` | T0/T1/T2 | solver | 23 | Nine ordered stages, from prepare joints to store impulses. `makeSoft` landed with order 24. The integration tasks and the body finalize landed with order 16; the stage script with the per-color contact stages, the island split and the sleep tail landed with order 23; the stage blocks and the worker pool landed with D-016; the enlarged body bits and the broadphase refit landed with order 30; the continuous stage landed with order 32; the joint stages landed with order 33; see D-004 and D-006. Under `dbox2d_wide`, the stage table packs each color's contacts into lanes and pads to the lane width; see D-019. |
+| `src/contact_solver.h`, `src/contact_solver.c` | `contact_solver.go` | T0/T1/T2 | solver | 24 | The scalar stages landed and serve every color; see D-004 and D-006. The wide `Task` family landed under `dbox2d_wide` in float mode; see D-019. |
 | `src/island.h`, `src/island.c` | `island.go` | T0 | solver | 25 | Island linking, merging and splitting landed; the wake calls and the sleep path landed when order 13 completed. The joint lists landed with order 33. |
 | `src/constraint_graph.h`, `src/constraint_graph.c` | `constraint_graph.go` | T0 | solver | 26 | Eleven colors plus the overflow color landed. The color schedule is the parallel contract. The joint functions landed with order 33. |
 | `src/bitset.h`, `src/bitset.c` | `bitset.go` | T0 | broadphase | 27 | Set, clear, test, grow and union landed. Backs the constraint graph and the contact state of the step. |

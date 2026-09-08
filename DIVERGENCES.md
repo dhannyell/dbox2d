@@ -638,3 +638,42 @@ Numbering is sequential from `D-001` and never reused.
   The traces found one port bug: the colored contacts clamped by maxContactPushSpeed instead of
   contactSpeed; the fix changed both witnesses.
 - Test: TestConformance in conformance_test.go
+
+### D-019 Wide contact family
+
+- Files: wide.go, wide_common.go, wide_off.go, wide_guard.go, wide_lane_amd64.go,
+  wide_lane_arm64.go, wide_lane_generic.go, contact_solver_wide.go
+- Tier: T2
+- Reason: the reference selects a wide `Task` family with `B2_SIMD_WIDTH` lanes
+  at compile time, including an `B2_SIMD_NONE` variant that keeps four scalar
+  lanes with no vector instructions. The port has no scalar-lane variant: its
+  oracle is the scalar family in solver.go, applied to every color the same way
+  it applies to the overflow color. A wide lane also needs a fixed number of
+  contacts per call, and a color rarely holds a multiple of the lane width.
+- Behaviour: the `dbox2d_wide` tag adds a second contact-solving path beside
+  the scalar family; it requires `dbox2d_float` and fails the build otherwise
+  (wide_guard.go), because no wide fixed-point lane exists yet. Contacts of
+  each color are padded to a multiple of the lane width; the padding lanes
+  hold a null contact index and an identity body state, and the store step
+  never writes them back. The solver stage table sizes each color's wide
+  constraint block by `⌈n/width⌉`, mirroring the reference
+  `colorContactCountSIMD`.
+
+  Three lane implementations share one padding and dispatch layer:
+  avx2 (amd64, width 8), neon (arm64, width 4), and a generic path of plain
+  width-4 arrays for every other target, including a build without
+  `GOEXPERIMENT=simd`. avx2 falls back to the scalar family at runtime when
+  the running CPU has no AVX2. The port never fuses a multiply with an add or
+  a subtract: `MulAdd` and `MulSub` are two rounded operations on every lane
+  path, where the reference `b2MulAddW` is unfused on SSE2 and AVX2 but fused
+  through `vmlaq_f32` on NEON. `Min` and `Max` are compare-and-select, so a
+  signed-zero tie follows the same `if a < b` rule as the scalar family. The
+  result is that the wide family is bit-identical to the scalar family, and
+  therefore bit-identical across ISAs, where the reference is not. There is no
+  SSE2 path.
+- Test: TestWideMatchesScalarStepByStep, TestWideStagesRunWithColoredContacts
+  and TestWideContactLayoutPadsEachColor in wide_test.go; wide_lane_test.go
+  checks each lane operation against the scalar family on every path; the
+  witness, samples and conformance suites all run under the `dbox2d_wide` tag
+  in CI, on amd64 and arm64 with `GOEXPERIMENT=simd` and on the generic path
+  across the four-architecture matrix.
