@@ -150,8 +150,8 @@ Ryzen 7 5800X3D, `benchstat` n=6, samples benchmarks of 60 steps:
 | LargePyramid, 1 worker | 770 ms | 391 ms | -49.3% |
 | LargePyramid, 8 workers | 162 ms | 98 ms | -39.4% |
 
-The per-step StepPyramid microbenchmark goes from 487 µs to 270 µs; a 60-step
-run allocates less than the scalar family does. The generic path runs about
+StepPyramid per step: scalar 487 µs, wide avx2 270 µs. A 60-step run
+allocates less than the scalar family does. The generic path runs about
 7x slower than the scalar family, because its lanes are plain arrays that
 go through memory on every operation; it exists for
 conformance, not speed, so do not enable the tag without AVX2 or NEON. NEON is
