@@ -128,7 +128,7 @@ The `dbox2d_simd` build tag adds a wide contact-solving path beside the
 scalar family. It requires `dbox2d_float`; the build fails otherwise, because
 no wide fixed-point lane exists yet. Four lane paths cover it: avx2 (amd64,
 width 8), neon (arm64, width 4), simd128 (wasm, width 4), and a generic path
-of width-4 arrays for every other target. avx2, neon, and simd128 need
+of four named floats for every other target. avx2, neon, and simd128 need
 `GOEXPERIMENT=simd` with Go 1.27.0 and the `simd/archsimd` package; without the
 experiment, the same tags build the generic path. avx2 falls back to the
 scalar family at runtime on a CPU without AVX2.
@@ -155,11 +155,13 @@ Ryzen 7 5800X3D, `benchstat` n=6, samples benchmarks of 60 steps:
 | LargePyramid, 8 workers | 162 ms | 98 ms | -39.4% |
 
 StepPyramid per step: scalar 487 µs, wide avx2 270 µs. A 60-step run
-allocates less than the scalar family does. The generic path runs about
-7x slower than the scalar family, because its lanes are plain arrays that
-go through memory on every operation; it exists for
-conformance, not speed, so do not enable the tag without AVX2 or NEON. NEON is
-cross-built and tested in CI but not benchmarked yet.
+allocates less than the scalar family does. The generic path is slower than
+the scalar family: 8% to 44% on amd64 and 14% to 49% on wasm, most on
+LargePyramid. Its lanes are structs of four named floats, so the compiler
+keeps them in registers, but it still runs four scalar operations per lane
+step. It exists for conformance, so do not enable the tag on a target
+without a vector path. NEON is cross-built and tested in CI but not
+benchmarked yet.
 
 On the avx2 path, the gather loads each body state as one 32-byte row and
 transposes eight rows into lanes with register shuffles; the other paths

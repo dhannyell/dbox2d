@@ -667,11 +667,11 @@ Numbering is sequential from `D-001` and never reused.
   path, the lanes convert the angular velocity with a lane multiply and a lane
   division by `tau`, both rounded once like the scalar `Q.Mul` and `Q.Div`.
 
-  Three lane implementations share one padding and dispatch layer:
-  avx2 (amd64, width 8), neon (arm64, width 4), and a generic path of plain
-  width-4 arrays for every other target, including a build without
-  `GOEXPERIMENT=simd`. avx2 falls back to the scalar family at runtime when
-  the running CPU has no AVX2. The port never fuses a multiply with an add or
+  Four lane implementations share one padding and dispatch layer:
+  avx2 (amd64, width 8), neon (arm64, width 4), simd128 (wasm, width 4), and
+  a generic path of four named float32 fields for every other target,
+  including a build without `GOEXPERIMENT=simd`. avx2 falls back to the
+  scalar family at runtime when the running CPU has no AVX2. The port never fuses a multiply with an add or
   a subtract: `MulAdd` and `MulSub` are two rounded operations on every lane
   path, where the reference `b2MulAddW` is unfused on SSE2 and AVX2 but fused
   through `vmlaq_f32` on NEON. `Min` and `Max` are compare-and-select, so a

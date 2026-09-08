@@ -11,12 +11,12 @@ const (
 
 // laneW is the pure-Go float32 lane type.
 type laneW struct {
-	v [4]float32
+	l0, l1, l2, l3 float32
 }
 
 // maskW is the pure-Go comparison-mask type.
 type maskW struct {
-	v [4]bool
+	m0, m1, m2, m3 bool
 }
 
 // accW is the accumulation lane; on this path it is the same type as laneW.
@@ -43,53 +43,37 @@ func laneZero() laneW { return laneW{} }
 
 // laneSplat fills a lane with a scalar float32 value.
 func laneSplat(q Q) laneW {
-	var a laneW
-	for i := range a.v {
-		a.v[i] = q.v
-	}
-	return a
+	return laneW{l0: q.v, l1: q.v, l2: q.v, l3: q.v}
 }
 
 // laneLoad loads one aligned-width float32 array.
-func laneLoad(p *[wideWidth]float32) laneW { return laneW{v: *p} }
+func laneLoad(p *[wideWidth]float32) laneW {
+	return laneW{l0: p[0], l1: p[1], l2: p[2], l3: p[3]}
+}
 
 // store writes the lane to one aligned-width float32 array.
-func (a laneW) store(p *[wideWidth]float32) { *p = a.v }
+func (a laneW) store(p *[wideWidth]float32) {
+	p[0], p[1], p[2], p[3] = a.l0, a.l1, a.l2, a.l3
+}
 
 // Add returns the lane-wise sum.
 func (a laneW) Add(b laneW) laneW {
-	var out laneW
-	for i := range out.v {
-		out.v[i] = a.v[i] + b.v[i]
-	}
-	return out
+	return laneW{l0: a.l0 + b.l0, l1: a.l1 + b.l1, l2: a.l2 + b.l2, l3: a.l3 + b.l3}
 }
 
 // Sub returns the lane-wise difference.
 func (a laneW) Sub(b laneW) laneW {
-	var out laneW
-	for i := range out.v {
-		out.v[i] = a.v[i] - b.v[i]
-	}
-	return out
+	return laneW{l0: a.l0 - b.l0, l1: a.l1 - b.l1, l2: a.l2 - b.l2, l3: a.l3 - b.l3}
 }
 
 // Mul returns the lane-wise product.
 func (a laneW) Mul(b laneW) laneW {
-	var out laneW
-	for i := range out.v {
-		out.v[i] = a.v[i] * b.v[i]
-	}
-	return out
+	return laneW{l0: a.l0 * b.l0, l1: a.l1 * b.l1, l2: a.l2 * b.l2, l3: a.l3 * b.l3}
 }
 
 // Div returns the lane-wise quotient, rounded once like the scalar division.
 func (a laneW) Div(b laneW) laneW {
-	var out laneW
-	for i := range out.v {
-		out.v[i] = a.v[i] / b.v[i]
-	}
-	return out
+	return laneW{l0: a.l0 / b.l0, l1: a.l1 / b.l1, l2: a.l2 / b.l2, l3: a.l3 / b.l3}
 }
 
 // MulAdd returns a plus the separately rounded product of b and c.
@@ -101,12 +85,25 @@ func (a laneW) MulSub(b, c laneW) laneW { return a.Sub(b.Mul(c)) }
 // Min returns the lane-wise minimum, selecting b on equality.
 func (a laneW) Min(b laneW) laneW {
 	var out laneW
-	for i := range out.v {
-		if a.v[i] < b.v[i] {
-			out.v[i] = a.v[i]
-		} else {
-			out.v[i] = b.v[i]
-		}
+	if a.l0 < b.l0 {
+		out.l0 = a.l0
+	} else {
+		out.l0 = b.l0
+	}
+	if a.l1 < b.l1 {
+		out.l1 = a.l1
+	} else {
+		out.l1 = b.l1
+	}
+	if a.l2 < b.l2 {
+		out.l2 = a.l2
+	} else {
+		out.l2 = b.l2
+	}
+	if a.l3 < b.l3 {
+		out.l3 = a.l3
+	} else {
+		out.l3 = b.l3
 	}
 	return out
 }
@@ -114,62 +111,71 @@ func (a laneW) Min(b laneW) laneW {
 // Max returns the lane-wise maximum, selecting b on equality.
 func (a laneW) Max(b laneW) laneW {
 	var out laneW
-	for i := range out.v {
-		if a.v[i] > b.v[i] {
-			out.v[i] = a.v[i]
-		} else {
-			out.v[i] = b.v[i]
-		}
+	if a.l0 > b.l0 {
+		out.l0 = a.l0
+	} else {
+		out.l0 = b.l0
+	}
+	if a.l1 > b.l1 {
+		out.l1 = a.l1
+	} else {
+		out.l1 = b.l1
+	}
+	if a.l2 > b.l2 {
+		out.l2 = a.l2
+	} else {
+		out.l2 = b.l2
+	}
+	if a.l3 > b.l3 {
+		out.l3 = a.l3
+	} else {
+		out.l3 = b.l3
 	}
 	return out
 }
 
 // Greater compares corresponding lane values.
 func (a laneW) Greater(b laneW) maskW {
-	var out maskW
-	for i := range out.v {
-		out.v[i] = a.v[i] > b.v[i]
-	}
-	return out
+	return maskW{m0: a.l0 > b.l0, m1: a.l1 > b.l1, m2: a.l2 > b.l2, m3: a.l3 > b.l3}
 }
 
 // Equals compares corresponding lane values for equality.
 func (a laneW) Equals(b laneW) maskW {
-	var out maskW
-	for i := range out.v {
-		out.v[i] = a.v[i] == b.v[i]
-	}
-	return out
+	return maskW{m0: a.l0 == b.l0, m1: a.l1 == b.l1, m2: a.l2 == b.l2, m3: a.l3 == b.l3}
 }
 
 // Or returns the lane-wise mask union.
 func (m maskW) Or(n maskW) maskW {
-	var out maskW
-	for i := range out.v {
-		out.v[i] = m.v[i] || n.v[i]
-	}
-	return out
+	return maskW{m0: m.m0 || n.m0, m1: m.m1 || n.m1, m2: m.m2 || n.m2, m3: m.m3 || n.m3}
 }
 
 // AllZero reports whether no mask lane is set.
 func (m maskW) AllZero() bool {
-	for _, set := range m.v {
-		if set {
-			return false
-		}
-	}
-	return true
+	return !m.m0 && !m.m1 && !m.m2 && !m.m3
 }
 
 // laneBlend selects a where the mask is set and b otherwise.
 func laneBlend(m maskW, a, b laneW) laneW {
 	var out laneW
-	for i, set := range m.v {
-		if set {
-			out.v[i] = a.v[i]
-		} else {
-			out.v[i] = b.v[i]
-		}
+	if m.m0 {
+		out.l0 = a.l0
+	} else {
+		out.l0 = b.l0
+	}
+	if m.m1 {
+		out.l1 = a.l1
+	} else {
+		out.l1 = b.l1
+	}
+	if m.m2 {
+		out.l2 = a.l2
+	} else {
+		out.l2 = b.l2
+	}
+	if m.m3 {
+		out.l3 = a.l3
+	} else {
+		out.l3 = b.l3
 	}
 	return out
 }
