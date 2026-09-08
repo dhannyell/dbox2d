@@ -1,5 +1,15 @@
 package dbox2d
 
+// runContactStageBlockScalar keeps flat prepare/store work behind the family hook.
+func runContactStageBlockScalar(stage *solverStage, context *stepContext, startIndex, endIndex int) {
+	switch stage.stageType {
+	case stagePrepareContacts:
+		prepareContactsTask(startIndex, endIndex, context)
+	case stageStoreImpulses:
+		storeImpulsesTask(startIndex, endIndex, context)
+	}
+}
+
 // runGraphContactBlockScalar keeps the existing scalar graph-contact stages
 // behind one hook so the wide family can replace them as a unit.
 func runGraphContactBlockScalar(stage *solverStage, context *stepContext, startIndex, endIndex int) {

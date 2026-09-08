@@ -8,6 +8,14 @@ type contactConstraintWide struct{}
 // colorContactConstraintCount keeps scalar stages one contact per solver unit.
 func colorContactConstraintCount(contactCount int) int { return contactCount }
 
+// contactStageCount keeps scalar prepare/store work one unit per contact.
+func contactStageCount(context *stepContext) int { return len(context.contacts) }
+
+// runContactStageBlock selects scalar prepare/store work in this build.
+func runContactStageBlock(stage *solverStage, context *stepContext, startIndex, endIndex int) {
+	runContactStageBlockScalar(stage, context, startIndex, endIndex)
+}
+
 // runGraphContactBlock selects the scalar graph-contact family in this build.
 func runGraphContactBlock(stage *solverStage, context *stepContext, startIndex, endIndex int) {
 	runGraphContactBlockScalar(stage, context, startIndex, endIndex)

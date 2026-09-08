@@ -183,7 +183,7 @@ func executeBlock(stage *solverStage, context *stepContext, block *solverBlock) 
 	case stagePrepareJoints:
 		prepareJointsTask(startIndex, endIndex, context)
 	case stagePrepareContacts:
-		prepareContactsTask(startIndex, endIndex, context)
+		runContactStageBlock(stage, context, startIndex, endIndex)
 	case stageIntegrateVelocities:
 		integrateVelocitiesTask(startIndex, endIndex, context)
 	case stageWarmStart:
@@ -214,7 +214,7 @@ func executeBlock(stage *solverStage, context *stepContext, block *solverBlock) 
 			runGraphContactBlock(stage, context, startIndex, endIndex)
 		}
 	case stageStoreImpulses:
-		storeImpulsesTask(startIndex, endIndex, context)
+		runContactStageBlock(stage, context, startIndex, endIndex)
 	}
 }
 
@@ -957,7 +957,7 @@ func buildSolverStages(w *world, context *stepContext, awakeBodyCount int) {
 		graphBlockCount += colorJointBlockCounts[c] + colorContactBlockCounts[c]
 	}
 
-	contactCount := len(context.contacts)
+	contactCount := contactStageCount(context)
 	contactBlockSize := blocksPerWorker
 	contactBlockCount := 0
 	if contactCount > 0 {
