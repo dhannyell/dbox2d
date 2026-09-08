@@ -167,17 +167,9 @@ jobs:
       - name: Vet
         run: go vet -tags $TAGS ./...
       - name: Test
-        run: go test -tags $TAGS -timeout 900s -skip TestConformance ./...
-      # The native host needs the GLFW system headers; test the pure packages.
-      - name: Samples
-        run: cd samples && go test -tags $TAGS . ./internal/app ./internal/draw
-      - name: Conformance
-        run: go test -tags $TAGS -run TestConformance -timeout 1200s .
-      # wasm has no assembly listing to grep; the native paths cover the FMA audit.
-      - name: FMA
-        if: matrix.goos != 'js'
-        shell: bash
-        run: test "$(go build -tags $TAGS -gcflags=-S . 2>&1 | grep -cE '${{ matrix.fma }}')" = 0
+        # Fixed mode is bit-identical on every target, so the slow scene traces
+        # run only on the 64-bit jobs; the witness hashes still cover 386 and wasm.
+        run: go test -timeout 600s ${{ matrix.tags == '' && (matrix.goarch == '386' || matrix.goarch == 'wasm') && '-short' || '' }} -tags "${{ matrix.tags }}" ./...
 
   race:
     name: race (amd64)

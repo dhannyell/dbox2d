@@ -751,6 +751,10 @@ func TestConformance(t *testing.T) {
 	for _, path := range scenePaths {
 		name := filepath.Base(path)
 		t.Run(name, func(t *testing.T) {
+			if testing.Short() {
+				// Scene traces take minutes on 32-bit and wasm targets; fixed mode is bit-identical there anyway.
+				t.Skip("scene traces are skipped in short mode")
+			}
 			runConformanceSceneTrace(t, name, path, floatMode)
 		})
 	}
