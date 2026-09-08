@@ -651,7 +651,7 @@ Numbering is sequential from `D-001` and never reused.
   oracle is the scalar family in solver.go, applied to every color the same way
   it applies to the overflow color. A wide lane also needs a fixed number of
   contacts per call, and a color rarely holds a multiple of the lane width.
-- Behaviour: the `dbox2d_wide` tag adds a second contact-solving path beside
+- Behaviour: the `dbox2d_simd` tag adds a second contact-solving path beside
   the scalar family; it requires `dbox2d_float` and fails the build otherwise
   (wide_guard.go), because no wide fixed-point lane exists yet. Contacts of
   each color are padded to a multiple of the lane width; the padding lanes
@@ -685,6 +685,6 @@ Numbering is sequential from `D-001` and never reused.
   TestWideStagesRunWithColoredContacts
   and TestWideContactLayoutPadsEachColor in wide_test.go; wide_lane_test.go
   checks each lane operation against the scalar family on every path; the
-  witness, samples and conformance suites all run under the `dbox2d_wide` tag
+  witness, samples and conformance suites all run under the `dbox2d_simd` tag
   in CI, on amd64 and arm64 with `GOEXPERIMENT=simd` and on the generic path
   across the four-architecture matrix.

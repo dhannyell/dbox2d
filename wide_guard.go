@@ -1,4 +1,4 @@
-//go:build dbox2d_wide && !dbox2d_float
+//go:build dbox2d_simd && !dbox2d_float
 
 package dbox2d
 

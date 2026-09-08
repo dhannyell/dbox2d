@@ -12,7 +12,7 @@ jobs:
       fail-fast: false
       matrix:
         goarch: [amd64, arm64, "386", wasm]
-        tags: ["", dbox2d_float, "dbox2d_float,dbox2d_wide"]
+        tags: ["", dbox2d_float, "dbox2d_float,dbox2d_simd"]
         include:
           - goarch: amd64
             goos: linux
@@ -95,7 +95,7 @@ jobs:
             echo "float64 conversion helpers leaked into production code"
             exit 1
           fi
-          if grep -rl 'go:build' --include=*.go . | grep -v '_test.go\|scalar_fixed.go\|scalar_float.go\|executor.go\|executor_wasm.go\|samples/\|wide_lane_\|wide_guard.go\|wide.go\|wide_off.go\|contact_solver_wide.go'; then
+          if grep -rl 'go:build' --include=*.go . | grep -v '_test.go\|scalar_fixed.go\|scalar_float.go\|executor.go\|executor_wasm.go\|samples/\|wide_lane_\|wide_guard.go\|wide.go\|wide_off.go\|contact_solver_wide.go\|spin_asm.go\|spin_stub.go'; then
             echo "unexpected build tags found"
             exit 1
           fi
@@ -109,7 +109,7 @@ jobs:
             echo "expected 23 epsilon references, got $epsilon"
             exit 1
           fi
-          guard="$(go build -tags dbox2d_wide . 2>&1 | grep -c wideRequiresFloatMode || true)"
+          guard="$(go build -tags dbox2d_simd . 2>&1 | grep -c wideRequiresFloatMode || true)"
           if [ "$guard" != "1" ]; then
             echo "expected the wide family to require float mode, got $guard"
             exit 1
@@ -135,7 +135,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       GOEXPERIMENT: simd
-      TAGS: dbox2d_float,dbox2d_wide
+      TAGS: dbox2d_float,dbox2d_simd
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5

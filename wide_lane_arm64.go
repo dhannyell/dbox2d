@@ -1,4 +1,4 @@
-//go:build dbox2d_wide && dbox2d_float && goexperiment.simd && go1.27 && arm64
+//go:build dbox2d_simd && dbox2d_float && goexperiment.simd && go1.27 && arm64
 
 package dbox2d
 
