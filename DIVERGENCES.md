@@ -642,7 +642,8 @@ Numbering is sequential from `D-001` and never reused.
 ### D-019 Wide contact family
 
 - Files: wide.go, wide_common.go, wide_off.go, wide_guard.go, wide_lane_amd64.go,
-  wide_lane_arm64.go, wide_lane_generic.go, wide_lane_gather_amd64.go,
+  wide_lane_arm64.go, wide_lane_wasm.go, wide_lane_generic.go,
+  wide_lane_gather_amd64.go,
   wide_lane_gather_generic.go, contact_solver_wide.go
 - Tier: T2
 - Reason: the reference selects a wide `Task` family with `B2_SIMD_WIDTH` lanes

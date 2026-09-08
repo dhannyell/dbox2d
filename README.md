@@ -68,6 +68,7 @@ To build the browser host:
 ```sh
 cd samples
 CGO_ENABLED=0 GOOS=js GOARCH=wasm go build -o web/app.wasm ./cmd/web
+GOTOOLCHAIN=go1.27.0 GOEXPERIMENT=simd CGO_ENABLED=0 GOOS=js GOARCH=wasm go build -tags dbox2d_float,dbox2d_simd -o web/app.wasm ./cmd/web
 go run ./cmd/serve
 ```
 
@@ -125,12 +126,12 @@ budgets. See DIVERGENCES.md D-018.
 
 The `dbox2d_simd` build tag adds a wide contact-solving path beside the
 scalar family. It requires `dbox2d_float`; the build fails otherwise, because
-no wide fixed-point lane exists yet. Three lane paths cover it: avx2 (amd64,
-width 8), neon (arm64, width 4), and a generic path of width-4 arrays for
-every other target. avx2 and neon need `GOEXPERIMENT=simd` with Go 1.27.0 and
-the `simd/archsimd` package; without the experiment, the same tags build the
-generic path. avx2 falls back to the scalar family at runtime on a CPU
-without AVX2.
+no wide fixed-point lane exists yet. Four lane paths cover it: avx2 (amd64,
+width 8), neon (arm64, width 4), simd128 (wasm, width 4), and a generic path
+of width-4 arrays for every other target. avx2, neon, and simd128 need
+`GOEXPERIMENT=simd` with Go 1.27.0 and the `simd/archsimd` package; without the
+experiment, the same tags build the generic path. avx2 falls back to the
+scalar family at runtime on a CPU without AVX2.
 
 ```sh
 GOTOOLCHAIN=go1.27.0 GOEXPERIMENT=simd go build -tags dbox2d_float,dbox2d_simd ./...

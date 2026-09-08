@@ -1,4 +1,4 @@
-//go:build dbox2d_simd && dbox2d_float && (!goexperiment.simd || !go1.27 || (!amd64 && !arm64))
+//go:build dbox2d_simd && dbox2d_float && (!goexperiment.simd || !go1.27 || (!amd64 && !arm64 && !wasm))
 
 package dbox2d
 

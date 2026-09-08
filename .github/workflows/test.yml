@@ -121,7 +121,7 @@ jobs:
         run: go test -timeout 600s -tags "${{ matrix.tags }}" ./...
 
   wide:
-    name: wide (${{ matrix.os }})
+    name: wide (${{ matrix.path }})
     strategy:
       fail-fast: false
       matrix:
@@ -129,13 +129,25 @@ jobs:
           - os: ubuntu-latest
             path: avx2
             fma: 'VFN?M(ADD|SUB)'
+            goos: ""
+            goarch: ""
           - os: ubuntu-24.04-arm
             path: neon
             fma: '\b(FMADD|FMSUB|FNMADD|FNMSUB|FMLA|FMLS)\b'
+            goos: ""
+            goarch: ""
+          - os: ubuntu-latest
+            path: simd128
+            goos: js
+            goarch: wasm
     runs-on: ${{ matrix.os }}
     env:
       GOEXPERIMENT: simd
       TAGS: dbox2d_float,dbox2d_simd
+      GOOS: ${{ matrix.goos }}
+      GOARCH: ${{ matrix.goarch }}
+      # the native host uses cgo; wasm must not try it.
+      CGO_ENABLED: ${{ matrix.goos == 'js' && '0' || '1' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -143,6 +155,9 @@ jobs:
           # The archsimd API changes between Go releases. Pin the version the
           # wide lanes were written against.
           go-version: "1.27.0"
+      - name: Configure Wasm runner
+        if: matrix.goos == 'js'
+        run: echo "$(go env GOROOT)/lib/wasm" >> "$GITHUB_PATH"
       - name: Path
         shell: bash
         run: |
@@ -150,12 +165,14 @@ jobs:
       - name: Vet
         run: go vet -tags $TAGS ./...
       - name: Test
-        run: go test -tags $TAGS ./...
+        run: go test -tags $TAGS -timeout 900s ./...
       - name: Samples
         run: cd samples && go test -tags $TAGS ./...
       - name: Conformance
         run: go test -tags $TAGS -run TestConformance -timeout 900s .
+      # wasm has no assembly listing to grep; the native paths cover the FMA audit.
       - name: FMA
+        if: matrix.goos != 'js'
         shell: bash
         run: test "$(go build -tags $TAGS -gcflags=-S . 2>&1 | grep -cE '${{ matrix.fma }}')" = 0
 
