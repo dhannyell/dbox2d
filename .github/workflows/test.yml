@@ -135,7 +135,7 @@ jobs:
             goarch: ""
           - os: ubuntu-24.04-arm
             path: neon
-            fma: '\b(FMADD|FMSUB|FNMADD|FNMSUB|FMLA|FMLS)\b'
+            fma: '\b(FMADD|FMSUB|FNMADD|FNMSUB|FMLA|FMLS)S?\b'
             goos: ""
             goarch: ""
           - os: ubuntu-latest

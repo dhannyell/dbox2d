@@ -66,9 +66,15 @@ func (a laneW) Sub(b laneW) laneW {
 	return laneW{l0: a.l0 - b.l0, l1: a.l1 - b.l1, l2: a.l2 - b.l2, l3: a.l3 - b.l3}
 }
 
-// Mul returns the lane-wise product.
+// Mul returns the lane-wise product. The conversions round each product
+// explicitly, which forbids the compiler to fuse it with a later add.
 func (a laneW) Mul(b laneW) laneW {
-	return laneW{l0: a.l0 * b.l0, l1: a.l1 * b.l1, l2: a.l2 * b.l2, l3: a.l3 * b.l3}
+	return laneW{
+		l0: float32(a.l0 * b.l0),
+		l1: float32(a.l1 * b.l1),
+		l2: float32(a.l2 * b.l2),
+		l3: float32(a.l3 * b.l3),
+	}
 }
 
 // Div returns the lane-wise quotient, rounded once like the scalar division.
