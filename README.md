@@ -68,6 +68,7 @@ To build the browser host:
 ```sh
 cd samples
 CGO_ENABLED=0 GOOS=js GOARCH=wasm go build -o web/app.wasm ./cmd/web
+GOTOOLCHAIN=go1.27.0 GOEXPERIMENT=simd CGO_ENABLED=0 GOOS=js GOARCH=wasm go build -tags dbox2d_float,dbox2d_simd -o web/app.wasm ./cmd/web
 go run ./cmd/serve
 ```
 
@@ -120,6 +121,51 @@ The port is checked against traces of the reference compiled without SIMD and
 without FMA; the collision functions match the reference bit for bit in float
 mode except at three documented sites, and the fixed mode stays within measured
 budgets. See DIVERGENCES.md D-018.
+
+### Wide family
+
+The `dbox2d_simd` build tag adds a wide contact-solving path beside the
+scalar family. It requires `dbox2d_float`; the build fails otherwise, because
+no wide fixed-point lane exists yet. Four lane paths cover it: avx2 (amd64,
+width 8), neon (arm64, width 4), simd128 (wasm, width 4), and a generic path
+of four named floats for every other target. avx2, neon, and simd128 need
+`GOEXPERIMENT=simd` with Go 1.27.0 and the `simd/archsimd` package; without the
+experiment, the same tags build the generic path. avx2 falls back to the
+scalar family at runtime on a CPU without AVX2.
+
+```sh
+GOTOOLCHAIN=go1.27.0 GOEXPERIMENT=simd go build -tags dbox2d_float,dbox2d_simd ./...
+```
+
+The `dbox2d_simd` tag requires `dbox2d_float`; without it the build stops with
+`undefined: wideRequiresFloatMode`.
+
+The wide family produces the same result bits as the scalar family, on every
+path, because it never fuses a multiply with an add or a subtract. See
+DIVERGENCES.md D-019.
+
+The wide avx2 path is faster than the scalar family. Measured on an AMD
+Ryzen 7 5800X3D, `benchstat` n=6, samples benchmarks of 60 steps:
+
+| benchmark | scalar float | wide avx2 | delta |
+| --- | ---: | ---: | ---: |
+| Tumbler, 1 worker | 403 ms | 276 ms | -31.6% |
+| Tumbler, 8 workers | 122 ms | 97 ms | -20.8% |
+| LargePyramid, 1 worker | 770 ms | 391 ms | -49.3% |
+| LargePyramid, 8 workers | 162 ms | 98 ms | -39.4% |
+
+StepPyramid per step: scalar 487 µs, wide avx2 270 µs. A 60-step run
+allocates less than the scalar family does. The generic path is slower than
+the scalar family: 8% to 44% on amd64 and 14% to 49% on wasm, most on
+LargePyramid. Its lanes are structs of four named floats, so the compiler
+keeps them in registers, but it still runs four scalar operations per lane
+step. It exists for conformance, so do not enable the tag on a target
+without a vector path. NEON is cross-built and tested in CI but not
+benchmarked yet.
+
+On the avx2 path, the gather loads each body state as one 32-byte row and
+transposes eight rows into lanes with register shuffles; the other paths
+gather through a scalar scratch.
 
 ### Choosing a mode for deterministic simulation
 

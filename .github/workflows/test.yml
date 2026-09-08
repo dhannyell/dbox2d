@@ -12,7 +12,7 @@ jobs:
       fail-fast: false
       matrix:
         goarch: [amd64, arm64, "386", wasm]
-        tags: ["", dbox2d_float]
+        tags: ["", dbox2d_float, "dbox2d_float,dbox2d_simd"]
         include:
           - goarch: amd64
             goos: linux
@@ -95,7 +95,7 @@ jobs:
             echo "float64 conversion helpers leaked into production code"
             exit 1
           fi
-          if grep -rl 'go:build' --include=*.go . | grep -v '_test.go\|scalar_fixed.go\|scalar_float.go\|executor.go\|executor_wasm.go\|samples/'; then
+          if grep -rl 'go:build' --include=*.go . | grep -v '_test.go\|scalar_fixed.go\|scalar_float.go\|executor.go\|executor_wasm.go\|samples/\|wide_lane_\|wide_guard.go\|wide.go\|wide_off.go\|contact_solver_wide.go\|spin_asm.go\|spin_stub.go'; then
             echo "unexpected build tags found"
             exit 1
           fi
@@ -109,9 +109,63 @@ jobs:
             echo "expected 23 epsilon references, got $epsilon"
             exit 1
           fi
+          guard="$(go build -tags dbox2d_simd . 2>&1 | grep -c wideRequiresFloatMode || true)"
+          if [ "$guard" != "1" ]; then
+            echo "expected the wide family to require float mode, got $guard"
+            exit 1
+          fi
       - name: Configure Wasm runner
         if: matrix.goarch == 'wasm'
         run: echo "$(go env GOROOT)/lib/wasm" >> "$GITHUB_PATH"
+      # The generic wide path on wasm runs the conformance traces past the
+      # timeout; the native jobs and the wide job cover them.
+      - name: Test
+        run: go test -timeout 600s -tags "${{ matrix.tags }}" -skip "${{ (matrix.goarch == 'wasm' && matrix.tags == 'dbox2d_float,dbox2d_simd') && 'TestConformance' || '^$' }}" ./...
+
+  wide:
+    name: wide (${{ matrix.path }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            path: avx2
+            fma: 'VFN?M(ADD|SUB)'
+            goos: ""
+            goarch: ""
+          - os: ubuntu-24.04-arm
+            path: neon
+            fma: '\b(FMADD|FMSUB|FNMADD|FNMSUB|FMLA|FMLS)S?\b'
+            goos: ""
+            goarch: ""
+          - os: ubuntu-latest
+            path: simd128
+            goos: js
+            goarch: wasm
+    runs-on: ${{ matrix.os }}
+    env:
+      GOEXPERIMENT: simd
+      TAGS: dbox2d_float,dbox2d_simd
+      GOOS: ${{ matrix.goos }}
+      GOARCH: ${{ matrix.goarch }}
+      # the native host uses cgo; wasm must not try it.
+      CGO_ENABLED: ${{ matrix.goos == 'js' && '0' || '1' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          # The archsimd API changes between Go releases. Pin the version the
+          # wide lanes were written against.
+          go-version: "1.27.0"
+      - name: Configure Wasm runner
+        if: matrix.goos == 'js'
+        run: echo "$(go env GOROOT)/lib/wasm" >> "$GITHUB_PATH"
+      - name: Path
+        shell: bash
+        run: |
+          go test -tags $TAGS -run TestWidePath -v . | tee /dev/stderr | grep -q 'path: ${{ matrix.path }}'
+      - name: Vet
+        run: go vet -tags $TAGS ./...
       - name: Test
         # Fixed mode is bit-identical on every target, so the slow scene traces
         # run only on the 64-bit jobs; the witness hashes still cover 386 and wasm.

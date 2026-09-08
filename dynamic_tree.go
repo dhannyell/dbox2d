@@ -185,10 +185,10 @@ func freeNode(tree *dynamicTree, nodeId int) {
 //
 // cost of sibling H = area(union(H, D)) + increased area of ancestors
 func findBestSibling(tree *dynamicTree, boxD AABB) int {
+	nodes := tree.nodes
 	centerD := AABBCenter(boxD)
 	areaD := perimeter(boxD)
 
-	nodes := tree.nodes
 	rootIndex := tree.root
 
 	rootBox := nodes[rootIndex].aabb
@@ -328,11 +328,11 @@ const (
 // rotateNodes performs a left or right rotation if node A is imbalanced.
 // It corresponds to b2RotateNodes in src/dynamic_tree.c.
 func rotateNodes(tree *dynamicTree, iA int) {
+	nodes := tree.nodes
+
 	if iA == nullIndex {
 		panic("dbox2d: rotateNodes on the null node")
 	}
-
-	nodes := tree.nodes
 
 	A := &nodes[iA]
 	if A.height < 2 {
@@ -607,22 +607,24 @@ func checkNodeIndex(tree *dynamicTree, index int) {
 // insertLeaf places a leaf beside its best sibling and repairs the
 // ancestors. It corresponds to b2InsertLeaf in src/dynamic_tree.c.
 func insertLeaf(tree *dynamicTree, leaf int, shouldRotate bool) {
+	nodes := tree.nodes
+
 	if tree.root == nullIndex {
 		tree.root = leaf
-		tree.nodes[tree.root].parent = nullIndex
+		nodes[tree.root].parent = nullIndex
 		return
 	}
 
 	// Stage 1: find the best sibling for this node
-	leafAABB := tree.nodes[leaf].aabb
+	leafAABB := nodes[leaf].aabb
 	sibling := findBestSibling(tree, leafAABB)
 
 	// Stage 2: create a new parent for the leaf and sibling
-	oldParent := int(tree.nodes[sibling].parent)
+	oldParent := int(nodes[sibling].parent)
 	newParent := allocateNode(tree)
 
 	// warning: node pointer can change after allocation
-	nodes := tree.nodes
+	nodes = tree.nodes
 	nodes[newParent].parent = int32(oldParent)
 	nodes[newParent].userData = ^uint64(0)
 	nodes[newParent].aabb = AABBUnion(leafAABB, nodes[sibling].aabb)
@@ -676,12 +678,12 @@ func insertLeaf(tree *dynamicTree, leaf int, shouldRotate bool) {
 // removeLeaf detaches a leaf, frees its parent and repairs the ancestors.
 // It corresponds to b2RemoveLeaf in src/dynamic_tree.c.
 func removeLeaf(tree *dynamicTree, leaf int) {
+	nodes := tree.nodes
+
 	if leaf == tree.root {
 		tree.root = nullIndex
 		return
 	}
-
-	nodes := tree.nodes
 
 	parent := int(nodes[leaf].parent)
 	grandParent := int(nodes[parent].parent)
@@ -1081,16 +1083,22 @@ type treeRayCastCallback func(input *RayCastInput, proxyId int, userData uint64)
 // query calls back every leaf that overlaps the box and passes the mask.
 // It corresponds to b2DynamicTree_Query in src/dynamic_tree.c.
 func (tree *dynamicTree) query(aabb AABB, maskBits uint64, callback treeQueryCallback) treeStats {
+	var stack [treeStackSize]int
+	return tree.queryStack(&stack, aabb, maskBits, callback)
+}
+
+func (tree *dynamicTree) queryStack(stack *[treeStackSize]int, aabb AABB, maskBits uint64, callback treeQueryCallback) treeStats {
 	result := treeStats{}
 
 	if tree.nodeCount == 0 {
 		return result
 	}
 
-	var stack [treeStackSize]int
 	stackCount := 0
 	stack[stackCount] = tree.root
 	stackCount++
+
+	nodes := tree.nodes
 
 	for stackCount > 0 {
 		stackCount--
@@ -1099,7 +1107,7 @@ func (tree *dynamicTree) query(aabb AABB, maskBits uint64, callback treeQueryCal
 			panic("dbox2d: the tree query popped the null node")
 		}
 
-		node := &tree.nodes[nodeId]
+		node := &nodes[nodeId]
 		result.nodeVisits += 1
 
 		if AABBOverlaps(node.aabb, aabb) && node.categoryBits&maskBits != 0 {

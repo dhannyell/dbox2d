@@ -393,7 +393,7 @@ func destroyContact(w *world, c *contact, wakeBodies bool) {
 		}
 		set := &w.solverSets[c.setIndex]
 		var movedIndex int
-		set.contactSims, movedIndex = removeSwap(set.contactSims, c.localIndex)
+		set.contactSims, movedIndex = removeSwapNoClear(set.contactSims, c.localIndex)
 		if movedIndex != nullIndex {
 			movedContactSim := &set.contactSims[c.localIndex]
 			movedContact := &w.contacts[movedContactSim.contactId]

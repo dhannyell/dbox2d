@@ -28,7 +28,7 @@ func startTouching(t *testing.T, w *world, idA, idB BodyId) *contact {
 
 	// Remove the non-touching sim from the awake set.
 	var movedIndex int
-	awake.contactSims, movedIndex = removeSwap(awake.contactSims, localIndex)
+	awake.contactSims, movedIndex = removeSwapNoClear(awake.contactSims, localIndex)
 	if movedIndex != nullIndex {
 		movedContact := &w.contacts[awake.contactSims[localIndex].contactId]
 		movedContact.localIndex = localIndex

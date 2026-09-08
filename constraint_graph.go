@@ -23,6 +23,9 @@ type graphColor struct {
 	// contactConstraints is the solver scratch of the color. The solver
 	// fills it on each step from the arena.
 	contactConstraints []contactConstraint
+	// contactConstraintsWide is the wide-family solver scratch of the color.
+	// The solver fills it on each step from the arena when dbox2d_simd is set.
+	contactConstraintsWide []contactConstraintWide
 
 	// jointSims of the joints in this color.
 	jointSims []jointSim
@@ -193,7 +196,7 @@ func removeContactFromGraph(w *world, bodyIdA, bodyIdB, colorIndex, localIndex i
 	}
 
 	var movedIndex int
-	color.contactSims, movedIndex = removeSwap(color.contactSims, localIndex)
+	color.contactSims, movedIndex = removeSwapNoClear(color.contactSims, localIndex)
 	if movedIndex != nullIndex {
 		// Fix index on swapped contact
 		movedContactSim := &color.contactSims[localIndex]
@@ -303,7 +306,7 @@ func removeJointFromGraph(w *world, bodyIdA, bodyIdB, colorIndex, localIndex int
 	}
 
 	var movedIndex int
-	color.jointSims, movedIndex = removeSwap(color.jointSims, localIndex)
+	color.jointSims, movedIndex = removeSwapNoClear(color.jointSims, localIndex)
 	if movedIndex != nullIndex {
 		// Fix moved joint
 		movedJointSim := &color.jointSims[localIndex]

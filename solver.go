@@ -3,7 +3,6 @@ package dbox2d
 import (
 	"math"
 	"math/bits"
-	"runtime"
 	"slices"
 	"sync/atomic"
 	"time"
@@ -183,20 +182,20 @@ func executeBlock(stage *solverStage, context *stepContext, block *solverBlock) 
 	case stagePrepareJoints:
 		prepareJointsTask(startIndex, endIndex, context)
 	case stagePrepareContacts:
-		prepareContactsTask(startIndex, endIndex, context)
+		runContactStageBlock(stage, context, startIndex, endIndex)
 	case stageIntegrateVelocities:
 		integrateVelocitiesTask(startIndex, endIndex, context)
 	case stageWarmStart:
 		switch blockType {
 		case graphContactBlock:
-			warmStartContactsTask(startIndex, endIndex, context, stage.colorIndex)
+			runGraphContactBlock(stage, context, startIndex, endIndex)
 		case graphJointBlock:
 			warmStartJointsTask(startIndex, endIndex, context, stage.colorIndex)
 		}
 	case stageSolve:
 		switch blockType {
 		case graphContactBlock:
-			solveContactsTask(startIndex, endIndex, context, stage.colorIndex, true)
+			runGraphContactBlock(stage, context, startIndex, endIndex)
 		case graphJointBlock:
 			solveJointsTask(startIndex, endIndex, context, stage.colorIndex, true)
 		}
@@ -205,16 +204,16 @@ func executeBlock(stage *solverStage, context *stepContext, block *solverBlock) 
 	case stageRelax:
 		switch blockType {
 		case graphContactBlock:
-			solveContactsTask(startIndex, endIndex, context, stage.colorIndex, false)
+			runGraphContactBlock(stage, context, startIndex, endIndex)
 		case graphJointBlock:
 			solveJointsTask(startIndex, endIndex, context, stage.colorIndex, false)
 		}
 	case stageRestitution:
 		if blockType == graphContactBlock {
-			applyRestitutionTask(startIndex, endIndex, context, stage.colorIndex)
+			runGraphContactBlock(stage, context, startIndex, endIndex)
 		}
 	case stageStoreImpulses:
-		storeImpulsesTask(startIndex, endIndex, context)
+		runContactStageBlock(stage, context, startIndex, endIndex)
 	}
 }
 
@@ -289,8 +288,9 @@ func executeMainStage(stage *solverStage, context *stepContext, syncBits uint32)
 	previousSyncIndex := syncIndex - 1
 	executeStage(stage, context, previousSyncIndex, syncIndex, 0)
 
+	var s spinner
 	for stage.completionCount.Load() != int32(blockCount) {
-		runtime.Gosched()
+		s.spin()
 	}
 	stage.completionCount.Store(0)
 }
@@ -416,13 +416,9 @@ func solverWorkerTask(worker workerContext) {
 	lastSyncBits := uint32(0)
 	for {
 		syncBits := context.atomicSyncBits.Load()
-		spinCount := 0
+		var s spinner
 		for syncBits == lastSyncBits {
-			spinCount += 1
-			if spinCount >= 5 {
-				runtime.Gosched()
-				spinCount = 0
-			}
+			s.spin()
 			syncBits = context.atomicSyncBits.Load()
 		}
 
@@ -933,7 +929,7 @@ func buildSolverStages(w *world, context *stepContext, awakeBodyCount int) {
 	for c := range context.activeColorCount {
 		colorIndex := context.activeColorIndices[c]
 		color := &context.graph.colors[colorIndex]
-		colorContactCount := len(color.contactSims)
+		colorContactCount := colorContactConstraintCount(len(color.contactSims))
 		colorJointCount := len(color.jointSims)
 
 		colorContactCounts[c] = colorContactCount
@@ -957,7 +953,7 @@ func buildSolverStages(w *world, context *stepContext, awakeBodyCount int) {
 		graphBlockCount += colorJointBlockCounts[c] + colorContactBlockCounts[c]
 	}
 
-	contactCount := len(context.contacts)
+	contactCount := contactStageCount(context)
 	contactBlockSize := blocksPerWorker
 	contactBlockCount := 0
 	if contactCount > 0 {
@@ -1150,15 +1146,11 @@ func solve(w *world, context *stepContext) {
 		context.joints = w.jointPointers
 		context.workerCount = w.executor.activeWorkerCount()
 
-		contactCount := activeContactCount + len(colors[overflowIndex].contactSims)
-		contactConstraints, constraintMem := arenaSlice[contactConstraint](&w.arena, contactCount, "contact constraint")
-		context.contactConstraints = contactConstraints[:activeContactCount:activeContactCount]
 		contactBase := 0
 		jointBase := 0
 		for i := range graphColorCount {
 			color := &colors[i]
 			colorContactCount := len(color.contactSims)
-			color.contactConstraints = contactConstraints[contactBase : contactBase+colorContactCount : contactBase+colorContactCount]
 
 			if i < overflowIndex {
 				for j := range colorContactCount {
@@ -1174,6 +1166,7 @@ func solve(w *world, context *stepContext) {
 
 			contactBase += colorContactCount
 		}
+		allocateContactConstraints(w, context, colors, overflowIndex, activeContactCount)
 		buildSolverStages(w, context, awakeBodyCount)
 
 		w.profile.PrepareStages = millisecondsSince(prepareStagesStart)
@@ -1222,12 +1215,21 @@ func solve(w *world, context *stepContext) {
 		}
 		for i := range graphColorCount {
 			colors[i].contactConstraints = nil
+			colors[i].contactConstraintsWide = nil
 		}
 		context.contactConstraints = nil
+		context.contactConstraintsWide = nil
 		context.joints = nil
 		context.contacts = nil
 		context.stages = nil
-		w.arena.freeItem(constraintMem)
+		if context.contactConstraintMemWide != nil {
+			w.arena.freeItem(context.contactConstraintMem)
+			w.arena.freeItem(context.contactConstraintMemWide)
+			context.contactConstraintMemWide = nil
+		} else {
+			w.arena.freeItem(context.contactConstraintMem)
+		}
+		context.contactConstraintMem = nil
 
 		w.profile.Transforms = millisecondsSince(transformsStart)
 	}

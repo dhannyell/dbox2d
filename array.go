@@ -28,3 +28,14 @@ func removeSwap[T any](s []T, index int) ([]T, int) {
 	s[last] = zero
 	return s[:last], movedIndex
 }
+
+// removeSwapNoClear is removeSwap for element types without pointers; the vacated slot needs no clearing.
+func removeSwapNoClear[T any](s []T, index int) ([]T, int) {
+	last := len(s) - 1
+	movedIndex := nullIndex
+	if index != last {
+		s[index] = s[last]
+		movedIndex = last
+	}
+	return s[:last], movedIndex
+}

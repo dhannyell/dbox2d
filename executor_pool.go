@@ -10,12 +10,27 @@ import (
 // [startIndex, endIndex) and the worker that runs it.
 type taskFunc func(startIndex, endIndex, workerIndex int, context *stepContext)
 
-// idleSpinLimit is the number of atomic loads a worker spends waiting for
-// the next command before it parks: tens of microseconds, enough to bridge
-// two stages of one step, short enough to free the core between two steps.
+// idleSpinLimit is the number of paused atomic loads a worker spends waiting
+// for the next command before it parks: tens of microseconds.
 // The spin must not yield to the scheduler: with several workers, every
 // yield contends on the runtime lock and costs more than the wait.
-const idleSpinLimit = 1 << 16
+const idleSpinLimit = 1 << 12
+
+// spinner counts the idle loads of one wait. It yields to the scheduler
+// only after idleSpinLimit of them: Gosched takes the global scheduler
+// lock, and with several workers the contention costs more than the wait.
+type spinner int
+
+// spin is one idle turn of a wait loop.
+func (s *spinner) spin() {
+	if *s < idleSpinLimit {
+		cpuPause()
+		*s++
+		return
+	}
+	runtime.Gosched()
+	*s = 0
+}
 
 // executorCommand is what the caller asks every worker to do. It is
 // reused, so a command never allocates.
@@ -120,16 +135,12 @@ func (e *executor) publish() {
 	}
 }
 
-// await spins until every worker finished the command, then yields so a
-// late worker can get a core.
+// await spins until every worker finished the command, yielding only after
+// a bounded spin so a late worker can get a core.
 func (e *executor) await() {
-	spins := 0
+	var s spinner
 	for e.pending.Load() != 0 {
-		if spins < idleSpinLimit {
-			spins++
-			continue
-		}
-		runtime.Gosched()
+		s.spin()
 	}
 }
 

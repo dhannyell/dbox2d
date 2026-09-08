@@ -52,13 +52,16 @@ type stepContext struct {
 	graph *constraintGraph
 
 	// Flat constraint arrays cover colors 0 through 10 in color order.
-	contacts           []*contactSim
-	joints             []*jointSim
-	contactConstraints []contactConstraint
-	stages             []solverStage
-	activeColorCount   int
-	activeColorIndices [graphColorCount]int
-	workerCount        int
+	contacts                 []*contactSim
+	joints                   []*jointSim
+	contactConstraints       []contactConstraint
+	contactConstraintsWide   []contactConstraintWide
+	contactConstraintMem     []byte
+	contactConstraintMemWide []byte
+	stages                   []solverStage
+	activeColorCount         int
+	activeColorIndices       [graphColorCount]int
+	workerCount              int
 
 	enableWarmStarting bool
 
@@ -285,7 +288,7 @@ func addNonTouchingContact(w *world, c *contact, cs *contactSim) {
 func removeNonTouchingContact(w *world, setIndex, localIndex int) {
 	set := &w.solverSets[setIndex]
 	var movedIndex int
-	set.contactSims, movedIndex = removeSwap(set.contactSims, localIndex)
+	set.contactSims, movedIndex = removeSwapNoClear(set.contactSims, localIndex)
 	if movedIndex != nullIndex {
 		movedContactSim := &set.contactSims[localIndex]
 		movedContact := &w.contacts[movedContactSim.contactId]

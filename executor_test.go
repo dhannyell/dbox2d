@@ -279,10 +279,12 @@ func TestStageTableMatchesTheReferenceSizing(t *testing.T) {
 		}
 
 		for _, contactCount := range []int{1, 4, 5, 17, 10000} {
+			// The blocks count constraint units: contacts in the scalar family, wide constraints in the wide one.
+			unitCount := colorContactConstraintCount(contactCount)
 			blockSize := blocksPerWorker
-			blockCount := ((contactCount - 1) >> 2) + 1
-			if contactCount > blockSize*maxBlockCount {
-				blockSize = contactCount / maxBlockCount
+			blockCount := ((unitCount - 1) >> 2) + 1
+			if unitCount > blockSize*maxBlockCount {
+				blockSize = unitCount / maxBlockCount
 				blockCount = maxBlockCount
 			}
 
@@ -292,7 +294,7 @@ func TestStageTableMatchesTheReferenceSizing(t *testing.T) {
 			context := stepContext{graph: &graph, activeColorCount: 1, workerCount: workerCount}
 			context.activeColorIndices[0] = 0
 			buildSolverStages(&w, &context, 1)
-			requireSolverBlockLayout(t, w.graphBlocks, contactCount, blockSize, blockCount, graphContactBlock)
+			requireSolverBlockLayout(t, w.graphBlocks, unitCount, blockSize, blockCount, graphContactBlock)
 		}
 	}
 
@@ -304,7 +306,8 @@ func TestStageTableMatchesTheReferenceSizing(t *testing.T) {
 	context.activeColorIndices[0] = 0
 	buildSolverStages(&w, &context, 1)
 	requireSolverBlockLayout(t, w.graphBlocks[:1], 2, 4, 1, graphJointBlock)
-	requireSolverBlockLayout(t, w.graphBlocks[1:], 5, 4, 2, graphContactBlock)
+	contactUnits := colorContactConstraintCount(5)
+	requireSolverBlockLayout(t, w.graphBlocks[1:], contactUnits, 4, ((contactUnits-1)>>2)+1, graphContactBlock)
 }
 
 // 97 items over 12 workers round to ranges of 9; the twelfth would start

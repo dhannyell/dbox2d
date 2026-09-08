@@ -9,6 +9,10 @@
 // dbox2d_float selects float32 with the same determinism promise; see the
 // README for the mode details and commands.
 //
+// The optional dbox2d_simd tag, on top of dbox2d_float, opts in to a wide
+// contact-solving path that produces the same result bits as the scalar
+// family.
+//
 // # Fidelity
 //
 // The package is a port of Box2D v3.1.1. It keeps the upstream file
