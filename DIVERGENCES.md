@@ -657,7 +657,9 @@ Numbering is sequential from `D-001` and never reused.
   hold a null contact index and an identity body state, and the store step
   never writes them back. The solver stage table sizes each color's wide
   constraint block by `⌈n/width⌉`, mirroring the reference
-  `colorContactCountSIMD`.
+  `colorContactCountSIMD`. The gather fills a scalar scratch per constraint,
+  and the lanes convert the angular velocity with a lane multiply and a lane
+  division by `tau`, both rounded once like the scalar `Q.Mul` and `Q.Div`.
 
   Three lane implementations share one padding and dispatch layer:
   avx2 (amd64, width 8), neon (arm64, width 4), and a generic path of plain

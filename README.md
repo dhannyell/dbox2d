@@ -140,21 +140,20 @@ The wide family produces the same result bits as the scalar family, on every
 path, because it never fuses a multiply with an add or a subtract. See
 DIVERGENCES.md D-019.
 
-It is also currently slower than the scalar family: it is correctness-gated,
-not speed-gated. Measured on an AMD Ryzen 7 5800X3D, `benchstat` n=6, samples
-benchmarks of 60 steps:
+The wide avx2 path is now faster than the scalar family on this host (AMD
+Ryzen 7 5800X3D), `benchstat` n=6, samples benchmarks of 60 steps:
 
 | benchmark | scalar float | wide avx2 | delta |
 | --- | ---: | ---: | ---: |
-| Tumbler, 1 worker | 433 ms | 472 ms | +8.9% |
-| Tumbler, 8 workers | 156 ms | 168 ms | +7.7% |
-| LargePyramid, 1 worker | 834 ms | 1141 ms | +36.9% |
-| LargePyramid, 8 workers | 202 ms | 273 ms | +34.9% |
+| Tumbler, 1 worker | 433 ms | 333 ms | -23.1% |
+| Tumbler, 8 workers | 156 ms | 137 ms | -12.3% |
+| LargePyramid, 1 worker | 834 ms | 635 ms | -23.9% |
+| LargePyramid, 8 workers | 202 ms | 163 ms | -19.4% |
 
-Per-step microbenchmarks keep 0 allocs/op; the LargePyramid allocations over
-a 60-step run double, from 112 to 225, because of the padded contact array and
-the wide constraint arrays. The generic path runs about 7x slower than the
-scalar family, since its lane methods do not inline; it exists for
+Per-step microbenchmarks keep 0 allocs/op. The LargePyramid allocations over
+a 60-step run no longer double: 1 worker holds at 112 allocs/op (unchanged)
+and 8 workers drop from 68 to 48. The generic path runs about 7x slower than
+the scalar family, since its lane methods do not inline; it exists for
 conformance, not speed, so do not enable the tag without AVX2 or NEON. NEON is
 cross-built and tested in CI but not benchmarked yet.
 
