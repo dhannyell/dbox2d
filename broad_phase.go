@@ -334,16 +334,16 @@ func findPairsTask(startIndex, endIndex, workerIndex int, context *stepContext) 
 		// Using DefaultMaskBits so that Filter.GroupIndex works.
 		if proxyType == DynamicBody {
 			ctx.queryTreeType = KinematicBody
-			bp.trees[KinematicBody].query(fatAABB, DefaultMaskBits, ctx.pairQueryCallback)
+			bp.trees[KinematicBody].queryStack(&w.taskContexts[workerIndex].queryStack, fatAABB, DefaultMaskBits, ctx.pairQueryCallback)
 
 			ctx.queryTreeType = StaticBody
-			bp.trees[StaticBody].query(fatAABB, DefaultMaskBits, ctx.pairQueryCallback)
+			bp.trees[StaticBody].queryStack(&w.taskContexts[workerIndex].queryStack, fatAABB, DefaultMaskBits, ctx.pairQueryCallback)
 		}
 
 		// All proxies collide with dynamic proxies
 		// Using DefaultMaskBits so that Filter.GroupIndex works.
 		ctx.queryTreeType = DynamicBody
-		bp.trees[DynamicBody].query(fatAABB, DefaultMaskBits, ctx.pairQueryCallback)
+		bp.trees[DynamicBody].queryStack(&w.taskContexts[workerIndex].queryStack, fatAABB, DefaultMaskBits, ctx.pairQueryCallback)
 	}
 }
 

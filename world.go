@@ -1020,6 +1020,9 @@ type taskContext struct {
 	// queried. It keeps its capacity between steps.
 	movePairs []movePair
 
+	// queryStack is the broad-phase traversal stack of this worker; reusing it avoids zeroing 8 KB per query.
+	queryStack [treeStackSize]int
+
 	// splitIslandId is the sleepiest island with a pending split.
 	splitIslandId  int
 	splitSleepTime Q
