@@ -150,7 +150,7 @@ func TestGatherBodiesSubstitutesIdentityForNull(t *testing.T) {
 		states[i] = bodyState{
 			linearVelocity:  Vec2{X: Q{v: 1.25 + float32(i)}, Y: Q{v: -2.5 - float32(i)}},
 			angularVelocity: Q{v: 0.125 * float32(i+1)},
-			flags:           3 + i,
+			flags:           int32(3 + i),
 			deltaPosition:   Vec2{X: Q{v: 0.5 + float32(i)}, Y: Q{v: -0.75 - float32(i)}},
 			deltaRotation:   Rot{Sin: Q{v: 0.1 + 0.01*float32(i)}, Cos: Q{v: 0.9 - 0.02*float32(i)}},
 		}
@@ -162,9 +162,16 @@ func TestGatherBodiesSubstitutesIdentityForNull(t *testing.T) {
 	}
 	indices[nullLane] = nullIndex
 
-	var scratch bodyScratchW
-	gatherBodies(states, &indices, &scratch)
-	vx, vy, w, dpx, dpy, dqc, dqs := scratch.vx, scratch.vy, scratch.w, scratch.dpx, scratch.dpy, scratch.dqc, scratch.dqs
+	var body bodyStateW
+	gatherBodyW(states, &indices, laneSplat(tau), &body)
+	var vx, vy, w, dpx, dpy, dqc, dqs [wideWidth]float32
+	body.v.x.store(&vx)
+	body.v.y.store(&vy)
+	body.w.store(&w)
+	body.dp.x.store(&dpx)
+	body.dp.y.store(&dpy)
+	body.dq.c.store(&dqc)
+	body.dq.s.store(&dqs)
 
 	if math.Float32bits(vx[nullLane]) != math.Float32bits(0) ||
 		math.Float32bits(vy[nullLane]) != math.Float32bits(0) ||
@@ -180,7 +187,7 @@ func TestGatherBodiesSubstitutesIdentityForNull(t *testing.T) {
 		values := [][2]float32{
 			{vx[i], s.linearVelocity.X.v},
 			{vy[i], s.linearVelocity.Y.v},
-			{w[i], s.angularVelocity.v},
+			{w[i], s.angularVelocity.Mul(tau).v},
 			{dpx[i], s.deltaPosition.X.v},
 			{dpy[i], s.deltaPosition.Y.v},
 			{dqc[i], s.deltaRotation.Cos.v},
@@ -192,19 +199,6 @@ func TestGatherBodiesSubstitutesIdentityForNull(t *testing.T) {
 			}
 		}
 	}
-
-	// loadBodyVelocityW converts angular velocity to radians per second in lane form.
-	var body bodyStateW
-	loadBodyVelocityW(&scratch, laneSplat(tau), &body)
-	var gotW [wideWidth]float32
-	body.w.store(&gotW)
-	for i := range nullLane {
-		s := &states[indices[i]]
-		wantW := s.angularVelocity.Mul(tau).v
-		if math.Float32bits(gotW[i]) != math.Float32bits(wantW) {
-			t.Fatalf("real lane %d w: got %#08x want %#08x", i, math.Float32bits(gotW[i]), math.Float32bits(wantW))
-		}
-	}
 }
 
 // TestScatterBodiesRestoresConvertedVelocities protects null lanes and bits.
@@ -214,7 +208,7 @@ func TestScatterBodiesRestoresConvertedVelocities(t *testing.T) {
 		states[i] = bodyState{
 			linearVelocity:  Vec2{X: Q{v: 2.25 + float32(i)}, Y: Q{v: -3.5 - float32(i)}},
 			angularVelocity: Q{v: 0.0625 * float32(i+1)},
-			flags:           7 + i,
+			flags:           int32(7 + i),
 			deltaPosition:   Vec2{X: Q{v: 1.5 + float32(i)}, Y: Q{v: -1.75 - float32(i)}},
 			deltaRotation:   Rot{Sin: Q{v: 0.2 + 0.01*float32(i)}, Cos: Q{v: 0.8 - 0.02*float32(i)}},
 		}
@@ -228,11 +222,8 @@ func TestScatterBodiesRestoresConvertedVelocities(t *testing.T) {
 	indices[nullLane] = nullIndex
 
 	tauW := laneSplat(tau)
-	var scratch bodyScratchW
-	gatherBodies(states, &indices, &scratch)
 	var got bodyStateW
-	loadBodyVelocityW(&scratch, tauW, &got)
-	loadBodyDeltaW(&scratch, &got)
+	gatherBodyW(states, &indices, tauW, &got)
 	got.v.x = got.v.x.Add(laneSplat(Q{v: 0.25}))
 	got.v.y = got.v.y.Sub(laneSplat(Q{v: 0.5}))
 	got.w = got.w.Add(laneSplat(Q{v: 1.25}))
@@ -242,8 +233,7 @@ func TestScatterBodiesRestoresConvertedVelocities(t *testing.T) {
 	got.w.store(&wantW)
 
 	after := append([]bodyState(nil), before...)
-	storeBodyW(&got, tauW, &scratch)
-	scatterBodies(after, &indices, &scratch)
+	scatterBodyW(after, &indices, tauW, &got)
 	if after[nullLane] != before[nullLane] {
 		t.Fatalf("state reserved for null lane changed: got %#v want %#v", after[nullLane], before[nullLane])
 	}

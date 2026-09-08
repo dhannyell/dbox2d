@@ -62,7 +62,7 @@ type body struct {
 type bodyState struct {
 	linearVelocity  Vec2
 	angularVelocity Q
-	flags           int
+	flags           int32
 
 	// deltaPosition reduces round-off error far from the origin.
 	deltaPosition Vec2

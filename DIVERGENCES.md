@@ -642,7 +642,8 @@ Numbering is sequential from `D-001` and never reused.
 ### D-019 Wide contact family
 
 - Files: wide.go, wide_common.go, wide_off.go, wide_guard.go, wide_lane_amd64.go,
-  wide_lane_arm64.go, wide_lane_generic.go, contact_solver_wide.go
+  wide_lane_arm64.go, wide_lane_generic.go, wide_lane_gather_amd64.go,
+  wide_lane_gather_generic.go, contact_solver_wide.go
 - Tier: T2
 - Reason: the reference selects a wide `Task` family with `B2_SIMD_WIDTH` lanes
   at compile time, including an `B2_SIMD_NONE` variant that keeps four scalar
@@ -657,8 +658,12 @@ Numbering is sequential from `D-001` and never reused.
   hold a null contact index and an identity body state, and the store step
   never writes them back. The solver stage table sizes each color's wide
   constraint block by `⌈n/width⌉`, mirroring the reference
-  `colorContactCountSIMD`. The gather fills a scalar scratch per constraint,
-  and the lanes convert the angular velocity with a lane multiply and a lane
+  `colorContactCountSIMD`. On avx2, the gather loads each `bodyState` as one
+  32-byte row; its `flags` field is `int32` for that reason, and the reference
+  asserts the same 32-byte size. It transposes eight rows into lanes with
+  shuffles. The scatter transposes back and stores whole rows for the real
+  lanes. The arm64 and generic paths gather through a scalar scratch. On every
+  path, the lanes convert the angular velocity with a lane multiply and a lane
   division by `tau`, both rounded once like the scalar `Q.Mul` and `Q.Div`.
 
   Three lane implementations share one padding and dispatch layer:
@@ -676,7 +681,8 @@ Numbering is sequential from `D-001` and never reused.
   passes an empty second manifold point or a masked restitution lane, because
   the lane computes `v - (-0)`; this is unreachable from +0 states, and the
   reference behaves the same way.
-- Test: TestWideMatchesScalarStepByStep, TestWideStagesRunWithColoredContacts
+- Test: TestBodyGatherScatterW, TestWideMatchesScalarStepByStep,
+  TestWideStagesRunWithColoredContacts
   and TestWideContactLayoutPadsEachColor in wide_test.go; wide_lane_test.go
   checks each lane operation against the scalar family on every path; the
   witness, samples and conformance suites all run under the `dbox2d_wide` tag

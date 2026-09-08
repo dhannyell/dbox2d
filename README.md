@@ -145,17 +145,21 @@ Ryzen 7 5800X3D, `benchstat` n=6, samples benchmarks of 60 steps:
 
 | benchmark | scalar float | wide avx2 | delta |
 | --- | ---: | ---: | ---: |
-| Tumbler, 1 worker | 433 ms | 333 ms | -23.1% |
-| Tumbler, 8 workers | 156 ms | 137 ms | -12.3% |
-| LargePyramid, 1 worker | 834 ms | 635 ms | -23.9% |
-| LargePyramid, 8 workers | 202 ms | 163 ms | -19.4% |
+| Tumbler, 1 worker | 403 ms | 276 ms | -31.6% |
+| Tumbler, 8 workers | 122 ms | 97 ms | -20.8% |
+| LargePyramid, 1 worker | 770 ms | 391 ms | -49.3% |
+| LargePyramid, 8 workers | 162 ms | 98 ms | -39.4% |
 
-Per-step microbenchmarks keep 0 allocs/op; a 60-step LargePyramid run
-allocates no more than the scalar family does. The generic path runs about
+The per-step StepPyramid microbenchmark goes from 487 µs to 270 µs; a 60-step
+run allocates less than the scalar family does. The generic path runs about
 7x slower than the scalar family, because its lanes are plain arrays that
 go through memory on every operation; it exists for
 conformance, not speed, so do not enable the tag without AVX2 or NEON. NEON is
 cross-built and tested in CI but not benchmarked yet.
+
+On the avx2 path, the gather loads each body state as one 32-byte row and
+transposes eight rows into lanes with register shuffles; the other paths
+gather through a scalar scratch.
 
 ### Choosing a mode for deterministic simulation
 

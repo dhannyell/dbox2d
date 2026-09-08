@@ -91,6 +91,128 @@ func wideCheckBits(t *testing.T, name string, got, want [wideWidth]float32) {
 	}
 }
 
+// TestBodyGatherScatterW checks every transposed field and preserves untouched state bits.
+func TestBodyGatherScatterW(t *testing.T) {
+	finiteBits := [...]uint32{
+		0x00000001, 0x80000001, 0x00800000, 0x80800000,
+		0x3f800001, 0xbf800001, 0x41234567, 0xc0abcdef,
+		0x7f7fffff, 0xff7fffff, 0x3eaaaaab, 0xbe4ccccd,
+		0x4b123456, 0xcb654321, 0x00012345, 0x80054321,
+		0x3dcccccd, 0xbdcccccd, 0x40490fdb, 0xc0490fdb,
+		0x4e6e6b28, 0xce6e6b28, 0x01020304, 0x81020304,
+	}
+	value := func(body, field int) Q {
+		return Q{v: math.Float32frombits(finiteBits[(7*body+field)%len(finiteBits)])}
+	}
+
+	states := make([]bodyState, 16)
+	for i := range states {
+		states[i] = bodyState{
+			linearVelocity:  Vec2{X: value(i, 0), Y: value(i, 1)},
+			angularVelocity: value(i, 2),
+			flags:           int32(i+1) * 0x01010101,
+			deltaPosition:   Vec2{X: value(i, 3), Y: value(i, 4)},
+			deltaRotation:   Rot{Cos: value(i, 5), Sin: value(i, 6)},
+		}
+	}
+	before := append([]bodyState(nil), states...)
+	indexPattern := [...]int{2, nullIndex, 11, 5, 0, 15, nullIndex, 9}
+	var indices [wideWidth]int
+	for i := range wideWidth {
+		indices[i] = indexPattern[i]
+	}
+
+	tauW := laneSplat(tau)
+	var body bodyStateW
+	gatherBodyW(states, &indices, tauW, &body)
+
+	var gotVX, gotVY, gotW, gotFlags, gotDPX, gotDPY, gotDQC, gotDQS [wideWidth]float32
+	body.v.x.toLane().store(&gotVX)
+	body.v.y.toLane().store(&gotVY)
+	body.w.toLane().store(&gotW)
+	body.flags.store(&gotFlags)
+	body.dp.x.store(&gotDPX)
+	body.dp.y.store(&gotDPY)
+	body.dq.c.store(&gotDQC)
+	body.dq.s.store(&gotDQS)
+
+	var wantVX, wantVY, wantW, wantFlags, wantDPX, wantDPY, wantDQC, wantDQS [wideWidth]float32
+	for i := range wideWidth {
+		idx := indices[i]
+		if idx == nullIndex {
+			wantDQC[i] = 1
+			continue
+		}
+		state := states[idx]
+		wantVX[i] = state.linearVelocity.X.v
+		wantVY[i] = state.linearVelocity.Y.v
+		wantW[i] = state.angularVelocity.Mul(tau).v
+		if widePath() == "avx2" {
+			wantFlags[i] = math.Float32frombits(uint32(state.flags))
+		}
+		wantDPX[i] = state.deltaPosition.X.v
+		wantDPY[i] = state.deltaPosition.Y.v
+		wantDQC[i] = state.deltaRotation.Cos.v
+		wantDQS[i] = state.deltaRotation.Sin.v
+	}
+	wideCheckBits(t, "body v.x", gotVX, wantVX)
+	wideCheckBits(t, "body v.y", gotVY, wantVY)
+	wideCheckBits(t, "body w", gotW, wantW)
+	wideCheckBits(t, "body flags", gotFlags, wantFlags)
+	wideCheckBits(t, "body dp.x", gotDPX, wantDPX)
+	wideCheckBits(t, "body dp.y", gotDPY, wantDPY)
+	wideCheckBits(t, "body dq.c", gotDQC, wantDQC)
+	wideCheckBits(t, "body dq.s", gotDQS, wantDQS)
+
+	var newVX, newVY, newW [wideWidth]float32
+	for i := range wideWidth {
+		newVX[i] = math.Float32frombits(finiteBits[(3*i+17)%len(finiteBits)])
+		newVY[i] = math.Float32frombits(finiteBits[(5*i+9)%len(finiteBits)])
+		newW[i] = math.Float32frombits(finiteBits[(7*i+4)%len(finiteBits)])
+	}
+	body.v.x = laneLoad(&newVX).toAcc()
+	body.v.y = laneLoad(&newVY).toAcc()
+	body.w = laneLoad(&newW).toAcc()
+	scatterBodyW(states, &indices, tauW, &body)
+
+	referenced := make([]bool, len(states))
+	for i := range wideWidth {
+		idx := indices[i]
+		if idx == nullIndex {
+			continue
+		}
+		referenced[idx] = true
+		if math.Float32bits(states[idx].linearVelocity.X.v) != math.Float32bits(newVX[i]) ||
+			math.Float32bits(states[idx].linearVelocity.Y.v) != math.Float32bits(newVY[i]) ||
+			math.Float32bits(states[idx].angularVelocity.v) != math.Float32bits(Q{v: newW[i]}.Div(tau).v) {
+			t.Fatalf("body %d velocity bits changed incorrectly", idx)
+		}
+		if !sameBodyNonVelocityBits(states[idx], before[idx]) {
+			t.Fatalf("body %d non-velocity bits changed", idx)
+		}
+	}
+	for i := range states {
+		if !referenced[i] && !sameBodyStateBits(states[i], before[i]) {
+			t.Fatalf("unreferenced body %d changed", i)
+		}
+	}
+}
+
+func sameBodyNonVelocityBits(a, b bodyState) bool {
+	return a.flags == b.flags &&
+		math.Float32bits(a.deltaPosition.X.v) == math.Float32bits(b.deltaPosition.X.v) &&
+		math.Float32bits(a.deltaPosition.Y.v) == math.Float32bits(b.deltaPosition.Y.v) &&
+		math.Float32bits(a.deltaRotation.Cos.v) == math.Float32bits(b.deltaRotation.Cos.v) &&
+		math.Float32bits(a.deltaRotation.Sin.v) == math.Float32bits(b.deltaRotation.Sin.v)
+}
+
+func sameBodyStateBits(a, b bodyState) bool {
+	return math.Float32bits(a.linearVelocity.X.v) == math.Float32bits(b.linearVelocity.X.v) &&
+		math.Float32bits(a.linearVelocity.Y.v) == math.Float32bits(b.linearVelocity.Y.v) &&
+		math.Float32bits(a.angularVelocity.v) == math.Float32bits(b.angularVelocity.v) &&
+		sameBodyNonVelocityBits(a, b)
+}
+
 // wideCheckMaskLanes checks mask bits through the public lane blend contract.
 func wideCheckMaskLanes(t *testing.T, name string, got maskW, want [wideWidth]bool) {
 	t.Helper()
