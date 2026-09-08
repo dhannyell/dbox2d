@@ -5,6 +5,7 @@ package samples_test
 
 import (
 	"fmt"
+	"runtime"
 	"testing"
 
 	"github.com/dhannyell/dbox2d"
@@ -18,6 +19,8 @@ func TestSamplesStepWithoutPanic(t *testing.T) {
 		sample := entry.Create(ctx)
 		for range 60 {
 			sample.Step()
+			// Yield as a host frame does; the single wasm thread runs the collector here.
+			runtime.Gosched()
 		}
 		sample.Destroy()
 	}
