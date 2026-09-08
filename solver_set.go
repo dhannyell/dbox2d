@@ -94,7 +94,7 @@ func wakeSolverSet(w *world, setIndex int) {
 			awake.contactSims = append(awake.contactSims, *cs)
 
 			var movedLocalIndex int
-			disabled.contactSims, movedLocalIndex = removeSwap(disabled.contactSims, localIndex)
+			disabled.contactSims, movedLocalIndex = removeSwapNoClear(disabled.contactSims, localIndex)
 			if movedLocalIndex != nullIndex {
 				// fix moved element
 				movedContactSim := &disabled.contactSims[localIndex]
@@ -228,7 +228,7 @@ func trySleepIsland(w *world, islandId int) {
 			sleepSet.bodySims = append(sleepSet.bodySims, *awakeSim)
 
 			var movedIndex int
-			awake.bodySims, movedIndex = removeSwap(awake.bodySims, awakeBodyIndex)
+			awake.bodySims, movedIndex = removeSwapNoClear(awake.bodySims, awakeBodyIndex)
 			if movedIndex != nullIndex {
 				// fix local index on moved element
 				movedSim := &awake.bodySims[awakeBodyIndex]
@@ -240,7 +240,7 @@ func trySleepIsland(w *world, islandId int) {
 			}
 
 			// destroy state, no need to clone
-			awake.bodyStates, _ = removeSwap(awake.bodyStates, awakeBodyIndex)
+			awake.bodyStates, _ = removeSwapNoClear(awake.bodyStates, awakeBodyIndex)
 
 			b.setIndex = sleepSetId
 			b.localIndex = sleepBodyIndex
@@ -296,7 +296,7 @@ func trySleepIsland(w *world, islandId int) {
 				disabled.contactSims = append(disabled.contactSims, *cs)
 
 				var movedLocalIndex int
-				awake.contactSims, movedLocalIndex = removeSwap(awake.contactSims, localIndex)
+				awake.contactSims, movedLocalIndex = removeSwapNoClear(awake.contactSims, localIndex)
 				if movedLocalIndex != nullIndex {
 					// fix moved element
 					movedContactSim := &awake.contactSims[localIndex]
@@ -342,7 +342,7 @@ func trySleepIsland(w *world, islandId int) {
 			sleepSet.contactSims = append(sleepSet.contactSims, *awakeContactSim)
 
 			var movedLocalIndex int
-			color.contactSims, movedLocalIndex = removeSwap(color.contactSims, localIndex)
+			color.contactSims, movedLocalIndex = removeSwapNoClear(color.contactSims, localIndex)
 			if movedLocalIndex != nullIndex {
 				// fix moved element
 				movedContactSim := &color.contactSims[localIndex]
@@ -391,7 +391,7 @@ func trySleepIsland(w *world, islandId int) {
 			sleepSet.jointSims = append(sleepSet.jointSims, *awakeJointSim)
 
 			var movedIndex int
-			color.jointSims, movedIndex = removeSwap(color.jointSims, localIndex)
+			color.jointSims, movedIndex = removeSwapNoClear(color.jointSims, localIndex)
 			if movedIndex != nullIndex {
 				// fix moved element
 				movedJointSim := &color.jointSims[localIndex]
@@ -421,7 +421,7 @@ func trySleepIsland(w *world, islandId int) {
 		sleepSet.islandSims = append(sleepSet.islandSims, islandSim{islandId: islandId})
 
 		var movedIslandIndex int
-		awake.islandSims, movedIslandIndex = removeSwap(awake.islandSims, islandIndex)
+		awake.islandSims, movedIslandIndex = removeSwapNoClear(awake.islandSims, islandIndex)
 		if movedIslandIndex != nullIndex {
 			// fix index on moved element
 			movedIslandSim := &awake.islandSims[islandIndex]
@@ -539,7 +539,7 @@ func transferBody(w *world, targetSet, sourceSet *solverSet, b *body) {
 
 	// Remove body sim from solver set that owns it
 	var movedIndex int
-	sourceSet.bodySims, movedIndex = removeSwap(sourceSet.bodySims, sourceIndex)
+	sourceSet.bodySims, movedIndex = removeSwapNoClear(sourceSet.bodySims, sourceIndex)
 	if movedIndex != nullIndex {
 		// Fix moved body index
 		movedSim := &sourceSet.bodySims[sourceIndex]
@@ -551,7 +551,7 @@ func transferBody(w *world, targetSet, sourceSet *solverSet, b *body) {
 	}
 
 	if sourceSet.setIndex == awakeSet {
-		sourceSet.bodyStates, _ = removeSwap(sourceSet.bodyStates, sourceIndex)
+		sourceSet.bodyStates, _ = removeSwapNoClear(sourceSet.bodyStates, sourceIndex)
 	} else if targetSet.setIndex == awakeSet {
 		targetSet.bodyStates = append(targetSet.bodyStates, identityBodyState())
 	}
@@ -604,7 +604,7 @@ func transferJoint(w *world, targetSet, sourceSet *solverSet, j *joint) {
 		removeJointFromGraph(w, j.edges[0].bodyId, j.edges[1].bodyId, colorIndex, localIndex)
 	} else {
 		var movedIndex int
-		sourceSet.jointSims, movedIndex = removeSwap(sourceSet.jointSims, localIndex)
+		sourceSet.jointSims, movedIndex = removeSwapNoClear(sourceSet.jointSims, localIndex)
 		if movedIndex != nullIndex {
 			// fix swapped element
 			movedJointSim := &sourceSet.jointSims[localIndex]

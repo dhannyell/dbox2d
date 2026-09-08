@@ -1,8 +1,48 @@
 package dbox2d
 
 import (
+	"reflect"
 	"testing"
 )
+
+// pointerFieldPath returns the path of the first pointer-like field, or an empty string.
+func pointerFieldPath(t reflect.Type, path string) string {
+	kind := t.Kind()
+	switch kind {
+	case reflect.Pointer, reflect.UnsafePointer, reflect.Slice, reflect.Map, reflect.Chan, reflect.Func, reflect.Interface, reflect.String:
+		return path
+	case reflect.Struct:
+		for i := range t.NumField() {
+			if field := pointerFieldPath(t.Field(i).Type, path+"."+t.Field(i).Name); field != "" {
+				return field
+			}
+		}
+	case reflect.Array:
+		return pointerFieldPath(t.Elem(), path+"[]")
+	}
+	return ""
+}
+
+// removeSwapNoClear leaves the vacated slot as is; a pointer in these types
+// would keep garbage alive.
+func TestRemoveSwapNoClearTypesHaveNoPointers(t *testing.T) {
+	types := []reflect.Type{
+		reflect.TypeFor[bodySim](),
+		reflect.TypeFor[bodyState](),
+		reflect.TypeFor[movePair](),
+		reflect.TypeFor[contactSim](),
+		reflect.TypeFor[jointSim](),
+		reflect.TypeFor[islandSim](),
+	}
+	for _, typ := range types {
+		if field := pointerFieldPath(typ, typ.Name()); field != "" {
+			t.Errorf("%s contains pointer-like field at %s", typ, field)
+		}
+	}
+	if field := pointerFieldPath(reflect.TypeOf(struct{ p *int }{}), "local"); field == "" {
+		t.Error("pointer walker did not detect local.p")
+	}
+}
 
 // sleepPair builds two touching dynamic bodies, merges their island and
 // puts it to sleep. It returns the body ids and the sleeping set index.

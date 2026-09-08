@@ -373,7 +373,7 @@ func DestroyBody(bodyId BodyId) {
 	// Remove body sim from solver set that owns it
 	set := &w.solverSets[b.setIndex]
 	var movedIndex int
-	set.bodySims, movedIndex = removeSwap(set.bodySims, b.localIndex)
+	set.bodySims, movedIndex = removeSwapNoClear(set.bodySims, b.localIndex)
 	if movedIndex != nullIndex {
 		// Fix moved body index
 		movedSim := &set.bodySims[b.localIndex]
@@ -387,7 +387,7 @@ func DestroyBody(bodyId BodyId) {
 	// Remove body state from awake set
 	if b.setIndex == awakeSet {
 		var result int
-		set.bodyStates, result = removeSwap(set.bodyStates, b.localIndex)
+		set.bodyStates, result = removeSwapNoClear(set.bodyStates, b.localIndex)
 		if result != movedIndex {
 			panic("dbox2d: the sim and state arrays moved different indices")
 		}

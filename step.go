@@ -288,7 +288,7 @@ func addNonTouchingContact(w *world, c *contact, cs *contactSim) {
 func removeNonTouchingContact(w *world, setIndex, localIndex int) {
 	set := &w.solverSets[setIndex]
 	var movedIndex int
-	set.contactSims, movedIndex = removeSwap(set.contactSims, localIndex)
+	set.contactSims, movedIndex = removeSwapNoClear(set.contactSims, localIndex)
 	if movedIndex != nullIndex {
 		movedContactSim := &set.contactSims[localIndex]
 		movedContact := &w.contacts[movedContactSim.contactId]

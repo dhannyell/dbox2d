@@ -99,7 +99,7 @@ func (bp *broadPhase) unBufferMove(proxyKey int) {
 		count := len(bp.moveArray)
 		for i := range count {
 			if bp.moveArray[i] == proxyKey {
-				bp.moveArray, _ = removeSwap(bp.moveArray, i)
+				bp.moveArray, _ = removeSwapNoClear(bp.moveArray, i)
 				break
 			}
 		}

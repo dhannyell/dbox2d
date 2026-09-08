@@ -87,7 +87,7 @@ func destroyIsland(w *world, islandId int) {
 	isl := &w.islands[islandId]
 	set := &w.solverSets[isl.setIndex]
 	var movedIndex int
-	set.islandSims, movedIndex = removeSwap(set.islandSims, isl.localIndex)
+	set.islandSims, movedIndex = removeSwapNoClear(set.islandSims, isl.localIndex)
 	if movedIndex != nullIndex {
 		// Fix index on moved element
 		movedElement := &set.islandSims[isl.localIndex]

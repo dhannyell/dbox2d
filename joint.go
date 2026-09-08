@@ -1337,7 +1337,7 @@ func destroyJointInternal(w *world, j *joint, wakeBodies bool) {
 	} else {
 		set := &w.solverSets[setIndex]
 		var movedIndex int
-		set.jointSims, movedIndex = removeSwap(set.jointSims, localIndex)
+		set.jointSims, movedIndex = removeSwapNoClear(set.jointSims, localIndex)
 		if movedIndex != nullIndex {
 			// Fix moved joint
 			movedJointSim := &set.jointSims[localIndex]
