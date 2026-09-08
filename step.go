@@ -52,13 +52,16 @@ type stepContext struct {
 	graph *constraintGraph
 
 	// Flat constraint arrays cover colors 0 through 10 in color order.
-	contacts           []*contactSim
-	joints             []*jointSim
-	contactConstraints []contactConstraint
-	stages             []solverStage
-	activeColorCount   int
-	activeColorIndices [graphColorCount]int
-	workerCount        int
+	contacts                 []*contactSim
+	joints                   []*jointSim
+	contactConstraints       []contactConstraint
+	contactConstraintsWide   []contactConstraintWide
+	contactConstraintMem     []byte
+	contactConstraintMemWide []byte
+	stages                   []solverStage
+	activeColorCount         int
+	activeColorIndices       [graphColorCount]int
+	workerCount              int
 
 	enableWarmStarting bool
 

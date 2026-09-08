@@ -187,17 +187,6 @@ func TestLaneArithmeticRoundsTwice(t *testing.T) {
 			if math.Float32bits(gotSymClamp[i]) == math.Float32bits(wantSymClamp[i]) {
 				continue
 			}
-			var negLimit = float32(0) - limit[i]
-			var clamped float32
-			if a[i] < limit[i] {
-				clamped = a[i]
-			} else {
-				clamped = limit[i]
-			}
-			if negLimit == clamped && math.Float32bits(negLimit) != math.Float32bits(clamped) {
-				t.Logf("sym clamp signed-zero relaxation lane %d: got=%#08x want=%#08x", i, math.Float32bits(gotSymClamp[i]), math.Float32bits(wantSymClamp[i]))
-				continue
-			}
 			t.Fatalf("symmetric clamp lane %d: got %#08x want %#08x", i, math.Float32bits(gotSymClamp[i]), math.Float32bits(wantSymClamp[i]))
 		}
 

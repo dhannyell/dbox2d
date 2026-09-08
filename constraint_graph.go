@@ -23,6 +23,8 @@ type graphColor struct {
 	// contactConstraints is the solver scratch of the color. The solver
 	// fills it on each step from the arena.
 	contactConstraints []contactConstraint
+	// contactConstraintsWide reserves the later wide-family scratch by color.
+	contactConstraintsWide []contactConstraintWide
 
 	// jointSims of the joints in this color.
 	jointSims []jointSim
