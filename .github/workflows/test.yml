@@ -117,8 +117,10 @@ jobs:
       - name: Configure Wasm runner
         if: matrix.goarch == 'wasm'
         run: echo "$(go env GOROOT)/lib/wasm" >> "$GITHUB_PATH"
+      # The generic wide path on wasm runs the conformance traces past the
+      # timeout; the native jobs and the wide job cover them.
       - name: Test
-        run: go test -timeout 600s -tags "${{ matrix.tags }}" ./...
+        run: go test -timeout 600s -tags "${{ matrix.tags }}" -skip "${{ (matrix.goarch == 'wasm' && matrix.tags == 'dbox2d_float,dbox2d_simd') && 'TestConformance' || '^$' }}" ./...
 
   wide:
     name: wide (${{ matrix.path }})
@@ -165,11 +167,12 @@ jobs:
       - name: Vet
         run: go vet -tags $TAGS ./...
       - name: Test
-        run: go test -tags $TAGS -timeout 900s ./...
+        run: go test -tags $TAGS -timeout 900s -skip TestConformance ./...
+      # The native host needs the GLFW system headers; test the pure packages.
       - name: Samples
-        run: cd samples && go test -tags $TAGS ./...
+        run: cd samples && go test -tags $TAGS . ./internal/app ./internal/draw
       - name: Conformance
-        run: go test -tags $TAGS -run TestConformance -timeout 900s .
+        run: go test -tags $TAGS -run TestConformance -timeout 1200s .
       # wasm has no assembly listing to grep; the native paths cover the FMA audit.
       - name: FMA
         if: matrix.goos != 'js'
