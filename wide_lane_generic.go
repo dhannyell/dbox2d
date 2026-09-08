@@ -19,21 +19,15 @@ type maskW struct {
 	v [4]bool
 }
 
-// accW names the later accumulation lane type.
-//
-//lint:ignore U1000 reserved for a later SIMD family
+// accW is the accumulation lane; on this path it is the same type as laneW.
 type accW = laneW
 
 // vec2W stores two wide vectors.
-//
-//lint:ignore U1000 reserved for a later SIMD family
 type vec2W struct {
 	x, y laneW
 }
 
 // rotW stores a wide cosine and sine pair.
-//
-//lint:ignore U1000 reserved for a later SIMD family
 type rotW struct {
 	c, s laneW
 }
@@ -119,13 +113,6 @@ func (a laneW) Max(b laneW) laneW {
 		}
 	}
 	return out
-}
-
-// SymClamp limits a lane symmetrically around zero.
-func (a laneW) SymClamp(limit laneW) laneW {
-	negLimit := laneZero().Sub(limit)
-	clamped := a.Min(limit)
-	return negLimit.Max(clamped)
 }
 
 // Greater compares corresponding lane values.

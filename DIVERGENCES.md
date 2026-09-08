@@ -670,7 +670,10 @@ Numbering is sequential from `D-001` and never reused.
   signed-zero tie follows the same `if a < b` rule as the scalar family. The
   result is that the wide family is bit-identical to the scalar family, and
   therefore bit-identical across ISAs, where the reference is not. There is no
-  SSE2 path.
+  SSE2 path. A velocity component that is exactly -0 becomes +0 when it
+  passes an empty second manifold point or a masked restitution lane, because
+  the lane computes `v - (-0)`; this is unreachable from +0 states, and the
+  reference behaves the same way.
 - Test: TestWideMatchesScalarStepByStep, TestWideStagesRunWithColoredContacts
   and TestWideContactLayoutPadsEachColor in wide_test.go; wide_lane_test.go
   checks each lane operation against the scalar family on every path; the

@@ -30,16 +30,15 @@ type contactConstraintWide struct {
 
 // bodyStateW keeps gathered state in lane form for the wide stages.
 type bodyStateW struct {
-	v     struct{ x, y accW }
-	w     accW
-	flags laneW
-	dp    vec2W
-	dq    rotW
+	v  struct{ x, y accW }
+	w  accW
+	dp vec2W
+	dq rotW
 }
 
 // gatherBodies loads body states and substitutes identity for null bodies.
 func gatherBodies(states []bodyState, indices *[wideWidth]int) bodyStateW {
-	var vx, vy, w, flags, dpx, dpy, dqc, dqs [wideWidth]float32
+	var vx, vy, w, dpx, dpy, dqc, dqs [wideWidth]float32
 	for j := range wideWidth {
 		idx := indices[j]
 		if idx == nullIndex {
@@ -50,7 +49,6 @@ func gatherBodies(states []bodyState, indices *[wideWidth]int) bodyStateW {
 		vx[j] = s.linearVelocity.X.v
 		vy[j] = s.linearVelocity.Y.v
 		w[j] = s.angularVelocity.Mul(tau).v
-		flags[j] = float32(s.flags)
 		dpx[j] = s.deltaPosition.X.v
 		dpy[j] = s.deltaPosition.Y.v
 		dqc[j] = s.deltaRotation.Cos.v
@@ -60,7 +58,6 @@ func gatherBodies(states []bodyState, indices *[wideWidth]int) bodyStateW {
 	body.v.x = laneLoad(&vx).toAcc()
 	body.v.y = laneLoad(&vy).toAcc()
 	body.w = laneLoad(&w).toAcc()
-	body.flags = laneLoad(&flags)
 	body.dp = vec2W{x: laneLoad(&dpx), y: laneLoad(&dpy)}
 	body.dq = rotW{c: laneLoad(&dqc), s: laneLoad(&dqs)}
 	return body

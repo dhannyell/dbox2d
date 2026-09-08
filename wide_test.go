@@ -163,11 +163,10 @@ func TestGatherBodiesSubstitutesIdentityForNull(t *testing.T) {
 	indices[nullLane] = nullIndex
 
 	got := gatherBodies(states, &indices)
-	var vx, vy, w, flags, dpx, dpy, dqc, dqs [wideWidth]float32
+	var vx, vy, w, dpx, dpy, dqc, dqs [wideWidth]float32
 	got.v.x.store(&vx)
 	got.v.y.store(&vy)
 	got.w.store(&w)
-	got.flags.store(&flags)
 	got.dp.x.store(&dpx)
 	got.dp.y.store(&dpy)
 	got.dq.c.store(&dqc)
@@ -176,12 +175,11 @@ func TestGatherBodiesSubstitutesIdentityForNull(t *testing.T) {
 	if math.Float32bits(vx[nullLane]) != math.Float32bits(0) ||
 		math.Float32bits(vy[nullLane]) != math.Float32bits(0) ||
 		math.Float32bits(w[nullLane]) != math.Float32bits(0) ||
-		math.Float32bits(flags[nullLane]) != math.Float32bits(0) ||
 		math.Float32bits(dpx[nullLane]) != math.Float32bits(0) ||
 		math.Float32bits(dpy[nullLane]) != math.Float32bits(0) ||
 		math.Float32bits(dqc[nullLane]) != math.Float32bits(1) ||
 		math.Float32bits(dqs[nullLane]) != math.Float32bits(0) {
-		t.Fatalf("null lane: v=(%#08x,%#08x) w=%#08x flags=%#08x dp=(%#08x,%#08x) dq=(%#08x,%#08x)", math.Float32bits(vx[nullLane]), math.Float32bits(vy[nullLane]), math.Float32bits(w[nullLane]), math.Float32bits(flags[nullLane]), math.Float32bits(dpx[nullLane]), math.Float32bits(dpy[nullLane]), math.Float32bits(dqc[nullLane]), math.Float32bits(dqs[nullLane]))
+		t.Fatalf("null lane: v=(%#08x,%#08x) w=%#08x dp=(%#08x,%#08x) dq=(%#08x,%#08x)", math.Float32bits(vx[nullLane]), math.Float32bits(vy[nullLane]), math.Float32bits(w[nullLane]), math.Float32bits(dpx[nullLane]), math.Float32bits(dpy[nullLane]), math.Float32bits(dqc[nullLane]), math.Float32bits(dqs[nullLane]))
 	}
 	for i := range nullLane {
 		s := &states[indices[i]]
@@ -190,7 +188,6 @@ func TestGatherBodiesSubstitutesIdentityForNull(t *testing.T) {
 			{vx[i], s.linearVelocity.X.v},
 			{vy[i], s.linearVelocity.Y.v},
 			{w[i], wantW},
-			{flags[i], float32(s.flags)},
 			{dpx[i], s.deltaPosition.X.v},
 			{dpy[i], s.deltaPosition.Y.v},
 			{dqc[i], s.deltaRotation.Cos.v},

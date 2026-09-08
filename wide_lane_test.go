@@ -61,8 +61,8 @@ func wideRandomArray(r *rand.Rand) (out [wideWidth]float32) {
 }
 
 // wideRandomOperands builds the arrays used by the arithmetic checks.
-func wideRandomOperands(r *rand.Rand) (a, b, c, limit [wideWidth]float32) {
-	return wideRandomArray(r), wideRandomArray(r), wideRandomArray(r), wideRandomArray(r)
+func wideRandomOperands(r *rand.Rand) (a, b, c [wideWidth]float32) {
+	return wideRandomArray(r), wideRandomArray(r), wideRandomArray(r)
 }
 
 // wideArithmeticInputsValid excludes only undefined NaN-producing operations.
@@ -70,11 +70,9 @@ func wideArithmeticInputsValid(a, b, c [wideWidth]float32) bool {
 	for i := range a {
 		var sum = a[i] + b[i]
 		var difference = a[i] - b[i]
-		var product = b[i] * c[i]
-		//nolint:staticcheck // preserve the explicit validation result type
-		var productSum float32 = a[i] + product
-		//nolint:staticcheck // preserve the explicit validation result type
-		var productDifference float32 = a[i] - product
+		product := float32(b[i] * c[i])
+		productSum := a[i] + product
+		productDifference := a[i] - product
 		if math.IsNaN(float64(sum)) || math.IsNaN(float64(difference)) || math.IsNaN(float64(product)) || math.IsNaN(float64(productSum)) || math.IsNaN(float64(productDifference)) {
 			return false
 		}
@@ -123,14 +121,14 @@ func TestWidePath(t *testing.T) {
 func TestLaneArithmeticRoundsTwice(t *testing.T) {
 	r := rand.New(rand.NewSource(1))
 	for vector := 0; vector < wideRandomVectors; vector++ {
-		a, b, c, limit := wideRandomOperands(r)
+		a, b, c := wideRandomOperands(r)
 		if !wideArithmeticInputsValid(a, b, c) {
 			vector--
 			continue
 		}
 
 		var gotAdd, gotSub, gotMul, gotMulAdd, gotMulSub [wideWidth]float32
-		var gotMin, gotMax, gotSymClamp [wideWidth]float32
+		var gotMin, gotMax [wideWidth]float32
 		laneLoad(&a).Add(laneLoad(&b)).store(&gotAdd)
 		laneLoad(&a).Sub(laneLoad(&b)).store(&gotSub)
 		laneLoad(&a).Mul(laneLoad(&b)).store(&gotMul)
@@ -138,16 +136,14 @@ func TestLaneArithmeticRoundsTwice(t *testing.T) {
 		laneLoad(&a).MulSub(laneLoad(&b), laneLoad(&c)).store(&gotMulSub)
 		laneLoad(&a).Min(laneLoad(&b)).store(&gotMin)
 		laneLoad(&a).Max(laneLoad(&b)).store(&gotMax)
-		laneLoad(&a).SymClamp(laneLoad(&limit)).store(&gotSymClamp)
 
 		var wantAdd, wantSub, wantMul, wantMulAdd, wantMulSub [wideWidth]float32
-		var wantMin, wantMax, wantSymClamp [wideWidth]float32
+		var wantMin, wantMax [wideWidth]float32
 		for i := range a {
 			wantAdd[i] = a[i] + b[i]
 			wantSub[i] = a[i] - b[i]
 			wantMul[i] = a[i] * b[i]
-			//nolint:staticcheck // keep the separately rounded product statement
-			var product float32 = b[i] * c[i]
+			product := float32(b[i] * c[i])
 			wantMulAdd[i] = a[i] + product
 			wantMulSub[i] = a[i] - product
 			if a[i] < b[i] {
@@ -160,19 +156,6 @@ func TestLaneArithmeticRoundsTwice(t *testing.T) {
 			} else {
 				wantMax[i] = b[i]
 			}
-
-			var negLimit = float32(0) - limit[i]
-			var clamped float32
-			if a[i] < limit[i] {
-				clamped = a[i]
-			} else {
-				clamped = limit[i]
-			}
-			if negLimit > clamped {
-				wantSymClamp[i] = negLimit
-			} else {
-				wantSymClamp[i] = clamped
-			}
 		}
 
 		wideCheckBits(t, "add", gotAdd, wantAdd)
@@ -182,13 +165,6 @@ func TestLaneArithmeticRoundsTwice(t *testing.T) {
 		wideCheckBits(t, "mul-sub", gotMulSub, wantMulSub)
 		wideCheckBits(t, "min", gotMin, wantMin)
 		wideCheckBits(t, "max", gotMax, wantMax)
-		// SIMD Min/Max may choose either signed zero when the clamp values tie.
-		for i := range gotSymClamp {
-			if math.Float32bits(gotSymClamp[i]) == math.Float32bits(wantSymClamp[i]) {
-				continue
-			}
-			t.Fatalf("symmetric clamp lane %d: got %#08x want %#08x", i, math.Float32bits(gotSymClamp[i]), math.Float32bits(wantSymClamp[i]))
-		}
 
 		var gotIdentity [wideWidth]float32
 		laneLoad(&a).toAcc().toLane().store(&gotIdentity)

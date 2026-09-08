@@ -21,7 +21,7 @@ type maskW struct {
 	v archsimd.Mask32x4
 }
 
-// accW names the later accumulation lane type.
+// accW is the accumulation lane; on this path it is the same type as laneW.
 type accW = laneW
 
 // vec2W stores two wide vectors.
@@ -80,13 +80,6 @@ func (a laneW) Min(b laneW) laneW { less := b.v.Greater(a.v); return laneW{v: a.
 func (a laneW) Max(b laneW) laneW {
 	greater := a.v.Greater(b.v)
 	return laneW{v: a.v.IfElse(greater, b.v)}
-}
-
-// SymClamp limits a lane symmetrically around zero.
-func (a laneW) SymClamp(limit laneW) laneW {
-	negLimit := laneZero().Sub(limit)
-	clamped := a.Min(limit)
-	return negLimit.Max(clamped)
 }
 
 // Greater compares corresponding lane values.
