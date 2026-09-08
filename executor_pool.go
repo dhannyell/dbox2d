@@ -17,6 +17,21 @@ type taskFunc func(startIndex, endIndex, workerIndex int, context *stepContext)
 // yield contends on the runtime lock and costs more than the wait.
 const idleSpinLimit = 1 << 16
 
+// spinner counts the idle loads of one wait. It yields to the scheduler
+// only after idleSpinLimit of them: Gosched takes the global scheduler
+// lock, and with several workers the contention costs more than the wait.
+type spinner int
+
+// spin is one idle turn of a wait loop.
+func (s *spinner) spin() {
+	if *s < idleSpinLimit {
+		*s++
+		return
+	}
+	runtime.Gosched()
+	*s = 0
+}
+
 // executorCommand is what the caller asks every worker to do. It is
 // reused, so a command never allocates.
 type executorCommand struct {
@@ -120,16 +135,12 @@ func (e *executor) publish() {
 	}
 }
 
-// await spins until every worker finished the command, then yields so a
-// late worker can get a core.
+// await spins until every worker finished the command, yielding only after
+// a bounded spin so a late worker can get a core.
 func (e *executor) await() {
-	spins := 0
+	var s spinner
 	for e.pending.Load() != 0 {
-		if spins < idleSpinLimit {
-			spins++
-			continue
-		}
-		runtime.Gosched()
+		s.spin()
 	}
 }
 

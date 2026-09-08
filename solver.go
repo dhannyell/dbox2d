@@ -3,7 +3,6 @@ package dbox2d
 import (
 	"math"
 	"math/bits"
-	"runtime"
 	"slices"
 	"sync/atomic"
 	"time"
@@ -289,8 +288,9 @@ func executeMainStage(stage *solverStage, context *stepContext, syncBits uint32)
 	previousSyncIndex := syncIndex - 1
 	executeStage(stage, context, previousSyncIndex, syncIndex, 0)
 
+	var s spinner
 	for stage.completionCount.Load() != int32(blockCount) {
-		runtime.Gosched()
+		s.spin()
 	}
 	stage.completionCount.Store(0)
 }
@@ -416,13 +416,9 @@ func solverWorkerTask(worker workerContext) {
 	lastSyncBits := uint32(0)
 	for {
 		syncBits := context.atomicSyncBits.Load()
-		spinCount := 0
+		var s spinner
 		for syncBits == lastSyncBits {
-			spinCount += 1
-			if spinCount >= 5 {
-				runtime.Gosched()
-				spinCount = 0
-			}
+			s.spin()
 			syncBits = context.atomicSyncBits.Load()
 		}
 
