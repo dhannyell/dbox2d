@@ -11,3 +11,11 @@ package dbox2d
 // Tests call validateSolverSets directly, so validation is still covered
 // regardless of the build setting.
 func validateSolverSetsDebug(*world) {}
+
+// validateTreeDebug is a no-op in release builds, matching
+// b2DynamicTree_Validate in the reference when B2_VALIDATE is disabled.
+func validateTreeDebug(*dynamicTree) {}
+
+// validateTreeNoEnlargedDebug is a no-op in release builds, matching
+// b2DynamicTree_ValidateNoEnlarged when B2_VALIDATE is disabled.
+func validateTreeNoEnlargedDebug(*dynamicTree) {}
