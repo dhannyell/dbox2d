@@ -512,27 +512,14 @@ func (r *Renderer) appendIcon(out []draw.TextVertex, cmd UICommand) []draw.TextV
 	return r.atlas.AppendQuads(out, draw.TextItem{X: float32(x), Y: float32(y), Text: s, Color: cmd.Color})
 }
 
-// clampScissor clamps a microui clip rect to the frame, since microui sends
-// an unclipped rect at the end that can be negative or oversized.
+// clampScissor keeps microui's clip rect inside the frame. This avoids
+// negative or oversized rects and ensures the origin stays within the
+// render target, as required by wgpu.
 func clampScissor(rect [4]int, width, height int) (x, y, w, h int) {
 	x0, y0, x1, y1 := rect[0], rect[1], rect[0]+rect[2], rect[1]+rect[3]
-	if x0 < 0 {
-		x0 = 0
-	}
-	if y0 < 0 {
-		y0 = 0
-	}
-	if x1 > width {
-		x1 = width
-	}
-	if y1 > height {
-		y1 = height
-	}
-	if x1 < x0 {
-		x1 = x0
-	}
-	if y1 < y0 {
-		y1 = y0
-	}
+	x0 = min(max(x0, 0), width)
+	y0 = min(max(y0, 0), height)
+	x1 = min(max(x1, x0), width)
+	y1 = min(max(y1, y0), height)
 	return x0, y0, x1 - x0, y1 - y0
 }

@@ -270,21 +270,18 @@ func collideTask(startIndex, endIndex, workerIndex int, context *stepContext) {
 	}
 }
 
-// treeTask rebuilds the dynamic and the kinematic broad-phase trees beside
-// the rest of the step. It corresponds to the userTreeTask of src/world.c,
-// which the reference enqueues at the top of the narrow phase and only
-// finishes at the refit, so the rebuild overlaps the whole solve. The
-// worker pool cannot carry it: every parallel loop in between claims all
-// of its workers. So the rebuild gets a goroutine of its own, parked on a
-// channel between steps.
+// treeTask rebuilds the dynamic and kinematic broad-phase trees in parallel
+// with the rest of the step. This matches userTreeTask in src/world.c, where
+// the rebuild starts during narrow phase and finishes at the refit.
 //
-// Nothing reads the trees between start and wait. The narrow phase reads
-// the fat bounds off the shapes, the contact bookkeeping after it touches
-// the pair set, and the solver touches neither; the proxy enlarge, the
-// move buffer and the bullet queries all come after the refit joins.
+// It uses a dedicated goroutine because the worker pool is fully occupied by
+// the parallel loops that run in between.
 //
-// With one worker no goroutine is started: start records the world and
-// wait runs the rebuild, which is where the reference runs it too.
+// Nothing reads these trees before wait. Proxy updates, the move buffer, and
+// bullet queries all happen after the refit.
+//
+// With one worker, start only records the world and wait runs the rebuild
+// synchronously, matching the reference behavior.
 type treeTask struct {
 	start   chan *world
 	done    chan struct{}
@@ -378,9 +375,9 @@ func removeNonTouchingContact(w *world, setIndex, localIndex int) {
 func collide(context *stepContext) {
 	w := context.world
 
-	// The rebuild starts before the contact count is even known, as in the
-	// reference: a world with no contacts still has trees to rebuild, and
-	// running it here lets it overlap the narrow phase and the solve.
+	// Start the rebuild before the contact count is known, matching the reference.
+	// Even worlds with no contacts still need their trees rebuilt, and starting
+	// here lets the work overlap the narrow phase and solve.
 	w.taskCount++
 	w.treeTask.begin(w)
 

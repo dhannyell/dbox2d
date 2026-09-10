@@ -6,6 +6,7 @@ package app
 
 import (
 	"fmt"
+	"runtime"
 
 	"github.com/dhannyell/dbox2d"
 	"github.com/dhannyell/dbox2d/samples"
@@ -64,6 +65,9 @@ func New(measurer TextMeasurer) *App {
 		}
 	}
 	ctx.Settings.SampleIndex = start
+
+	numCPU := min(runtime.NumCPU(), 8)
+	ctx.Settings.WorkerCount = numCPU
 
 	mu := microui.NewContext()
 	mu.TextWidth = func(_ microui.Font, s string) int { return measurer.TextWidth(s) }
