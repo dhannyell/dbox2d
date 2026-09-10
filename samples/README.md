@@ -36,7 +36,7 @@ The browser host needs a browser with WebGPU. Build the wasm binary into
 sends `.wasm` with the right content type; any other static server works.
 
 ```bash
-cd samples && CGO_ENABLED=0 GOOS=js GOARCH=wasm go build -tags fixed_nosatcounter -o web/app.wasm ./cmd/web
+cd samples && CGO_ENABLED=0 GOOS=js GOARCH=wasm go build -o web/app.wasm ./cmd/web
 cd samples && CGO_ENABLED=0 GOOS=js GOARCH=wasm go build -tags dbox2d_float -o web/app-float.wasm ./cmd/web
 ```
 
@@ -46,9 +46,8 @@ The page loads `app.wasm` by default and `app-float.wasm` with `?mode=float`.
 cd samples && go run ./cmd/serve
 ```
 
-Then open `http://localhost:8080`. The `fixed_nosatcounter` tag drops the
-saturation counter of `fixed`; the bits are the same and the scalar methods
-inline on WebAssembly. The published page builds with it.
+Then open `http://localhost:8080`. The saturation counter of `fixed` is off by
+default, so the scalar methods inline on WebAssembly.
 
 ## Keys
 

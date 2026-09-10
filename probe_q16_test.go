@@ -1360,8 +1360,12 @@ func TestProbeFormatMatchesQ16AndQ48(t *testing.T) {
 	if f.accSaturations == 0 {
 		t.Fatal("the boundary cases saturated nothing")
 	}
-	if got, want := uint64(f.accSaturations), fixed.SaturationCount(); got != want {
-		t.Fatalf("the accumulator counted %d saturations, Q48 counted %d", got, want)
+	// The library counter only runs under fixed_satcounter. The saturation
+	// itself, counted above, happens either way.
+	if fixed.SaturationCountingEnabled {
+		if got, want := uint64(f.accSaturations), fixed.SaturationCount(); got != want {
+			t.Fatalf("the accumulator counted %d saturations, Q48 counted %d", got, want)
+		}
 	}
 	fixed.ResetSaturationCount()
 }

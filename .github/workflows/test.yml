@@ -119,8 +119,9 @@ jobs:
         run: echo "$(go env GOROOT)/lib/wasm" >> "$GITHUB_PATH"
       # The generic wide path on wasm runs the conformance traces past the
       # timeout; the native jobs and the wide job cover them.
+      # The no-saturation checks read the fixed counter, which is off by default.
       - name: Test
-        run: go test -timeout 600s -tags "${{ matrix.tags }}" -skip "${{ (matrix.goarch == 'wasm' && matrix.tags == 'dbox2d_float,dbox2d_simd') && 'TestConformance' || '^$' }}" ./...
+        run: go test -timeout 600s -tags "${{ matrix.tags || 'fixed_satcounter' }}" -skip "${{ (matrix.goarch == 'wasm' && matrix.tags == 'dbox2d_float,dbox2d_simd') && 'TestConformance' || '^$' }}" ./...
 
   wide:
     name: wide (${{ matrix.path }})
@@ -167,9 +168,8 @@ jobs:
       - name: Vet
         run: go vet -tags $TAGS ./...
       - name: Test
-        # Fixed mode is bit-identical on every target, so the slow scene traces
-        # run only on the 64-bit jobs; the witness hashes still cover 386 and wasm.
-        run: go test -timeout 600s ${{ matrix.tags == '' && (matrix.goarch == '386' || matrix.goarch == 'wasm') && '-short' || '' }} -tags "${{ matrix.tags }}" ./...
+        # The scene traces take minutes on wasm; the native paths run them.
+        run: go test -timeout 600s ${{ matrix.goos == 'js' && '-short' || '' }} -tags $TAGS ./...
 
   race:
     name: race (amd64)

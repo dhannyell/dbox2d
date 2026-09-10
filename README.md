@@ -245,10 +245,9 @@ The repository also contains experimental solver probes for narrower fixed
 formats and batch kernels. They are test-only measurements; Q32.32 remains the
 library's production scalar format.
 
-`fixed_nosatcounter` removes the optional saturation diagnostic counter while
-keeping numerical results unchanged. `SaturationCount` then returns zero. This
-is useful for production and WebAssembly builds, but repository tests that read
-the counter must run without the tag.
+The saturation counter of `fixed` is off by default and never changes a
+result. The tests that assert that no operation saturated read it, so they
+check nothing unless the build sets `fixed_satcounter`. CI sets it.
 
 ## Reference source
 

@@ -28,7 +28,7 @@ jobs:
           CGO_ENABLED: "0"
           GOOS: js
           GOARCH: wasm
-        run: go build -tags fixed_nosatcounter -o web/app.wasm ./cmd/web
+        run: go build -o web/app.wasm ./cmd/web
       - name: Build the browser host, float mode
         working-directory: samples
         env:
