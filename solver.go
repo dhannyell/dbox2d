@@ -1141,32 +1141,25 @@ func solve(w *world, context *stepContext) {
 			}
 		}
 
-		w.contactPointers = slices.Grow(w.contactPointers[:0], activeContactCount)[:activeContactCount]
 		w.jointPointers = slices.Grow(w.jointPointers[:0], activeJointCount)[:activeJointCount]
-		context.contacts = w.contactPointers
 		context.joints = w.jointPointers
 		context.workerCount = w.executor.activeWorkerCount()
 
-		contactBase := 0
 		jointBase := 0
-		for i := range graphColorCount {
+		for i := range overflowIndex {
 			color := &colors[i]
-			colorContactCount := len(color.contactSims)
-
-			if i < overflowIndex {
-				for j := range colorContactCount {
-					context.contacts[contactBase+j] = &color.contactSims[j]
-				}
-
-				colorJointCount := len(color.jointSims)
-				for j := range colorJointCount {
-					context.joints[jointBase+j] = &color.jointSims[j]
-				}
-				jointBase += colorJointCount
+			colorJointCount := len(color.jointSims)
+			for j := range colorJointCount {
+				context.joints[jointBase+j] = &color.jointSims[j]
 			}
-
-			contactBase += colorContactCount
+			jointBase += colorJointCount
 		}
+
+		// The contact pointer table is gathered by the constraint allocator,
+		// as the reference gathers it in the same block that lays the
+		// constraints out. The wide layout pads every color up to a lane
+		// boundary, so only that layout knows where a color begins; filling
+		// the table here as well meant writing every pointer twice.
 		allocateContactConstraints(w, context, colors, overflowIndex, activeContactCount)
 		buildSolverStages(w, context, awakeBodyCount)
 
