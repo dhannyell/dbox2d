@@ -10,11 +10,41 @@ import (
 )
 
 type gui struct {
-	mu *microui.Context
+	mu     *microui.Context
+	camera *samples.Camera
 }
 
+const minVisibleWindow = 48
+
 func (g gui) Begin(title string, x, y, width, height int) bool {
-	return g.mu.BeginWindowEx(title, microui.NewRect(x, y, width, height), microui.MU_OPT_NORESIZE|microui.MU_OPT_NOCLOSE) != 0
+	rect := microui.NewRect(x, y, width, height)
+	return beginClampedWindow(g.mu, g.camera, title, rect, microui.MU_OPT_NORESIZE|microui.MU_OPT_NOCLOSE)
+}
+
+// beginClampedWindow opens a microui window with its stored rect clamped
+// before drawing. Since microui only uses the rect passed to BeginWindowEx
+// on the first frame, clamping the stored rect keeps moved or resized
+// windows from getting stuck outside the frame.
+func beginClampedWindow(mu *microui.Context, camera *samples.Camera, title string, rect microui.Rect, opt int) bool {
+	if cnt := mu.GetContainer(title); cnt != nil {
+		if cnt.Rect.W != 0 {
+			rect = cnt.Rect
+		}
+		rect = clampWindowRect(rect, camera.Width, camera.Height, mu.Style.TitleHeight)
+		cnt.Rect = rect
+	}
+	return mu.BeginWindowEx(title, rect, opt) != 0
+}
+
+// clampWindowRect keeps the title bar inside the frame so the window
+// can always be dragged. The window can go past the sides as long as
+// minVisibleWindow pixels stay visible. Its size is never changed, so
+// oversized windows are clipped instead of resized.
+func clampWindowRect(rect microui.Rect, frameWidth, frameHeight, titleHeight int) microui.Rect {
+	visible := min(rect.W, minVisibleWindow)
+	rect.X = min(max(rect.X, visible-rect.W), max(frameWidth-visible, 0))
+	rect.Y = min(max(rect.Y, 0), max(frameHeight-titleHeight, 0))
+	return rect
 }
 
 func (g gui) End() {

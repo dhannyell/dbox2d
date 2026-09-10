@@ -1201,7 +1201,7 @@ func resetProxy(w *world, s *shape, wakeBodies, destroyProxy bool) {
 		updateShapeAABBs(s, transform, b.bodyType)
 	}
 
-	validateSolverSets(w)
+	validateSolverSetsDebug(w)
 }
 
 // SetFilter changes the shape collision filter. It corresponds to

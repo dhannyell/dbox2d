@@ -37,11 +37,13 @@ func (s *spinner) spin() {
 type executorCommand struct {
 	fn           taskFunc
 	runContextFn func(workerIndex int, context *stepContext)
-	sideFn       func(context *stepContext)
-	context      *stepContext
-	rangeCount   int
-	rangeSize    int
-	itemCount    int
+	// sideFn belongs to the runContext path only; the last worker runs it
+	// before its own share of runContextFn.
+	sideFn     func(context *stepContext)
+	context    *stepContext
+	rangeCount int
+	rangeSize  int
+	itemCount  int
 }
 
 // executor runs the parallel loops of one world on a pool of goroutines.
@@ -159,9 +161,6 @@ func (e *executor) worker(workerIndex int, seen uint32) {
 		seen = e.generation.Load()
 
 		command := &e.command
-		if command.sideFn != nil && workerIndex == e.workerCount-1 {
-			command.sideFn(command.context)
-		}
 		switch {
 		case command.fn != nil:
 			if workerIndex < command.rangeCount {
@@ -170,6 +169,9 @@ func (e *executor) worker(workerIndex int, seen uint32) {
 				command.fn(startIndex, endIndex, workerIndex, command.context)
 			}
 		case command.runContextFn != nil:
+			if command.sideFn != nil && workerIndex == e.workerCount-1 {
+				command.sideFn(command.context)
+			}
 			command.runContextFn(workerIndex, command.context)
 		default:
 			return
@@ -181,16 +183,7 @@ func (e *executor) worker(workerIndex int, seen uint32) {
 // parallelFor splits [0, itemCount) into at most workerCount ranges of at
 // least minRange items, unless itemCount is smaller. Worker 0 is the caller.
 func (e *executor) parallelFor(itemCount, minRange int, fn taskFunc, context *stepContext) {
-	e.parallelForWithSide(itemCount, minRange, fn, nil, context)
-}
-
-// parallelForWithSide also runs sideFn once, on the last worker before its
-// range; with one worker sideFn runs first on the caller.
-func (e *executor) parallelForWithSide(itemCount, minRange int, fn taskFunc, sideFn func(*stepContext), context *stepContext) {
 	if e.activeWorkerCount() == 1 || itemCount <= minRange {
-		if sideFn != nil {
-			sideFn(context)
-		}
 		if itemCount > 0 {
 			fn(0, itemCount, 0, context)
 		}
@@ -204,7 +197,7 @@ func (e *executor) parallelForWithSide(itemCount, minRange int, fn taskFunc, sid
 	rangeSize := (itemCount + rangeCount - 1) / rangeCount
 	// The rounding of rangeSize can leave the last workers past the end.
 	rangeCount = (itemCount + rangeSize - 1) / rangeSize
-	e.command = executorCommand{fn: fn, sideFn: sideFn, context: context, rangeCount: rangeCount, rangeSize: rangeSize, itemCount: itemCount}
+	e.command = executorCommand{fn: fn, context: context, rangeCount: rangeCount, rangeSize: rangeSize, itemCount: itemCount}
 	e.publish()
 
 	fn(0, min(rangeSize, itemCount), 0, context)

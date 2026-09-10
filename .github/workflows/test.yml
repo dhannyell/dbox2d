@@ -114,6 +114,15 @@ jobs:
             echo "expected the wide family to require float mode, got $guard"
             exit 1
           fi
+          # b2ValidateSolverSets is empty unless B2_VALIDATE is set. The
+          # mutation paths must reach it through validateSolverSetsDebug, or
+          # a release build pays an O(bodies + joints + contacts) sweep per
+          # joint.
+          validate="$(grep -rln 'validateSolverSets(' --include=*.go . | grep -v '_test\.go' | grep -vE '^\./(world|validate_debug)\.go$' || true)"
+          if [ -n "$validate" ]; then
+            printf 'validateSolverSets must be reached through validateSolverSetsDebug:\n%s\n' "$validate"
+            exit 1
+          fi
       - name: Configure Wasm runner
         if: matrix.goarch == 'wasm'
         run: echo "$(go env GOROOT)/lib/wasm" >> "$GITHUB_PATH"
@@ -121,6 +130,11 @@ jobs:
       # timeout; the native jobs and the wide job cover them.
       - name: Test
         run: go test -timeout 600s -tags "${{ matrix.tags }}" -skip "${{ (matrix.goarch == 'wasm' && matrix.tags == 'dbox2d_float,dbox2d_simd') && 'TestConformance' || '^$' }}" ./...
+      # The gated validation is off in every other job, so it needs one job
+      # that actually runs it.
+      - name: Test with the solver-set validation on
+        if: matrix.goarch == 'amd64' && matrix.tags == 'dbox2d_float'
+        run: go test -timeout 600s -tags "${{ matrix.tags }},dbox2d_validate" ./...
 
   wide:
     name: wide (${{ matrix.path }})
