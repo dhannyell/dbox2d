@@ -103,9 +103,6 @@ turn, not a radian: `π/2` is `1/4`; a motor speed in rad/s goes through
 `radiansToTurns`. GUI sliders hold a `float64` and convert with
 `FromFloat64` when the value enters the world.
 
-A scene whose physics must not drift gets a checksum test in
-`sample_test.go`: step it sixty times and pin `dbox2d.Checksum`.
-
 ## Scenes
 
 **Stacking** (10): Single Box, Tilted Stack, Vertical Stack, Circle Stack,
@@ -121,6 +118,8 @@ Breakable, Separation, User Constraint, Driving, Ragdoll, Soft Body,
 Doohickey, Scissor Lift, Gear Lift, Door, Scale Ragdoll.
 
 **Bodies** (6): Body Type, Weeble, Sleep, Bad, Pivot, Kinematic.
+
+**Character** (1): Mover.
 
 The other categories of the reference are not ported yet. The scenes produce
 the same bits with any worker count.
