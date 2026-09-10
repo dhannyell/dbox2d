@@ -24,6 +24,7 @@ type world struct {
 	sensorTaskContexts []sensorTaskContext
 	workerCount        int
 	executor           executor
+	treeTask           treeTask
 	solverContext      stepContext
 	solverStages       []solverStage
 	bodyBlocks         []solverBlock
@@ -329,6 +330,7 @@ func CreateWorld(def *WorldDef) WorldId {
 // DestroyWorld destroys a world and every body and shape in it.
 func DestroyWorld(worldId WorldId) {
 	w := getWorldFromId(worldId)
+	w.treeTask.stop()
 	w.executor.stop()
 
 	destroyGraph(&w.constraintGraph)

@@ -176,6 +176,12 @@ func (worldId WorldId) Step(timeStep Q, subStepCount int) {
 		w.profile.Solve = millisecondsSince(solveStart)
 	}
 
+	// D-016: a zero time step skips the solve, so the refit never joined
+	// the tree rebuild. The reference leaks the task handle here and lets
+	// the sensor queries read a tree that is still being rebuilt; the port
+	// joins instead. Every other path has already joined, so this is free.
+	w.treeTask.wait()
+
 	sensorsStart := time.Now()
 	overlapSensors(context)
 	w.profile.Sensors = millisecondsSince(sensorsStart)
@@ -264,10 +270,75 @@ func collideTask(startIndex, endIndex, workerIndex int, context *stepContext) {
 	}
 }
 
-// rebuildTreesSide is the side task of collide. It corresponds to
-// b2UpdateTreesTask in src/world.c.
-func rebuildTreesSide(context *stepContext) {
-	context.world.broadPhase.rebuildTrees()
+// treeTask rebuilds the dynamic and the kinematic broad-phase trees beside
+// the rest of the step. It corresponds to the userTreeTask of src/world.c,
+// which the reference enqueues at the top of the narrow phase and only
+// finishes at the refit, so the rebuild overlaps the whole solve. The
+// worker pool cannot carry it: every parallel loop in between claims all
+// of its workers. So the rebuild gets a goroutine of its own, parked on a
+// channel between steps.
+//
+// Nothing reads the trees between start and wait. The narrow phase reads
+// the fat bounds off the shapes, the contact bookkeeping after it touches
+// the pair set, and the solver touches neither; the proxy enlarge, the
+// move buffer and the bullet queries all come after the refit joins.
+//
+// With one worker no goroutine is started: start records the world and
+// wait runs the rebuild, which is where the reference runs it too.
+type treeTask struct {
+	start   chan *world
+	done    chan struct{}
+	pending *world
+	running bool
+}
+
+// begin hands the rebuild to the task goroutine, or holds it for wait when
+// the world runs on a single worker.
+func (t *treeTask) begin(w *world) {
+	if w.executor.activeWorkerCount() == 1 {
+		t.pending = w
+		return
+	}
+	if t.start == nil {
+		t.start = make(chan *world, 1)
+		t.done = make(chan struct{}, 1)
+		go rebuildTreesLoop(t.start, t.done)
+	}
+	t.running = true
+	t.start <- w
+}
+
+// wait joins the rebuild. It is a no-op when none is outstanding, so every
+// path out of a step can call it.
+func (t *treeTask) wait() {
+	if t.pending != nil {
+		w := t.pending
+		t.pending = nil
+		w.broadPhase.rebuildTrees()
+		return
+	}
+	if !t.running {
+		return
+	}
+	<-t.done
+	t.running = false
+}
+
+// stop joins the rebuild and releases the goroutine.
+func (t *treeTask) stop() {
+	t.wait()
+	if t.start != nil {
+		close(t.start)
+		t.start = nil
+		t.done = nil
+	}
+}
+
+func rebuildTreesLoop(start chan *world, done chan struct{}) {
+	for w := range start {
+		w.broadPhase.rebuildTrees()
+		done <- struct{}{}
+	}
 }
 
 // addNonTouchingContact copies a sim that stopped touching into the awake
@@ -307,6 +378,12 @@ func removeNonTouchingContact(w *world, setIndex, localIndex int) {
 func collide(context *stepContext) {
 	w := context.world
 
+	// The rebuild starts before the contact count is even known, as in the
+	// reference: a world with no contacts still has trees to rebuild, and
+	// running it here lets it overlap the narrow phase and the solve.
+	w.taskCount++
+	w.treeTask.begin(w)
+
 	graphColors := &w.constraintGraph.colors
 	contactCount := 0
 	for i := range graphColorCount {
@@ -317,8 +394,6 @@ func collide(context *stepContext) {
 	contactCount += nonTouchingCount
 
 	if contactCount == 0 {
-		w.taskCount++
-		w.broadPhase.rebuildTrees()
 		return
 	}
 
@@ -343,10 +418,8 @@ func collide(context *stepContext) {
 		contactIndex++
 	}
 	context.contacts = w.contactPointers
-	// The tree rebuild rides beside the pass on the last worker; the
-	// reference lets it run until the refit.
-	w.taskCount += 2
-	w.executor.parallelForWithSide(contactCount, 64, collideTask, rebuildTreesSide, context)
+	w.taskCount++
+	w.executor.parallelFor(contactCount, 64, collideTask, context)
 	context.contacts = nil
 
 	// Serially update contact state

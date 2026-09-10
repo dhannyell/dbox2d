@@ -454,12 +454,14 @@ pair set moves from the world to the broadphase. `shape.go` gains
   `WorldId.SetCustomFilterCallback`.
 - The world wiring landed with the broadphase: a shape creates its
   proxy on creation and destroys it on destruction, `Step` updates the
-  pairs once the world locks, `collide` rebuilds the dynamic and the
-  kinematic trees first, the finalize marks the enlarged shapes and the
-  sims, and the refit after the hit events enlarges the proxies in sim
-  order. The rebuild runs on the last worker beside the collide pass and
-  finishes with it; the reference lets it run until the refit. One
-  worker runs it before the pass.
+  pairs once the world locks, `collide` starts the rebuild of the dynamic
+  and the kinematic trees first, the finalize marks the enlarged shapes
+  and the sims, and the refit after the hit events joins the rebuild and
+  enlarges the proxies in sim order. The rebuild runs on a goroutine of
+  its own and is joined at the refit, as the reference task is, so it
+  overlaps the narrow phase and the whole solve; the pool workers are all
+  claimed by the loops in between. One worker runs it at the join. See
+  D-016.
 - The default shape definition invokes contact creation, so a static
   shape joins the move buffer on creation, as upstream.
 - The determinism witness kept its value: the broadphase pairs the same

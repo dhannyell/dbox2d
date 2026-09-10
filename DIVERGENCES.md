@@ -519,8 +519,17 @@ Numbering is sequential from `D-001` and never reused.
   because its work stealing has no order. The pair nodes of a moved proxy
   live in the slice of the worker that queried it, and the move result
   records that worker. The island split runs on the last worker beside
-  the script and the tree rebuild beside the collide pass; with one
-  worker both run inline first. The workers spin between commands and
+  the script. The broad-phase tree rebuild is the one task the pool
+  cannot carry, because every parallel loop between its start and its
+  join claims all of the workers: it gets a goroutine of its own, parked
+  on a channel between steps, started at the top of the narrow phase and
+  joined at the refit, so it overlaps the narrow phase and the whole
+  solve as the reference task does. With one worker the island split runs
+  inline first and the rebuild runs inline at the join. A zero time step
+  skips the solve and so skips the refit; the port joins the rebuild
+  before the sensor overlap, where the reference leaks the task handle
+  and lets the sensor queries read a tree that is still being rebuilt.
+  The workers spin between commands and
   park after a while; a parked worker may take one runtime object when
   it wakes, so the allocation gate holds per step, not per process. A
   panic inside a step with several workers leaves the pool waiting on the
