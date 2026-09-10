@@ -121,6 +121,9 @@ Doohickey, Scissor Lift, Gear Lift, Door, Scale Ragdoll.
 
 **Character** (1): Mover.
 
+**Collision** (9): Shape Distance, Dynamic Tree, Ray Cast, Cast World,
+Overlap World, Manifold, Smooth Manifold, Shape Cast, Time of Impact.
+
 The other categories of the reference are not ported yet. The scenes produce
 the same bits with any worker count.
 
