@@ -51,7 +51,7 @@ jobs:
         if: (matrix.goarch == 'amd64' || matrix.goarch == 'wasm') && matrix.tags == ''
         shell: bash
         run: |
-          leaks="$(grep -rlE 'fixed\.(Q32(Zero|One|Half|FromInt|FromRatio|MustParse|MaxValue|MinValue)|RotIdentity|RotFromTurns|Atan2Turns)\(' --include=*.go --exclude=scalar_fixed.go --exclude=probe_q16_test.go --exclude=probe_wide_test.go . || true)"
+          leaks="$(grep -rlE 'fixed\.(Q32(Zero|One|Half|FromInt|FromRatio|MustParse|MaxValue|MinValue)|RotIdentity|RotFromTurns|Atan2Turns)\(' --include=*.go --exclude=scalar_fixed.go . || true)"
           if [ -n "$leaks" ]; then
             printf 'Files bypass the scalar layer:\n%s\n' "$leaks"
             exit 1
