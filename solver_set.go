@@ -27,11 +27,35 @@ type solverSet struct {
 	setIndex int
 }
 
-// destroySolverSet releases a set and returns its id to the pool.
+// destroySolverSet releases a set and returns its id to the pool. The
+// storage of its sim arrays goes to the spare set of the world, per D-010,
+// so that the next island to fall asleep can take it instead of allocating.
 func destroySolverSet(w *world, setIndex int) {
 	set := &w.solverSets[setIndex]
 	w.solverSetIdPool.freeId(setIndex)
+	spare := &w.spareSet
+	if cap(set.bodySims) > cap(spare.bodySims) {
+		spare.bodySims = set.bodySims[:0]
+	}
+	if cap(set.contactSims) > cap(spare.contactSims) {
+		spare.contactSims = set.contactSims[:0]
+	}
+	if cap(set.jointSims) > cap(spare.jointSims) {
+		spare.jointSims = set.jointSims[:0]
+	}
 	*set = solverSet{setIndex: nullIndex}
+}
+
+// takeSpare returns an empty slice with room for n elements. It hands over
+// the spare storage when that is large enough, and leaves the spare empty so
+// that two sets never share it; otherwise it allocates as the reference does.
+func takeSpare[T any](spare *[]T, n int) []T {
+	if n > 0 && cap(*spare) >= n {
+		s := (*spare)[:0]
+		*spare = nil
+		return s
+	}
+	return make([]T, 0, n)
 }
 
 // wakeSolverSet moves a sleeping set into the awake set. It does not merge
@@ -194,9 +218,9 @@ func trySleepIsland(w *world, islandId int) {
 	}
 
 	sleepSet.setIndex = sleepSetId
-	sleepSet.bodySims = make([]bodySim, 0, isl.bodyCount)
-	sleepSet.contactSims = make([]contactSim, 0, isl.contactCount)
-	sleepSet.jointSims = make([]jointSim, 0, isl.jointCount)
+	sleepSet.bodySims = takeSpare(&w.spareSet.bodySims, isl.bodyCount)
+	sleepSet.contactSims = takeSpare(&w.spareSet.contactSims, isl.contactCount)
+	sleepSet.jointSims = takeSpare(&w.spareSet.jointSims, isl.jointCount)
 
 	// move awake bodies to sleeping set
 	// this shuffles around bodies in the awake set

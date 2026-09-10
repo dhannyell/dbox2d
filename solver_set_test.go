@@ -3,6 +3,7 @@ package dbox2d
 import (
 	"reflect"
 	"testing"
+	"unsafe"
 )
 
 // pointerFieldPath returns the path of the first pointer-like field, or an empty string.
@@ -192,6 +193,38 @@ func TestWakeRestoresTheAwakeSet(t *testing.T) {
 	}
 	if ground.setIndex != awakeSet || len(w.solverSets[disabledSet].contactSims) != 0 {
 		t.Errorf("the non-touching contact is in set %d, want the awake set", ground.setIndex)
+	}
+	validateSolverSets(w)
+}
+
+// TestSleepReusesTheStorageOfTheLastWokenSet pins the spare set of D-010:
+// a set destroyed by a wake hands its sim storage to the next island that
+// falls asleep, and the spare lets go of it once a set owns it.
+func TestSleepReusesTheStorageOfTheLastWokenSet(t *testing.T) {
+	worldId := createTestWorld(t)
+	w := getWorldFromId(worldId)
+
+	idA, _, sleepIndex := sleepPair(t, w, worldId)
+	set := &w.solverSets[sleepIndex]
+	bodySims := unsafe.SliceData(set.bodySims)
+	contactSims := unsafe.SliceData(set.contactSims)
+
+	wakeSolverSet(w, sleepIndex)
+	if unsafe.SliceData(w.spareSet.bodySims) != bodySims || unsafe.SliceData(w.spareSet.contactSims) != contactSims {
+		t.Fatalf("the woken set did not hand its storage to the spare")
+	}
+
+	bodyA := getBodyFullId(w, idA)
+	trySleepIsland(w, bodyA.islandId)
+	set = &w.solverSets[bodyA.setIndex]
+	if unsafe.SliceData(set.bodySims) != bodySims || unsafe.SliceData(set.contactSims) != contactSims {
+		t.Errorf("the next sleeping set allocated instead of taking the spare")
+	}
+	if w.spareSet.bodySims != nil || w.spareSet.contactSims != nil {
+		t.Errorf("the spare still holds storage that a set owns")
+	}
+	if len(set.bodySims) != 2 || len(set.contactSims) != 1 {
+		t.Errorf("the sleeping set holds %d bodies and %d contacts, want 2 and 1", len(set.bodySims), len(set.contactSims))
 	}
 	validateSolverSets(w)
 }

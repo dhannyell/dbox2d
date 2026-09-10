@@ -34,6 +34,10 @@ type world struct {
 	contactPointers    []*contactSim
 	jointPointers      []*jointSim
 
+	// spareSet holds the sim storage of the last destroyed sleeping set, for
+	// the next island that falls asleep. Only its slices are used. See D-010.
+	spareSet solverSet
+
 	// constraintGraph colors the awake touching contacts.
 	constraintGraph constraintGraph
 
