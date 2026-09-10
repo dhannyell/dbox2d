@@ -930,7 +930,7 @@ func createJoint(w *world, bodyA, bodyB *body, userData any, drawSize Q, jointTy
 		linkJoint(w, j, mergeIslands)
 	}
 
-	validateSolverSets(w)
+	validateSolverSetsDebug(w)
 
 	return jointPair{j, js}
 }
@@ -969,7 +969,7 @@ func destroyContactsBetweenBodies(w *world, bodyA, bodyB *body) {
 		}
 	}
 
-	validateSolverSets(w)
+	validateSolverSetsDebug(w)
 }
 
 // getJointWorld returns the unlocked world of a joint definition and its
@@ -1362,7 +1362,7 @@ func destroyJointInternal(w *world, j *joint, wakeBodies bool) {
 		wakeBody(w, bodyB)
 	}
 
-	validateSolverSets(w)
+	validateSolverSetsDebug(w)
 }
 
 // DestroyJoint destroys a joint and wakes the two bodies.

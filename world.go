@@ -441,8 +441,13 @@ func (id ShapeId) IsValid() bool {
 }
 
 // validateSolverSets checks the bijection between the sparse arrays and the
-// solver sets. The reference compiles it only into validation builds; here
-// only the tests call it.
+// solver sets. It corresponds to b2ValidateSolverSets in src/world.c, which
+// the reference compiles to an empty body unless B2_VALIDATE is set.
+//
+// The tests call it directly. The mutation paths reach it through
+// validateSolverSetsDebug, which the dbox2d_validate build tag gates for the
+// same reason the reference gates it: the sweep is O(bodies + joints +
+// contacts) and createJoint runs it once per joint.
 func validateSolverSets(w *world) {
 	if w.bodyIdPool.idCapacity() != len(w.bodies) {
 		panic("dbox2d: the body pool and the body array disagree")
