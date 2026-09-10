@@ -13,6 +13,8 @@ type Gui interface {
 	Checkbox(label string, v *bool) bool
 	Button(label string) bool
 	Combo(label string, current *int, items []string) bool
+	RadioButton(label string, active bool) bool
+	Text(text string)
 }
 
 // NopGui is a headless GUI implementation.
@@ -25,3 +27,5 @@ func (NopGui) SliderInt(string, *int, int, int) bool               { return fals
 func (NopGui) Checkbox(string, *bool) bool                         { return false }
 func (NopGui) Button(string) bool                                  { return false }
 func (NopGui) Combo(string, *int, []string) bool                   { return false }
+func (NopGui) RadioButton(string, bool) bool                       { return false }
+func (NopGui) Text(string)                                         {}
