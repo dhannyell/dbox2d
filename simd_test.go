@@ -15,6 +15,21 @@ func TestWidePath(t *testing.T) {
 	}
 }
 
+// TestRollingBoundWKeepsATwoPointTotal pins the lane rolling bound when the
+// total of two points passes the lane range.
+func TestRollingBoundWKeepsATwoPointTotal(t *testing.T) {
+	rr := laneSplat(QFromRatio(1, 8))
+	total := laneSplat(QFromInt(20000)).toAcc().Add(laneSplat(QFromInt(20000)).toAcc())
+	var got [wideWidth]laneScalar
+	rollingBoundW(rr, total).store(&got)
+	want := QFromInt(5000)
+	for j := range wideWidth {
+		if !laneScalarToQ(got[j]).Eq(want) {
+			t.Fatalf("lane %d: the rolling bound is %v, want %v", j, laneScalarToQ(got[j]), want)
+		}
+	}
+}
+
 // TestWideConstraintCountRoundsUp keeps scalar contact grouping width-independent.
 func TestWideConstraintCountRoundsUp(t *testing.T) {
 	for _, n := range []int{0, 1, 4, 5, 8, 9, 17} {

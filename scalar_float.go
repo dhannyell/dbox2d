@@ -376,3 +376,6 @@ func (q Q) toQ() Q { return q }
 func (q Q) widen() Q { return q }
 
 func (q Q) narrow() Q { return q }
+
+// rollingBound returns the rolling resistance bound rr·total.
+func rollingBound(rr qc, total qa) qc { return rr.Mul(total) }

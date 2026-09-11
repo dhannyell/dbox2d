@@ -233,6 +233,16 @@ func TestFrictionSaturatesAtTheNormalImpulse(t *testing.T) {
 	}
 }
 
+// TestRollingBoundKeepsATwoPointTotal pins the rolling bound when the total
+// of two points passes the contact grid range.
+func TestRollingBoundKeepsATwoPointTotal(t *testing.T) {
+	rr := qcFrom(QFromRatio(1, 8))
+	total := qaFrom(QFromInt(40000))
+	if got, want := rollingBound(rr, total), qcFrom(QFromInt(5000)); !got.Eq(want) {
+		t.Fatalf("the rolling bound is %v, want %v", got.toQ(), want.toQ())
+	}
+}
+
 // TestRestitutionNeedsTheThreshold pins the restitution gate: a fall
 // faster than the threshold bounces to restitution times the approach
 // speed; a slower fall does not bounce.

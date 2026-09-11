@@ -438,7 +438,7 @@ func solveContactRange(startIndex, endIndex int, context *stepContext, constrain
 		{
 			deltaLambda := constraint.rollingMass.Neg().Mul(bodyB.w.Sub(bodyA.w).narrow())
 			lambda := constraint.rollingImpulse
-			maxLambda := constraint.rollingResistance.Mul(totalNormalImpulse.narrow())
+			maxLambda := rollingBound(constraint.rollingResistance, totalNormalImpulse)
 			constraint.rollingImpulse = lambda.Add(deltaLambda).Clamp(maxLambda.Neg(), maxLambda)
 			deltaLambda = constraint.rollingImpulse.Sub(lambda)
 

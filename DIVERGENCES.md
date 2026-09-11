@@ -724,7 +724,9 @@ Numbering is sequential from `D-001` and never reused.
   rounded to nearest. They compute each product on the grid and accumulate
   each velocity change and the total normal impulse in `qa`. The store writes
   the values back to the Q32.32 body state and manifold without rounding. The
-  order of operations does not change.
+  order of operations does not change. The rolling resistance bound multiplies
+  the two-point total in `qa` and narrows only the product, because that total
+  can pass the Q16 range while each point fits.
 
   In float mode `qc` and `qa` are aliases of `Q` and every conversion is the
   identity, so the float witness does not change. The Q16 range is ±32768. A

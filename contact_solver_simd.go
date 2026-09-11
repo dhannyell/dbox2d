@@ -437,7 +437,7 @@ func solveContactsTaskWide(startIndex, endIndex int, context *stepContext, color
 		if constraint.hasRolling {
 			deltaLambda := constraint.rollingMass.Neg().Mul(bodyB.w.SubBounded(bodyA.w).toLane())
 			lambda := constraint.rollingImpulse
-			maxLambda := constraint.rollingResistance.Mul(totalNormalImpulse.toLane())
+			maxLambda := rollingBoundW(constraint.rollingResistance, totalNormalImpulse)
 			newRollingImpulse := lambda.Add(deltaLambda)
 			newRollingImpulse = maxLambda.Neg().Max(maxLambda.Min(newRollingImpulse))
 			constraint.rollingImpulse = newRollingImpulse

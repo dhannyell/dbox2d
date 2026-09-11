@@ -45,3 +45,6 @@ func (a accW) AddBounded(b accW) accW { return a.Add(b) }
 
 // SubBounded returns the accumulator difference.
 func (a accW) SubBounded(b accW) accW { return a.Sub(b) }
+
+// rollingBoundW returns the rolling resistance bound rr·total per lane.
+func rollingBoundW(rr laneW, total accW) laneW { return rr.Mul(total) }

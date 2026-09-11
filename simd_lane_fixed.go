@@ -153,3 +153,13 @@ func (a accW) AddBounded(b accW) accW { return accW{v: a.v.AddWrap(b.v)} }
 
 // SubBounded subtracts under the same budget as AddBounded.
 func (a accW) SubBounded(b accW) accW { return accW{v: a.v.SubWrap(b.v)} }
+
+// rollingBoundW returns rr·total per lane and narrows only the product. The
+// total of two points can pass the Q16 range, so it enters as a high and a
+// low part.
+func rollingBoundW(rr laneW, total accW) laneW {
+	hi := total.toLane()
+	lo := total.Sub(hi.toAcc()).toLane()
+	zero := fixed.SplatLane48(fixed.Q48Zero())
+	return laneW{v: zero.MulAdd16Round(rr.v, hi.v).MulAdd16Round(rr.v, lo.v).ToLane16()}
+}

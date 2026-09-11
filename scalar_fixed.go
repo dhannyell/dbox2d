@@ -142,6 +142,14 @@ func (a qa) Add(b qa) qa  { return qa{a.v.Add(b.v)} }
 func (a qa) Sub(b qa) qa  { return qa{a.v.Sub(b.v)} }
 func (a qa) Eq(b qa) bool { return a.v.Eq(b.v) }
 
+// rollingBound returns rr·total and narrows only the product. The total of
+// two points can pass the Q16 range, so it enters as a high and a low part.
+func rollingBound(rr qc, total qa) qc {
+	hi := total.narrow()
+	lo := total.Sub(hi.widen()).narrow()
+	return qc{fixed.Q48Zero().MulAdd16Round(rr.v, hi.v).MulAdd16Round(rr.v, lo.v).ToQ16()}
+}
+
 func (v vec2c) Add(o vec2c) vec2c { return vec2c{X: v.X.Add(o.X), Y: v.Y.Add(o.Y)} }
 func (v vec2c) Sub(o vec2c) vec2c { return vec2c{X: v.X.Sub(o.X), Y: v.Y.Sub(o.Y)} }
 func (v vec2c) Mul(s qc) vec2c    { return vec2c{X: v.X.Mul(s), Y: v.Y.Mul(s)} }
