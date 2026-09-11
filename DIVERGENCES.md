@@ -321,9 +321,17 @@ Numbering is sequential from `D-001` and never reused.
   `BodyId.GetContactData`, `ShapeId.GetContactData`,
   `ChainId.GetSegments` and `ShapeId.GetSensorOverlaps` each take a
   caller-owned slice and return how many entries they wrote, stopping
-  early when the slice is shorter than the available data.
+  early when the slice is shorter than the available data. A destroyed
+  solver set hands its sim storage to a spare slot of the world, and the
+  next island that falls asleep takes it when it is large enough; the
+  reference frees the arrays of a destroyed set and allocates fresh ones
+  for the next sleeping set. Go zeroes every new slice and collects the old
+  one, which in a world that wakes and sleeps a large island many times per
+  step cost more than moving the island. Only the storage is shared: a set
+  that takes it starts empty, and the spare never backs two sets at once.
 - Test: TestCreateAndDestroyOrdersProduceTheSameWorld and
   TestSleepingBodyGetsItsOwnSolverSet in world_test.go,
+  TestSleepReusesTheStorageOfTheLastWokenSet in solver_set_test.go,
   TestStepAllocatesNothing and TestStepBulletStopsAtADynamicPlate in
   step_test.go, TestShapeDistanceWarmStartsFromTheCache in
   distance_test.go, TestCreateChainOpenBuildsSegmentsWithGhosts and

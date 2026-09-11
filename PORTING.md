@@ -424,10 +424,16 @@ box query, the ray cast and the rebuild.
   centroid extent is a fixed-point division, and zero when the extent is
   zero.
 - `b2DynamicTree_ShapeCast` landed with order 32.
-  `b2DynamicTree_GetAreaRatio` and `b2DynamicTree_GetByteCount`
-  do not cross. They serve profiling views, not the simulation.
-- The validators exist, but only the tests call them. The reference
-  compiles them into validation builds only.
+  `b2DynamicTree_GetByteCount` does not cross. It serves profiling
+  views, not the simulation.
+- The public `DynamicTree` wraps the tree for standalone use, as the
+  reference exports `b2DynamicTree` from `collision.h`. It landed with
+  the Dynamic Tree sample, its first consumer, together with
+  `b2DynamicTree_GetAreaRatio`.
+- The validators exist. The tests call them directly; `DynamicTree.Validate`
+  and `DynamicTree.ValidateNoEnlarged` run them only under
+  `-tags dbox2d_validate`, as the reference compiles them into validation
+  builds only.
 
 **Order 30 has landed**: `broad_phase.go` gains the three trees, the
 move set and array, the pair query with its rules, the pair results from

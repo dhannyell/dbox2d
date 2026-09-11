@@ -97,6 +97,23 @@ func (g gui) Combo(label string, current *int, items []string) bool {
 	return changed
 }
 
+func (g gui) RadioButton(label string, active bool) bool {
+	g.mu.LayoutRow(1, []int{-1}, 0)
+	return g.mu.Button(radioLabel(label, active))
+}
+
+func radioLabel(label string, active bool) string {
+	if active {
+		return "* " + label
+	}
+	return label
+}
+
+func (g gui) Text(text string) {
+	g.mu.LayoutRow(1, []int{-1}, 0)
+	g.mu.Label(text)
+}
+
 func comboLabel(index, current int, item string) string {
 	if index == current {
 		return "* " + item
