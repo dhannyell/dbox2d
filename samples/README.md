@@ -136,6 +136,9 @@ Body Move, Sensor Types.
 
 **Geometry** (1): Convex Hull.
 
+**Robustness** (6): HighMassRatio1, HighMassRatio2, HighMassRatio3, Overlap
+Recovery, Tiny Pyramid, Cart.
+
 The other categories of the reference are not ported yet. The scenes produce
 the same bits with any worker count.
 
