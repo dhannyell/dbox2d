@@ -27,6 +27,12 @@ func laneScalarFromQ(q Q) laneScalar { return q.ToQ16Round() }
 // laneScalarToQ widens a lane element back to a scalar-mode value.
 func laneScalarToQ(s laneScalar) Q { return s.ToQ32() }
 
+// accScalar is the element type the accumulator stores.
+type accScalar = fixed.Q48
+
+// accScalarToQ converts an accumulator element back to a scalar-mode value.
+func accScalarToQ(s accScalar) Q { return s.ToQ32() }
+
 // signedZeroSurvives is false because fixed lanes have one zero: a block that
 // only adds zero can be skipped.
 const signedZeroSurvives = false
@@ -123,6 +129,9 @@ func (a laneW) toAcc() accW { return accW{v: a.v.ToLane48()} }
 
 // toLane narrows an accumulator back to a lane, with Q16 saturation.
 func (a accW) toLane() laneW { return laneW{v: a.v.ToLane16()} }
+
+// store writes the accumulator without narrowing it.
+func (a accW) store(p *[wideWidth]accScalar) { a.v.Store(p) }
 
 // Add returns the lane-wise accumulator sum, with Q48 saturation.
 func (a accW) Add(b accW) accW { return accW{v: a.v.Add(b.v)} }

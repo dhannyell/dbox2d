@@ -51,7 +51,6 @@ func prepareContactsTaskWide(startIndex, endIndex int, context *stepContext) {
 		)
 
 		constraint := &context.contactConstraintsWide[i]
-		used := 0
 		// Float lanes never skip: the skipped blocks would store +0 where
 		// they write -0, and the checksum reads the sign bit.
 		anyRolling := signedZeroSurvives
@@ -64,7 +63,6 @@ func prepareContactsTaskWide(startIndex, endIndex int, context *stepContext) {
 				continue
 			}
 
-			used++
 			manifold := &contact.manifold
 			pointCount := manifold.PointCount
 			if pointCount <= 0 || pointCount > 2 {
@@ -263,7 +261,7 @@ func solveContactsTaskWide(startIndex, endIndex int, context *stepContext, color
 	states := context.states
 	constraints := context.graph.colors[colorIndex].contactConstraintsWide
 	invH := laneSplat(context.invH)
-	minBiasVelocity := laneSplat(context.world.contactSpeed.Neg())
+	minBiasVelocity := laneSplat(context.world.contactSpeed).Neg()
 	zero := laneZero()
 	one := laneSplat(QOne())
 	tauW := laneSplat(tau)
@@ -560,7 +558,7 @@ func storeImpulsesTaskWide(startIndex, endIndex int, context *stepContext) {
 			rollingImpulse                           [wideWidth]laneScalar
 			normalImpulse1, normalImpulse2           [wideWidth]laneScalar
 			tangentImpulse1, tangentImpulse2         [wideWidth]laneScalar
-			totalNormalImpulse1, totalNormalImpulse2 [wideWidth]laneScalar
+			totalNormalImpulse1, totalNormalImpulse2 [wideWidth]accScalar
 			relativeVelocity1, relativeVelocity2     [wideWidth]laneScalar
 		)
 		constraint.rollingImpulse.store(&rollingImpulse)
@@ -568,8 +566,8 @@ func storeImpulsesTaskWide(startIndex, endIndex int, context *stepContext) {
 		constraint.normalImpulse2.store(&normalImpulse2)
 		constraint.tangentImpulse1.store(&tangentImpulse1)
 		constraint.tangentImpulse2.store(&tangentImpulse2)
-		constraint.totalNormalImpulse1.toLane().store(&totalNormalImpulse1)
-		constraint.totalNormalImpulse2.toLane().store(&totalNormalImpulse2)
+		constraint.totalNormalImpulse1.store(&totalNormalImpulse1)
+		constraint.totalNormalImpulse2.store(&totalNormalImpulse2)
 		constraint.relativeVelocity1.store(&relativeVelocity1)
 		constraint.relativeVelocity2.store(&relativeVelocity2)
 
@@ -585,12 +583,12 @@ func storeImpulsesTaskWide(startIndex, endIndex int, context *stepContext) {
 				if pointIndex == 0 {
 					manifold.Points[pointIndex].NormalImpulse = laneScalarToQ(normalImpulse1[laneIndex])
 					manifold.Points[pointIndex].TangentImpulse = laneScalarToQ(tangentImpulse1[laneIndex])
-					manifold.Points[pointIndex].TotalNormalImpulse = laneScalarToQ(totalNormalImpulse1[laneIndex])
+					manifold.Points[pointIndex].TotalNormalImpulse = accScalarToQ(totalNormalImpulse1[laneIndex])
 					manifold.Points[pointIndex].NormalVelocity = laneScalarToQ(relativeVelocity1[laneIndex])
 				} else {
 					manifold.Points[pointIndex].NormalImpulse = laneScalarToQ(normalImpulse2[laneIndex])
 					manifold.Points[pointIndex].TangentImpulse = laneScalarToQ(tangentImpulse2[laneIndex])
-					manifold.Points[pointIndex].TotalNormalImpulse = laneScalarToQ(totalNormalImpulse2[laneIndex])
+					manifold.Points[pointIndex].TotalNormalImpulse = accScalarToQ(totalNormalImpulse2[laneIndex])
 					manifold.Points[pointIndex].NormalVelocity = laneScalarToQ(relativeVelocity2[laneIndex])
 				}
 			}

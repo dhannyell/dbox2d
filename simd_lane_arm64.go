@@ -20,6 +20,12 @@ func laneScalarFromQ(q Q) laneScalar { return q.v }
 // laneScalarToQ converts a lane element back to a scalar-mode value.
 func laneScalarToQ(s laneScalar) Q { return Q{v: s} }
 
+// accScalar is the element type the accumulator stores.
+type accScalar = laneScalar
+
+// accScalarToQ converts an accumulator element back to a scalar-mode value.
+func accScalarToQ(s accScalar) Q { return laneScalarToQ(s) }
+
 // signedZeroSurvives is true because float lanes keep a sign on zero:
 // skipping a block that only adds zero could change a stored bit.
 const signedZeroSurvives = true

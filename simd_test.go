@@ -113,40 +113,70 @@ func TestWideMatchesScalarStepByStep(t *testing.T) {
 	}
 	defer func() { wideEnabled = wideAvailable() }()
 
-	scalarWorld := createTestWorld(t)
-	wideWorld := createTestWorld(t)
-	buildChecksumWitness(t, scalarWorld)
-	buildChecksumWitness(t, wideWorld)
-	dt := stepDt()
-	for step := range 120 {
-		wideEnabled = false
-		scalarWorld.Step(dt, 4)
-		wideEnabled = true
-		wideWorld.Step(dt, 4)
-		if scalarChecksum, wideChecksum := Checksum(scalarWorld), Checksum(wideWorld); scalarChecksum != wideChecksum {
-			scalarState := getWorldFromId(scalarWorld)
-			wideState := getWorldFromId(wideWorld)
-			for i := range scalarState.bodies {
-				if scalarState.bodies[i].id == nullIndex {
-					continue
-				}
-				if checksumBody(scalarState, &scalarState.bodies[i]) != checksumBody(wideState, &wideState.bodies[i]) {
-					sb := &scalarState.bodies[i]
-					wb := &wideState.bodies[i]
-					t.Logf("body %d scalar sim=%#v state=%#v", i, scalarState.solverSets[sb.setIndex].bodySims[sb.localIndex], scalarState.solverSets[sb.setIndex].bodyStates[sb.localIndex])
-					t.Logf("body %d wide   sim=%#v state=%#v", i, wideState.solverSets[wb.setIndex].bodySims[wb.localIndex], wideState.solverSets[wb.setIndex].bodyStates[wb.localIndex])
+	for _, scene := range []struct {
+		name  string
+		build func(*testing.T, WorldId)
+	}{
+		{"witness", buildChecksumWitness},
+		// Each landing impulse fits Q16, but its per-step totals do not.
+		{"heavy landing", buildHeavyLanding},
+	} {
+		t.Run(scene.name, func(t *testing.T) {
+			scalarWorld := createTestWorld(t)
+			wideWorld := createTestWorld(t)
+			scene.build(t, scalarWorld)
+			scene.build(t, wideWorld)
+			dt := stepDt()
+			for step := range 120 {
+				wideEnabled = false
+				scalarWorld.Step(dt, 4)
+				wideEnabled = true
+				wideWorld.Step(dt, 4)
+				if scalarChecksum, wideChecksum := Checksum(scalarWorld), Checksum(wideWorld); scalarChecksum != wideChecksum {
+					scalarState := getWorldFromId(scalarWorld)
+					wideState := getWorldFromId(wideWorld)
+					for i := range scalarState.bodies {
+						if scalarState.bodies[i].id == nullIndex {
+							continue
+						}
+						if checksumBody(scalarState, &scalarState.bodies[i]) != checksumBody(wideState, &wideState.bodies[i]) {
+							sb := &scalarState.bodies[i]
+							wb := &wideState.bodies[i]
+							t.Logf("body %d scalar sim=%#v state=%#v", i, scalarState.solverSets[sb.setIndex].bodySims[sb.localIndex], scalarState.solverSets[sb.setIndex].bodyStates[sb.localIndex])
+							t.Logf("body %d wide   sim=%#v state=%#v", i, wideState.solverSets[wb.setIndex].bodySims[wb.localIndex], wideState.solverSets[wb.setIndex].bodyStates[wb.localIndex])
+						}
+					}
+					for i := range scalarState.contacts {
+						if scalarState.contacts[i].contactId == nullIndex {
+							continue
+						}
+						if checksumContact(scalarState, &scalarState.contacts[i]) != checksumContact(wideState, &wideState.contacts[i]) {
+							t.Logf("contact %d scalar=%#v", i, getContactSim(scalarState, &scalarState.contacts[i]).manifold)
+							t.Logf("contact %d wide  =%#v", i, getContactSim(wideState, &wideState.contacts[i]).manifold)
+						}
+					}
+					t.Fatalf("step %d: wide checksum %d, scalar checksum %d", step+1, wideChecksum, scalarChecksum)
 				}
 			}
-			for i := range scalarState.contacts {
-				if scalarState.contacts[i].contactId == nullIndex {
-					continue
-				}
-				if checksumContact(scalarState, &scalarState.contacts[i]) != checksumContact(wideState, &wideState.contacts[i]) {
-					t.Logf("contact %d scalar=%#v", i, getContactSim(scalarState, &scalarState.contacts[i]).manifold)
-					t.Logf("contact %d wide  =%#v", i, getContactSim(wideState, &wideState.contacts[i]).manifold)
-				}
-			}
-			t.Fatalf("step %d: wide checksum %d, scalar checksum %d", step+1, wideChecksum, scalarChecksum)
-		}
+		})
 	}
+}
+
+// buildHeavyLanding drops a 2000 kg box onto the ground at 20 m/s.
+func buildHeavyLanding(t *testing.T, worldId WorldId) {
+	t.Helper()
+	groundDef := DefaultBodyDef()
+	groundId := CreateBody(worldId, &groundDef)
+	shapeDef := DefaultShapeDef()
+	ground := MakeBox(QFromInt(10), QOne())
+	CreatePolygonShape(groundId, &shapeDef, &ground)
+
+	bodyDef := DefaultBodyDef()
+	bodyDef.Type = DynamicBody
+	bodyDef.Position = v2(0, 4)
+	bodyDef.LinearVelocity = v2(0, -20)
+	bodyId := CreateBody(worldId, &bodyDef)
+	shapeDef.Density = QFromInt(500) // 2 m x 2 m, so 2000 kg
+	box := MakeSquare(QOne())
+	CreatePolygonShape(bodyId, &shapeDef, &box)
 }
