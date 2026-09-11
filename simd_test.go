@@ -144,7 +144,11 @@ func TestWideMatchesScalarStepByStep(t *testing.T) {
 		build func(*testing.T, WorldId)
 	}{
 		{"witness", buildChecksumWitness},
-		// Each landing impulse fits Q16, but its per-step totals do not.
+		// Each landing impulse fits Q16, but the totals of the landing step
+		// do not; see TestFastLandingTotalsPassQ16.
+		{"fast landing", buildFastLanding},
+		// The 2000 kg box is outside the lane window; its contact solves in
+		// Q32 in both families.
 		{"heavy landing", buildHeavyLanding},
 		// One color holds a lane contact and a Q32 contact.
 		{"mixed grid", buildMixedGrid},
@@ -229,16 +233,6 @@ func buildMixedRestitution(t *testing.T, worldId WorldId) {
 	boxWithRestitution(worldId, Vec2{X: QOne(), Y: QHalf()}, QZero())
 	boxWithRestitution(worldId, Vec2{X: QFromInt(3), Y: QHalf()}, QHalf())
 	heavyBox(worldId, Vec2{Y: QOne().Add(QHalf())}, Vec2{})
-}
-
-// wideGround adds a static 20 m ground with its top at y = 0.
-func wideGround(worldId WorldId) {
-	groundDef := DefaultBodyDef()
-	groundDef.Position = Vec2{Y: QHalf().Neg()}
-	groundId := CreateBody(worldId, &groundDef)
-	shapeDef := DefaultShapeDef()
-	ground := MakeBox(QFromInt(10), QHalf())
-	CreatePolygonShape(groundId, &shapeDef, &ground)
 }
 
 // boxWithRestitution adds a unit box of the default density at the position.

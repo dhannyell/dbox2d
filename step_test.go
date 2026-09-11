@@ -476,6 +476,67 @@ func heavyBox(worldId WorldId, position, velocity Vec2) BodyId {
 	return boxId
 }
 
+// wideGround adds a static 20 m ground with its top at y = 0.
+func wideGround(worldId WorldId) {
+	groundDef := DefaultBodyDef()
+	groundDef.Position = Vec2{Y: QHalf().Neg()}
+	groundId := CreateBody(worldId, &groundDef)
+	shapeDef := DefaultShapeDef()
+	ground := MakeBox(QFromInt(10), QHalf())
+	CreatePolygonShape(groundId, &shapeDef, &ground)
+}
+
+// buildFastLanding drops a 50 kg unit box onto the ground at 800 m/s, above
+// the default speed cap. The box stays inside the lane window.
+func buildFastLanding(t *testing.T, worldId WorldId) {
+	t.Helper()
+	worldId.SetMaximumLinearSpeed(QFromInt(1000))
+	wideGround(worldId)
+	boxDef := DefaultBodyDef()
+	boxDef.Type = DynamicBody
+	boxDef.Position = Vec2{Y: QHalf().Add(QMustParse("0.01"))}
+	boxDef.LinearVelocity = Vec2{Y: QFromInt(-800)}
+	boxId := CreateBody(worldId, &boxDef)
+	shapeDef := DefaultShapeDef()
+	shapeDef.Density = QFromInt(50)
+	unit := MakeBox(QHalf(), QHalf())
+	CreatePolygonShape(boxId, &shapeDef, &unit)
+}
+
+// TestFastLandingTotalsPassQ16 pins what the fast landing exercises: no
+// contact value saturates, and the totals of the landing step pass the Q16
+// range of the contact grid.
+func TestFastLandingTotalsPassQ16(t *testing.T) {
+	worldId := createTestWorld(t)
+	w := getWorldFromId(worldId)
+	buildFastLanding(t, worldId)
+
+	before := saturationCount()
+	worldId.Step(stepDt(), 4)
+	if n := saturationCount() - before; n != 0 {
+		t.Fatalf("the landing saturated %d times", n)
+	}
+
+	q16Range := QFromInt(1 << 15)
+	points := 0
+	for i := range w.contacts {
+		c := &w.contacts[i]
+		if c.setIndex != awakeSet {
+			continue
+		}
+		m := &getContactSim(w, c).manifold
+		for k := range m.PointCount {
+			if total := m.Points[k].TotalNormalImpulse; !total.Greater(q16Range) {
+				t.Errorf("point %d: the total impulse is %v, want above %v", k, total, q16Range)
+			}
+			points++
+		}
+	}
+	if points != 2 {
+		t.Fatalf("the landing has %d points, want 2", points)
+	}
+}
+
 // TestHeavyBoxRestsOnTheGround lands a 200000 kg box and slides another one
 // to a stop. A contact grid without the range for the inverse mass would let
 // the box sink or drift.
