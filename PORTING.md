@@ -630,6 +630,11 @@ D-014 grew entries.
 | `include/box2d/box2d.h` | public API | T0/T2 | all stages | 34 | Landed. The whole 3.1.1 surface is ported; see the surface note above, D-014 and D-015. |
 | `src/joint.h`, `src/joint.c` | `joint.go` | T0/T2 | joints | 33 | Landed. Types, definitions, storage, creation, destruction, the island and graph hooks, the set transfers and the prepare, warm start and solve dispatch. Accessors landed with order 34; debug draw and dump do not cross. See D-003, D-004 and D-006. |
 | `src/distance_joint.c`, `src/motor_joint.c`, `src/mouse_joint.c`, `src/prismatic_joint.c`, `src/revolute_joint.c`, `src/weld_joint.c`, `src/wheel_joint.c` | one file each | T0/T2 | joints | 33 | Landed. Force and torque reports, prepare, warm start and solve of each type; the filter joint has no solver. Accessors landed with order 34; debug draw and dump do not cross. See D-004, D-006 and D-009. |
+| `src/distance.c` (simplex solver, shape cast, time of impact), `src/solver.c` (continuous stage) | `distance.go`, `solver.go` | T0/T2 | manifolds | 32 | Landed. The only iterative geometry in the library. Each stopping criterion keeps its form; the tests pin the iteration bounds, a float64 mirror and a bit witness. |
+| `src/sensor.h`, `src/sensor.c` | `sensor.go` | T0/T2 | surface | 34 | Landed. Double-buffered overlap sets, begin and end touch events, `WorldId.GetSensorEvents`. The overlap test is an exact zero distance; see D-012. |
+| `src/mover.c` | `mover.go` | T0/T2 | surface | 34 | Landed. `SolvePlanes`, `ClipVector`, the four `CollideMoverAnd*` functions and `WorldId.CollideMover`. The rigid push limit is `Huge`, not `FLT_MAX`; see D-009 and D-014. |
+| `src/timer.c` | `time` package (`step.go`) | T2 | — | — | The standard clock replaces the platform timers; the profile is its only consumer. Timing never enters a deterministic result. |
+| `src/CMakeLists.txt`, `src/box2d.natvis` | none | — | — | — | Build system and debugger visualizers do not apply. |
 
 ### Port-only files
 
@@ -647,11 +652,6 @@ upstream counterpart; each one carries the tag that selects it.
 | `simd_lane_amd64.go`, `simd_lane_arm64.go`, `simd_lane_wasm.go`, `simd_lane_generic.go`, `simd_lane_float.go`, `simd_lane_float_archsimd.go`, `simd_lane_gather_generic.go` | `dbox2d_simd && !dbox2d_fixed` plus the target | The float lanes: one width and vector type per target, the shared lane algebra, and the body gather of each path. See D-019. |
 | `simd_lane_fixed.go` | `dbox2d_simd && dbox2d_fixed` | The fixed lanes and their body gather, over the fixed module. See D-019. |
 | `executor.go`, `executor_wasm.go`, `executor_pool.go`, `spin_asm.go`, `spin_stub.go` | target | The worker pool and its spin wait; the reference leaves the task system to the caller. See D-016. |
-| `src/distance.c` (simplex solver, shape cast, time of impact), `src/solver.c` (continuous stage) | `distance.go`, `solver.go` | T0/T2 | manifolds | 32 | Landed. The only iterative geometry in the library. Each stopping criterion keeps its form; the tests pin the iteration bounds, a float64 mirror and a bit witness. |
-| `src/sensor.h`, `src/sensor.c` | `sensor.go` | T0/T2 | surface | 34 | Landed. Double-buffered overlap sets, begin and end touch events, `WorldId.GetSensorEvents`. The overlap test is an exact zero distance; see D-012. |
-| `src/mover.c` | `mover.go` | T0/T2 | surface | 34 | Landed. `SolvePlanes`, `ClipVector`, the four `CollideMoverAnd*` functions and `WorldId.CollideMover`. The rigid push limit is `Huge`, not `FLT_MAX`; see D-009 and D-014. |
-| `src/timer.c` | `time` package (`step.go`) | T2 | — | — | The standard clock replaces the platform timers; the profile is its only consumer. Timing never enters a deterministic result. |
-| `src/CMakeLists.txt`, `src/box2d.natvis` | none | — | — | — | Build system and debugger visualizers do not apply. |
 
 ## Conformance
 
