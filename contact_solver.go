@@ -52,7 +52,8 @@ func contactSoftFrom(s softness) contactSoft {
 
 // The prepare stage computes in Q and rounds each result to the contact
 // grid. The other stages compute on the grid and accumulate the body
-// velocities in qa, so small impulses are not lost against a large velocity.
+// velocities and the total normal impulse in qa: the same grid with more
+// integer range, so a sum does not saturate.
 
 // D-004: the body state keeps the angular velocity in turns per second.
 // The solver works in radians per second, so each stage scales the

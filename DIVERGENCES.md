@@ -532,7 +532,7 @@ Numbering is sequential from `D-001` and never reused.
   and the mixing callbacks run on worker goroutines, as in the reference.
   `Counters.TaskCount` counts the tasks of the last step and does not
   depend on the worker count. The stage is the
-  seam: a wide or a GPU family replaces the body of one stage and keeps
+  seam: a SIMD or a GPU family replaces the body of one stage and keeps
   the script.
 - Test: TestStepIsWorkerCountIndependent in checksum_test.go,
   TestSensorEventsAreWorkerCountIndependent in sensor_test.go,
@@ -641,24 +641,24 @@ Numbering is sequential from `D-001` and never reused.
   contactSpeed; the fix changed both witnesses.
 - Test: TestConformance in conformance_test.go
 
-### D-019 Wide contact family
+### D-019 SIMD contact family
 
 - Files: simd.go, simd_common.go, simd_off.go, simd_lane_amd64.go,
   simd_lane_arm64.go, simd_lane_wasm.go, simd_lane_generic.go,
   simd_lane_fixed.go, simd_lane_gather_amd64.go, simd_lane_gather_generic.go,
   simd_lane_gather_fixed.go, contact_solver_simd.go
 - Tier: T2
-- Reason: the reference selects a wide `Task` family with `B2_SIMD_WIDTH` lanes
+- Reason: the reference selects a SIMD `Task` family with `B2_SIMD_WIDTH` lanes
   at compile time, including an `B2_SIMD_NONE` variant that keeps four scalar
   lanes with no vector instructions. The port has no scalar-lane variant: its
   oracle is the scalar family in solver.go, applied to every color the same way
-  it applies to the overflow color. A wide lane also needs a fixed number of
+  it applies to the overflow color. A SIMD lane also needs a fixed number of
   contacts per call, and a color rarely holds a multiple of the lane width.
 - Behaviour: the `dbox2d_simd` tag adds a second contact-solving path beside
   the scalar family, in both modes. Contacts of
   each color are padded to a multiple of the lane width; the padding lanes
   hold a null contact index and an identity body state, and the store step
-  never writes them back. The solver stage table sizes each color's wide
+  never writes them back. The solver stage table sizes each color's SIMD
   constraint block by `⌈n/width⌉`, mirroring the reference
   `colorContactCountSIMD`. On avx2, the gather loads each `bodyState` as one
   32-byte row; its `flags` field is `int32` for that reason, and the reference
@@ -677,7 +677,7 @@ Numbering is sequential from `D-001` and never reused.
   path, where the reference `b2MulAddW` is unfused on SSE2 and AVX2 but fused
   through `vmlaq_f32` on NEON. `Min` and `Max` are compare-and-select, so a
   signed-zero tie follows the same `if a < b` rule as the scalar family. The
-  result is that the wide family is bit-identical to the scalar family, and
+  result is that the SIMD family is bit-identical to the scalar family, and
   therefore bit-identical across ISAs, where the reference is not. There is no
   SSE2 path. A velocity component that is exactly -0 becomes +0 when it
   passes an empty second manifold point or a masked restitution lane, because
@@ -694,7 +694,8 @@ Numbering is sequential from `D-001` and never reused.
   Q48 overflow check, because their budget stays far inside the Q48 range
   (`AddBounded`). A pack with no rolling resistance and no stored rolling
   impulse skips the rolling blocks, which would only add zero. Float mode
-  keeps them, because there a skipped block can change the sign of a zero.
+  keeps them, because there a skipped block can change the sign of a zero. The
+  two families match while no contact value saturates (D-020).
 - Test: TestWidePath, TestWideMatchesScalarStepByStep,
   TestWideStagesRunWithColoredContacts
   and TestWideContactLayoutPadsEachColor in simd_test.go, in both modes;
@@ -708,9 +709,9 @@ Numbering is sequential from `D-001` and never reused.
 
 - Files: contact_solver.go, scalar_fixed.go, scalar_float.go
 - Tier: T2
-- Reason: a fixed-point wide lane holds Q16.16 values, so a Q32.32 contact
+- Reason: a fixed-point SIMD lane holds Q16.16 values, so a Q32.32 contact
   solver could never match it bit for bit. The scalar family is the oracle of
-  the wide family (D-019), so both families solve contacts on the same grid.
+  the SIMD family (D-019), so both families solve contacts on the same grid.
 - Behaviour: in fixed mode the contact stages use `qc`, a Q16.16 value whose
   products round to nearest, and `qa`, a Q48.16 accumulator with the same 16
   fraction bits. The prepare stage computes in Q32.32, as before, and rounds

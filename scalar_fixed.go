@@ -5,9 +5,9 @@ package dbox2d
 import "github.com/dhannyell/fixed"
 
 // The library has one scalar per build mode. This file is the fixed-point
-// mode: Q32.32 from github.com/dhannyell/fixed. It is the only file of the
-// library that imports that module; every other file builds its numbers
-// through the constructors below.
+// mode: Q32.32 from github.com/dhannyell/fixed. Apart from the fixed SIMD
+// lanes, it is the only file of the library that imports that module; every
+// other file builds its numbers through the constructors below.
 
 type (
 	// Q is a signed Q32.32 fixed-point number.

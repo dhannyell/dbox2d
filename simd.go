@@ -19,8 +19,8 @@ type contactConstraintWide struct {
 	normal                                    vec2W
 	friction, tangentSpeed, rollingResistance laneW
 	rollingMass                               laneW
-	// The warm-started impulses stay in Q16, since every stage uses them in
-	// lane form. Only the totals need the Q48 range.
+	// The warm-started impulses stay on the lane grid, since every stage uses
+	// them in lane form. Only the totals need the accumulator range.
 	rollingImpulse                             laneW
 	biasRate, massScale, impulseScale          laneW
 	anchorA1, anchorB1                         vec2W

@@ -2,7 +2,7 @@
 
 [![Tumbler in the browser host](web/tumbler.png)](https://dhannyell.github.io/dbox2d/)
 
-**Live demo: [fixed mode](https://dhannyell.github.io/dbox2d/) · [float mode](https://dhannyell.github.io/dbox2d/?mode=fixed)** — the browser host on GitHub Pages, built from `main` by `pages.yml`. It needs a browser with WebGPU. `?mode=fixed` picks the float build; the tab title names the mode that runs.
+**Live demo: [float mode](https://dhannyell.github.io/dbox2d/) · [fixed mode](https://dhannyell.github.io/dbox2d/?mode=fixed)** — the browser host on GitHub Pages, built from `main` by `pages.yml`. It needs a browser with WebGPU. `?mode=fixed` picks the fixed build; the tab title names the mode that runs.
 
 The sample scenes of Box2D v3.1.1, ported to `dbox2d`. A scene builds a
 world, steps it and asks the world to draw itself. A host renders the

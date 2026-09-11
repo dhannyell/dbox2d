@@ -130,8 +130,9 @@ func (a accW) Add(b accW) accW { return accW{v: a.v.Add(b.v)} }
 // Sub returns the lane-wise accumulator difference, with Q48 saturation.
 func (a accW) Sub(b accW) accW { return accW{v: a.v.Sub(b.v)} }
 
-// AddBounded adds without the overflow check. Velocities stay below 2^18 and
-// impulse totals below 2^23 at 64 substeps, far inside the Q48 range.
+// AddBounded adds without the overflow check. Each stage reloads the
+// velocities from Q16 and adds a few Q16 terms, and a total gains a few per
+// substep, so no sum nears the Q48 range.
 func (a accW) AddBounded(b accW) accW { return accW{v: a.v.AddWrap(b.v)} }
 
 // SubBounded subtracts under the same budget as AddBounded.
