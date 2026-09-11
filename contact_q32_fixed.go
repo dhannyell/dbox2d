@@ -2,15 +2,13 @@
 
 package dbox2d
 
-import "github.com/dhannyell/fixed"
-
 // The lane window is the range of inverse masses the Q16.16 contact grid
 // resolves: a coefficient below 2^-6 keeps fewer than ten bits, and one at
 // 2^15 or above does not fit. A contact with a coefficient outside the
 // window solves on the scalar grid, in contact_solver_q32.go.
 var (
-	laneWindowLow  = fixed.Q32FromRaw(1 << 26)
-	laneWindowHigh = fixed.Q32FromInt(1 << 15)
+	laneWindowLow  = QFromRatio(1, 1<<6)
+	laneWindowHigh = QFromInt(1 << 15)
 )
 
 // contactFitsLane reports whether every nonzero inverse mass and inertia of

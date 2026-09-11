@@ -95,7 +95,7 @@ jobs:
             echo "float64 conversion helpers leaked into production code"
             exit 1
           fi
-          if grep -rl 'go:build' --include=*.go . | grep -v '_test.go\|scalar_fixed.go\|scalar_float.go\|executor.go\|executor_wasm.go\|samples/\|simd_lane_\|simd.go\|simd_off.go\|contact_solver_simd.go\|spin_asm.go\|spin_stub.go'; then
+          if grep -rl 'go:build' --include=*.go . | grep -v '_test.go\|scalar_fixed.go\|scalar_float.go\|executor.go\|executor_wasm.go\|samples/\|simd_lane_\|simd.go\|simd_off.go\|contact_solver_simd.go\|contact_q32_\|contact_solver_q32.go\|internal/q32gen/\|spin_asm.go\|spin_stub.go'; then
             echo "unexpected build tags found"
             exit 1
           fi
