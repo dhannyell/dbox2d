@@ -104,30 +104,28 @@ func rotcFrom(r Rot) rotc { return rotc{Sin: qcFrom(r.Sin), Cos: qcFrom(r.Cos)} 
 func crossc(a, b vec2c) qc { return a.X.Mul(b.Y).Sub(a.Y.Mul(b.X)) }
 
 // The scalar family serves every color. Contacts of one active color share
-// no dynamic body, while overflow stages remain whole-color operations.
+// no dynamic body, while overflow stages remain whole-color operations. The
+// overflow stages also run the Q32 tail of their color; the active colors
+// run theirs as the last unit of the color (runGraphContactBlock).
 
 // prepareContactsTask builds constraints for a range of the flat contact
 // array. It corresponds to b2PrepareContactsTask in src/contact_solver.c.
 func prepareContactsTask(startIndex, endIndex int, context *stepContext) {
-	prepareContactRange(startIndex, endIndex, context, context.contacts, nil, context.contactConstraints)
+	prepareContactRange(startIndex, endIndex, context, context.contacts, context.contactConstraints)
 }
 
 // prepareOverflowContacts builds the overflow contact constraints. It
 // corresponds to b2PrepareOverflowContacts in src/contact_solver.c.
 func prepareOverflowContacts(context *stepContext) {
 	color := &context.graph.colors[overflowIndex]
-	prepareContactRange(0, len(color.contactSims), context, nil, color.contactSims, color.contactConstraints)
+	prepareContactRange(0, len(color.contacts), context, color.contacts, color.contactConstraints)
 }
 
-func prepareContactRange(startIndex, endIndex int, context *stepContext, contacts []*contactSim, contactSims []contactSim, constraints []contactConstraint) {
+func prepareContactRange(startIndex, endIndex int, context *stepContext, contacts []*contactSim, constraints []contactConstraint) {
 	w := context.world
 	awakeStates := context.states
 	constraints = constraints[startIndex:endIndex]
-	if contacts != nil {
-		contacts = contacts[startIndex:endIndex]
-	} else {
-		contactSims = contactSims[startIndex:endIndex]
-	}
+	contacts = contacts[startIndex:endIndex]
 
 	// Stiffer for static contacts to avoid bodies getting pushed through the ground
 	contactSoftness := contactSoftFrom(context.contactSoftness)
@@ -141,13 +139,7 @@ func prepareContactRange(startIndex, endIndex int, context *stepContext, contact
 	}
 
 	for i := range endIndex - startIndex {
-		var cs *contactSim
-		if contacts != nil {
-			cs = contacts[i]
-		} else {
-			cs = &contactSims[i]
-		}
-
+		cs := contacts[i]
 		manifold := &cs.manifold
 		pointCount := manifold.PointCount
 
@@ -279,6 +271,7 @@ func warmStartContactsTask(startIndex, endIndex int, context *stepContext, color
 func warmStartOverflowContacts(context *stepContext) {
 	constraints := context.graph.colors[overflowIndex].contactConstraints
 	warmStartContactRange(0, len(constraints), context, constraints)
+	warmStartContacts32(context, overflowIndex)
 }
 
 func warmStartContactRange(startIndex, endIndex int, context *stepContext, constraints []contactConstraint) {
@@ -335,6 +328,7 @@ func solveOverflowContacts(context *stepContext, useBias bool) {
 	constraints := context.graph.colors[overflowIndex].contactConstraints
 	// Overflow contacts clamp by the push speed, per b2SolveOverflowContacts.
 	solveContactRange(0, len(constraints), context, constraints, useBias, qcFrom(context.world.maxContactPushSpeed))
+	solveContacts32(context, overflowIndex, useBias)
 }
 
 func solveContactRange(startIndex, endIndex int, context *stepContext, constraints []contactConstraint, useBias bool, pushout qc) {
@@ -467,6 +461,7 @@ func applyRestitutionTask(startIndex, endIndex int, context *stepContext, colorI
 func applyOverflowRestitution(context *stepContext) {
 	constraints := context.graph.colors[overflowIndex].contactConstraints
 	applyRestitutionRange(0, len(constraints), context, constraints)
+	applyRestitution32(context, overflowIndex)
 }
 
 func applyRestitutionRange(startIndex, endIndex int, context *stepContext, constraints []contactConstraint) {
@@ -542,33 +537,23 @@ func applyRestitutionRange(startIndex, endIndex int, context *stepContext, const
 // storeImpulsesTask stores a range of flat contact impulses. It corresponds
 // to b2StoreImpulsesTask in src/contact_solver.c.
 func storeImpulsesTask(startIndex, endIndex int, context *stepContext) {
-	storeImpulseRange(startIndex, endIndex, context.contacts, nil, context.contactConstraints)
+	storeImpulseRange(startIndex, endIndex, context.contacts, context.contactConstraints)
 }
 
 // storeOverflowImpulses stores the overflow contact impulses. It
 // corresponds to b2StoreOverflowImpulses in src/contact_solver.c.
 func storeOverflowImpulses(context *stepContext) {
 	color := &context.graph.colors[overflowIndex]
-	storeImpulseRange(0, len(color.contactSims), nil, color.contactSims, color.contactConstraints)
+	storeImpulseRange(0, len(color.contacts), color.contacts, color.contactConstraints)
 }
 
-func storeImpulseRange(startIndex, endIndex int, contacts []*contactSim, contactSims []contactSim, constraints []contactConstraint) {
+func storeImpulseRange(startIndex, endIndex int, contacts []*contactSim, constraints []contactConstraint) {
 	constraints = constraints[startIndex:endIndex]
-	if contacts != nil {
-		contacts = contacts[startIndex:endIndex]
-	} else {
-		contactSims = contactSims[startIndex:endIndex]
-	}
+	contacts = contacts[startIndex:endIndex]
 
 	for i := range endIndex - startIndex {
 		constraint := &constraints[i]
-		var contact *contactSim
-		if contacts != nil {
-			contact = contacts[i]
-		} else {
-			contact = &contactSims[i]
-		}
-		manifold := &contact.manifold
+		manifold := &contacts[i].manifold
 		pointCount := manifold.PointCount
 
 		for j := range pointCount {

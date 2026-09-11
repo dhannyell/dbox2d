@@ -150,7 +150,9 @@ GOTOOLCHAIN=go1.27.0 GOEXPERIMENT=simd go build -tags dbox2d_simd,dbox2d_fixed .
 The SIMD and scalar families produce identical result bits on every supported
 path in both modes. Float SIMD never fuses multiply-add or multiply-subtract
 operations (DIVERGENCES.md D-019). Fixed SIMD uses the same Q16.16 contact grid
-as the scalar solver and matches it while no contact value saturates (D-020).
+as the scalar solver and matches it while no contact value saturates. A
+contact whose inverse mass or inertia falls outside the lane window of that
+grid solves in Q32.32 in both families (D-020).
 
 Measured on an AMD Ryzen 7 5800X3D: milliseconds for 60 steps of a settled
 scene (after 240 warmup steps), median of 5 interleaved runs.

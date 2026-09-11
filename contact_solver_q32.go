@@ -104,17 +104,15 @@ func rotcFrom32(r Rot) rotcw { return rotcw{Sin: qcwFrom(r.Sin), Cos: qcwFrom(r.
 func crossc32(a, b vec2cw) qcw { return a.X.Mul(b.Y).Sub(a.Y.Mul(b.X)) }
 
 // The scalar family serves every color. Contacts of one active color share
-// no dynamic body, while overflow stages remain whole-color operations.
+// no dynamic body, while overflow stages remain whole-color operations. The
+// overflow stages also run the Q32 tail of their color; the active colors
+// run theirs as the last unit of the color (runGraphContactBlock).
 
-func prepareContactRange32(startIndex, endIndex int, context *stepContext, contacts []*contactSim, contactSims []contactSim, constraints []contactConstraint32) {
+func prepareContactRange32(startIndex, endIndex int, context *stepContext, contacts []*contactSim, constraints []contactConstraint32) {
 	w := context.world
 	awakeStates := context.states
 	constraints = constraints[startIndex:endIndex]
-	if contacts != nil {
-		contacts = contacts[startIndex:endIndex]
-	} else {
-		contactSims = contactSims[startIndex:endIndex]
-	}
+	contacts = contacts[startIndex:endIndex]
 
 	// Stiffer for static contacts to avoid bodies getting pushed through the ground
 	contactSoftness := contactSoftFrom32(context.contactSoftness)
@@ -128,13 +126,7 @@ func prepareContactRange32(startIndex, endIndex int, context *stepContext, conta
 	}
 
 	for i := range endIndex - startIndex {
-		var cs *contactSim
-		if contacts != nil {
-			cs = contacts[i]
-		} else {
-			cs = &contactSims[i]
-		}
-
+		cs := contacts[i]
 		manifold := &cs.manifold
 		pointCount := manifold.PointCount
 
@@ -486,23 +478,13 @@ func applyRestitutionRange32(startIndex, endIndex int, context *stepContext, con
 	}
 }
 
-func storeImpulseRange32(startIndex, endIndex int, contacts []*contactSim, contactSims []contactSim, constraints []contactConstraint32) {
+func storeImpulseRange32(startIndex, endIndex int, contacts []*contactSim, constraints []contactConstraint32) {
 	constraints = constraints[startIndex:endIndex]
-	if contacts != nil {
-		contacts = contacts[startIndex:endIndex]
-	} else {
-		contactSims = contactSims[startIndex:endIndex]
-	}
+	contacts = contacts[startIndex:endIndex]
 
 	for i := range endIndex - startIndex {
 		constraint := &constraints[i]
-		var contact *contactSim
-		if contacts != nil {
-			contact = contacts[i]
-		} else {
-			contact = &contactSims[i]
-		}
-		manifold := &contact.manifold
+		manifold := &contacts[i].manifold
 		pointCount := manifold.PointCount
 
 		for j := range pointCount {

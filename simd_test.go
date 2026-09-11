@@ -54,9 +54,11 @@ func TestWideContactLayoutPadsEachColor(t *testing.T) {
 	activeContactCount := 0
 	for colorIndex, count := range counts {
 		colors[colorIndex].contactSims = make([]contactSim, count)
+		colors[colorIndex].contacts = testContactPointers(colors[colorIndex].contactSims)
 		activeContactCount += count
 	}
 	colors[overflowIndex].contactSims = make([]contactSim, 1)
+	colors[overflowIndex].contacts = testContactPointers(colors[overflowIndex].contactSims)
 
 	w := world{arena: createArenaAllocator(1 << 20)}
 	context := stepContext{}
@@ -135,6 +137,8 @@ func TestWideMatchesScalarStepByStep(t *testing.T) {
 		{"witness", buildChecksumWitness},
 		// Each landing impulse fits Q16, but its per-step totals do not.
 		{"heavy landing", buildHeavyLanding},
+		// One color holds a lane contact and a Q32 contact.
+		{"mixed grid", buildMixedGrid},
 	} {
 		t.Run(scene.name, func(t *testing.T) {
 			scalarWorld := createTestWorld(t)
@@ -180,6 +184,13 @@ func TestWideMatchesScalarStepByStep(t *testing.T) {
 			}
 		})
 	}
+}
+
+// buildMixedGrid drops a unit box and a 200000 kg box onto the ground.
+func buildMixedGrid(t *testing.T, worldId WorldId) {
+	t.Helper()
+	boxOnGround(t, worldId, QMustParse("0.05"))
+	heavyBox(worldId, Vec2{X: QFromInt(2), Y: QHalf().Add(QMustParse("0.05"))}, Vec2{})
 }
 
 // buildHeavyLanding drops a 2000 kg box onto the ground at 20 m/s.

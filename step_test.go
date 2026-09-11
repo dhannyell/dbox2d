@@ -461,6 +461,58 @@ func TestStepLandsAFallingBox(t *testing.T) {
 	validateSolverSets(w)
 }
 
+// heavyBox adds a unit box of 200000 kg at the position, with the velocity.
+// Its inverse mass is below the lane window of the fixed contact grid.
+func heavyBox(worldId WorldId, position, velocity Vec2) BodyId {
+	boxDef := DefaultBodyDef()
+	boxDef.Type = DynamicBody
+	boxDef.Position = position
+	boxDef.LinearVelocity = velocity
+	boxId := CreateBody(worldId, &boxDef)
+	shapeDef := DefaultShapeDef()
+	shapeDef.Density = QFromInt(200000)
+	unit := MakeBox(QHalf(), QHalf())
+	CreatePolygonShape(boxId, &shapeDef, &unit)
+	return boxId
+}
+
+// TestHeavyBoxRestsOnTheGround lands a 200000 kg box and slides another one
+// to a stop. A contact grid without the range for the inverse mass would let
+// the box sink or drift.
+func TestHeavyBoxRestsOnTheGround(t *testing.T) {
+	worldId := createTestWorld(t)
+	w := getWorldFromId(worldId)
+	groundDef := DefaultBodyDef()
+	groundDef.Position = Vec2{Y: QHalf().Neg()}
+	groundId := CreateBody(worldId, &groundDef)
+	shapeDef := DefaultShapeDef()
+	ground := MakeBox(QFromInt(5), QHalf())
+	CreatePolygonShape(groundId, &shapeDef, &ground)
+	fallId := heavyBox(worldId, Vec2{X: QFromInt(-2), Y: QHalf().Add(QMustParse("0.05"))}, Vec2{})
+	slideId := heavyBox(worldId, Vec2{X: QFromInt(2), Y: QHalf()}, Vec2{X: QHalf()})
+
+	dt := stepDt()
+	for range 120 {
+		worldId.Step(dt, 4)
+	}
+
+	tolerance := QMustParse("0.01")
+	for _, boxId := range []BodyId{fallId, slideId} {
+		box := getBodyFullId(w, boxId)
+		sim := getBodySim(w, box)
+		if !withinQ(sim.center.Y, QHalf(), tolerance) {
+			t.Errorf("box %v rests at y %v, want 0.5", boxId, sim.center.Y)
+		}
+		if box.setIndex < firstSleepingSet {
+			t.Errorf("box %v is in set %d, want a sleeping set", boxId, box.setIndex)
+		}
+	}
+	slide := getBodySim(w, getBodyFullId(w, slideId))
+	if !QFromInt(2).Less(slide.center.X) || !slide.center.X.Less(QFromInt(3)) {
+		t.Errorf("the pushed box stopped at x %v, want inside (2, 3)", slide.center.X)
+	}
+}
+
 // TestStepReportsBeginAndEndTouch pins the contact events: the begin
 // event arrives on the step of the touch with a manifold without
 // impulses, and the end event arrives on the step of the separation.

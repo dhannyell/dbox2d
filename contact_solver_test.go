@@ -33,6 +33,16 @@ func withinQ(a, b, limit Q) bool {
 	return !limit.Less(a.Sub(b).Abs())
 }
 
+// testContactPointers points a color at every one of its sims, as the step
+// partition does when all of them fit the lane.
+func testContactPointers(sims []contactSim) []*contactSim {
+	pointers := make([]*contactSim, len(sims))
+	for i := range sims {
+		pointers[i] = &sims[i]
+	}
+	return pointers
+}
+
 // restingBox builds a unit box of mass one on a static ground and moves
 // their contact into the overflow color, so the tests also cover the
 // color that keeps no body set, with one hand-made manifold point under
@@ -67,6 +77,7 @@ func restingBox(t *testing.T) (*world, *body, *stepContext) {
 	c.colorIndex = overflowIndex
 	c.localIndex = len(overflow.contactSims)
 	overflow.contactSims = append(overflow.contactSims, cs)
+	overflow.contacts = []*contactSim{&overflow.contactSims[0]}
 	overflow.contactConstraints = make([]contactConstraint, 1)
 
 	// One point at the bottom center of the box, on the top of the ground.

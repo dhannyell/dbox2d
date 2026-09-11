@@ -9,7 +9,7 @@ const verticalStackChecksum uint64 = 0xded8c30e5711a711
 
 // tumblerChecksum pins the world state after 60 steps of Tumbler; a change
 // here means the physics changed.
-const tumblerChecksum uint64 = 0x48fa0ce8ca2ea6cf
+const tumblerChecksum uint64 = 0xa27ede295002a260
 
 // largePyramidChecksum pins the world state after 60 steps of Large Pyramid;
 // a change here means the physics changed.

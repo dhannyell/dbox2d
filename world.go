@@ -31,7 +31,11 @@ type world struct {
 	contactBlocks      []solverBlock
 	graphBlocks        []solverBlock
 	contactPointers    []*contactSim
-	jointPointers      []*jointSim
+	// contactPointersWide is the lane-padded copy of the active contacts.
+	contactPointersWide []*contactSim
+	jointPointers       []*jointSim
+	// contactCount32 counts the contacts of the step outside the lane window.
+	contactCount32 int
 
 	// constraintGraph colors the awake touching contacts.
 	constraintGraph constraintGraph

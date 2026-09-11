@@ -647,7 +647,8 @@ Numbering is sequential from `D-001` and never reused.
   simd_lane_float_archsimd.go, simd_lane_amd64.go, simd_lane_arm64.go,
   simd_lane_wasm.go, simd_lane_generic.go, simd_lane_fixed.go,
   simd_lane_gather_amd64.go, simd_lane_gather_generic.go,
-  simd_lane_gather_fixed.go, contact_solver_simd.go
+  simd_lane_gather_fixed.go, contact_solver_simd.go, contact_q32_fixed.go,
+  contact_q32_float.go
 - Tier: T2
 - Reason: the reference selects a SIMD `Task` family with `B2_SIMD_WIDTH` lanes
   at compile time, including an `B2_SIMD_NONE` variant that keeps four scalar
@@ -710,7 +711,8 @@ Numbering is sequential from `D-001` and never reused.
 
 ### D-020 Contacts solve on a Q16 grid
 
-- Files: contact_solver.go, scalar_fixed.go, scalar_float.go
+- Files: contact_solver.go, contact_solver_q32.go, scalar_fixed.go,
+  scalar_float.go, internal/q32gen, tools/q32gen
 - Tier: T2
 - Reason: a fixed-point SIMD lane holds Q16.16 values, so a Q32.32 contact
   solver could never match it bit for bit. The scalar family is the oracle of
@@ -728,14 +730,32 @@ Numbering is sequential from `D-001` and never reused.
   the two-point total in `qa` and narrows only the product, because that total
   can pass the Q16 range while each point fits.
 
+  The grid has a lane window: every nonzero inverse mass and inverse inertia
+  of a contact must lie in [2^-6, 2^15). Below the window a coefficient keeps
+  fewer than ten bits; at the top it does not fit. Each step partitions the
+  contacts of every color once, by that rule. The contacts inside the window
+  solve on the Q16 grid, in the scalar or the SIMD family. The contacts
+  outside it solve in Q32.32, whole, as the last unit of their color; the
+  overflow color runs them after its scalar contacts. The Q32 stages are
+  contact_solver_q32.go, which `go generate` derives from contact_solver.go
+  with the same operations over Q32.32 values, and a test keeps it fresh. A
+  body of 200000 kg rests and slides on the ground with this path. The Q32
+  tail admits a Q32 lane later, if a scene with a heavy majority makes it
+  worth the cost. In float mode every contact fits the lane and the Q32 path
+  is empty.
+
   In float mode `qc` and `qa` are aliases of `Q` and every conversion is the
   identity, so the float witness does not change. The Q16 range is ±32768. A
   contact value outside it saturates, so the scene traces of TestConformance
   require zero saturations in fixed mode when the build sets
   `fixed_satcounter`. This change moved the fixed witness and four samples
-  checksums. The conformance budgets did not move. One grid unit moves a
+  checksums; the lane window moved the Tumbler checksum, which holds a
+  heavy body. The conformance budgets did not move. One grid unit moves a
   bounded friction label of the draw golden by 0.015, so in fixed mode the
   golden accepts one unit in the last printed place of a decimal label.
 - Test: TestChecksumMatchesDeterministicWitness; the contact tests in
   contact_solver_test.go, with `contactRounding()` for one rounding to the
-  grid; the saturation gate of the scene traces in TestConformance.
+  grid; TestHeavyBoxRestsOnTheGround in step_test.go and
+  TestStepPartitionsContactsByTheLaneWindow in step_fixed_test.go;
+  TestQ32ContactSolverIsFresh; the saturation gate of the scene traces in
+  TestConformance.

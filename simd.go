@@ -90,8 +90,8 @@ func runContactStageBlock(stage *solverStage, context *stepContext, startIndex, 
 	}
 }
 
-// runGraphContactBlock dispatches graph contacts to the selected family.
-func runGraphContactBlock(stage *solverStage, context *stepContext, startIndex, endIndex int) {
+// runGraphContactFamilyBlock dispatches graph contacts to the selected family.
+func runGraphContactFamilyBlock(stage *solverStage, context *stepContext, startIndex, endIndex int) {
 	if !wideEnabled {
 		runGraphContactBlockScalar(stage, context, startIndex, endIndex)
 		return
@@ -118,7 +118,7 @@ func allocateContactConstraints(w *world, context *stepContext, colors *[graphCo
 	wideCount := 0
 	realContactCount := 0
 	for i := range overflowIndex {
-		contactCount := len(colors[i].contactSims)
+		contactCount := len(colors[i].contacts)
 		wideCount += wideConstraintCount(contactCount)
 		realContactCount += contactCount
 	}
@@ -126,9 +126,11 @@ func allocateContactConstraints(w *world, context *stepContext, colors *[graphCo
 		panic("dbox2d: the active contact count is inconsistent")
 	}
 
+	// The padded list lives apart from w.contactPointers, which the color
+	// slices still point into.
 	paddedContactCount := wideWidth * wideCount
-	w.contactPointers = slices.Grow(w.contactPointers[:0], paddedContactCount)[:paddedContactCount]
-	context.contacts = w.contactPointers
+	w.contactPointersWide = slices.Grow(w.contactPointersWide[:0], paddedContactCount)[:paddedContactCount]
+	context.contacts = w.contactPointersWide
 
 	constraintsWide, memWide := arenaSlice[contactConstraintWide](&w.arena, wideCount, "wide contact constraint")
 	context.contactConstraintsWide = constraintsWide
@@ -137,15 +139,13 @@ func allocateContactConstraints(w *world, context *stepContext, colors *[graphCo
 	wideBase := 0
 	for i := range overflowIndex {
 		color := &colors[i]
-		colorContactCount := len(color.contactSims)
+		colorContactCount := len(color.contacts)
 		colorWideCount := wideConstraintCount(colorContactCount)
 		color.contactConstraintsWide = constraintsWide[wideBase : wideBase+colorWideCount : wideBase+colorWideCount]
 
 		paddedBase := wideWidth * wideBase
 		paddedColorCount := wideWidth * colorWideCount
-		for j := range colorContactCount {
-			context.contacts[paddedBase+j] = &color.contactSims[j]
-		}
+		copy(context.contacts[paddedBase:], color.contacts)
 		for j := colorContactCount; j < paddedColorCount; j++ {
 			context.contacts[paddedBase+j] = nil
 		}
@@ -160,7 +160,7 @@ func allocateContactConstraints(w *world, context *stepContext, colors *[graphCo
 	}
 
 	overflowColor := &colors[overflowIndex]
-	overflowCount := len(overflowColor.contactSims)
+	overflowCount := len(overflowColor.contacts)
 	overflowConstraints, mem := arenaSlice[contactConstraint](&w.arena, overflowCount, "contact constraint")
 	overflowColor.contactConstraints = overflowConstraints
 	context.contactConstraintMem = mem

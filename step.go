@@ -58,6 +58,7 @@ type stepContext struct {
 	contactConstraintsWide   []contactConstraintWide
 	contactConstraintMem     []byte
 	contactConstraintMemWide []byte
+	contactConstraintMem32   []byte
 	stages                   []solverStage
 	activeColorCount         int
 	activeColorIndices       [graphColorCount]int

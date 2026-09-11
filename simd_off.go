@@ -16,8 +16,8 @@ func runContactStageBlock(stage *solverStage, context *stepContext, startIndex, 
 	runContactStageBlockScalar(stage, context, startIndex, endIndex)
 }
 
-// runGraphContactBlock selects the scalar graph-contact family in this build.
-func runGraphContactBlock(stage *solverStage, context *stepContext, startIndex, endIndex int) {
+// runGraphContactFamilyBlock selects the scalar graph-contact family in this build.
+func runGraphContactFamilyBlock(stage *solverStage, context *stepContext, startIndex, endIndex int) {
 	runGraphContactBlockScalar(stage, context, startIndex, endIndex)
 }
 
