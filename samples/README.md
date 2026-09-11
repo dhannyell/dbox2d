@@ -129,6 +129,8 @@ Segment Slide, Skinny Box, Ghost Bumps, Speculative Fallback, Speculative
 Sliver, Speculative Ghost, Pixel Imperfect, Restitution Threshold, Drop,
 Pinball, Wedge.
 
+**Determinism** (1): Falling Hinges.
+
 The other categories of the reference are not ported yet. The scenes produce
 the same bits with any worker count.
 
