@@ -173,7 +173,7 @@ func qcwFrom(x Q) qcw { return qcw{x} }
 func qawFrom(x Q) qaw { return qaw{x} }
 
 func (a qcw) toQ() Q               { return a.v }
-func (a qcw) widen() qaw           { return qaw{a.v} }
+func (a qcw) widen() qaw           { return qaw(a) }
 func (a qcw) Add(b qcw) qcw        { return qcw{a.v.Add(b.v)} }
 func (a qcw) Sub(b qcw) qcw        { return qcw{a.v.Sub(b.v)} }
 func (a qcw) Mul(b qcw) qcw        { return qcw{a.v.Mul(b.v)} }
@@ -184,7 +184,7 @@ func (a qcw) Less(b qcw) bool      { return a.v.Less(b.v) }
 func (a qcw) Eq(b qcw) bool        { return a.v.Eq(b.v) }
 
 func (a qaw) toQ() Q        { return a.v }
-func (a qaw) narrow() qcw   { return qcw{a.v} }
+func (a qaw) narrow() qcw   { return qcw(a) }
 func (a qaw) Add(b qaw) qaw { return qaw{a.v.Add(b.v)} }
 func (a qaw) Sub(b qaw) qaw { return qaw{a.v.Sub(b.v)} }
 func (a qaw) Eq(b qaw) bool { return a.v.Eq(b.v) }

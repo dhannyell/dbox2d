@@ -24,6 +24,7 @@ type world struct {
 	sensorTaskContexts []sensorTaskContext
 	workerCount        int
 	executor           executor
+	treeTask           treeTask
 	solverContext      stepContext
 	solverStages       []solverStage
 	bodyBlocks         []solverBlock
@@ -31,11 +32,16 @@ type world struct {
 	contactBlocks      []solverBlock
 	graphBlocks        []solverBlock
 	contactPointers    []*contactSim
-	// contactPointersWide is the lane-padded copy of the active contacts.
-	contactPointersWide []*contactSim
-	jointPointers       []*jointSim
+	jointPointers      []*jointSim
+	// wide is the scratch of the SIMD family; empty in scalar builds.
+	wide wideScratch
+
 	// contactCount32 counts the contacts of the step outside the lane window.
 	contactCount32 int
+
+	// spareSet holds the sim storage of the last destroyed sleeping set, for
+	// the next island that falls asleep. Only its slices are used. See D-010.
+	spareSet solverSet
 
 	// constraintGraph colors the awake touching contacts.
 	constraintGraph constraintGraph
@@ -333,6 +339,7 @@ func CreateWorld(def *WorldDef) WorldId {
 // DestroyWorld destroys a world and every body and shape in it.
 func DestroyWorld(worldId WorldId) {
 	w := getWorldFromId(worldId)
+	w.treeTask.stop()
 	w.executor.stop()
 
 	destroyGraph(&w.constraintGraph)
@@ -444,9 +451,12 @@ func (id ShapeId) IsValid() bool {
 	return id.generation == s.generation
 }
 
-// validateSolverSets checks the bijection between the sparse arrays and the
-// solver sets. The reference compiles it only into validation builds; here
-// only the tests call it.
+// validateSolverSets validates all solver sets. The reference only enables
+// this check when B2_VALIDATE is set.
+//
+// Tests call it directly. Runtime mutation paths use validateSolverSetsDebug,
+// which is gated by dbox2d_validate because the validation walks every body,
+// joint, and contact and can be expensive when called repeatedly.
 func validateSolverSets(w *world) {
 	if w.bodyIdPool.idCapacity() != len(w.bodies) {
 		panic("dbox2d: the body pool and the body array disagree")

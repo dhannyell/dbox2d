@@ -1046,7 +1046,7 @@ func (tree *dynamicTree) validate() {
 }
 
 // validateNoEnlarged checks that no allocated node carries the enlarged
-// flag. Only the tests call it. It corresponds to
+// flag. The tests and DynamicTree.ValidateNoEnlarged call it. It corresponds to
 // b2DynamicTree_ValidateNoEnlarged in src/dynamic_tree.c.
 func (tree *dynamicTree) validateNoEnlarged() {
 	for i := range tree.nodes {
@@ -1837,4 +1837,180 @@ func (tree *dynamicTree) rebuild(fullBuild bool) int {
 	tree.root = buildTree(tree, leafCount)
 
 	return leafCount
+}
+
+// getAreaRatio returns the summed perimeter of the internal nodes over
+// the perimeter of the root. It measures the quality of the tree. It
+// corresponds to b2DynamicTree_GetAreaRatio in src/dynamic_tree.c.
+func (tree *dynamicTree) getAreaRatio() Q {
+	if tree.root == nullIndex {
+		return QZero()
+	}
+
+	root := &tree.nodes[tree.root]
+	rootArea := perimeter(root.aabb)
+
+	totalArea := QZero()
+	for i := range tree.nodes {
+		node := &tree.nodes[i]
+		if !node.isAllocated() || node.isLeaf() || i == tree.root {
+			continue
+		}
+
+		totalArea = totalArea.Add(perimeter(node.aabb))
+	}
+
+	return totalArea.Div(rootArea)
+}
+
+// DynamicTree is a standalone bounding volume hierarchy over proxies. The
+// world keeps its own trees; this type serves user code that wants the
+// tree as a spatial structure. It corresponds to b2DynamicTree and the
+// b2DynamicTree_* functions of include/box2d/collision.h.
+type DynamicTree struct {
+	tree dynamicTree
+}
+
+// TreeQueryCallbackFcn receives each proxy that overlaps the query box.
+// It returns false to stop the query. It corresponds to
+// b2TreeQueryCallbackFcn in include/box2d/collision.h. D-014: a closure
+// replaces the context pointer.
+type TreeQueryCallbackFcn func(proxyId int, userData uint64) bool
+
+// TreeRayCastCallbackFcn receives each proxy whose box the ray reaches.
+// It returns zero to stop the cast, a fraction in (0, maxFraction] to clip
+// the ray, or any other value to continue unchanged. It corresponds to
+// b2TreeRayCastCallbackFcn in include/box2d/collision.h. D-014 applies.
+type TreeRayCastCallbackFcn func(input *RayCastInput, proxyId int, userData uint64) Q
+
+// TreeShapeCastCallbackFcn receives each proxy whose box the swept proxy
+// reaches. Its return value works like TreeRayCastCallbackFcn's. It
+// corresponds to b2TreeShapeCastCallbackFcn in include/box2d/collision.h.
+// D-014 applies.
+type TreeShapeCastCallbackFcn func(input *ShapeCastInput, proxyId int, userData uint64) Q
+
+// NewDynamicTree returns an empty tree. It corresponds to
+// b2DynamicTree_Create.
+func NewDynamicTree() *DynamicTree {
+	return &DynamicTree{tree: createTree()}
+}
+
+// Destroy releases the node pool. It corresponds to b2DynamicTree_Destroy.
+func (t *DynamicTree) Destroy() {
+	destroyTree(&t.tree)
+}
+
+// CreateProxy inserts a proxy with a fat box and returns its id. It
+// corresponds to b2DynamicTree_CreateProxy.
+func (t *DynamicTree) CreateProxy(aabb AABB, categoryBits uint64, userData uint64) int {
+	return t.tree.createProxy(aabb, categoryBits, userData)
+}
+
+// DestroyProxy removes a proxy. It corresponds to
+// b2DynamicTree_DestroyProxy.
+func (t *DynamicTree) DestroyProxy(proxyId int) {
+	t.tree.destroyProxy(proxyId)
+}
+
+// MoveProxy reinserts a proxy with a new box. It corresponds to
+// b2DynamicTree_MoveProxy.
+func (t *DynamicTree) MoveProxy(proxyId int, aabb AABB) {
+	t.tree.moveProxy(proxyId, aabb)
+}
+
+// EnlargeProxy grows a proxy in place; a later Rebuild repairs the tree.
+// The new box must not fit in the old one. It corresponds to
+// b2DynamicTree_EnlargeProxy.
+func (t *DynamicTree) EnlargeProxy(proxyId int, aabb AABB) {
+	t.tree.enlargeProxy(proxyId, aabb)
+}
+
+// SetCategoryBits changes the category bits of a proxy. It corresponds to
+// b2DynamicTree_SetCategoryBits.
+func (t *DynamicTree) SetCategoryBits(proxyId int, categoryBits uint64) {
+	t.tree.setCategoryBits(proxyId, categoryBits)
+}
+
+// GetCategoryBits returns the category bits of a proxy. It corresponds to
+// b2DynamicTree_GetCategoryBits.
+func (t *DynamicTree) GetCategoryBits(proxyId int) uint64 {
+	return t.tree.getCategoryBits(proxyId)
+}
+
+// Query calls back every proxy that overlaps the box and passes the mask.
+// It corresponds to b2DynamicTree_Query.
+func (t *DynamicTree) Query(aabb AABB, maskBits uint64, fcn TreeQueryCallbackFcn) TreeStats {
+	stats := t.tree.query(aabb, maskBits, treeQueryCallback(fcn))
+	return TreeStats{NodeVisits: stats.nodeVisits, LeafVisits: stats.leafVisits}
+}
+
+// RayCast calls back every proxy whose box the ray reaches. It
+// corresponds to b2DynamicTree_RayCast.
+func (t *DynamicTree) RayCast(input *RayCastInput, maskBits uint64, fcn TreeRayCastCallbackFcn) TreeStats {
+	stats := t.tree.rayCast(input, maskBits, treeRayCastCallback(fcn))
+	return TreeStats{NodeVisits: stats.nodeVisits, LeafVisits: stats.leafVisits}
+}
+
+// ShapeCast calls back every proxy whose box the swept proxy may reach.
+// It corresponds to b2DynamicTree_ShapeCast.
+func (t *DynamicTree) ShapeCast(input *ShapeCastInput, maskBits uint64, fcn TreeShapeCastCallbackFcn) TreeStats {
+	stats := t.tree.shapeCast(input, maskBits, treeShapeCastCallback(fcn))
+	return TreeStats{NodeVisits: stats.nodeVisits, LeafVisits: stats.leafVisits}
+}
+
+// Rebuild rebuilds the enlarged part of the tree, or the whole tree when
+// fullBuild is set. It returns the leaf count of the build. It
+// corresponds to b2DynamicTree_Rebuild.
+func (t *DynamicTree) Rebuild(fullBuild bool) int {
+	return t.tree.rebuild(fullBuild)
+}
+
+// GetProxyCount returns the number of proxies. It corresponds to
+// b2DynamicTree_GetProxyCount.
+func (t *DynamicTree) GetProxyCount() int {
+	return t.tree.getProxyCount()
+}
+
+// GetHeight returns the height of the tree. It corresponds to
+// b2DynamicTree_GetHeight.
+func (t *DynamicTree) GetHeight() int {
+	return t.tree.getHeight()
+}
+
+// GetAreaRatio returns the summed perimeter of the internal nodes over
+// the perimeter of the root. It corresponds to b2DynamicTree_GetAreaRatio.
+func (t *DynamicTree) GetAreaRatio() Q {
+	return t.tree.getAreaRatio()
+}
+
+// GetRootBounds returns the box of the root, or the empty box for an empty
+// tree. It corresponds to b2DynamicTree_GetRootBounds.
+func (t *DynamicTree) GetRootBounds() AABB {
+	return t.tree.getRootBounds()
+}
+
+// GetUserData returns the user data of a proxy. It corresponds to
+// b2DynamicTree_GetUserData.
+func (t *DynamicTree) GetUserData(proxyId int) uint64 {
+	return t.tree.getUserData(proxyId)
+}
+
+// GetAABB returns the box of a proxy. It corresponds to
+// b2DynamicTree_GetAABB.
+func (t *DynamicTree) GetAABB(proxyId int) AABB {
+	return t.tree.getAABB(proxyId)
+}
+
+// Validate checks the tree. Like the reference, it does nothing unless
+// the build enables validation (-tags dbox2d_validate). It corresponds to
+// b2DynamicTree_Validate.
+func (t *DynamicTree) Validate() {
+	validateTreeDebug(&t.tree)
+}
+
+// ValidateNoEnlarged checks that no proxy is left enlarged. Like Validate,
+// it does nothing unless the build enables validation. It corresponds to
+// b2DynamicTree_ValidateNoEnlarged.
+func (t *DynamicTree) ValidateNoEnlarged() {
+	validateTreeNoEnlargedDebug(&t.tree)
 }

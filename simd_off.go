@@ -5,6 +5,9 @@ package dbox2d
 // contactConstraintWide keeps the context layout available in scalar builds.
 type contactConstraintWide struct{}
 
+// wideScratch keeps the world layout available in scalar builds.
+type wideScratch struct{}
+
 // colorContactConstraintCount keeps scalar stages one contact per solver unit.
 func colorContactConstraintCount(contactCount int) int { return contactCount }
 
@@ -22,6 +25,6 @@ func runGraphContactFamilyBlock(stage *solverStage, context *stepContext, startI
 }
 
 // allocateContactConstraints keeps scalar scratch allocation in scalar builds.
-func allocateContactConstraints(w *world, context *stepContext, colors *[graphColorCount]graphColor, overflowIndex, activeContactCount int) {
+func (*wideScratch) allocateContactConstraints(w *world, context *stepContext, colors *[graphColorCount]graphColor, overflowIndex, activeContactCount int) {
 	allocateContactConstraintsScalar(w, context, colors, overflowIndex, activeContactCount)
 }

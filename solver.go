@@ -1156,7 +1156,8 @@ func solve(w *world, context *stepContext) {
 	awake := &w.solverSets[awakeSet]
 	awakeBodyCount := len(awake.bodySims)
 	if awakeBodyCount == 0 {
-		// Nothing to simulate. The tree rebuild already ran in collide.
+		// Nothing to simulate, however the tree rebuild must be finished.
+		w.treeTask.wait()
 		return
 	}
 
@@ -1204,7 +1205,7 @@ func solve(w *world, context *stepContext) {
 		}
 
 		activeContactCount := partitionContacts(w, context, colors)
-		allocateContactConstraints(w, context, colors, overflowIndex, activeContactCount)
+		w.wide.allocateContactConstraints(w, context, colors, overflowIndex, activeContactCount)
 		allocateContactConstraints32(w, context, colors)
 		buildSolverStages(w, context, awakeBodyCount)
 
@@ -1329,9 +1330,13 @@ func solve(w *world, context *stepContext) {
 		w.profile.HitEvents = millisecondsSince(hitEventsStart)
 	}
 
-	// Refit the broad-phase. The tree rebuild already ran in collide.
+	// Refit the broad-phase.
 	{
 		refitStart := time.Now()
+
+		// Finish the tree rebuild that started in collide. It must be
+		// complete before the broad-phase is touched.
+		w.treeTask.wait()
 
 		enlargedBodyBitSet := &w.taskContexts[0].enlargedSimBitSet
 

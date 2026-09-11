@@ -615,6 +615,12 @@ func storeImpulsesTaskWide(startIndex, endIndex int, context *stepContext) {
 	}
 }
 
+// wideScratch holds the lane-padded copy of the active contacts, which lives
+// apart from w.contactPointers.
+type wideScratch struct {
+	contactPointers []*contactSim
+}
+
 // contactConstraintWide mirrors b2ContactConstraintSIMD in contact_solver.c
 // at lines 1034-1064; it always carries two point slots, with the second zero for a one-point manifold.
 type contactConstraintWide struct {
@@ -717,7 +723,7 @@ func runGraphContactFamilyBlock(stage *solverStage, context *stepContext, startI
 }
 
 // allocateContactConstraints reserves scalar or wide contact scratch.
-func allocateContactConstraints(w *world, context *stepContext, colors *[graphColorCount]graphColor, overflowIndex, activeContactCount int) {
+func (s *wideScratch) allocateContactConstraints(w *world, context *stepContext, colors *[graphColorCount]graphColor, overflowIndex, activeContactCount int) {
 	if !wideEnabled {
 		allocateContactConstraintsScalar(w, context, colors, overflowIndex, activeContactCount)
 		return
@@ -737,8 +743,8 @@ func allocateContactConstraints(w *world, context *stepContext, colors *[graphCo
 	// The padded list lives apart from w.contactPointers, which the color
 	// slices still point into.
 	paddedContactCount := wideWidth * wideCount
-	w.contactPointersWide = slices.Grow(w.contactPointersWide[:0], paddedContactCount)[:paddedContactCount]
-	context.contacts = w.contactPointersWide
+	s.contactPointers = slices.Grow(s.contactPointers[:0], paddedContactCount)[:paddedContactCount]
+	context.contacts = s.contactPointers
 
 	constraintsWide, memWide := arenaSlice[contactConstraintWide](&w.arena, wideCount, "wide contact constraint")
 	context.contactConstraintsWide = constraintsWide

@@ -177,6 +177,12 @@ func (worldId WorldId) Step(timeStep Q, subStepCount int) {
 		w.profile.Solve = millisecondsSince(solveStart)
 	}
 
+	// D-016: a zero time step skips the solve, so the refit never joined
+	// the tree rebuild. The reference leaks the task handle here and lets
+	// the sensor queries read a tree that is still being rebuilt; the port
+	// joins instead. Every other path has already joined, so this is free.
+	w.treeTask.wait()
+
 	sensorsStart := time.Now()
 	overlapSensors(context)
 	w.profile.Sensors = millisecondsSince(sensorsStart)
@@ -265,10 +271,72 @@ func collideTask(startIndex, endIndex, workerIndex int, context *stepContext) {
 	}
 }
 
-// rebuildTreesSide is the side task of collide. It corresponds to
-// b2UpdateTreesTask in src/world.c.
-func rebuildTreesSide(context *stepContext) {
-	context.world.broadPhase.rebuildTrees()
+// treeTask rebuilds the dynamic and kinematic broad-phase trees in parallel
+// with the rest of the step. This matches userTreeTask in src/world.c, where
+// the rebuild starts during narrow phase and finishes at the refit.
+//
+// It uses a dedicated goroutine because the worker pool is fully occupied by
+// the parallel loops that run in between.
+//
+// Nothing reads these trees before wait. Proxy updates, the move buffer, and
+// bullet queries all happen after the refit.
+//
+// With one worker, start only records the world and wait runs the rebuild
+// synchronously, matching the reference behavior.
+type treeTask struct {
+	start   chan *world
+	done    chan struct{}
+	pending *world
+	running bool
+}
+
+// begin hands the rebuild to the task goroutine, or holds it for wait when
+// the world runs on a single worker.
+func (t *treeTask) begin(w *world) {
+	if w.executor.activeWorkerCount() == 1 {
+		t.pending = w
+		return
+	}
+	if t.start == nil {
+		t.start = make(chan *world, 1)
+		t.done = make(chan struct{}, 1)
+		go rebuildTreesLoop(t.start, t.done)
+	}
+	t.running = true
+	t.start <- w
+}
+
+// wait joins the rebuild. It is a no-op when none is outstanding, so every
+// path out of a step can call it.
+func (t *treeTask) wait() {
+	if t.pending != nil {
+		w := t.pending
+		t.pending = nil
+		w.broadPhase.rebuildTrees()
+		return
+	}
+	if !t.running {
+		return
+	}
+	<-t.done
+	t.running = false
+}
+
+// stop joins the rebuild and releases the goroutine.
+func (t *treeTask) stop() {
+	t.wait()
+	if t.start != nil {
+		close(t.start)
+		t.start = nil
+		t.done = nil
+	}
+}
+
+func rebuildTreesLoop(start chan *world, done chan struct{}) {
+	for w := range start {
+		w.broadPhase.rebuildTrees()
+		done <- struct{}{}
+	}
 }
 
 // addNonTouchingContact copies a sim that stopped touching into the awake
@@ -308,6 +376,12 @@ func removeNonTouchingContact(w *world, setIndex, localIndex int) {
 func collide(context *stepContext) {
 	w := context.world
 
+	// Start the rebuild before the contact count is known, matching the reference.
+	// Even worlds with no contacts still need their trees rebuilt, and starting
+	// here lets the work overlap the narrow phase and solve.
+	w.taskCount++
+	w.treeTask.begin(w)
+
 	graphColors := &w.constraintGraph.colors
 	contactCount := 0
 	for i := range graphColorCount {
@@ -318,8 +392,6 @@ func collide(context *stepContext) {
 	contactCount += nonTouchingCount
 
 	if contactCount == 0 {
-		w.taskCount++
-		w.broadPhase.rebuildTrees()
 		return
 	}
 
@@ -344,10 +416,8 @@ func collide(context *stepContext) {
 		contactIndex++
 	}
 	context.contacts = w.contactPointers
-	// The tree rebuild rides beside the pass on the last worker; the
-	// reference lets it run until the refit.
-	w.taskCount += 2
-	w.executor.parallelForWithSide(contactCount, 64, collideTask, rebuildTreesSide, context)
+	w.taskCount++
+	w.executor.parallelFor(contactCount, 64, collideTask, context)
 	context.contacts = nil
 
 	// Serially update contact state

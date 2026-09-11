@@ -71,7 +71,7 @@ func TestWideContactLayoutPadsEachColor(t *testing.T) {
 
 	w := world{arena: createArenaAllocator(1 << 20)}
 	context := stepContext{}
-	allocateContactConstraints(&w, &context, &colors, overflowIndex, activeContactCount)
+	w.wide.allocateContactConstraints(&w, &context, &colors, overflowIndex, activeContactCount)
 	defer func() {
 		w.arena.freeItem(context.contactConstraintMem)
 		w.arena.freeItem(context.contactConstraintMemWide)

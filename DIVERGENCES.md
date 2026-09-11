@@ -321,9 +321,17 @@ Numbering is sequential from `D-001` and never reused.
   `BodyId.GetContactData`, `ShapeId.GetContactData`,
   `ChainId.GetSegments` and `ShapeId.GetSensorOverlaps` each take a
   caller-owned slice and return how many entries they wrote, stopping
-  early when the slice is shorter than the available data.
+  early when the slice is shorter than the available data. A destroyed
+  solver set hands its sim storage to a spare slot of the world, and the
+  next island that falls asleep takes it when it is large enough; the
+  reference frees the arrays of a destroyed set and allocates fresh ones
+  for the next sleeping set. Go zeroes every new slice and collects the old
+  one, which in a world that wakes and sleeps a large island many times per
+  step cost more than moving the island. Only the storage is shared: a set
+  that takes it starts empty, and the spare never backs two sets at once.
 - Test: TestCreateAndDestroyOrdersProduceTheSameWorld and
   TestSleepingBodyGetsItsOwnSolverSet in world_test.go,
+  TestSleepReusesTheStorageOfTheLastWokenSet in solver_set_test.go,
   TestStepAllocatesNothing and TestStepBulletStopsAtADynamicPlate in
   step_test.go, TestShapeDistanceWarmStartsFromTheCache in
   distance_test.go, TestCreateChainOpenBuildsSegmentsWithGhosts and
@@ -519,8 +527,17 @@ Numbering is sequential from `D-001` and never reused.
   because its work stealing has no order. The pair nodes of a moved proxy
   live in the slice of the worker that queried it, and the move result
   records that worker. The island split runs on the last worker beside
-  the script and the tree rebuild beside the collide pass; with one
-  worker both run inline first. The workers spin between commands and
+  the script. The broad-phase tree rebuild is the one task the pool
+  cannot carry, because every parallel loop between its start and its
+  join claims all of the workers: it gets a goroutine of its own, parked
+  on a channel between steps, started at the top of the narrow phase and
+  joined at the refit, so it overlaps the narrow phase and the whole
+  solve as the reference task does. With one worker the island split runs
+  inline first and the rebuild runs inline at the join. A zero time step
+  skips the solve and so skips the refit; the port joins the rebuild
+  before the sensor overlap, where the reference leaks the task handle
+  and lets the sensor queries read a tree that is still being rebuilt.
+  The workers spin between commands and
   park after a while; a parked worker may take one runtime object when
   it wakes, so the allocation gate holds per step, not per process. A
   panic inside a step with several workers leaves the pool waiting on the

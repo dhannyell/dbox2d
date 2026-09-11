@@ -102,9 +102,6 @@ turn, not a radian: `π/2` is `1/4`; a motor speed in rad/s goes through
 `radiansToTurns`. GUI sliders hold a `float64` and convert with
 `FromFloat64` when the value enters the world.
 
-A scene whose physics must not drift gets a checksum test in
-`sample_test.go`: step it sixty times and pin `dbox2d.Checksum`.
-
 ## Scenes
 
 **Stacking** (10): Single Box, Tilted Stack, Vertical Stack, Circle Stack,
@@ -119,8 +116,36 @@ Prismatic, Wheel, Bridge, Ball & Chain, Cantilever, Fixed Rotation,
 Breakable, Separation, User Constraint, Driving, Ragdoll, Soft Body,
 Doohickey, Scissor Lift, Gear Lift, Door, Scale Ragdoll.
 
-The other categories of the reference are not ported yet. The scenes produce
-the same bits with any worker count.
+**Bodies** (6): Body Type, Weeble, Sleep, Bad, Pivot, Kinematic.
+
+**Character** (1): Mover.
+
+**Collision** (9): Shape Distance, Dynamic Tree, Ray Cast, Cast World,
+Overlap World, Manifold, Smooth Manifold, Shape Cast, Time of Impact.
+
+**Continuous** (15): Bounce House, Bounce Humans, Chain Drop, Chain Slide,
+Segment Slide, Skinny Box, Ghost Bumps, Speculative Fallback, Speculative
+Sliver, Speculative Ghost, Pixel Imperfect, Restitution Threshold, Drop,
+Pinball, Wedge.
+
+**Determinism** (1): Falling Hinges.
+
+**Events** (7): Sensor Funnel, Sensor Bookend, Foot Sensor, Contact, Platformer,
+Body Move, Sensor Types.
+
+**Geometry** (1): Convex Hull.
+
+**Robustness** (6): HighMassRatio1, HighMassRatio2, HighMassRatio3, Overlap
+Recovery, Tiny Pyramid, Cart.
+
+**Shapes** (16): Chain Shape, Compound Shapes, Filter, Custom Filter,
+Restitution, Friction, Rolling Resistance, Conveyor Belt, Tangent Speed,
+Modify Geometry, Chain Link, Rounded, Ellipse, Offset, Explosion, Recreate
+Static.
+
+**World** (1): Large World.
+
+The scenes produce the same bits with any worker count.
 
 ## Layout
 
