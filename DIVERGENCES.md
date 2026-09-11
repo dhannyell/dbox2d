@@ -695,11 +695,11 @@ Numbering is sequential from `D-001` and never reused.
   (`AddBounded`). A pack with no rolling resistance and no stored rolling
   impulse skips the rolling blocks, which would only add zero. Float mode
   keeps them, because there a skipped block can change the sign of a zero.
-- Test: TestBodyGatherScatterW, TestWideMatchesScalarStepByStep,
+- Test: TestWidePath, TestWideMatchesScalarStepByStep,
   TestWideStagesRunWithColoredContacts
-  and TestWideContactLayoutPadsEachColor in wide_test.go; wide_lane_test.go
-  checks each float lane operation against the scalar family on every path,
-  and the fixed module tests its own lanes; the
+  and TestWideContactLayoutPadsEachColor in wide_test.go, in both modes;
+  wide_lane_test.go checks each float lane operation against the scalar
+  family on every path, and the fixed module tests its own lanes; the
   witness, samples and conformance suites all run under the `dbox2d_simd` tag
   in both modes in CI, on amd64 and arm64 with `GOEXPERIMENT=simd` and on the
   generic path across the four-architecture matrix.

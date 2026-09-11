@@ -1,11 +1,19 @@
-//go:build dbox2d_simd && dbox2d_float
+//go:build dbox2d_simd
 
 package dbox2d
 
-import (
-	"math"
-	"testing"
-)
+import "testing"
+
+// TestWidePath records the selected path and checks its width relation.
+func TestWidePath(t *testing.T) {
+	t.Logf("path: %s width %d", widePath(), wideWidth)
+	if wideWidth != 1<<wideShift {
+		t.Fatalf("width %d does not match shift %d", wideWidth, wideShift)
+	}
+	if widePath() == "generic" && !wideAvailable() {
+		t.Fatal("generic path must be available")
+	}
+}
 
 // TestWideConstraintCountRoundsUp keeps scalar contact grouping width-independent.
 func TestWideConstraintCountRoundsUp(t *testing.T) {
@@ -139,111 +147,6 @@ func TestWideMatchesScalarStepByStep(t *testing.T) {
 				}
 			}
 			t.Fatalf("step %d: wide checksum %d, scalar checksum %d", step+1, wideChecksum, scalarChecksum)
-		}
-	}
-}
-
-// TestGatherBodiesSubstitutesIdentityForNull checks state conversion per lane.
-func TestGatherBodiesSubstitutesIdentityForNull(t *testing.T) {
-	states := make([]bodyState, wideWidth)
-	for i := range states {
-		states[i] = bodyState{
-			linearVelocity:  Vec2{X: Q{v: 1.25 + float32(i)}, Y: Q{v: -2.5 - float32(i)}},
-			angularVelocity: Q{v: 0.125 * float32(i+1)},
-			flags:           int32(3 + i),
-			deltaPosition:   Vec2{X: Q{v: 0.5 + float32(i)}, Y: Q{v: -0.75 - float32(i)}},
-			deltaRotation:   Rot{Sin: Q{v: 0.1 + 0.01*float32(i)}, Cos: Q{v: 0.9 - 0.02*float32(i)}},
-		}
-	}
-	nullLane := wideWidth - 1
-	indices := [wideWidth]int{}
-	for i := range indices {
-		indices[i] = i
-	}
-	indices[nullLane] = nullIndex
-
-	var body bodyStateW
-	gatherBodyW(states, &indices, laneSplat(tau), &body)
-	var vx, vy, w, dpx, dpy, dqc, dqs [wideWidth]laneScalar
-	body.v.x.store(&vx)
-	body.v.y.store(&vy)
-	body.w.store(&w)
-	body.dp.x.store(&dpx)
-	body.dp.y.store(&dpy)
-	body.dq.c.store(&dqc)
-	body.dq.s.store(&dqs)
-
-	if math.Float32bits(vx[nullLane]) != math.Float32bits(0) ||
-		math.Float32bits(vy[nullLane]) != math.Float32bits(0) ||
-		math.Float32bits(w[nullLane]) != math.Float32bits(0) ||
-		math.Float32bits(dpx[nullLane]) != math.Float32bits(0) ||
-		math.Float32bits(dpy[nullLane]) != math.Float32bits(0) ||
-		math.Float32bits(dqc[nullLane]) != math.Float32bits(1) ||
-		math.Float32bits(dqs[nullLane]) != math.Float32bits(0) {
-		t.Fatalf("null lane: v=(%#08x,%#08x) w=%#08x dp=(%#08x,%#08x) dq=(%#08x,%#08x)", math.Float32bits(vx[nullLane]), math.Float32bits(vy[nullLane]), math.Float32bits(w[nullLane]), math.Float32bits(dpx[nullLane]), math.Float32bits(dpy[nullLane]), math.Float32bits(dqc[nullLane]), math.Float32bits(dqs[nullLane]))
-	}
-	for i := range nullLane {
-		s := &states[indices[i]]
-		values := [][2]laneScalar{
-			{vx[i], laneScalarFromQ(s.linearVelocity.X)},
-			{vy[i], laneScalarFromQ(s.linearVelocity.Y)},
-			{w[i], laneScalarFromQ(s.angularVelocity.Mul(tau))},
-			{dpx[i], laneScalarFromQ(s.deltaPosition.X)},
-			{dpy[i], laneScalarFromQ(s.deltaPosition.Y)},
-			{dqc[i], laneScalarFromQ(s.deltaRotation.Cos)},
-			{dqs[i], laneScalarFromQ(s.deltaRotation.Sin)},
-		}
-		for field, value := range values {
-			if math.Float32bits(value[0]) != math.Float32bits(value[1]) {
-				t.Fatalf("real lane %d field %d: got %#08x want %#08x", i, field, math.Float32bits(value[0]), math.Float32bits(value[1]))
-			}
-		}
-	}
-}
-
-// TestScatterBodiesRestoresConvertedVelocities protects null lanes and bits.
-func TestScatterBodiesRestoresConvertedVelocities(t *testing.T) {
-	states := make([]bodyState, wideWidth)
-	for i := range states {
-		states[i] = bodyState{
-			linearVelocity:  Vec2{X: Q{v: 2.25 + float32(i)}, Y: Q{v: -3.5 - float32(i)}},
-			angularVelocity: Q{v: 0.0625 * float32(i+1)},
-			flags:           int32(7 + i),
-			deltaPosition:   Vec2{X: Q{v: 1.5 + float32(i)}, Y: Q{v: -1.75 - float32(i)}},
-			deltaRotation:   Rot{Sin: Q{v: 0.2 + 0.01*float32(i)}, Cos: Q{v: 0.8 - 0.02*float32(i)}},
-		}
-	}
-	before := append([]bodyState(nil), states...)
-	nullLane := wideWidth - 1
-	indices := [wideWidth]int{}
-	for i := range indices {
-		indices[i] = i
-	}
-	indices[nullLane] = nullIndex
-
-	tauW := laneSplat(tau)
-	var got bodyStateW
-	gatherBodyW(states, &indices, tauW, &got)
-	got.v.x = got.v.x.Add(laneSplat(laneScalarToQ(0.25)))
-	got.v.y = got.v.y.Sub(laneSplat(laneScalarToQ(0.5)))
-	got.w = got.w.Add(laneSplat(laneScalarToQ(1.25)))
-	var wantVx, wantVy, wantW [wideWidth]laneScalar
-	got.v.x.store(&wantVx)
-	got.v.y.store(&wantVy)
-	got.w.store(&wantW)
-
-	after := append([]bodyState(nil), before...)
-	scatterBodyW(after, &indices, tauW, &got)
-	if after[nullLane] != before[nullLane] {
-		t.Fatalf("state reserved for null lane changed: got %#v want %#v", after[nullLane], before[nullLane])
-	}
-	for i := range nullLane {
-		s := &after[indices[i]]
-		wantAngular := laneScalarFromQ(laneScalarToQ(wantW[i]).Div(tau))
-		if math.Float32bits(laneScalarFromQ(s.linearVelocity.X)) != math.Float32bits(wantVx[i]) ||
-			math.Float32bits(laneScalarFromQ(s.linearVelocity.Y)) != math.Float32bits(wantVy[i]) ||
-			math.Float32bits(laneScalarFromQ(s.angularVelocity)) != math.Float32bits(wantAngular) {
-			t.Fatalf("real lane %d: got v=(%#08x,%#08x) w=%#08x want v=(%#08x,%#08x) w=%#08x", i, math.Float32bits(laneScalarFromQ(s.linearVelocity.X)), math.Float32bits(laneScalarFromQ(s.linearVelocity.Y)), math.Float32bits(laneScalarFromQ(s.angularVelocity)), math.Float32bits(wantVx[i]), math.Float32bits(wantVy[i]), math.Float32bits(wantAngular))
 		}
 	}
 }

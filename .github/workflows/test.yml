@@ -119,10 +119,12 @@ jobs:
         run: go test -timeout 600s -tags "${{ matrix.tags || 'fixed_satcounter' }}" -skip "${{ (matrix.tags == 'dbox2d_simd,fixed_satcounter' || (matrix.goarch == 'wasm' && contains(matrix.tags, 'dbox2d_simd'))) && 'TestConformance' || '^$' }}" ./...
 
   wide:
-    name: wide (${{ matrix.path }})
+    name: wide (${{ matrix.path }}, ${{ matrix.mode }})
     strategy:
       fail-fast: false
       matrix:
+        path: [avx2, neon, simd128]
+        mode: [float, fixed]
         include:
           - os: ubuntu-latest
             path: avx2
@@ -138,10 +140,18 @@ jobs:
             path: simd128
             goos: js
             goarch: wasm
+          - mode: float
+            tags: dbox2d_float,dbox2d_simd
+          - mode: fixed
+            tags: dbox2d_simd,fixed_satcounter
+          # fixed has no simd128 lanes; its wasm build runs the generic lanes.
+          - path: simd128
+            mode: fixed
+            lanes: generic
     runs-on: ${{ matrix.os }}
     env:
       GOEXPERIMENT: simd
-      TAGS: dbox2d_float,dbox2d_simd
+      TAGS: ${{ matrix.tags }}
       GOOS: ${{ matrix.goos }}
       GOARCH: ${{ matrix.goarch }}
       # the native host uses cgo; wasm must not try it.
@@ -159,7 +169,7 @@ jobs:
       - name: Path
         shell: bash
         run: |
-          go test -tags $TAGS -run TestWidePath -v . | tee /dev/stderr | grep -q 'path: ${{ matrix.path }}'
+          go test -tags $TAGS -run TestWidePath -v . | tee /dev/stderr | grep -q 'path: ${{ matrix.lanes || matrix.path }}'
       - name: Vet
         run: go vet -tags $TAGS ./...
       - name: Test
