@@ -2,7 +2,11 @@
 
 package dbox2d
 
-import "github.com/dhannyell/fixed"
+import (
+	"math"
+
+	"github.com/dhannyell/fixed"
+)
 
 // The library has one scalar per build mode. This file is the fixed-point
 // mode: Q32.32 from github.com/dhannyell/fixed. Apart from the fixed SIMD
@@ -118,14 +122,29 @@ func IsValidQ(a Q) bool {
 // qBits returns the bits the checksum folds.
 func qBits(q Q) uint64 { return uint64(q.Raw()) }
 
-// QFromFloat64 converts a presentation value, such as a camera value, to a
-// scalar. It must never be used by simulation code.
+// QFromFloat64 returns f rounded to the nearest Q32.32 value, with exact
+// halves away from zero as QMustParse rounds them. It saturates outside the
+// Q32.32 range and panics on NaN. The scaling and the rounding are exact, so
+// a constant converts to the same scalar on every architecture. A float64
+// computed at run time is only as portable as its computation: Go fuses a
+// multiply and an add into one rounding on arm64, and on amd64 with
+// GOAMD64=v3.
 func QFromFloat64(f float64) Q {
-	return fixed.Q32FromRaw(int64(f * (1 << 32)))
+	if f != f {
+		panic("dbox2d: QFromFloat64 of NaN")
+	}
+	raw := math.Round(f * (1 << 32))
+	if raw >= 1<<63 {
+		return QMaxValue()
+	}
+	if raw < -(1 << 63) {
+		return QMinValue()
+	}
+	return fixed.Q32FromRaw(int64(raw))
 }
 
-// QToFloat64 converts a scalar to a presentation value, such as a camera
-// value. It must never be used by simulation code.
+// QToFloat64 returns q as a float64, rounded to nearest where q has more
+// than 53 significant bits.
 func QToFloat64(q Q) float64 { return float64(q.Raw()) / (1 << 32) }
 
 // The contact stages solve on a narrower grid than the rest of the solver:

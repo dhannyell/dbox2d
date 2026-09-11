@@ -389,12 +389,16 @@ func IsValidQ(a Q) bool {
 // qBits returns the bits the checksum folds.
 func qBits(q Q) uint64 { return uint64(math.Float32bits(q.v)) }
 
-// QFromFloat64 converts a presentation value, such as a camera value, to a
-// scalar. It must never be used by simulation code.
+// QFromFloat64 returns f rounded to the nearest float32. The rounding is the
+// same on every architecture, so a constant converts to the same scalar
+// everywhere. A float64 computed at run time is only as portable as its
+// computation: Go fuses a multiply and an add into one rounding on arm64,
+// and on amd64 with GOAMD64=v3.
+// A decimal literal rounds to float64 first, so a long literal can differ
+// from QMustParse in the last bit.
 func QFromFloat64(f float64) Q { return Q{float32(f)} }
 
-// QToFloat64 converts a scalar to a presentation value, such as a camera
-// value. It must never be used by simulation code.
+// QToFloat64 returns q as a float64. The conversion is exact.
 func QToFloat64(q Q) float64 { return float64(q.v) }
 
 // The float mode solves contacts in its one scalar, so the contact types

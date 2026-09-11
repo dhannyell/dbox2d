@@ -88,7 +88,7 @@ requirements, and instructions for adding a scene are in
 ## Scalar modes and determinism
 
 Both modes are deterministic, but they are different numeric systems and can
-follow different trajectories. `ScalarMode()` reports the active mode.
+follow different trajectories. `ScalarMode` reports the active mode.
 
 | Build | Arithmetic | Best for |
 | --- | --- | --- |
