@@ -142,6 +142,11 @@ func TestWideMatchesScalarStepByStep(t *testing.T) {
 						if checksumBody(scalarState, &scalarState.bodies[i]) != checksumBody(wideState, &wideState.bodies[i]) {
 							sb := &scalarState.bodies[i]
 							wb := &wideState.bodies[i]
+							// Only the awake set keeps body states.
+							if sb.setIndex != awakeSet || wb.setIndex != awakeSet {
+								t.Logf("body %d scalar set=%d wide set=%d", i, sb.setIndex, wb.setIndex)
+								continue
+							}
 							t.Logf("body %d scalar sim=%#v state=%#v", i, scalarState.solverSets[sb.setIndex].bodySims[sb.localIndex], scalarState.solverSets[sb.setIndex].bodyStates[sb.localIndex])
 							t.Logf("body %d wide   sim=%#v state=%#v", i, wideState.solverSets[wb.setIndex].bodySims[wb.localIndex], wideState.solverSets[wb.setIndex].bodyStates[wb.localIndex])
 						}
