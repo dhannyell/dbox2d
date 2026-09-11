@@ -4,8 +4,13 @@ package dbox2d
 
 import "github.com/dhannyell/fixed"
 
-// bodyScratchW carries the gathered scalars between the body states and the lanes.
-type bodyScratchW struct{ vx, vy, w, dpx, dpy, dqc, dqs [wideWidth]laneScalar }
+// bodyScratchW carries the gathered scalars between the body states and the
+// lanes. The velocities travel in the accumulator grid, as in the scalar
+// contact stages; only the deltas are narrowed to the lane grid.
+type bodyScratchW struct {
+	vx, vy, w          [wideWidth]accScalar
+	dpx, dpy, dqc, dqs [wideWidth]laneScalar
+}
 
 // gatherBodies fills the scratch; null lanes get the identity. The tau scaling
 // runs in Q32 before the rounding, as in the scalar contact stages.
@@ -14,15 +19,15 @@ func gatherBodies(states []bodyState, indices *[wideWidth]int, s *bodyScratchW) 
 	for j := range wideWidth {
 		idx := indices[j]
 		if idx == nullIndex {
-			s.vx[j], s.vy[j], s.w[j] = zero, zero, zero
+			s.vx[j], s.vy[j], s.w[j] = fixed.Q48Zero(), fixed.Q48Zero(), fixed.Q48Zero()
 			s.dpx[j], s.dpy[j], s.dqs[j] = zero, zero, zero
 			s.dqc[j] = fixed.Q16One()
 			continue
 		}
 		b := &states[idx]
-		s.vx[j] = laneScalarFromQ(b.linearVelocity.X)
-		s.vy[j] = laneScalarFromQ(b.linearVelocity.Y)
-		s.w[j] = laneScalarFromQ(b.angularVelocity.Mul(tau))
+		s.vx[j] = accScalarFromQ(b.linearVelocity.X)
+		s.vy[j] = accScalarFromQ(b.linearVelocity.Y)
+		s.w[j] = accScalarFromQ(b.angularVelocity.Mul(tau))
 		s.dpx[j] = laneScalarFromQ(b.deltaPosition.X)
 		s.dpy[j] = laneScalarFromQ(b.deltaPosition.Y)
 		s.dqc[j] = laneScalarFromQ(b.deltaRotation.Cos)
@@ -30,11 +35,11 @@ func gatherBodies(states []bodyState, indices *[wideWidth]int, s *bodyScratchW) 
 	}
 }
 
-// loadBodyVelocityW builds the velocity lanes from the scratch.
+// loadBodyVelocityW builds the velocity accumulators from the scratch.
 func loadBodyVelocityW(s *bodyScratchW, b *bodyStateW) {
-	b.v.x = laneLoad(&s.vx).toAcc()
-	b.v.y = laneLoad(&s.vy).toAcc()
-	b.w = laneLoad(&s.w).toAcc()
+	b.v.x = accLoad(&s.vx)
+	b.v.y = accLoad(&s.vy)
+	b.w = accLoad(&s.w)
 }
 
 // loadBodyDeltaW builds the delta position and delta rotation lanes.
@@ -43,11 +48,11 @@ func loadBodyDeltaW(s *bodyScratchW, b *bodyStateW) {
 	b.dq = rotW{c: laneLoad(&s.dqc), s: laneLoad(&s.dqs)}
 }
 
-// storeBodyW writes the velocity lanes to the scratch.
+// storeBodyW writes the velocity accumulators to the scratch.
 func storeBodyW(b *bodyStateW, s *bodyScratchW) {
-	b.v.x.toLane().store(&s.vx)
-	b.v.y.toLane().store(&s.vy)
-	b.w.toLane().store(&s.w)
+	b.v.x.store(&s.vx)
+	b.v.y.store(&s.vy)
+	b.w.store(&s.w)
 }
 
 // scatterBodies writes the real-lane velocities back. The tau division runs
@@ -59,9 +64,9 @@ func scatterBodies(states []bodyState, indices *[wideWidth]int, s *bodyScratchW)
 			continue
 		}
 		b := &states[idx]
-		b.linearVelocity.X = laneScalarToQ(s.vx[j])
-		b.linearVelocity.Y = laneScalarToQ(s.vy[j])
-		b.angularVelocity = laneScalarToQ(s.w[j]).Div(tau)
+		b.linearVelocity.X = accScalarToQ(s.vx[j])
+		b.linearVelocity.Y = accScalarToQ(s.vy[j])
+		b.angularVelocity = accScalarToQ(s.w[j]).Div(tau)
 	}
 }
 

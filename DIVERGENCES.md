@@ -689,9 +689,11 @@ Numbering is sequential from `D-001` and never reused.
   Q48.16 accumulators, the grid of the scalar contact stages (D-020). The
   module selects avx2 (width 8), neon (width 4) or a generic path; wasm runs
   the generic path. Every fixed path gathers through a scalar scratch. The
-  scratch converts the angular velocity to radians per second in Q32.32 and
-  rounds the result to the grid, as the scalar family does, because the lane
-  grid is too coarse for that product. The velocity accumulations skip the
+  scratch carries the velocities in Q48.16 and the position deltas in Q16.16,
+  as the scalar contact stages do. It converts the angular velocity to radians
+  per second in Q32.32 and rounds the result to the grid, as the scalar family
+  does, because the lane grid is too coarse for that product. The velocity
+  accumulations skip the
   Q48 overflow check, because their budget stays far inside the Q48 range
   (`AddBounded`). A pack with no rolling resistance and no stored rolling
   impulse skips the rolling blocks, which would only add zero. Float mode

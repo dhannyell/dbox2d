@@ -30,6 +30,10 @@ func laneScalarToQ(s laneScalar) Q { return s.ToQ32() }
 // accScalar is the element type the accumulator stores.
 type accScalar = fixed.Q48
 
+// accScalarFromQ rounds a scalar-mode value to the accumulator grid, to
+// nearest like the scalar contact stages.
+func accScalarFromQ(q Q) accScalar { return q.ToQ48Round() }
+
 // accScalarToQ converts an accumulator element back to a scalar-mode value.
 func accScalarToQ(s accScalar) Q { return s.ToQ32() }
 
@@ -130,6 +134,9 @@ func (a laneW) toAcc() accW { return accW{v: a.v.ToLane48()} }
 // toLane narrows an accumulator back to a lane, with Q16 saturation.
 func (a accW) toLane() laneW { return laneW{v: a.v.ToLane16()} }
 
+// accLoad loads one aligned-width accumulator-element array.
+func accLoad(p *[wideWidth]accScalar) accW { return accW{v: fixed.LoadLane48(p)} }
+
 // store writes the accumulator without narrowing it.
 func (a accW) store(p *[wideWidth]accScalar) { a.v.Store(p) }
 
@@ -140,8 +147,8 @@ func (a accW) Add(b accW) accW { return accW{v: a.v.Add(b.v)} }
 func (a accW) Sub(b accW) accW { return accW{v: a.v.Sub(b.v)} }
 
 // AddBounded adds without the overflow check. Each stage reloads the
-// velocities from Q16 and adds a few Q16 terms, and a total gains a few per
-// substep, so no sum nears the Q48 range.
+// velocities from the Q32 body state and adds a few Q16 terms, and a total
+// gains a few per substep, so no sum nears the Q48 range.
 func (a accW) AddBounded(b accW) accW { return accW{v: a.v.AddWrap(b.v)} }
 
 // SubBounded subtracts under the same budget as AddBounded.
