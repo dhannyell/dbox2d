@@ -28,8 +28,8 @@ A name is exported when the reference exports it from `include/box2d/`, plus
 the tolerances of `constants.h`, which content authoring needs. Everything
 else that the reference keeps under `src/` stays unexported here.
 
-The scalar has two owners: `scalar_fixed.go` is the default Q32.32 mode, and
-`scalar_float.go` is the `dbox2d_float` float32 mode. Both declare `Q`, `Vec2`
+The scalar has two owners: `scalar_float.go` is the default float32 mode, and
+`scalar_fixed.go` is the `dbox2d_fixed` Q32.32 mode. Both declare `Q`, `Vec2`
 and `Rot` and the constructors that build a scalar. Every other file calls those
 constructors; only the tests that read the raw format still import the fixed
 module. A second scalar mode is a second file under another build tag, not a

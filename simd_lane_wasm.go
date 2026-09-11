@@ -1,4 +1,4 @@
-//go:build dbox2d_simd && dbox2d_float && goexperiment.simd && go1.27 && wasm
+//go:build dbox2d_simd && !dbox2d_fixed && goexperiment.simd && go1.27 && wasm
 
 package dbox2d
 

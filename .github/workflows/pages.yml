@@ -22,20 +22,20 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: samples/go.mod
-      - name: Build the browser host, fixed mode
-        working-directory: samples
-        env:
-          CGO_ENABLED: "0"
-          GOOS: js
-          GOARCH: wasm
-        run: go build -o web/app.wasm ./cmd/web
       - name: Build the browser host, float mode
         working-directory: samples
         env:
           CGO_ENABLED: "0"
           GOOS: js
           GOARCH: wasm
-        run: go build -tags dbox2d_float -o web/app-float.wasm ./cmd/web
+        run: go build -o web/app.wasm ./cmd/web
+      - name: Build the browser host, fixed mode
+        working-directory: samples
+        env:
+          CGO_ENABLED: "0"
+          GOOS: js
+          GOARCH: wasm
+        run: go build -tags dbox2d_fixed -o web/app-fixed.wasm ./cmd/web
       - name: Copy wasm_exec.js from the toolchain
         run: cp "$(go env GOROOT)/lib/wasm/wasm_exec.js" samples/web/wasm_exec.js
       - uses: actions/configure-pages@v5

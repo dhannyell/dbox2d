@@ -2,8 +2,8 @@
 
 `dbox2d` is a deterministic 2D physics library for Go and a port of
 [Box2D](https://box2d.org) v3.1.1. It has two scalar modes: the default build
-uses Q32.32 fixed-point arithmetic, while `-tags dbox2d_float` selects
-`float32`. In either mode, equal inputs produce the same result bits on every
+uses `float32`, while `-tags dbox2d_fixed` selects Q32.32 fixed-point
+arithmetic. In either mode, equal inputs produce the same result bits on every
 supported architecture and on every run.
 
 Fixed point is the safer default for cross-platform rollback, replay, and
@@ -68,7 +68,7 @@ To build the browser host:
 ```sh
 cd samples
 CGO_ENABLED=0 GOOS=js GOARCH=wasm go build -o web/app.wasm ./cmd/web
-GOTOOLCHAIN=go1.27.0 GOEXPERIMENT=simd CGO_ENABLED=0 GOOS=js GOARCH=wasm go build -tags dbox2d_float,dbox2d_simd -o web/app.wasm ./cmd/web
+GOTOOLCHAIN=go1.27.0 GOEXPERIMENT=simd CGO_ENABLED=0 GOOS=js GOARCH=wasm go build -tags dbox2d_simd -o web/app.wasm ./cmd/web
 go run ./cmd/serve
 ```
 
@@ -78,16 +78,17 @@ requirements, and instructions for adding a scene are in
 
 ## Determinism and scalar modes
 
-The default build stores simulation values in signed Q32.32 fixed point from
-[`fixed`](https://github.com/dhannyell/fixed). The optional `dbox2d_float`
-build tag uses `float32` instead. Both modes keep a deterministic result for a
-given architecture-supported build, but they are different numeric systems and
-can follow different trajectories.
+The default build stores simulation values in `float32`. The optional
+`dbox2d_fixed` build tag uses signed Q32.32 fixed point from
+[`fixed`](https://github.com/dhannyell/fixed) instead. Both modes keep a
+deterministic result for a given architecture-supported build, but they are
+different numeric systems and can follow different trajectories. `ScalarMode`
+reports the mode of a build: `"float"` or `"fixed"`.
 
 | Build | Scalar type | Determinism promise | When to use it |
 | --- | --- | --- | --- |
-| default | Q32.32 fixed point | identical Q32.32 bits across supported architectures | authoritative simulation, replay, rollback, and checksums |
-| `-tags dbox2d_float` | `float32` | identical float32 bits on amd64, arm64, 386, and wasm | comparison work and float-mode sample builds |
+| default | `float32` | identical float32 bits on amd64, arm64, 386, and wasm | most applications |
+| `-tags dbox2d_fixed` | Q32.32 fixed point | identical Q32.32 bits across supported architectures | authoritative simulation, replay, rollback, and checksums |
 
 Use the package constructors to create simulation values:
 
@@ -104,18 +105,18 @@ QMustParse("0.35")
 simulation. The solver itself does not use them. Angles are expressed in turns:
 one quarter turn is `QFromRatio(1, 4)`.
 
-Build and test float mode with:
+Build and test fixed mode with:
 
 ```sh
-go build -tags dbox2d_float ./...
-go test -tags dbox2d_float ./...
+go build -tags dbox2d_fixed ./...
+go test -tags dbox2d_fixed ./...
 cd samples
-go test -tags dbox2d_float ./...
-go run -tags dbox2d_float ./cmd/native
+go test -tags dbox2d_fixed ./...
+go run -tags dbox2d_fixed ./cmd/native
 ```
 
-The published sample page serves the fixed build by default. Add
-`?mode=float` to load the float build instead.
+The published sample page serves the float build by default. Add
+`?mode=fixed` to load the fixed build instead.
 
 The port is checked against traces of the reference compiled without SIMD and
 without FMA; the collision functions match the reference bit for bit in float
@@ -125,8 +126,7 @@ budgets. See DIVERGENCES.md D-018.
 ### Wide family
 
 The `dbox2d_simd` build tag adds a wide contact-solving path beside the
-scalar family. It requires `dbox2d_float`; the build fails otherwise, because
-no wide fixed-point lane exists yet. Four lane paths cover it: avx2 (amd64,
+scalar family. Four lane paths cover it: avx2 (amd64,
 width 8), neon (arm64, width 4), simd128 (wasm, width 4), and a generic path
 of four named floats for every other target. avx2, neon, and simd128 need
 `GOEXPERIMENT=simd` with Go 1.27.0 and the `simd/archsimd` package; without the
@@ -134,11 +134,8 @@ experiment, the same tags build the generic path. avx2 falls back to the
 scalar family at runtime on a CPU without AVX2.
 
 ```sh
-GOTOOLCHAIN=go1.27.0 GOEXPERIMENT=simd go build -tags dbox2d_float,dbox2d_simd ./...
+GOTOOLCHAIN=go1.27.0 GOEXPERIMENT=simd go build -tags dbox2d_simd ./...
 ```
-
-The `dbox2d_simd` tag requires `dbox2d_float`; without it the build stops with
-`undefined: wideRequiresFloatMode`.
 
 The wide family produces the same result bits as the scalar family, on every
 path, because it never fuses a multiply with an add or a subtract. See
@@ -199,9 +196,9 @@ This is a port, not a new physics design. It preserves the upstream file
 structure, names without the `b2` prefix, and order of operations so code can
 be compared with its Box2D counterpart.
 
-It does not promise the same output bits as Box2D. Upstream uses floating-point
-arithmetic while the default build uses fixed point, and some float-oriented
-operations must change as a result. Each intentional change is documented with
+It does not promise the same output bits as Box2D. Both scalar modes share one
+source, and the fixed-point mode forbids some float-oriented operations, so
+those operations change in both modes. Each intentional change is documented with
 its rationale and test coverage in [DIVERGENCES.md](DIVERGENCES.md).
 
 `dbox2d` is not affiliated with, endorsed by, or supported by the Box2D
@@ -239,6 +236,7 @@ Run the benchmarks on the hardware and workload that matter to your project:
 
 ```sh
 go test -run "^$" -bench . -benchmem
+go test -tags dbox2d_fixed -run "^$" -bench . -benchmem
 ```
 
 The saturation counter of `fixed` is off by default and never changes a

@@ -7,12 +7,12 @@ on:
 
 jobs:
   test:
-    name: test (${{ matrix.goarch }}, ${{ matrix.tags || 'fixed' }})
+    name: test (${{ matrix.goarch }}, ${{ matrix.tags || 'float' }})
     strategy:
       fail-fast: false
       matrix:
         goarch: [amd64, arm64, "386", wasm]
-        tags: ["", dbox2d_float, "dbox2d_float,dbox2d_simd", "dbox2d_simd,fixed_satcounter"]
+        tags: ["", "dbox2d_fixed,fixed_satcounter", dbox2d_simd, "dbox2d_simd,dbox2d_fixed,fixed_satcounter"]
         include:
           - goarch: amd64
             goos: linux
@@ -48,7 +48,7 @@ jobs:
         if: matrix.goarch == 'amd64'
         run: go vet ./...
       - name: Guard the scalar layer
-        if: (matrix.goarch == 'amd64' || matrix.goarch == 'wasm') && matrix.tags == ''
+        if: (matrix.goarch == 'amd64' || matrix.goarch == 'wasm') && matrix.tags == 'dbox2d_fixed,fixed_satcounter'
         shell: bash
         run: |
           leaks="$(grep -rlE 'fixed\.(Q32(Zero|One|Half|FromInt|FromRatio|MustParse|MaxValue|MinValue)|RotIdentity|RotFromTurns|Atan2Turns)\(' --include=*.go --exclude=scalar_fixed.go . || true)"
@@ -57,30 +57,30 @@ jobs:
             exit 1
           fi
           # MakeRot stays out of the count: its body costs 83, over the budget of 80, since before the layer.
-          inlined="$(go build -gcflags=-m=1 . 2>&1 | grep -cE 'can inline (QZero|QOne|QHalf|QFromInt|QFromRatio|QMustParse|QMaxValue|QMinValue|RotIdentity|atan2Turns)$')"
+          inlined="$(go build -tags dbox2d_fixed -gcflags=-m=1 . 2>&1 | grep -cE 'can inline (QZero|QOne|QHalf|QFromInt|QFromRatio|QMustParse|QMaxValue|QMinValue|RotIdentity|atan2Turns)$')"
           if [ "$inlined" != "10" ]; then
             echo "expected 10 inlinable constructors, got $inlined"
             exit 1
           fi
       - name: Guard the float mode
-        if: matrix.goarch == 'amd64' && matrix.tags == 'dbox2d_float'
+        if: matrix.goarch == 'amd64' && matrix.tags == ''
         shell: bash
         run: |
-          if ! go build -tags dbox2d_float ./... || ! go vet -tags dbox2d_float ./...; then
+          if ! go build ./... || ! go vet ./...; then
             echo "float build or vet failed"
             exit 1
           fi
-          count="$(GOARCH=arm64 go build -tags dbox2d_float -gcflags=-S . 2>&1 | grep -cE '\b(FMADD|FMSUB|FNMADD|FNMSUB|FMLA|FMLS)\b' || true)"
+          count="$(GOARCH=arm64 go build -gcflags=-S . 2>&1 | grep -cE '\b(FMADD|FMSUB|FNMADD|FNMSUB|FMLA|FMLS)\b' || true)"
           if [ "$count" != "0" ]; then
             echo "expected no fused multiply-add instructions, got $count"
             exit 1
           fi
-          inlined="$(go build -tags dbox2d_float -gcflags=-m=1 . 2>&1 | grep -cE 'can inline (QZero|QOne|QHalf|QFromInt|QFromRatio|QMustParse|QMaxValue|QMinValue|RotIdentity|atan2Turns)$' || true)"
+          inlined="$(go build -gcflags=-m=1 . 2>&1 | grep -cE 'can inline (QZero|QOne|QHalf|QFromInt|QFromRatio|QMustParse|QMaxValue|QMinValue|RotIdentity|atan2Turns)$' || true)"
           if [ "$inlined" != "10" ]; then
             echo "expected 10 inlinable float constructors, got $inlined"
             exit 1
           fi
-          methods="$(go build -tags dbox2d_float -gcflags=-m=1 . 2>&1 | grep -cE 'can inline (Q|Vec2)\.(Add|Sub|Mul|Div|Neg|Dot)$' || true)"
+          methods="$(go build -gcflags=-m=1 . 2>&1 | grep -cE 'can inline (Q|Vec2)\.(Add|Sub|Mul|Div|Neg|Dot)$' || true)"
           if [ "$methods" != "10" ]; then
             echo "expected 10 inlinable float methods, got $methods"
             exit 1
@@ -116,7 +116,7 @@ jobs:
       # fixed on every target, float on wasm. The wide job runs them natively.
       # The no-saturation checks read the fixed counter, which is off by default.
       - name: Test
-        run: go test -timeout 600s -tags "${{ matrix.tags || 'fixed_satcounter' }}" -skip "${{ (matrix.tags == 'dbox2d_simd,fixed_satcounter' || (matrix.goarch == 'wasm' && contains(matrix.tags, 'dbox2d_simd'))) && 'TestConformance' || '^$' }}" ./...
+        run: go test -timeout 600s -tags "${{ matrix.tags }}" -skip "${{ (matrix.tags == 'dbox2d_simd,dbox2d_fixed,fixed_satcounter' || (matrix.goarch == 'wasm' && contains(matrix.tags, 'dbox2d_simd'))) && 'TestConformance' || '^$' }}" ./...
 
   wide:
     name: wide (${{ matrix.path }}, ${{ matrix.mode }})
@@ -141,9 +141,9 @@ jobs:
             goos: js
             goarch: wasm
           - mode: float
-            tags: dbox2d_float,dbox2d_simd
+            tags: dbox2d_simd
           - mode: fixed
-            tags: dbox2d_simd,fixed_satcounter
+            tags: dbox2d_simd,dbox2d_fixed,fixed_satcounter
           # fixed has no simd128 lanes; its wasm build runs the generic lanes.
           - path: simd128
             mode: fixed
@@ -195,11 +195,11 @@ jobs:
         with:
           go-version-file: go.mod
       - uses: golangci/golangci-lint-action@v8
-        name: Lint fixed mode
-        with:
-          version: latest
-      - uses: golangci/golangci-lint-action@v8
         name: Lint float mode
         with:
           version: latest
-          args: --build-tags dbox2d_float ./...
+      - uses: golangci/golangci-lint-action@v8
+        name: Lint fixed mode
+        with:
+          version: latest
+          args: --build-tags dbox2d_fixed ./...

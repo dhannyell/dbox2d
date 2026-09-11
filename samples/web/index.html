@@ -21,9 +21,9 @@ if (!navigator.gpu) {
   document.getElementById("canvas").style.display = "none";
   document.getElementById("fallback").style.display = "grid";
 } else {
-  // ?mode=float loads the float build; the default is the fixed build.
-  const mode = new URLSearchParams(location.search).get("mode") === "float" ? "float" : "fixed";
-  const binary = mode === "float" ? "app-float.wasm" : "app.wasm";
+  // ?mode=fixed loads the fixed build; the default is the float build.
+  const mode = new URLSearchParams(location.search).get("mode") === "fixed" ? "fixed" : "float";
+  const binary = mode === "fixed" ? "app-fixed.wasm" : "app.wasm";
   document.title = "dbox2d samples (" + mode + ")";
   const go = new Go();
   WebAssembly.instantiateStreaming(fetch(binary), go.importObject).then((result) => {

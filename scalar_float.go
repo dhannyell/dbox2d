@@ -1,4 +1,4 @@
-//go:build dbox2d_float
+//go:build !dbox2d_fixed
 
 package dbox2d
 
@@ -48,6 +48,9 @@ var (
 	// The reference uses 100 * FLT_EPSILON for normalized vectors.
 	normalizedTolerance = QFromInt(100).Mul(scalarEpsilon)
 )
+
+// ScalarMode names the scalar mode of this build: "float" or "fixed".
+const ScalarMode = "float"
 
 // QZero returns zero.
 func QZero() Q { return Q{0} }

@@ -1,4 +1,4 @@
-//go:build !dbox2d_float
+//go:build dbox2d_fixed
 
 package dbox2d
 
@@ -19,6 +19,9 @@ type (
 	// Rot is a 2D rotation, stored as a sine and cosine pair.
 	Rot = fixed.Rot
 )
+
+// ScalarMode names the scalar mode of this build: "float" or "fixed".
+const ScalarMode = "fixed"
 
 // QZero returns zero.
 func QZero() Q { return fixed.Q32Zero() }

@@ -310,7 +310,7 @@ func readConformanceSceneTrace(t *testing.T, path string) conformanceSceneTrace 
 }
 
 func conformanceFloatMode() bool {
-	return qBits(QFromFloat64(1.5)) == uint64(math.Float32bits(1.5))
+	return ScalarMode == "float"
 }
 
 func orderedConformanceFloat(bits uint32) uint32 {

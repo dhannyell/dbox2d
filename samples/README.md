@@ -2,7 +2,7 @@
 
 [![Tumbler in the browser host](web/tumbler.png)](https://dhannyell.github.io/dbox2d/)
 
-**Live demo: [fixed mode](https://dhannyell.github.io/dbox2d/) · [float mode](https://dhannyell.github.io/dbox2d/?mode=float)** — the browser host on GitHub Pages, built from `main` by `pages.yml`. It needs a browser with WebGPU. `?mode=float` picks the float build; the tab title names the mode that runs.
+**Live demo: [fixed mode](https://dhannyell.github.io/dbox2d/) · [float mode](https://dhannyell.github.io/dbox2d/?mode=fixed)** — the browser host on GitHub Pages, built from `main` by `pages.yml`. It needs a browser with WebGPU. `?mode=fixed` picks the float build; the tab title names the mode that runs.
 
 The sample scenes of Box2D v3.1.1, ported to `dbox2d`. A scene builds a
 world, steps it and asks the world to draw itself. A host renders the
@@ -19,14 +19,14 @@ Metal or D3D12.
 
 ```bash
 cd samples && go run ./cmd/native
-cd samples && go run -tags dbox2d_float ./cmd/native
+cd samples && go run -tags dbox2d_fixed ./cmd/native
 ```
 
 ## Test
 
 ```bash
 cd samples && go test ./...
-cd samples && go test -tags dbox2d_float ./...
+cd samples && go test -tags dbox2d_fixed ./...
 ```
 
 ## Run the browser host
@@ -37,10 +37,10 @@ sends `.wasm` with the right content type; any other static server works.
 
 ```bash
 cd samples && CGO_ENABLED=0 GOOS=js GOARCH=wasm go build -o web/app.wasm ./cmd/web
-cd samples && CGO_ENABLED=0 GOOS=js GOARCH=wasm go build -tags dbox2d_float -o web/app-float.wasm ./cmd/web
+cd samples && CGO_ENABLED=0 GOOS=js GOARCH=wasm go build -tags dbox2d_fixed -o web/app-fixed.wasm ./cmd/web
 ```
 
-The page loads `app.wasm` by default and `app-float.wasm` with `?mode=float`.
+The page loads `app.wasm` by default and `app-fixed.wasm` with `?mode=fixed`.
 
 ```bash
 cd samples && go run ./cmd/serve
@@ -132,6 +132,6 @@ the same bits with any worker count.
 | `internal/gpu`, `internal/render` | the WebGPU pipelines |
 | `internal/host/native` | GLFW window and surface |
 | `internal/host/wasm` | canvas, `requestAnimationFrame` and DOM events |
-| `web` | the page, `wasm_exec.js`, the screenshot and the built `app.wasm` and `app-float.wasm` (ignored) |
+| `web` | the page, `wasm_exec.js`, the screenshot and the built `app.wasm` and `app-fixed.wasm` (ignored) |
 | `internal/microui` | vendored copy of `zeozeozeo/microui-go` v1.0.1 (Unlicense) |
 | `cmd/native`, `cmd/web`, `cmd/serve` | the two hosts and the static server |
