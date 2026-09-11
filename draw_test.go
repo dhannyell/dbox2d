@@ -335,10 +335,10 @@ func drawTextMatches(got, want string) bool {
 	want = strings.TrimSpace(strings.TrimSuffix(want, " deg"))
 	a, errA := strconv.ParseFloat(strings.TrimSpace(strings.TrimSuffix(got, " deg")), 64)
 	b, errB := strconv.ParseFloat(want, 64)
-	// A value near a rounding boundary prints one unit apart in the two
-	// scalar modes, so a decimal label may differ by one unit in its last place.
 	limit := 1e-3
-	if i := strings.IndexByte(want, '.'); i >= 0 {
+	// In fixed mode, a label near a rounding boundary may print one unit apart
+	// in its last place.
+	if i := strings.IndexByte(want, '.'); i >= 0 && ScalarMode == "fixed" {
 		limit = math.Max(limit, 1.0001*math.Pow(10, -float64(len(want)-i-1)))
 	}
 	return errA == nil && errB == nil && math.Abs(a-b) <= limit

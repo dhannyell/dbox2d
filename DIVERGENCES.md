@@ -729,8 +729,8 @@ Numbering is sequential from `D-001` and never reused.
   require zero saturations in fixed mode when the build sets
   `fixed_satcounter`. This change moved the fixed witness and four samples
   checksums. The conformance budgets did not move. One grid unit moves a
-  bounded friction label of the draw golden by 0.015, so the golden accepts
-  one unit in the last printed place of a decimal label.
+  bounded friction label of the draw golden by 0.015, so in fixed mode the
+  golden accepts one unit in the last printed place of a decimal label.
 - Test: TestChecksumMatchesDeterministicWitness; the contact tests in
   contact_solver_test.go, with `contactRounding()` for one rounding to the
   grid; the saturation gate of the scene traces in TestConformance.

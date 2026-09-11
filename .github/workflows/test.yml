@@ -133,7 +133,7 @@ jobs:
             goarch: ""
           - os: ubuntu-24.04-arm
             path: neon
-            fma: '\b(FMADD|FMSUB|FNMADD|FNMSUB|FMLA|FMLS)S?\b'
+            fma: '\b(FMADD|FMSUB|FNMADD|FNMSUB|FMLA|FMLS|VFMLA|VFMLS)S?\b'
             goos: ""
             goarch: ""
           - os: ubuntu-latest
@@ -172,6 +172,15 @@ jobs:
           go test -tags $TAGS -run TestWidePath -v . | tee /dev/stderr | grep -q 'path: ${{ matrix.lanes || matrix.path }}'
       - name: Vet
         run: go vet -tags $TAGS ./...
+      - name: Guard the float lanes
+        if: matrix.mode == 'float' && matrix.fma
+        shell: bash
+        run: |
+          count="$(go build -tags $TAGS -gcflags=-S . 2>&1 | grep -cE '${{ matrix.fma }}' || true)"
+          if [ "$count" != "0" ]; then
+            echo "expected no fused multiply-add instructions, got $count"
+            exit 1
+          fi
       - name: Test
         # The scene traces take minutes on wasm; the native paths run them.
         run: go test -timeout 600s ${{ matrix.goos == 'js' && '-short' || '' }} -tags $TAGS ./...
