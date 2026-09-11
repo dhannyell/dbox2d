@@ -86,7 +86,7 @@ jobs:
             exit 1
           fi
           # A package use is fixed.<Identifier>; prose in a comment is not.
-          leaks="$(grep -rlE 'fixed\.[A-Z]' --include=*.go --exclude=scalar_fixed.go --exclude=simd_lane_fixed.go --exclude=simd_lane_gather_fixed.go --exclude=*_test.go --exclude-dir=samples . || true)"
+          leaks="$(grep -rlE 'fixed\.[A-Z]' --include=*.go --exclude=scalar_fixed.go --exclude=simd_lane_fixed.go --exclude=*_test.go --exclude-dir=samples . || true)"
           if [ -n "$leaks" ]; then
             printf 'Unexpected fixed-layer imports in float mode:\n%s\n' "$leaks"
             exit 1
@@ -95,7 +95,7 @@ jobs:
             echo "float64 conversion helpers leaked into production code"
             exit 1
           fi
-          if grep -rl 'go:build' --include=*.go . | grep -v '_test.go\|scalar_fixed.go\|scalar_float.go\|executor.go\|executor_wasm.go\|samples/\|simd_lane_\|simd.go\|simd_off.go\|contact_solver_simd.go\|contact_q32_\|contact_solver_q32.go\|internal/q32gen/\|spin_asm.go\|spin_stub.go'; then
+          if grep -rl 'go:build' --include=*.go . | grep -v '_test.go\|scalar_fixed.go\|scalar_float.go\|executor.go\|executor_wasm.go\|samples/\|simd_lane_\|simd_off.go\|contact_solver_simd.go\|contact_solver_q32.go\|internal/q32gen/\|spin_asm.go\|spin_stub.go'; then
             echo "unexpected build tags found"
             exit 1
           fi
