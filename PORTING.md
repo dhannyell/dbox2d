@@ -630,6 +630,23 @@ D-014 grew entries.
 | `include/box2d/box2d.h` | public API | T0/T2 | all stages | 34 | Landed. The whole 3.1.1 surface is ported; see the surface note above, D-014 and D-015. |
 | `src/joint.h`, `src/joint.c` | `joint.go` | T0/T2 | joints | 33 | Landed. Types, definitions, storage, creation, destruction, the island and graph hooks, the set transfers and the prepare, warm start and solve dispatch. Accessors landed with order 34; debug draw and dump do not cross. See D-003, D-004 and D-006. |
 | `src/distance_joint.c`, `src/motor_joint.c`, `src/mouse_joint.c`, `src/prismatic_joint.c`, `src/revolute_joint.c`, `src/weld_joint.c`, `src/wheel_joint.c` | one file each | T0/T2 | joints | 33 | Landed. Force and torque reports, prepare, warm start and solve of each type; the filter joint has no solver. Accessors landed with order 34; debug draw and dump do not cross. See D-004, D-006 and D-009. |
+
+### Port-only files
+
+The reference selects its scalar type, its SIMD width and its task system
+with preprocessor conditions inside the files above. Go selects them with
+build tags, and a build tag needs a file of its own. These files have no
+upstream counterpart; each one carries the tag that selects it.
+
+| Go | Tag | Notes |
+|---|---|---|
+| `scalar_fixed.go`, `scalar_float.go` | `dbox2d_fixed`, its negation | The scalar layer of each mode: `Q`, `Vec2`, `Rot`, the constructors, the contact grid types and the Q32 contact hooks. See D-017 and D-020. |
+| `contact_solver_q32.go` | `dbox2d_fixed` | The contact stages over Q32.32 for the contacts outside the lane window. `go generate` derives it from `contact_solver.go` through `internal/q32gen` and `tools/q32gen`. See D-020. |
+| `contact_solver_simd.go` | `dbox2d_simd` | The SIMD `Task` family with its dispatch and its scratch layout. See D-019. |
+| `simd_off.go` | `!dbox2d_simd` | The scalar family behind the same hooks. |
+| `simd_lane_amd64.go`, `simd_lane_arm64.go`, `simd_lane_wasm.go`, `simd_lane_generic.go`, `simd_lane_float.go`, `simd_lane_float_archsimd.go`, `simd_lane_gather_generic.go` | `dbox2d_simd && !dbox2d_fixed` plus the target | The float lanes: one width and vector type per target, the shared lane algebra, and the body gather of each path. See D-019. |
+| `simd_lane_fixed.go` | `dbox2d_simd && dbox2d_fixed` | The fixed lanes and their body gather, over the fixed module. See D-019. |
+| `executor.go`, `executor_wasm.go`, `executor_pool.go`, `spin_asm.go`, `spin_stub.go` | target | The worker pool and its spin wait; the reference leaves the task system to the caller. See D-016. |
 | `src/distance.c` (simplex solver, shape cast, time of impact), `src/solver.c` (continuous stage) | `distance.go`, `solver.go` | T0/T2 | manifolds | 32 | Landed. The only iterative geometry in the library. Each stopping criterion keeps its form; the tests pin the iteration bounds, a float64 mirror and a bit witness. |
 | `src/sensor.h`, `src/sensor.c` | `sensor.go` | T0/T2 | surface | 34 | Landed. Double-buffered overlap sets, begin and end touch events, `WorldId.GetSensorEvents`. The overlap test is an exact zero distance; see D-012. |
 | `src/mover.c` | `mover.go` | T0/T2 | surface | 34 | Landed. `SolvePlanes`, `ClipVector`, the four `CollideMoverAnd*` functions and `WorldId.CollideMover`. The rigid push limit is `Huge`, not `FLT_MAX`; see D-009 and D-014. |
