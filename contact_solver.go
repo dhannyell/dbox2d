@@ -269,9 +269,9 @@ func warmStartContactsTask(startIndex, endIndex int, context *stepContext, color
 // warmStartOverflowContacts applies stored impulses to the overflow color.
 // It corresponds to b2WarmStartOverflowContacts in src/contact_solver.c.
 func warmStartOverflowContacts(context *stepContext) {
-	constraints := context.graph.colors[overflowIndex].contactConstraints
-	warmStartContactRange(0, len(constraints), context, constraints)
-	warmStartContacts32(context, overflowIndex)
+	overflow := &context.graph.colors[overflowIndex]
+	warmStartContactRange(0, len(overflow.contactConstraints), context, overflow.contactConstraints)
+	warmStartContacts32(0, len(overflow.contacts32), context, overflowIndex)
 }
 
 func warmStartContactRange(startIndex, endIndex int, context *stepContext, constraints []contactConstraint) {
@@ -325,10 +325,10 @@ func solveContactsTask(startIndex, endIndex int, context *stepContext, colorInde
 // solveOverflowContacts solves the overflow contacts. It corresponds to
 // b2SolveOverflowContacts in src/contact_solver.c.
 func solveOverflowContacts(context *stepContext, useBias bool) {
-	constraints := context.graph.colors[overflowIndex].contactConstraints
+	overflow := &context.graph.colors[overflowIndex]
 	// Overflow contacts clamp by the push speed, per b2SolveOverflowContacts.
-	solveContactRange(0, len(constraints), context, constraints, useBias, qcFrom(context.world.maxContactPushSpeed))
-	solveContacts32(context, overflowIndex, useBias)
+	solveContactRange(0, len(overflow.contactConstraints), context, overflow.contactConstraints, useBias, qcFrom(context.world.maxContactPushSpeed))
+	solveContacts32(0, len(overflow.contacts32), context, overflowIndex, useBias)
 }
 
 func solveContactRange(startIndex, endIndex int, context *stepContext, constraints []contactConstraint, useBias bool, pushout qc) {
@@ -459,9 +459,9 @@ func applyRestitutionTask(startIndex, endIndex int, context *stepContext, colorI
 // applyOverflowRestitution applies restitution to the overflow contacts.
 // It corresponds to b2ApplyOverflowRestitution in src/contact_solver.c.
 func applyOverflowRestitution(context *stepContext) {
-	constraints := context.graph.colors[overflowIndex].contactConstraints
-	applyRestitutionRange(0, len(constraints), context, constraints)
-	applyRestitution32(context, overflowIndex)
+	overflow := &context.graph.colors[overflowIndex]
+	applyRestitutionRange(0, len(overflow.contactConstraints), context, overflow.contactConstraints)
+	applyRestitution32(0, len(overflow.contacts32), context, overflowIndex)
 }
 
 func applyRestitutionRange(startIndex, endIndex int, context *stepContext, constraints []contactConstraint) {

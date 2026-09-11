@@ -151,6 +151,9 @@ func TestWideMatchesScalarStepByStep(t *testing.T) {
 		// A lane block mixes restitutions 0 and 0.5, and a Q32 contact of a
 		// later color shares a body with a lane without restitution.
 		{"mixed restitution", buildMixedRestitution},
+		// One color spans two stage blocks: lane units with Q32 units, then
+		// Q32 units alone.
+		{"heavy row", buildHeavyRow},
 	} {
 		t.Run(scene.name, func(t *testing.T) {
 			scalarWorld := createTestWorld(t)
@@ -205,21 +208,37 @@ func buildMixedGrid(t *testing.T, worldId WorldId) {
 	heavyBox(worldId, Vec2{X: QFromInt(2), Y: QHalf().Add(QMustParse("0.05"))}, Vec2{})
 }
 
+// buildHeavyRow rests two unit boxes and six 200000 kg boxes on the ground.
+func buildHeavyRow(t *testing.T, worldId WorldId) {
+	t.Helper()
+	wideGround(worldId)
+	for _, x := range []int{-2, -4} {
+		boxWithRestitution(worldId, Vec2{X: QFromInt(x), Y: QHalf()}, QZero())
+	}
+	for _, x := range []int{2, 4, 6, 8, -6, -8} {
+		heavyBox(worldId, Vec2{X: QFromInt(x), Y: QHalf()}, Vec2{})
+	}
+}
+
 // buildMixedRestitution rests two unit boxes side by side and a bouncy one
 // apart on the ground, with a 200000 kg box on top of the first two.
 func buildMixedRestitution(t *testing.T, worldId WorldId) {
 	t.Helper()
+	wideGround(worldId)
+	boxWithRestitution(worldId, Vec2{Y: QHalf()}, QZero())
+	boxWithRestitution(worldId, Vec2{X: QOne(), Y: QHalf()}, QZero())
+	boxWithRestitution(worldId, Vec2{X: QFromInt(3), Y: QHalf()}, QHalf())
+	heavyBox(worldId, Vec2{Y: QOne().Add(QHalf())}, Vec2{})
+}
+
+// wideGround adds a static 20 m ground with its top at y = 0.
+func wideGround(worldId WorldId) {
 	groundDef := DefaultBodyDef()
 	groundDef.Position = Vec2{Y: QHalf().Neg()}
 	groundId := CreateBody(worldId, &groundDef)
 	shapeDef := DefaultShapeDef()
 	ground := MakeBox(QFromInt(10), QHalf())
 	CreatePolygonShape(groundId, &shapeDef, &ground)
-
-	boxWithRestitution(worldId, Vec2{Y: QHalf()}, QZero())
-	boxWithRestitution(worldId, Vec2{X: QOne(), Y: QHalf()}, QZero())
-	boxWithRestitution(worldId, Vec2{X: QFromInt(3), Y: QHalf()}, QHalf())
-	heavyBox(worldId, Vec2{Y: QOne().Add(QHalf())}, Vec2{})
 }
 
 // boxWithRestitution adds a unit box of the default density at the position.

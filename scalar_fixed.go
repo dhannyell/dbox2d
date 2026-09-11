@@ -263,27 +263,26 @@ func prepareContacts32(context *stepContext) {
 	}
 }
 
-// warmStartContacts32 applies the stored impulses of the Q32 contacts of one color.
-func warmStartContacts32(context *stepContext, colorIndex int) {
-	constraints := context.graph.colors[colorIndex].contactConstraints32
-	warmStartContactRange32(0, len(constraints), context, constraints)
+// warmStartContacts32 applies the stored impulses of a range of the Q32
+// contacts of one color.
+func warmStartContacts32(startIndex, endIndex int, context *stepContext, colorIndex int) {
+	warmStartContactRange32(startIndex, endIndex, context, context.graph.colors[colorIndex].contactConstraints32)
 }
 
-// solveContacts32 solves the Q32 contacts of one color, with the push-out
-// speed of its family.
-func solveContacts32(context *stepContext, colorIndex int, useBias bool) {
-	constraints := context.graph.colors[colorIndex].contactConstraints32
+// solveContacts32 solves a range of the Q32 contacts of one color, with the
+// push-out speed of its family.
+func solveContacts32(startIndex, endIndex int, context *stepContext, colorIndex int, useBias bool) {
 	pushout := context.world.contactSpeed
 	if colorIndex == overflowIndex {
 		pushout = context.world.maxContactPushSpeed
 	}
-	solveContactRange32(0, len(constraints), context, constraints, useBias, qcwFrom(pushout))
+	solveContactRange32(startIndex, endIndex, context, context.graph.colors[colorIndex].contactConstraints32, useBias, qcwFrom(pushout))
 }
 
-// applyRestitution32 applies restitution to the Q32 contacts of one color.
-func applyRestitution32(context *stepContext, colorIndex int) {
-	constraints := context.graph.colors[colorIndex].contactConstraints32
-	applyRestitutionRange32(0, len(constraints), context, constraints)
+// applyRestitution32 applies restitution to a range of the Q32 contacts of
+// one color.
+func applyRestitution32(startIndex, endIndex int, context *stepContext, colorIndex int) {
+	applyRestitutionRange32(startIndex, endIndex, context, context.graph.colors[colorIndex].contactConstraints32)
 }
 
 // storeImpulses32 stores the impulses of the Q32 contacts of every color.

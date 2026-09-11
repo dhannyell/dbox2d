@@ -1530,35 +1530,33 @@ func runGraphContactBlockScalar(stage *solverStage, context *stepContext, startI
 }
 
 // colorContactUnits counts the solver units of a color: the family units of
-// the fitting contacts plus one unit for the Q32 tail when it is not empty.
+// the fitting contacts, then one unit per Q32 contact.
 func colorContactUnits(color *graphColor) int {
-	units := colorContactConstraintCount(len(color.contacts))
-	if len(color.contacts32) > 0 {
-		units++
-	}
-	return units
+	return colorContactConstraintCount(len(color.contacts)) + len(color.contacts32)
 }
 
-// runGraphContactBlock runs a block of color units. The last unit of a
-// color with a Q32 tail solves that tail whole; the other units go to the
-// selected family.
+// runGraphContactBlock runs a block of color units: the family units it
+// covers, then its Q32 contacts.
 func runGraphContactBlock(stage *solverStage, context *stepContext, startIndex, endIndex int) {
 	color := &context.graph.colors[stage.colorIndex]
-	if len(color.contacts32) > 0 && endIndex == colorContactUnits(color) {
-		endIndex--
-		switch stage.stageType {
-		case stageWarmStart:
-			warmStartContacts32(context, stage.colorIndex)
-		case stageSolve:
-			solveContacts32(context, stage.colorIndex, true)
-		case stageRelax:
-			solveContacts32(context, stage.colorIndex, false)
-		case stageRestitution:
-			applyRestitution32(context, stage.colorIndex)
-		}
+	familyUnits := colorContactConstraintCount(len(color.contacts))
+	if startIndex < familyUnits {
+		runGraphContactFamilyBlock(stage, context, startIndex, min(endIndex, familyUnits))
 	}
-	if startIndex < endIndex {
-		runGraphContactFamilyBlock(stage, context, startIndex, endIndex)
+	if endIndex <= familyUnits {
+		return
+	}
+	start32 := max(startIndex, familyUnits) - familyUnits
+	end32 := endIndex - familyUnits
+	switch stage.stageType {
+	case stageWarmStart:
+		warmStartContacts32(start32, end32, context, stage.colorIndex)
+	case stageSolve:
+		solveContacts32(start32, end32, context, stage.colorIndex, true)
+	case stageRelax:
+		solveContacts32(start32, end32, context, stage.colorIndex, false)
+	case stageRestitution:
+		applyRestitution32(start32, end32, context, stage.colorIndex)
 	}
 }
 

@@ -736,8 +736,9 @@ Numbering is sequential from `D-001` and never reused.
   fewer than ten bits; at the top it does not fit. Each step partitions the
   contacts of every color once, by that rule. The contacts inside the window
   solve on the Q16 grid, in the scalar or the SIMD family. The contacts
-  outside it solve in Q32.32, whole, as the last unit of their color; the
-  overflow color runs them after its scalar contacts. The Q32 stages are
+  outside it solve in Q32.32, one stage unit each after the family units of
+  their color, so the stage blocks spread them over the workers; the overflow
+  color runs them whole after its scalar contacts. The Q32 stages are
   contact_solver_q32.go, which `go generate` derives from contact_solver.go
   with the same operations over Q32.32 values, and a test keeps it fresh. A
   body of 200000 kg rests and slides on the ground with this path. The Q32

@@ -393,10 +393,10 @@ func allocateContactConstraints32(*world, *stepContext, *[graphColorCount]graphC
 
 func prepareContacts32(*stepContext) {}
 
-func warmStartContacts32(*stepContext, int) {}
+func warmStartContacts32(int, int, *stepContext, int) {}
 
-func solveContacts32(*stepContext, int, bool) {}
+func solveContacts32(int, int, *stepContext, int, bool) {}
 
-func applyRestitution32(*stepContext, int) {}
+func applyRestitution32(int, int, *stepContext, int) {}
 
 func storeImpulses32(*stepContext) {}
