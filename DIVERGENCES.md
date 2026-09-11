@@ -680,9 +680,12 @@ Numbering is sequential from `D-001` and never reused.
   result is that the SIMD family is bit-identical to the scalar family, and
   therefore bit-identical across ISAs, where the reference is not. There is no
   SSE2 path. A velocity component that is exactly -0 becomes +0 when it
-  passes an empty second manifold point or a masked restitution lane, because
-  the lane computes `v - (-0)`; this is unreachable from +0 states, and the
-  reference behaves the same way.
+  passes an empty second manifold point or a masked point of a contact with
+  restitution, because the lane computes `v - (-0)`; this is unreachable from
+  +0 states, and the reference behaves the same way. A contact without
+  restitution does not write its bodies back, as in the scalar stage; in
+  fixed mode the write would round a velocity left by a Q32 contact of a
+  later color (D-020).
 
   In fixed mode the lanes come from the fixed module: Q16.16 lanes with
   Q48.16 accumulators, the grid of the scalar contact stages (D-020). The

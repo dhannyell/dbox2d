@@ -139,6 +139,9 @@ func TestWideMatchesScalarStepByStep(t *testing.T) {
 		{"heavy landing", buildHeavyLanding},
 		// One color holds a lane contact and a Q32 contact.
 		{"mixed grid", buildMixedGrid},
+		// A lane block mixes restitutions 0 and 0.5, and a Q32 contact of a
+		// later color shares a body with a lane without restitution.
+		{"mixed restitution", buildMixedRestitution},
 	} {
 		t.Run(scene.name, func(t *testing.T) {
 			scalarWorld := createTestWorld(t)
@@ -191,6 +194,36 @@ func buildMixedGrid(t *testing.T, worldId WorldId) {
 	t.Helper()
 	boxOnGround(t, worldId, QMustParse("0.05"))
 	heavyBox(worldId, Vec2{X: QFromInt(2), Y: QHalf().Add(QMustParse("0.05"))}, Vec2{})
+}
+
+// buildMixedRestitution rests two unit boxes side by side and a bouncy one
+// apart on the ground, with a 200000 kg box on top of the first two.
+func buildMixedRestitution(t *testing.T, worldId WorldId) {
+	t.Helper()
+	groundDef := DefaultBodyDef()
+	groundDef.Position = Vec2{Y: QHalf().Neg()}
+	groundId := CreateBody(worldId, &groundDef)
+	shapeDef := DefaultShapeDef()
+	ground := MakeBox(QFromInt(10), QHalf())
+	CreatePolygonShape(groundId, &shapeDef, &ground)
+
+	boxWithRestitution(worldId, Vec2{Y: QHalf()}, QZero())
+	boxWithRestitution(worldId, Vec2{X: QOne(), Y: QHalf()}, QZero())
+	boxWithRestitution(worldId, Vec2{X: QFromInt(3), Y: QHalf()}, QHalf())
+	heavyBox(worldId, Vec2{Y: QOne().Add(QHalf())}, Vec2{})
+}
+
+// boxWithRestitution adds a unit box of the default density at the position.
+func boxWithRestitution(worldId WorldId, position Vec2, restitution Q) BodyId {
+	boxDef := DefaultBodyDef()
+	boxDef.Type = DynamicBody
+	boxDef.Position = position
+	boxId := CreateBody(worldId, &boxDef)
+	shapeDef := DefaultShapeDef()
+	shapeDef.Material.Restitution = restitution
+	unit := MakeBox(QHalf(), QHalf())
+	CreatePolygonShape(boxId, &shapeDef, &unit)
+	return boxId
 }
 
 // buildHeavyLanding drops a 2000 kg box onto the ground at 20 m/s.

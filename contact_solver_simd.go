@@ -474,6 +474,19 @@ func applyRestitutionTaskWide(startIndex, endIndex int, context *stepContext, co
 			continue
 		}
 
+		// The scalar stage skips a contact without restitution, so its lanes
+		// must not write the gathered velocities back.
+		indexA, indexB := constraint.indexA, constraint.indexB
+		var restitution [wideWidth]laneScalar
+		constraint.restitution.store(&restitution)
+		var zeroScalar laneScalar
+		for j := range wideWidth {
+			if restitution[j] == zeroScalar {
+				indexA[j] = nullIndex
+				indexB[j] = nullIndex
+			}
+		}
+
 		var bodyA, bodyB bodyStateW
 		gatherBodyW(states, &constraint.indexA, tauW, &bodyA)
 		gatherBodyW(states, &constraint.indexB, tauW, &bodyB)
@@ -549,8 +562,8 @@ func applyRestitutionTaskWide(startIndex, endIndex int, context *stepContext, co
 			bodyB.w = bodyB.w.AddBounded(constraint.invIB.Mul(crossW(rB, p)).toAcc())
 		}
 
-		scatterBodyW(states, &constraint.indexA, tauW, &bodyA)
-		scatterBodyW(states, &constraint.indexB, tauW, &bodyB)
+		scatterBodyW(states, &indexA, tauW, &bodyA)
+		scatterBodyW(states, &indexB, tauW, &bodyB)
 	}
 }
 
