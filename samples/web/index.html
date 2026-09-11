@@ -15,8 +15,44 @@
 <body>
 <canvas id="canvas"></canvas>
 <div id="fallback">This page needs a browser with WebGPU.</div>
-<script src="wasm_exec.js"></script>
 <script>
+// The runtime and the binary form a pair: the Go class of tinygo and the one
+// of the local go toolchain are not interchangeable.
+function selectBuild(params) {
+  const build = params.get("build") === "go" ? "go" : "tinygo";
+  const mode = params.get("mode") === "float" ? "float" : "fixed";
+  if (build === "go") {
+    return {
+      build, mode,
+      exec: "wasm_exec-go.js",
+      binary: mode === "float" ? "app-local-go.wasm" : "app-local-go-fixed.wasm",
+    };
+  }
+  // gc=leaking selects the diagnostic build that never collects, to tell a
+  // collector pause apart from slow frame work.
+  const gc = params.get("gc");
+  if (gc === "leaking" || gc === "boehm") {
+    // sat=off drops the saturation counter, which the fixed kernels pay per op.
+    const sat = params.get("sat") === "off" ? "-nosat" : "";
+    return { build, mode, exec: "wasm_exec-tinygo.js", binary: "app-" + mode + "-" + gc + sat + ".wasm" };
+  }
+  return {
+    build, mode,
+    exec: "wasm_exec-tinygo.js",
+    binary: mode === "float" ? "app-float.wasm" : "app.wasm",
+  };
+}
+
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const el = document.createElement("script");
+    el.src = src;
+    el.onload = resolve;
+    el.onerror = () => reject(new Error("cannot load " + src));
+    document.head.appendChild(el);
+  });
+}
+
 if (!navigator.gpu) {
   document.getElementById("canvas").style.display = "none";
   document.getElementById("fallback").style.display = "grid";

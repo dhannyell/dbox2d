@@ -32,9 +32,13 @@
 //
 // # Angles
 //
-// An angle is a turn, not a radian, because a turn reduces without pi. The
-// solver stores an orientation as a [Rot] sine and
-// cosine pair, never as an angle.
+// Every angle of the API is a turn, not a radian, in both modes: one quarter
+// turn is QFromRatio(1, 4), and an angular velocity is in turns per second.
+// Inside, the body state keeps radians per second, the unit of the reference.
+// A joint keeps its angles in radians in float mode, as the reference does,
+// and in turns in fixed mode, because a turn reduces without pi (D-004). The
+// solver stores an orientation as a [Rot] sine and cosine pair, never as an
+// angle.
 //
 // # IDs
 //

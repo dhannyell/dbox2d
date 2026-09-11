@@ -77,6 +77,7 @@ type TextItem struct {
 	X, Y  float32
 	Text  string
 	Color RGBA8
+	Scale float32
 }
 
 // QuadVertices is the unit quad every instanced batch shares as vertex

@@ -69,16 +69,17 @@ func Run() {
 	}
 	dev.Resize(width, height)
 
-	// The atlas is rasterized once at a fixed pixel size; it is not
-	// rescaled by devicePixelRatio, so text is soft on high-DPI displays.
-	atlas, err := draw.NewAtlas(14)
+	// The app works in CSS pixels, as the reference works in window
+	// coordinates divided by s_windowScale; the atlas is rasterized at
+	// devicePixelRatio so text stays sharp.
+	atlas, err := draw.NewAtlasScaled(draw.RegularFontSize, dpr)
 	if err != nil {
 		println("wasm: build atlas: " + err.Error())
 		return
 	}
 
 	a := app.New(atlas)
-	a.Resize(width, height)
+	a.Resize(logicalSize())
 
 	renderer, err := render.New(dev, atlas)
 	if err != nil {
@@ -119,4 +120,10 @@ func canvasSize(dpr float64) (int, int) {
 	width := int(js.Global().Get("innerWidth").Float() * dpr)
 	height := int(js.Global().Get("innerHeight").Float() * dpr)
 	return width, height
+}
+
+// logicalSize is the canvas's CSS size, the pixel unit of the app's camera
+// and UI.
+func logicalSize() (int, int) {
+	return js.Global().Get("innerWidth").Int(), js.Global().Get("innerHeight").Int()
 }

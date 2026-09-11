@@ -52,7 +52,7 @@ func (g gui) End() {
 }
 
 func (g gui) SliderFloat(label string, value *float64, lo, hi float64) bool {
-	g.mu.LayoutRow(2, []int{80, -1}, 0)
+	g.mu.LayoutRow(2, []int{labelWidth, -1}, 0)
 	g.mu.Label(label)
 	v := float32(*value)
 	changed := g.mu.SliderEx(&v, float32(lo), float32(hi), 0, "%.2f", microui.MU_OPT_ALIGNCENTER) != 0
@@ -61,7 +61,7 @@ func (g gui) SliderFloat(label string, value *float64, lo, hi float64) bool {
 }
 
 func (g gui) SliderInt(label string, value *int, lo, hi int) bool {
-	g.mu.LayoutRow(2, []int{80, -1}, 0)
+	g.mu.LayoutRow(2, []int{labelWidth, -1}, 0)
 	g.mu.Label(label)
 	v := float32(*value)
 	changed := g.mu.SliderEx(&v, float32(lo), float32(hi), 1, "%.0f", microui.MU_OPT_ALIGNCENTER) != 0
@@ -79,20 +79,44 @@ func (g gui) Button(label string) bool {
 	return g.mu.Button(label)
 }
 
+// Combo is ImGui::Combo in one row: a button naming the current item opens
+// a popup list under it, or above it when the list would leave the frame.
 func (g gui) Combo(label string, current *int, items []string) bool {
-	g.mu.LayoutRow(1, []int{-1}, 0)
-	g.mu.Label(label)
-	widths := make([]int, len(items))
-	for i := range widths {
-		widths[i] = -1
+	if len(items) == 0 {
+		return false
 	}
-	g.mu.LayoutRow(len(items), widths, 0)
-	changed := false
-	for i, item := range items {
-		if g.mu.Button(comboLabel(i, *current, item)) && i != *current {
-			*current = i
-			changed = true
+	*current = min(max(*current, 0), len(items)-1)
+
+	g.mu.LayoutRow(2, []int{labelWidth, -1}, 0)
+	g.mu.Label(label)
+	popup := "!combo " + label
+	opened := g.mu.Button(items[*current])
+	button := g.mu.LastRect
+	if opened {
+		g.mu.OpenPopup(popup)
+		style := g.mu.Style
+		rowHeight := style.Size.Y + 2*style.Padding
+		listHeight := len(items)*(rowHeight+style.Spacing) - style.Spacing + 2*style.Padding
+		y := button.Y + button.H
+		if y+listHeight > g.camera.Height {
+			y = button.Y - listHeight
 		}
+		if cnt := g.mu.GetContainer(popup); cnt != nil {
+			cnt.Rect = microui.NewRect(button.X, y, button.W, listHeight)
+		}
+	}
+
+	changed := false
+	if g.mu.BeginPopup(popup) != 0 {
+		g.mu.LayoutRow(1, []int{button.W - 2*g.mu.Style.Padding}, 0)
+		for i, item := range items {
+			if g.mu.Button(comboLabel(i, *current, item)) {
+				changed = i != *current
+				*current = i
+				g.mu.GetCurrentContainer().Open = false
+			}
+		}
+		g.mu.EndPopup()
 	}
 	return changed
 }

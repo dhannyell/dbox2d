@@ -30,7 +30,7 @@ func canvasButton(jsButton int) (samples.MouseButton, bool) {
 // requestAnimationFrame func.
 func bindEvents(canvas js.Value, a *app.App, dev *wgpuhost.Device, surface *wgpu.Surface, configure func(w, h int), dpr float64) {
 	pointerPos := func(e js.Value) (float64, float64) {
-		return e.Get("offsetX").Float() * dpr, e.Get("offsetY").Float() * dpr
+		return e.Get("offsetX").Float(), e.Get("offsetY").Float()
 	}
 
 	moveFn := js.FuncOf(func(_ js.Value, args []js.Value) any {
@@ -128,7 +128,7 @@ func bindEvents(canvas js.Value, a *app.App, dev *wgpuhost.Device, surface *wgpu
 		canvas.Set("height", height)
 		configure(width, height)
 		dev.Resize(width, height)
-		a.Resize(width, height)
+		a.Resize(logicalSize())
 		return nil
 	})
 	js.Global().Call("addEventListener", "resize", resizeFn)

@@ -15,15 +15,15 @@ import (
 	"github.com/dhannyell/dbox2d/samples/internal/render"
 )
 
-// TextMeasurer is what microui needs to lay out controls. draw.Atlas
-// satisfies it.
 type TextMeasurer interface {
 	TextWidth(s string) int
 	TextHeight() int
 }
 
-// toolsWidth is the reference's menuWidth (main.cpp UpdateUI).
-const toolsWidth = 180
+const (
+	toolsWidth = 180
+	labelWidth = 90
+)
 
 // App is the loop of main.cpp without a window: it owns the context, the
 // sample, the UI state and the batches.
@@ -45,9 +45,11 @@ type App struct {
 	memStatsText  string
 
 	uiCmds []render.UICommand
+
+	telemetry telemetry
 }
 
-// New builds an App on the sample named "Tumbler" in category "Benchmark"
+// New builds an App on the sample named "Barrel" in category "Benchmark"
 // (falling back to the first registered entry), measuring UI text with
 // measurer.
 func New(measurer TextMeasurer) *App {
@@ -59,7 +61,7 @@ func New(measurer TextMeasurer) *App {
 	entries := samples.Entries()
 	start := 0
 	for i, e := range entries {
-		if e.Category == "Benchmark" && e.Name == "Tumbler" {
+		if e.Category == "Benchmark" && e.Name == "Barrel" {
 			start = i
 			break
 		}
@@ -74,7 +76,7 @@ func New(measurer TextMeasurer) *App {
 	mu.TextHeight = func(_ microui.Font) int { return measurer.TextHeight() }
 
 	a := &App{ctx: ctx, measurer: measurer, drawer: d, mu: mu, held: make(map[samples.Key]bool), selection: start, showUI: true}
-	ctx.Gui = gui{mu: a.mu}
+	ctx.Gui = gui{mu: a.mu, camera: &ctx.Camera}
 	ctx.IsKeyDown = func(key samples.Key) bool { return a.held[key] }
 	a.sample = entries[start].Create(ctx)
 	return a
@@ -137,6 +139,7 @@ func (a *App) Frame(dtSeconds float64) (*draw.Batches, []render.UICommand) {
 	}
 	a.sample.UpdateGui()
 	a.mu.End()
+	a.telemetry.settings(s)
 
 	if a.showUI {
 		entry := entries[s.SampleIndex]
@@ -150,6 +153,7 @@ func (a *App) Frame(dtSeconds float64) (*draw.Batches, []render.UICommand) {
 	if a.showUI {
 		a.drawFrameOverlay(dtSeconds)
 	}
+	a.drawToast(dtSeconds)
 
 	return &a.drawer.Batches, a.collectUICommands()
 }
