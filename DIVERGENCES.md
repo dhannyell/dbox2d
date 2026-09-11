@@ -643,10 +643,10 @@ Numbering is sequential from `D-001` and never reused.
 
 ### D-019 Wide contact family
 
-- Files: wide.go, wide_common.go, wide_off.go, wide_lane_amd64.go,
-  wide_lane_arm64.go, wide_lane_wasm.go, wide_lane_generic.go,
-  wide_lane_fixed.go, wide_lane_gather_amd64.go, wide_lane_gather_generic.go,
-  wide_lane_gather_fixed.go, contact_solver_wide.go
+- Files: simd.go, simd_common.go, simd_off.go, simd_lane_amd64.go,
+  simd_lane_arm64.go, simd_lane_wasm.go, simd_lane_generic.go,
+  simd_lane_fixed.go, simd_lane_gather_amd64.go, simd_lane_gather_generic.go,
+  simd_lane_gather_fixed.go, contact_solver_simd.go
 - Tier: T2
 - Reason: the reference selects a wide `Task` family with `B2_SIMD_WIDTH` lanes
   at compile time, including an `B2_SIMD_NONE` variant that keeps four scalar
@@ -697,8 +697,8 @@ Numbering is sequential from `D-001` and never reused.
   keeps them, because there a skipped block can change the sign of a zero.
 - Test: TestWidePath, TestWideMatchesScalarStepByStep,
   TestWideStagesRunWithColoredContacts
-  and TestWideContactLayoutPadsEachColor in wide_test.go, in both modes;
-  wide_lane_test.go checks each float lane operation against the scalar
+  and TestWideContactLayoutPadsEachColor in simd_test.go, in both modes;
+  simd_lane_test.go checks each float lane operation against the scalar
   family on every path, and the fixed module tests its own lanes; the
   witness, samples and conformance suites all run under the `dbox2d_simd` tag
   in both modes in CI, on amd64 and arm64 with `GOEXPERIMENT=simd` and on the
