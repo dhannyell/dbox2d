@@ -124,7 +124,7 @@ func TestWheelMotorSaturatesAtTheTorque(t *testing.T) {
 	if !withinQ(js.wheelJoint.motorImpulse, QFromRatio(5, 12), tolerance) {
 		t.Errorf("motorImpulse is %v, want 5/12", js.wheelJoint.motorImpulse)
 	}
-	wB := state.angularVelocity.Mul(tau)
+	wB := state.angularVelocity
 	if !withinQ(wB, QFromRatio(5, 2), tolerance) {
 		t.Errorf("wB is %v rad/s, want 2.5", wB)
 	}
@@ -138,7 +138,7 @@ func TestWheelMotorSaturatesAtTheTorque(t *testing.T) {
 	// The warm start applies the stored impulse again on a fresh state.
 	state.angularVelocity = QZero()
 	warmStartJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex)
-	wB = state.angularVelocity.Mul(tau)
+	wB = state.angularVelocity
 	if !withinQ(wB, QFromRatio(5, 2), tolerance) {
 		t.Errorf("the warm start gives wB %v rad/s, want 2.5", wB)
 	}
@@ -315,7 +315,7 @@ func TestSolveWheelJointTracksTheFloat64Mirror(t *testing.T) {
 		mA: qToF64(js.invMassA), mB: qToF64(js.invMassB), iA: qToF64(js.invIA), iB: qToF64(js.invIB),
 		constraintSoftness: makeSoftF64(math.Min(qToF64(js.constraintHertz), 0.25*invH), qToF64(js.constraintDampingRatio), h),
 		maxMotorTorque:     qToF64(wj.maxMotorTorque),
-		motorSpeed:         qToF64(wj.motorSpeed) * 2 * math.Pi,
+		motorSpeed:         radiansF64(wj.motorSpeed),
 		lowerTranslation:   qToF64(wj.lowerTranslation),
 		upperTranslation:   qToF64(wj.upperTranslation),
 		hertz:              qToF64(wj.hertz),
@@ -341,10 +341,10 @@ func TestSolveWheelJointTracksTheFloat64Mirror(t *testing.T) {
 	const limit = 1e-6
 	checkMirror(t, "vA.x", stateA.linearVelocity.X, fA.v.x, limit)
 	checkMirror(t, "vA.y", stateA.linearVelocity.Y, fA.v.y, limit)
-	checkMirror(t, "wA", stateA.angularVelocity.Mul(tau), fA.w, limit)
+	checkMirror(t, "wA", stateA.angularVelocity, fA.w, limit)
 	checkMirror(t, "vB.x", stateB.linearVelocity.X, fB.v.x, limit)
 	checkMirror(t, "vB.y", stateB.linearVelocity.Y, fB.v.y, limit)
-	checkMirror(t, "wB", stateB.angularVelocity.Mul(tau), fB.w, limit)
+	checkMirror(t, "wB", stateB.angularVelocity, fB.w, limit)
 	checkMirror(t, "perpImpulse", wj.perpImpulse, mirror.perpImpulse, limit)
 	checkMirror(t, "motorImpulse", wj.motorImpulse, mirror.motorImpulse, limit)
 	checkMirror(t, "springImpulse", wj.springImpulse, mirror.springImpulse, limit)

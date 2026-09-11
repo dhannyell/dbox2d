@@ -1,8 +1,8 @@
 package dbox2d
 
-// This file corresponds to src/revolute_joint.c of the reference. The
-// angles are turns (D-004); an angle turns into radians by tau at the
-// single point where it enters an error C.
+// This file corresponds to src/revolute_joint.c of the reference. The API
+// takes angles in turns (D-004). The joint keeps them in the angle unit of
+// the mode, and angleRadians converts an angle where it enters an error C.
 
 func drawRevoluteJoint(draw *DebugDraw, base *jointSim, transformA, transformB Transform, drawSize Q) {
 	joint := &base.revoluteJoint
@@ -14,7 +14,7 @@ func drawRevoluteJoint(draw *DebugDraw, base *jointSim, transformA, transformB T
 	draw.DrawCircle(pB, drawSize, ColorGray)
 	draw.DrawSegment(pB, pC, ColorGray)
 	if draw.DrawJointExtras {
-		degrees := UnwindAngle(angle.Sub(joint.referenceAngle)).Mul(QFromInt(360))
+		degrees := UnwindAngle(angle.Sub(angleToTurns(joint.referenceAngle))).Mul(QFromInt(360))
 		draw.DrawString(pC, " "+drawNumber(degrees, 1)+" deg", ColorWhite)
 	}
 	if joint.enableLimit {
@@ -22,9 +22,9 @@ func drawRevoluteJoint(draw *DebugDraw, base *jointSim, transformA, transformB T
 			angle Q
 			color HexColor
 		}{
-			{joint.lowerAngle.Add(joint.referenceAngle), ColorGreen},
-			{joint.upperAngle.Add(joint.referenceAngle), ColorRed},
-			{joint.referenceAngle, ColorBlue},
+			{angleToTurns(joint.lowerAngle.Add(joint.referenceAngle)), ColorGreen},
+			{angleToTurns(joint.upperAngle.Add(joint.referenceAngle)), ColorRed},
+			{angleToTurns(joint.referenceAngle), ColorBlue},
 		} {
 			r := MakeRot(limit.angle)
 			end := pB.Add(Vec2{X: drawSize.Mul(r.Cos), Y: drawSize.Mul(r.Sin)})
@@ -55,17 +55,16 @@ func getRevoluteJointTorque(w *world, base *jointSim) Q {
 func (jointId JointId) SetTargetAngle(angle Q) {
 	w := getWorld(jointId.world0)
 	joint := getJointSimCheckType(w, jointId, RevoluteJoint)
-	// D-004: the target angle is stored in turns and is bounded to half a turn.
+	// D-004: the target angle is bounded to half a turn.
 	halfTurn := QHalf()
-	joint.revoluteJoint.targetAngle = angle.Clamp(halfTurn.Neg(), halfTurn)
+	joint.revoluteJoint.targetAngle = angleFromTurns(angle.Clamp(halfTurn.Neg(), halfTurn))
 }
 
 // GetTargetAngle reports the revolute spring target angle in turns.
 func (jointId JointId) GetTargetAngle() Q {
 	w := getWorld(jointId.world0)
 	joint := getJointSimCheckType(w, jointId, RevoluteJoint)
-	// D-004: the target angle is stored in turns.
-	return joint.revoluteJoint.targetAngle
+	return angleToTurns(joint.revoluteJoint.targetAngle)
 }
 
 // GetAngle reports the revolute joint angle relative to its reference angle,
@@ -75,9 +74,8 @@ func (jointId JointId) GetAngle() Q {
 	joint := getJointSimCheckType(w, jointId, RevoluteJoint)
 	transformA := getBodyTransform(w, joint.bodyIdA)
 	transformB := getBodyTransform(w, joint.bodyIdB)
-	// D-004: RelativeAngle and the stored reference angle are in turns.
-	angle := RelativeAngle(transformB.Q, transformA.Q).Sub(joint.revoluteJoint.referenceAngle)
-	return UnwindAngle(angle)
+	angle := relativeAngle(transformB.Q, transformA.Q).Sub(joint.revoluteJoint.referenceAngle)
+	return angleToTurns(unwindAngle(angle))
 }
 
 // GetLowerLimit reports the lower angular or linear joint limit.
@@ -87,8 +85,7 @@ func (jointId JointId) GetLowerLimit() Q {
 	joint := getJointSim(w, j)
 	switch j.jointType {
 	case RevoluteJoint:
-		// D-004: revolute limits are stored in turns.
-		return joint.revoluteJoint.lowerAngle
+		return angleToTurns(joint.revoluteJoint.lowerAngle)
 	case PrismaticJoint:
 		return joint.prismaticJoint.lowerTranslation
 	case WheelJoint:
@@ -105,8 +102,7 @@ func (jointId JointId) GetUpperLimit() Q {
 	joint := getJointSim(w, j)
 	switch j.jointType {
 	case RevoluteJoint:
-		// D-004: revolute limits are stored in turns.
-		return joint.revoluteJoint.upperAngle
+		return angleToTurns(joint.revoluteJoint.upperAngle)
 	case PrismaticJoint:
 		return joint.prismaticJoint.upperTranslation
 	case WheelJoint:
@@ -127,8 +123,8 @@ func (jointId JointId) SetLimits(lower, upper Q) {
 		halfTurn := QHalf()
 		lower = lower.Clamp(halfTurn.Neg(), halfTurn)
 		upper = upper.Clamp(halfTurn.Neg(), halfTurn)
-		lowerAngle := lower.Min(upper)
-		upperAngle := lower.Max(upper)
+		lowerAngle := angleFromTurns(lower.Min(upper))
+		upperAngle := angleFromTurns(lower.Max(upper))
 		if !lowerAngle.Eq(joint.revoluteJoint.lowerAngle) || !upperAngle.Eq(joint.revoluteJoint.upperAngle) {
 			joint.revoluteJoint.lowerAngle = lowerAngle
 			joint.revoluteJoint.upperAngle = upperAngle
@@ -265,7 +261,7 @@ func prepareRevoluteJoint(base *jointSim, context *stepContext) {
 	joint.anchorA = RotateVector(bodySimA.transform.Q, base.localOriginAnchorA.Sub(bodySimA.localCenter))
 	joint.anchorB = RotateVector(bodySimB.transform.Q, base.localOriginAnchorB.Sub(bodySimB.localCenter))
 	joint.deltaCenter = bodySimB.center.Sub(bodySimA.center)
-	joint.deltaAngle = RelativeAngle(bodySimB.transform.Q, bodySimA.transform.Q)
+	joint.deltaAngle = relativeAngle(bodySimB.transform.Q, bodySimA.transform.Q)
 
 	zero := QZero()
 	k := iA.Add(iB)
@@ -309,16 +305,15 @@ func warmStartRevoluteJoint(base *jointSim, context *stepContext) {
 
 	axialImpulse := joint.springImpulse.Add(joint.motorImpulse).Add(joint.lowerImpulse).Sub(joint.upperImpulse)
 
-	// D-004: the angular velocity of the state is turns per second.
 	stateA.linearVelocity = MulSub(stateA.linearVelocity, mA, joint.linearImpulse)
-	wA := stateA.angularVelocity.Mul(tau)
+	wA := stateA.angularVelocity
 	wA = wA.Sub(iA.Mul(Cross(rA, joint.linearImpulse).Add(axialImpulse)))
-	stateA.angularVelocity = wA.Div(tau)
+	stateA.angularVelocity = wA
 
 	stateB.linearVelocity = MulAdd(stateB.linearVelocity, mB, joint.linearImpulse)
-	wB := stateB.angularVelocity.Mul(tau)
+	wB := stateB.angularVelocity
 	wB = wB.Add(iB.Mul(Cross(rB, joint.linearImpulse).Add(axialImpulse)))
-	stateB.angularVelocity = wB.Div(tau)
+	stateB.angularVelocity = wB
 }
 
 // solveRevoluteJoint corresponds to b2SolveRevoluteJoint in
@@ -341,9 +336,9 @@ func solveRevoluteJoint(base *jointSim, context *stepContext, useBias bool) {
 	stateA, stateB := jointStates(context.states, &dummyState, joint.indexA, joint.indexB)
 
 	vA := stateA.linearVelocity
-	wA := stateA.angularVelocity.Mul(tau)
+	wA := stateA.angularVelocity
 	vB := stateB.linearVelocity
-	wB := stateB.angularVelocity.Mul(tau)
+	wB := stateB.angularVelocity
 
 	dqA := stateA.deltaRotation
 	dqB := stateB.deltaRotation
@@ -354,11 +349,10 @@ func solveRevoluteJoint(base *jointSim, context *stepContext, useBias bool) {
 
 	// Solve spring.
 	if joint.enableSpring && !fixedRotation {
-		jointAngle := RelativeAngle(stateB.deltaRotation, stateA.deltaRotation).Add(joint.deltaAngle)
-		jointAngleDelta := UnwindAngle(jointAngle.Sub(joint.targetAngle))
+		jointAngle := relativeAngle(stateB.deltaRotation, stateA.deltaRotation).Add(joint.deltaAngle)
+		jointAngleDelta := unwindAngle(jointAngle.Sub(joint.targetAngle))
 
-		// D-004: the angle enters the error in radians.
-		C := jointAngleDelta.Mul(tau)
+		C := angleRadians(jointAngleDelta)
 		bias := joint.springSoftness.biasRate.Mul(C)
 		massScale := joint.springSoftness.massScale
 		impulseScale := joint.springSoftness.impulseScale
@@ -373,8 +367,7 @@ func solveRevoluteJoint(base *jointSim, context *stepContext, useBias bool) {
 
 	// Solve motor constraint.
 	if joint.enableMotor && !fixedRotation {
-		// D-004: the motor speed is turns per second.
-		Cdot := wB.Sub(wA).Sub(joint.motorSpeed.Mul(tau))
+		Cdot := wB.Sub(wA).Sub(angleRadians(joint.motorSpeed))
 		impulse := joint.axialMass.Neg().Mul(Cdot)
 		oldImpulse := joint.motorImpulse
 		maxImpulse := context.h.Mul(joint.maxMotorTorque)
@@ -386,13 +379,12 @@ func solveRevoluteJoint(base *jointSim, context *stepContext, useBias bool) {
 	}
 
 	if joint.enableLimit && !fixedRotation {
-		jointAngle := RelativeAngle(dqB, dqA).Add(joint.deltaAngle).Sub(joint.referenceAngle)
-		jointAngle = UnwindAngle(jointAngle)
+		jointAngle := relativeAngle(dqB, dqA).Add(joint.deltaAngle).Sub(joint.referenceAngle)
+		jointAngle = unwindAngle(jointAngle)
 
 		// Lower limit
 		{
-			// D-004: the angle enters the error in radians.
-			C := jointAngle.Sub(joint.lowerAngle).Mul(tau)
+			C := angleRadians(jointAngle.Sub(joint.lowerAngle))
 			bias := zero
 			massScale := one
 			impulseScale := zero
@@ -419,7 +411,7 @@ func solveRevoluteJoint(base *jointSim, context *stepContext, useBias bool) {
 		// Note: signs are flipped to keep C positive when the constraint is satisfied.
 		// This also keeps the impulse positive when the limit is active.
 		{
-			C := joint.upperAngle.Sub(jointAngle).Mul(tau)
+			C := angleRadians(joint.upperAngle.Sub(jointAngle))
 			bias := zero
 			massScale := one
 			impulseScale := zero
@@ -491,7 +483,7 @@ func solveRevoluteJoint(base *jointSim, context *stepContext, useBias bool) {
 	}
 
 	stateA.linearVelocity = vA
-	stateA.angularVelocity = wA.Div(tau)
+	stateA.angularVelocity = wA
 	stateB.linearVelocity = vB
-	stateB.angularVelocity = wB.Div(tau)
+	stateB.angularVelocity = wB
 }

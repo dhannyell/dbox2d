@@ -1330,7 +1330,7 @@ func (worldId WorldId) OverlapShape(proxy *ShapeProxy, filter QueryFilter, fcn O
 	}
 
 	aabb := MakeAABB(proxy.Points[:proxy.Count], proxy.Radius)
-	tolerance := linearSlop.Div(QFromInt(10))
+	tolerance := linearSlopTenth
 
 	callback := func(_ int, userData uint64) bool {
 		s := &w.shapes[int(userData)]
@@ -1663,8 +1663,7 @@ func (ctx *explosionContext) explosionCallback(_ int, userData uint64) bool {
 	state := getBodyState(w, b)
 	sim := getBodySim(w, b)
 	state.linearVelocity = MulAdd(state.linearVelocity, sim.invMass, impulse)
-	// D-004: convert the reference's radian angular impulse to turns.
-	state.angularVelocity = state.angularVelocity.Add(sim.invInertia.Mul(Cross(closestPoint.Sub(sim.center), impulse)).Div(tau))
+	state.angularVelocity = state.angularVelocity.Add(sim.invInertia.Mul(Cross(closestPoint.Sub(sim.center), impulse)))
 
 	return true
 }

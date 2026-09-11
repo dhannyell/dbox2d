@@ -722,7 +722,7 @@ func TestShapeQueriesMatchBruteForce(t *testing.T) {
 	w := getWorldFromId(worldId)
 	one := QOne()
 	zero := QZero()
-	tolerance := linearSlop.Div(QFromInt(10))
+	tolerance := linearSlopTenth
 
 	for range 50 {
 		filter := DefaultQueryFilter()

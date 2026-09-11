@@ -369,10 +369,10 @@ func TestSolveDistanceJointTracksTheFloat64Mirror(t *testing.T) {
 	const limit = 1e-6
 	checkMirror(t, "vA.x", stateA.linearVelocity.X, fA.v.x, limit)
 	checkMirror(t, "vA.y", stateA.linearVelocity.Y, fA.v.y, limit)
-	checkMirror(t, "wA", stateA.angularVelocity.Mul(tau), fA.w, limit)
+	checkMirror(t, "wA", stateA.angularVelocity, fA.w, limit)
 	checkMirror(t, "vB.x", stateB.linearVelocity.X, fB.v.x, limit)
 	checkMirror(t, "vB.y", stateB.linearVelocity.Y, fB.v.y, limit)
-	checkMirror(t, "wB", stateB.angularVelocity.Mul(tau), fB.w, limit)
+	checkMirror(t, "wB", stateB.angularVelocity, fB.w, limit)
 	checkMirror(t, "impulse", d.impulse, mirror.impulse, limit)
 	checkMirror(t, "lowerImpulse", d.lowerImpulse, mirror.lowerImpulse, limit)
 	checkMirror(t, "upperImpulse", d.upperImpulse, mirror.upperImpulse, limit)

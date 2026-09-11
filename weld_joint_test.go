@@ -1,9 +1,6 @@
 package dbox2d
 
-import (
-	"math"
-	"testing"
-)
+import "testing"
 
 // This file tests the weld joint solver with hand-computed cases and with
 // a float64 mirror of src/weld_joint.c. The composite weld lives in
@@ -107,8 +104,8 @@ func TestWeldHoldsTheAnchor(t *testing.T) {
 	if !withinQ(js.weldJoint.linearImpulse.X, QZero(), tolerance) || !withinQ(js.weldJoint.linearImpulse.Y, seventh, tolerance) {
 		t.Errorf("linearImpulse is %v, want (0, 1/7)", js.weldJoint.linearImpulse)
 	}
-	if !withinQ(state.angularVelocity.Mul(tau), QFromRatio(-6, 7), tolerance) {
-		t.Errorf("wB is %v rad/s, want -6/7", state.angularVelocity.Mul(tau))
+	if !withinQ(state.angularVelocity, QFromRatio(-6, 7), tolerance) {
+		t.Errorf("wB is %v rad/s, want -6/7", state.angularVelocity)
 	}
 
 	// The force report divides the impulse by the sub-step: 240/7.
@@ -128,7 +125,7 @@ func TestWeldStopsTheSpin(t *testing.T) {
 	def := DefaultWeldJointDef()
 	box, j := weldedBox(t, worldId, v2(0, 0), &def)
 	state := getBodyState(w, box)
-	state.angularVelocity = QOne().Div(tau)
+	state.angularVelocity = QOne()
 
 	context := jointContext(w)
 	prepareJointsTask(0, len(context.joints), context)
@@ -149,7 +146,7 @@ func TestWeldStopsTheSpin(t *testing.T) {
 	}
 
 	// The warm start applies the stored impulse again on a fresh state.
-	state.angularVelocity = QOne().Div(tau)
+	state.angularVelocity = QOne()
 	warmStartJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex)
 	if !withinQ(state.angularVelocity, QZero(), tolerance) {
 		t.Errorf("the warm start gives wB %v turns/s, want 0", state.angularVelocity)
@@ -264,7 +261,7 @@ func TestSolveWeldJointTracksTheFloat64Mirror(t *testing.T) {
 		anchorA:      vecToF64(wj.anchorA),
 		anchorB:      vecToF64(wj.anchorB),
 		deltaCenter:  vecToF64(wj.deltaCenter),
-		deltaAngle:   qToF64(wj.deltaAngle) * 2 * math.Pi,
+		deltaAngle:   radiansF64(wj.deltaAngle),
 	}
 	mirror.axialMass = 1 / (mirror.iA + mirror.iB)
 	mirror.linearSoftness = makeSoftF64(mirror.linearHertz, qToF64(wj.linearDampingRatio), h)
@@ -278,10 +275,10 @@ func TestSolveWeldJointTracksTheFloat64Mirror(t *testing.T) {
 	const limit = 1e-5
 	checkMirror(t, "vA.x", stateA.linearVelocity.X, fA.v.x, limit)
 	checkMirror(t, "vA.y", stateA.linearVelocity.Y, fA.v.y, limit)
-	checkMirror(t, "wA", stateA.angularVelocity.Mul(tau), fA.w, limit)
+	checkMirror(t, "wA", stateA.angularVelocity, fA.w, limit)
 	checkMirror(t, "vB.x", stateB.linearVelocity.X, fB.v.x, limit)
 	checkMirror(t, "vB.y", stateB.linearVelocity.Y, fB.v.y, limit)
-	checkMirror(t, "wB", stateB.angularVelocity.Mul(tau), fB.w, limit)
+	checkMirror(t, "wB", stateB.angularVelocity, fB.w, limit)
 	checkMirror(t, "angularImpulse", wj.angularImpulse, mirror.angularImpulse, limit)
 	checkMirror(t, "linearImpulse.x", wj.linearImpulse.X, mirror.linearImpulse.x, limit)
 	checkMirror(t, "linearImpulse.y", wj.linearImpulse.Y, mirror.linearImpulse.y, limit)

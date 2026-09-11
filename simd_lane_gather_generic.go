@@ -25,11 +25,11 @@ func gatherBodies(states []bodyState, indices *[wideWidth]int, s *bodyScratchW) 
 	}
 }
 
-// loadBodyVelocityW builds the velocity lanes; the angular velocity becomes radians per second.
-func loadBodyVelocityW(s *bodyScratchW, tauW laneW, b *bodyStateW) {
+// loadBodyVelocityW builds the velocity lanes.
+func loadBodyVelocityW(s *bodyScratchW, b *bodyStateW) {
 	b.v.x = laneLoad(&s.vx).toAcc()
 	b.v.y = laneLoad(&s.vy).toAcc()
-	b.w = laneLoad(&s.w).Mul(tauW).toAcc()
+	b.w = laneLoad(&s.w).toAcc()
 }
 
 // loadBodyDeltaW builds the delta position and delta rotation lanes.
@@ -38,11 +38,11 @@ func loadBodyDeltaW(s *bodyScratchW, b *bodyStateW) {
 	b.dq = rotW{c: laneLoad(&s.dqc), s: laneLoad(&s.dqs)}
 }
 
-// storeBodyW writes the velocities to the scratch, the angular velocity back in turns per second.
-func storeBodyW(b *bodyStateW, tauW laneW, s *bodyScratchW) {
+// storeBodyW writes the velocities to the scratch.
+func storeBodyW(b *bodyStateW, s *bodyScratchW) {
 	b.v.x.toLane().store(&s.vx)
 	b.v.y.toLane().store(&s.vy)
-	b.w.toLane().Div(tauW).store(&s.w)
+	b.w.toLane().store(&s.w)
 }
 
 // scatterBodies writes the real-body velocities back from the scratch.
@@ -60,18 +60,17 @@ func scatterBodies(states []bodyState, indices *[wideWidth]int, s *bodyScratchW)
 }
 
 // gatherBodyW loads one constraint's bodies; null lanes are identities.
-// Angular velocity becomes radians per second.
-func gatherBodyW(states []bodyState, indices *[wideWidth]int, tauW laneW, b *bodyStateW) {
+func gatherBodyW(states []bodyState, indices *[wideWidth]int, b *bodyStateW) {
 	var scratch bodyScratchW
 	gatherBodies(states, indices, &scratch)
-	loadBodyVelocityW(&scratch, tauW, b)
+	loadBodyVelocityW(&scratch, b)
 	loadBodyDeltaW(&scratch, b)
 	b.flags = laneZero()
 }
 
-// scatterBodyW writes real-lane velocities back with angular velocity in turns per second.
-func scatterBodyW(states []bodyState, indices *[wideWidth]int, tauW laneW, b *bodyStateW) {
+// scatterBodyW writes real-lane velocities back.
+func scatterBodyW(states []bodyState, indices *[wideWidth]int, b *bodyStateW) {
 	var scratch bodyScratchW
-	storeBodyW(b, tauW, &scratch)
+	storeBodyW(b, &scratch)
 	scatterBodies(states, indices, &scratch)
 }

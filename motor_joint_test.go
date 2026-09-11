@@ -199,7 +199,7 @@ func TestMotorTurnsTowardTheAngularOffset(t *testing.T) {
 	if !withinQ(js.motorJoint.angularImpulse, QFromRatio(5, 12), tolerance) {
 		t.Errorf("angularImpulse is %v, want 5/12", js.motorJoint.angularImpulse)
 	}
-	if wB := state.angularVelocity.Mul(tau); !withinQ(wB, QFromRatio(5, 2), tolerance) {
+	if wB := state.angularVelocity; !withinQ(wB, QFromRatio(5, 2), tolerance) {
 		t.Errorf("wB is %v rad/s, want 2.5", wB)
 	}
 
@@ -319,7 +319,7 @@ func TestSolveMotorJointTracksTheFloat64Mirror(t *testing.T) {
 		anchorA:          vecToF64(m.anchorA),
 		anchorB:          vecToF64(m.anchorB),
 		deltaCenter:      vecToF64(m.deltaCenter),
-		deltaAngle:       qToF64(m.deltaAngle) * 2 * math.Pi,
+		deltaAngle:       radiansF64(m.deltaAngle),
 	}
 	rA, rB := mirror.anchorA, mirror.anchorB
 	mirror.k11 = mirror.mA + mirror.mB + rA.y*rA.y*mirror.iA + rB.y*rB.y*mirror.iB
@@ -335,10 +335,10 @@ func TestSolveMotorJointTracksTheFloat64Mirror(t *testing.T) {
 	const limit = 1e-4
 	checkMirror(t, "vA.x", stateA.linearVelocity.X, fA.v.x, limit)
 	checkMirror(t, "vA.y", stateA.linearVelocity.Y, fA.v.y, limit)
-	checkMirror(t, "wA", stateA.angularVelocity.Mul(tau), fA.w, limit)
+	checkMirror(t, "wA", stateA.angularVelocity, fA.w, limit)
 	checkMirror(t, "vB.x", stateB.linearVelocity.X, fB.v.x, limit)
 	checkMirror(t, "vB.y", stateB.linearVelocity.Y, fB.v.y, limit)
-	checkMirror(t, "wB", stateB.angularVelocity.Mul(tau), fB.w, limit)
+	checkMirror(t, "wB", stateB.angularVelocity, fB.w, limit)
 	checkMirror(t, "angularImpulse", m.angularImpulse, mirror.angularImpulse, limit)
 	checkMirror(t, "linearImpulse.x", m.linearImpulse.X, mirror.linearImpulse.x, limit)
 	checkMirror(t, "linearImpulse.y", m.linearImpulse.Y, mirror.linearImpulse.y, limit)

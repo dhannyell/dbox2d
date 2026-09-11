@@ -176,8 +176,7 @@ type bodyScratchW struct {
 	dpx, dpy, dqc, dqs [wideWidth]laneScalar
 }
 
-// gatherBodies fills the scratch; null lanes get the identity. The tau scaling
-// runs in Q32 before the rounding, as in the scalar contact stages.
+// gatherBodies fills the scratch; null lanes get the identity.
 func gatherBodies(states []bodyState, indices *[wideWidth]int, s *bodyScratchW) {
 	zero := fixed.Q16Zero()
 	for j := range wideWidth {
@@ -191,7 +190,7 @@ func gatherBodies(states []bodyState, indices *[wideWidth]int, s *bodyScratchW) 
 		b := &states[idx]
 		s.vx[j] = accScalarFromQ(b.linearVelocity.X)
 		s.vy[j] = accScalarFromQ(b.linearVelocity.Y)
-		s.w[j] = accScalarFromQ(b.angularVelocity.Mul(tau))
+		s.w[j] = accScalarFromQ(b.angularVelocity)
 		s.dpx[j] = laneScalarFromQ(b.deltaPosition.X)
 		s.dpy[j] = laneScalarFromQ(b.deltaPosition.Y)
 		s.dqc[j] = laneScalarFromQ(b.deltaRotation.Cos)
@@ -219,8 +218,7 @@ func storeBodyW(b *bodyStateW, s *bodyScratchW) {
 	b.w.store(&s.w)
 }
 
-// scatterBodies writes the real-lane velocities back. The tau division runs
-// in Q32, as in the scalar store.
+// scatterBodies writes the real-lane velocities back.
 func scatterBodies(states []bodyState, indices *[wideWidth]int, s *bodyScratchW) {
 	for j := range wideWidth {
 		idx := indices[j]
@@ -230,13 +228,12 @@ func scatterBodies(states []bodyState, indices *[wideWidth]int, s *bodyScratchW)
 		b := &states[idx]
 		b.linearVelocity.X = accScalarToQ(s.vx[j])
 		b.linearVelocity.Y = accScalarToQ(s.vy[j])
-		b.angularVelocity = accScalarToQ(s.w[j]).Div(tau)
+		b.angularVelocity = accScalarToQ(s.w[j])
 	}
 }
 
-// gatherBodyW loads one constraint's bodies. tauW is unused: gatherBodies
-// already scaled by tau.
-func gatherBodyW(states []bodyState, indices *[wideWidth]int, tauW laneW, b *bodyStateW) {
+// gatherBodyW loads one constraint's bodies.
+func gatherBodyW(states []bodyState, indices *[wideWidth]int, b *bodyStateW) {
 	var scratch bodyScratchW
 	gatherBodies(states, indices, &scratch)
 	loadBodyVelocityW(&scratch, b)
@@ -244,9 +241,8 @@ func gatherBodyW(states []bodyState, indices *[wideWidth]int, tauW laneW, b *bod
 	b.flags = laneZero()
 }
 
-// scatterBodyW writes one constraint's velocities back. tauW is unused:
-// scatterBodies divides by tau.
-func scatterBodyW(states []bodyState, indices *[wideWidth]int, tauW laneW, b *bodyStateW) {
+// scatterBodyW writes one constraint's velocities back.
+func scatterBodyW(states []bodyState, indices *[wideWidth]int, b *bodyStateW) {
 	var scratch bodyScratchW
 	storeBodyW(b, &scratch)
 	scatterBodies(states, indices, &scratch)

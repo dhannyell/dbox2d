@@ -20,8 +20,9 @@ func drawWheelJoint(draw *DebugDraw, base *jointSim, transformA, transformB Tran
 	draw.DrawPoint(pB, QFromInt(5), ColorDimGray)
 }
 
-// This file corresponds to src/wheel_joint.c of the reference. The motor
-// speed is turns per second (D-004).
+// This file corresponds to src/wheel_joint.c of the reference. The API
+// takes the motor speed in turns per second (D-004); the joint keeps it in
+// the angle unit of the mode.
 
 // getWheelJointForce reports the constraint force of the last step. It
 // corresponds to b2GetWheelJointForce in src/wheel_joint.c.
@@ -203,11 +204,10 @@ func warmStartWheelJoint(base *jointSim, context *stepContext) {
 	LA := axialImpulse.Mul(a1).Add(joint.perpImpulse.Mul(s1)).Add(joint.motorImpulse)
 	LB := axialImpulse.Mul(a2).Add(joint.perpImpulse.Mul(s2)).Add(joint.motorImpulse)
 
-	// D-004: the angular velocity of the state is turns per second.
 	stateA.linearVelocity = MulSub(stateA.linearVelocity, mA, P)
-	stateA.angularVelocity = stateA.angularVelocity.Mul(tau).Sub(iA.Mul(LA)).Div(tau)
+	stateA.angularVelocity = stateA.angularVelocity.Sub(iA.Mul(LA))
 	stateB.linearVelocity = MulAdd(stateB.linearVelocity, mB, P)
-	stateB.angularVelocity = stateB.angularVelocity.Mul(tau).Add(iB.Mul(LB)).Div(tau)
+	stateB.angularVelocity = stateB.angularVelocity.Add(iB.Mul(LB))
 }
 
 // solveWheelJoint corresponds to b2SolveWheelJoint in src/wheel_joint.c.
@@ -229,9 +229,9 @@ func solveWheelJoint(base *jointSim, context *stepContext, useBias bool) {
 	stateA, stateB := jointStates(context.states, &dummyState, joint.indexA, joint.indexB)
 
 	vA := stateA.linearVelocity
-	wA := stateA.angularVelocity.Mul(tau)
+	wA := stateA.angularVelocity
 	vB := stateB.linearVelocity
-	wB := stateB.angularVelocity.Mul(tau)
+	wB := stateB.angularVelocity
 
 	zero := QZero()
 	one := QOne()
@@ -250,8 +250,7 @@ func solveWheelJoint(base *jointSim, context *stepContext, useBias bool) {
 
 	// motor constraint
 	if joint.enableMotor && !fixedRotation {
-		// D-004: the motor speed is turns per second.
-		Cdot := wB.Sub(wA).Sub(joint.motorSpeed.Mul(tau))
+		Cdot := wB.Sub(wA).Sub(angleRadians(joint.motorSpeed))
 		impulse := joint.motorMass.Neg().Mul(Cdot)
 		oldImpulse := joint.motorImpulse
 		maxImpulse := context.h.Mul(joint.maxMotorTorque)
@@ -387,7 +386,7 @@ func solveWheelJoint(base *jointSim, context *stepContext, useBias bool) {
 	}
 
 	stateA.linearVelocity = vA
-	stateA.angularVelocity = wA.Div(tau)
+	stateA.angularVelocity = wA
 	stateB.linearVelocity = vB
-	stateB.angularVelocity = wB.Div(tau)
+	stateB.angularVelocity = wB
 }

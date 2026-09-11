@@ -180,14 +180,19 @@ func NormalizeRot(q Rot) Rot {
 // turns, and renormalizes. The first-order step below needs radians, so the
 // displacement scales by one turn.
 func IntegrateRotation(q1 Rot, deltaAngle Q) Rot {
+	return integrateRotation(q1, deltaAngle.Mul(tau))
+}
+
+// integrateRotation advances q1 by deltaAngle radians, the unit of the
+// solver's angular velocity. It corresponds to b2IntegrateRotation.
+func integrateRotation(q1 Rot, deltaAngle Q) Rot {
 	// dc/dt = -omega * sin(t)
 	// ds/dt = omega * cos(t)
 	// c2 = c1 - omega * h * s1
 	// s2 = s1 + omega * h * c1
-	d := deltaAngle.Mul(tau)
 	q2 := Rot{
-		Cos: q1.Cos.Sub(d.Mul(q1.Sin)),
-		Sin: q1.Sin.Add(d.Mul(q1.Cos)),
+		Cos: q1.Cos.Sub(deltaAngle.Mul(q1.Sin)),
+		Sin: q1.Sin.Add(deltaAngle.Mul(q1.Cos)),
 	}
 	return NormalizeRot(q2)
 }
@@ -359,8 +364,8 @@ func MulMV(m Mat22, v Vec2) Vec2 {
 // GetInverse22 returns the inverse of m. A singular matrix returns the zero
 // matrix.
 //
-// Each entry divides by the determinant, because a fixed-point reciprocal
-// loses the precision that the division keeps. See DIVERGENCES.md.
+// Each entry scales by the reciprocal of the determinant: a division in
+// fixed mode and a product in float mode (D-006).
 func GetInverse22(m Mat22) Mat22 {
 	a, b, c, d := m.Cx.X, m.Cy.X, m.Cx.Y, m.Cy.Y
 	det := a.Mul(d).Sub(b.Mul(c))
@@ -368,9 +373,10 @@ func GetInverse22(m Mat22) Mat22 {
 		return Mat22{}
 	}
 
+	inv := makeRecip(det)
 	return Mat22{
-		Cx: Vec2{X: d.Div(det), Y: c.Neg().Div(det)},
-		Cy: Vec2{X: b.Neg().Div(det), Y: a.Div(det)},
+		Cx: Vec2{X: inv.scale(d), Y: inv.scale(c.Neg())},
+		Cy: Vec2{X: inv.scale(b.Neg()), Y: inv.scale(a)},
 	}
 }
 
@@ -383,9 +389,10 @@ func Solve22(m Mat22, b Vec2) Vec2 {
 		return Vec2{}
 	}
 
+	inv := makeRecip(det)
 	return Vec2{
-		X: a22.Mul(b.X).Sub(a12.Mul(b.Y)).Div(det),
-		Y: a11.Mul(b.Y).Sub(a21.Mul(b.X)).Div(det),
+		X: inv.scale(a22.Mul(b.X).Sub(a12.Mul(b.Y))),
+		Y: inv.scale(a11.Mul(b.Y).Sub(a21.Mul(b.X))),
 	}
 }
 

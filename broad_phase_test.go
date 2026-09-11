@@ -114,6 +114,9 @@ func TestBroadPhasePairsFollowTheRules(t *testing.T) {
 // moved proxy come out in ascending shape pair order, and a static tree
 // rebuilt into another topology yields the same sequence.
 func TestBroadPhasePairsAreSortedByShapeId(t *testing.T) {
+	if upstreamPairOrder {
+		t.Skip("D-013: the dbox2d_upstream_pairs build keeps the pair order of the reference")
+	}
 	sequence := func(rebuild bool) [][2]int {
 		worldId := createTestWorld(t)
 		w := getWorldFromId(worldId)

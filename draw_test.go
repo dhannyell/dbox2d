@@ -35,8 +35,8 @@ func TestDrawRevoluteJointLimitsUseTurns(t *testing.T) {
 	draw.DrawSegment = func(a, b Vec2, _ HexColor) { segments = append(segments, [2]Vec2{a, b}) }
 	base := jointSim{revoluteJoint: revoluteJoint{
 		enableLimit: true,
-		lowerAngle:  QMustParse("-0.25"),
-		upperAngle:  QMustParse("0.25"),
+		lowerAngle:  angleFromTurns(QMustParse("-0.25")),
+		upperAngle:  angleFromTurns(QMustParse("0.25")),
 	}}
 	drawRevoluteJoint(&draw, &base, TransformIdentity(), TransformIdentity(), QOne())
 	if len(segments) < 4 {

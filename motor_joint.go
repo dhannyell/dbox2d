@@ -1,7 +1,8 @@
 package dbox2d
 
-// This file corresponds to src/motor_joint.c of the reference. The angles
-// are turns (D-004); the angular separation enters the bias in radians.
+// This file corresponds to src/motor_joint.c of the reference. The API
+// takes the angular offset in turns (D-004); the joint keeps it in the angle
+// unit of the mode, and the separation enters the bias in radians.
 
 // getMotorJointForce reports the constraint force of the last step. It
 // corresponds to b2GetMotorJointForce in src/motor_joint.c.
@@ -82,7 +83,7 @@ func prepareMotorJoint(base *jointSim, context *stepContext) {
 	joint.anchorA = RotateVector(bodySimA.transform.Q, base.localOriginAnchorA.Sub(bodySimA.localCenter))
 	joint.anchorB = RotateVector(bodySimB.transform.Q, base.localOriginAnchorB.Sub(bodySimB.localCenter))
 	joint.deltaCenter = bodySimB.center.Sub(bodySimA.center).Sub(joint.linearOffset)
-	joint.deltaAngle = RelativeAngle(bodySimB.transform.Q, bodySimA.transform.Q).Sub(joint.angularOffset)
+	joint.deltaAngle = relativeAngle(bodySimB.transform.Q, bodySimA.transform.Q).Sub(joint.angularOffset)
 
 	rA := joint.anchorA
 	rB := joint.anchorB
@@ -126,16 +127,15 @@ func warmStartMotorJoint(base *jointSim, context *stepContext) {
 	rA := RotateVector(bodyA.deltaRotation, joint.anchorA)
 	rB := RotateVector(bodyB.deltaRotation, joint.anchorB)
 
-	// D-004: the angular velocity of the state is turns per second.
 	bodyA.linearVelocity = MulSub(bodyA.linearVelocity, mA, joint.linearImpulse)
-	wA := bodyA.angularVelocity.Mul(tau)
+	wA := bodyA.angularVelocity
 	wA = wA.Sub(iA.Mul(Cross(rA, joint.linearImpulse).Add(joint.angularImpulse)))
-	bodyA.angularVelocity = wA.Div(tau)
+	bodyA.angularVelocity = wA
 
 	bodyB.linearVelocity = MulAdd(bodyB.linearVelocity, mB, joint.linearImpulse)
-	wB := bodyB.angularVelocity.Mul(tau)
+	wB := bodyB.angularVelocity
 	wB = wB.Add(iB.Mul(Cross(rB, joint.linearImpulse).Add(joint.angularImpulse)))
-	bodyB.angularVelocity = wB.Div(tau)
+	bodyB.angularVelocity = wB
 }
 
 // solveMotorJoint corresponds to b2SolveMotorJoint in src/motor_joint.c.
@@ -157,17 +157,16 @@ func solveMotorJoint(base *jointSim, context *stepContext, _ bool) {
 	bodyA, bodyB := jointStates(context.states, &dummyState, joint.indexA, joint.indexB)
 
 	vA := bodyA.linearVelocity
-	wA := bodyA.angularVelocity.Mul(tau)
+	wA := bodyA.angularVelocity
 	vB := bodyB.linearVelocity
-	wB := bodyB.angularVelocity.Mul(tau)
+	wB := bodyB.angularVelocity
 
 	// angular constraint
 	{
-		angularSeparation := RelativeAngle(bodyB.deltaRotation, bodyA.deltaRotation).Add(joint.deltaAngle)
-		angularSeparation = UnwindAngle(angularSeparation)
+		angularSeparation := relativeAngle(bodyB.deltaRotation, bodyA.deltaRotation).Add(joint.deltaAngle)
+		angularSeparation = unwindAngle(angularSeparation)
 
-		// D-004: the separation enters the bias in radians.
-		angularBias := context.invH.Mul(joint.correctionFactor).Mul(angularSeparation.Mul(tau))
+		angularBias := context.invH.Mul(joint.correctionFactor).Mul(angleRadians(angularSeparation))
 
 		Cdot := wB.Sub(wA)
 		impulse := joint.angularMass.Neg().Mul(Cdot.Add(angularBias))
@@ -213,9 +212,9 @@ func solveMotorJoint(base *jointSim, context *stepContext, _ bool) {
 	}
 
 	bodyA.linearVelocity = vA
-	bodyA.angularVelocity = wA.Div(tau)
+	bodyA.angularVelocity = wA
 	bodyB.linearVelocity = vB
-	bodyB.angularVelocity = wB.Div(tau)
+	bodyB.angularVelocity = wB
 }
 
 // SetLinearOffset changes the motor joint's linear offset (b2MotorJoint_SetLinearOffset).
@@ -245,14 +244,14 @@ func (jointId JointId) SetAngularOffset(angularOffset Q) {
 	halfTurn := QHalf()
 	// D-004: the port bounds turns to a half turn; the reference leaves radians unbounded.
 	angularOffset = angularOffset.Clamp(halfTurn.Neg(), halfTurn) // D-004
-	js.motorJoint.angularOffset = angularOffset
+	js.motorJoint.angularOffset = angleFromTurns(angularOffset)
 }
 
 // GetAngularOffset reports the motor joint's angular offset in turns (b2MotorJoint_GetAngularOffset).
 func (jointId JointId) GetAngularOffset() Q {
 	w := getWorld(jointId.world0)
 	js := getJointSimCheckType(w, jointId, MotorJoint)
-	return js.motorJoint.angularOffset
+	return angleToTurns(js.motorJoint.angularOffset)
 }
 
 // SetMaxForce changes the maximum force of a motor or mouse joint (b2MotorJoint_SetMaxForce, b2MouseJoint_SetMaxForce).

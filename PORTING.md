@@ -116,6 +116,9 @@ solve, restitution and store impulses. The `Overflow` family is scalar and
 solves the constraints that no color accepted. The `Task` family is the SIMD
 one. The scalar family is a faithful in-repository reference for the whole
 solver, so the port never has to invent the scalar form of the vector code.
+One formula differs: the `Task` family groups the products of the normal
+impulse differently, so the port's colored contacts take its grouping and
+the overflow contacts keep the scalar one (D-018).
 
 ## Progress
 
@@ -191,9 +194,10 @@ adds no arithmetic divergence.
   because `type` is a Go keyword.
 - The body name stays a 32-byte buffer with the 31-byte copy of the
   reference.
-- An angular velocity is in turns per second, per D-004: `AngularVelocity`
-  in `BodyDef` and the body state. `updateBodyMassData` scales by one turn
-  before its cross product, because the cross needs radians per second.
+- An angular velocity in the API is in turns per second, per D-004:
+  `AngularVelocity` in `BodyDef` and the body accessors. The body state
+  keeps radians per second, the unit of the reference, and the accessors
+  convert.
 - Where the reference creates a broad-phase proxy, the port calls
   `updateShapeAABBs` and leaves `proxyKey` null, so the stored bounds stay
   faithful. The proxy arrives with order 30.
@@ -221,8 +225,9 @@ assertions retained by the step, and D-004 and D-006 grew `solver.go` entries.
 - The sub-step keeps the stage order of the reference: integrate velocities,
   the deferred constraint stages, integrate positions. The body finalize
   runs once, after the loop.
-- The damping factor becomes a division per D-006. The torque delta and the
-  arc speed of the sleep test scale by one turn per D-004.
+- The damping factor divides in fixed mode and multiplies by its reciprocal
+  in float mode, per D-006. The torque delta and the arc speed of the sleep
+  test use the radian state of D-004 as the reference does.
 - The finalize refreshes the fat bounds directly. Fast bodies leave this
   path since order 32 and take the continuous stage. The `enlargedAABB`
   flag and the bit sets stay with the broad-phase.
@@ -352,9 +357,8 @@ graph colors alike. `solver.go` gains `softness` and `makeSoft`; the step
 context gains the contact and static softness; each color gains its
 constraint scratch from one arena block. See D-004 and D-006.
 
-- The body state keeps the angular velocity in turns per second. Each
-  stage scales it by one turn on load and divides on store, so the cross
-  products of the reference stay in radians.
+- The body state keeps the angular velocity in radians per second, so
+  each stage loads and stores it as the reference does.
 - The effective masses store the reciprocal once, as the reference and
   the body inverse mass do. The guard against a zero mass is an exact
   test.
@@ -454,7 +458,8 @@ pair set moves from the world to the broadphase. `shape.go` gains
 - The reference prepends each pair, so the contact order of one moved
   proxy follows the tree walk. The port keeps the list sorted by shape
   pair, so any tree with the same leaves creates the same contacts in the
-  same order (D-013).
+  same order (D-013). The `dbox2d_upstream_pairs` tag keeps the prepend
+  order, for bit parity with the reference in float mode.
 - The sensor rule stays, because the shape carries its sensor index. The
   joint loop of `b2ShouldBodiesCollide` landed with the joints, order 33.
   The custom filter callback landed with order 34 as
@@ -546,9 +551,10 @@ of D-011 rebased once, when the joint storage entered the fold.
   order of the reference. The prepare clamps the constraint frequency at a
   quarter of the sub-step rate.
 - Each type mirrors its file: the same rows in the same order, the same
-  soft, limit and motor branches. The angular velocity of a state is a
-  turn per second and the stages scale it by one turn on load per D-004;
-  the effective masses divide per D-006. The mouse joint solve has no bias
+  soft, limit and motor branches. The angular velocity of a state is in
+  radians per second, and a joint keeps its angles in the angle unit of the
+  mode, turns in fixed mode and radians in float mode, per D-004; the
+  effective masses divide per D-006. The mouse joint solve has no bias
   flag and the motor joint ignores it, as upstream.
 - A float64 mirror of each solve runs beside it in the tests; the bound is
   1e-6 where no angle enters and 1e-5 or 1e-4 where the fixed atan2 does.
@@ -614,7 +620,7 @@ D-014 grew entries.
 | `src/hull.c` | `hull.go` | T0/T2 | foundation | 8 | Recursive quickhull. Its tolerances are multiples of the linear slop, so only the `FLT_MAX` seed diverged. See D-009. |
 | `src/geometry.c` | `geometry.go` | T0/T1/T2 | foundation | 9 | Shape constructors, mass data, AABB per shape, point tests, ray casts. The shape casts landed with order 32; the mover collisions landed with order 34. |
 | `include/box2d/types.h`, `src/types.c` | `types.go` | T1 | foundation | 10 | Definition structs and their defaults. |
-| `src/body.h`, `src/body.c` | `body.go` | T0/T2 | foundation | 11 | `body`, `bodySim`, `bodyState`, unexported: `src/body.h` declares them. Layout preserved. The mass update scales the angular velocity by one turn; see D-004. The island hooks landed with order 25; the body events landed with order 28; the proxy destroy and the body collision rule landed with order 30; `makeSweep` landed with order 32. |
+| `src/body.h`, `src/body.c` | `body.go` | T0/T2 | foundation | 11 | `body`, `bodySim`, `bodyState`, unexported: `src/body.h` declares them. Layout preserved. The body state keeps the angular velocity in radians per second; see D-004. The island hooks landed with order 25; the body events landed with order 28; the proxy destroy and the body collision rule landed with order 30; `makeSweep` landed with order 32. |
 | `src/shape.h`, `src/shape.c` | `shape.go` | T0/T2 | foundation | 12 | Shape storage and the mass, AABB, centroid and extent dispatchers. The proxies and the filter rules landed with order 30; the ray cast dispatcher landed with the public queries. The shape cast dispatcher and the distance proxy landed with order 32. The sensors and chains landed with order 34; see D-003, D-010 and D-012. |
 | `src/solver_set.h`, `src/solver_set.c` | `solver_set.go` | T0 | foundation | 13 | Static, awake, disabled and sleeping sets; body transfer, wake, sleep and set merge. The joint arrays and transfers landed with order 33. |
 | `src/world.h`, `src/world.c` | `world.go` | T0/T2 | foundation | 14 | Split across stages. The foundation takes the registry, creation, destruction, the validity checks and the trimmed set validation. `b2World_Step` landed with order 16 in `step.go`; the events landed with order 28; the broadphase and the enlarged body bit set landed with order 30; `OverlapAABB` and `CastRay` landed with the public queries. `OverlapShape`, `CastShape`, `CastMover` and `CastRayClosest` landed with order 32. `Explode`, `SetCustomFilterCallback`, `SetPreSolveCallback`, `SetRestitutionCallback`, `CollideMover`, debug draw, `GetProfile` and `DumpMemoryStats` landed. See D-004, D-006, D-012, D-014 and D-015. |
@@ -633,7 +639,7 @@ D-014 grew entries.
 | `src/bitset.h`, `src/bitset.c` | `bitset.go` | T0 | broadphase | 27 | Set, clear, test, grow and union landed. Backs the constraint graph and the contact state of the step. |
 | `src/ctz.h` | `math/bits` | T2 | broadphase | 28 | The standard library replaces the compiler intrinsics. Landed with the collide block in `step.go`. |
 | `src/dynamic_tree.c` | `dynamic_tree.go` | T0/T2 | broadphase | 29 | Landed. Fattened AABBs, surface-area heuristic, rotation rebalance, box query, ray cast, shape cast, partial rebuild. See D-009 and D-014. |
-| `src/broad_phase.h`, `src/broad_phase.c` | `broad_phase.go` | T0/T2 | broadphase | 30 | Landed. Three trees, the move buffer, the pair query and the pair set. The pair list of each moved proxy is sorted by shape id, so any equivalent tree gives the same world. See D-010 and D-013. |
+| `src/broad_phase.h`, `src/broad_phase.c` | `broad_phase.go` | T0/T2 | broadphase | 30 | Landed. Three trees, the move buffer, the pair query and the pair set. The pair list of each moved proxy is sorted by shape id, so any equivalent tree gives the same world; the `dbox2d_upstream_pairs` tag keeps the reference order. See D-010 and D-013. |
 | `src/atomic.h` | `sync/atomic` | T1 | broadphase | 31 | Landed with the executor: the sync bits and the block indices of the solver script, the completion counts and the pool's generation. The pair index of the broadphase is the length of each worker's pair slice; see D-016. |
 | `include/box2d/box2d.h` | public API | T0/T2 | all stages | 34 | Landed. The whole 3.1.1 surface is ported; see the surface note above, D-014 and D-015. |
 | `src/joint.h`, `src/joint.c` | `joint.go` | T0/T2 | joints | 33 | Landed. Types, definitions, storage, creation, destruction, the island and graph hooks, the set transfers and the prepare, warm start and solve dispatch. Accessors landed with order 34; debug draw and dump do not cross. See D-003, D-004 and D-006. |

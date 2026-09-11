@@ -1,7 +1,8 @@
 package dbox2d
 
-// This file corresponds to src/weld_joint.c of the reference. The angles
-// are turns (D-004); the angular error enters C in radians.
+// This file corresponds to src/weld_joint.c of the reference. The API
+// takes the reference angle in turns (D-004); the joint keeps it in the
+// angle unit of the mode, and the angular error enters C in radians.
 
 // getWeldJointForce reports the constraint force of the last step. It
 // corresponds to b2GetWeldJointForce in src/weld_joint.c.
@@ -155,8 +156,8 @@ func prepareWeldJoint(base *jointSim, context *stepContext) {
 	joint.anchorA = RotateVector(qA, base.localOriginAnchorA.Sub(bodySimA.localCenter))
 	joint.anchorB = RotateVector(qB, base.localOriginAnchorB.Sub(bodySimB.localCenter))
 	joint.deltaCenter = bodySimB.center.Sub(bodySimA.center)
-	joint.deltaAngle = RelativeAngle(qB, qA).Sub(joint.referenceAngle)
-	joint.deltaAngle = UnwindAngle(joint.deltaAngle)
+	joint.deltaAngle = relativeAngle(qB, qA).Sub(joint.referenceAngle)
+	joint.deltaAngle = unwindAngle(joint.deltaAngle)
 
 	zero := QZero()
 	ka := iA.Add(iB)
@@ -202,16 +203,15 @@ func warmStartWeldJoint(base *jointSim, context *stepContext) {
 	rA := RotateVector(stateA.deltaRotation, joint.anchorA)
 	rB := RotateVector(stateB.deltaRotation, joint.anchorB)
 
-	// D-004: the angular velocity of the state is turns per second.
 	stateA.linearVelocity = MulSub(stateA.linearVelocity, mA, joint.linearImpulse)
-	wA := stateA.angularVelocity.Mul(tau)
+	wA := stateA.angularVelocity
 	wA = wA.Sub(iA.Mul(Cross(rA, joint.linearImpulse).Add(joint.angularImpulse)))
-	stateA.angularVelocity = wA.Div(tau)
+	stateA.angularVelocity = wA
 
 	stateB.linearVelocity = MulAdd(stateB.linearVelocity, mB, joint.linearImpulse)
-	wB := stateB.angularVelocity.Mul(tau)
+	wB := stateB.angularVelocity
 	wB = wB.Add(iB.Mul(Cross(rB, joint.linearImpulse).Add(joint.angularImpulse)))
-	stateB.angularVelocity = wB.Div(tau)
+	stateB.angularVelocity = wB
 }
 
 // solveWeldJoint corresponds to b2SolveWeldJoint in src/weld_joint.c.
@@ -233,9 +233,9 @@ func solveWeldJoint(base *jointSim, context *stepContext, useBias bool) {
 	stateA, stateB := jointStates(context.states, &dummyState, joint.indexA, joint.indexB)
 
 	vA := stateA.linearVelocity
-	wA := stateA.angularVelocity.Mul(tau)
+	wA := stateA.angularVelocity
 	vB := stateB.linearVelocity
-	wB := stateB.angularVelocity.Mul(tau)
+	wB := stateB.angularVelocity
 
 	zero := QZero()
 	one := QOne()
@@ -246,8 +246,7 @@ func solveWeldJoint(base *jointSim, context *stepContext, useBias bool) {
 		massScale := one
 		impulseScale := zero
 		if useBias || zero.Less(joint.angularHertz) {
-			// D-004: the angle enters the error in radians.
-			C := RelativeAngle(stateB.deltaRotation, stateA.deltaRotation).Add(joint.deltaAngle).Mul(tau)
+			C := angleRadians(relativeAngle(stateB.deltaRotation, stateA.deltaRotation).Add(joint.deltaAngle))
 			bias = joint.angularSoftness.biasRate.Mul(C)
 			massScale = joint.angularSoftness.massScale
 			impulseScale = joint.angularSoftness.impulseScale
@@ -302,7 +301,7 @@ func solveWeldJoint(base *jointSim, context *stepContext, useBias bool) {
 	}
 
 	stateA.linearVelocity = vA
-	stateA.angularVelocity = wA.Div(tau)
+	stateA.angularVelocity = wA
 	stateB.linearVelocity = vB
-	stateB.angularVelocity = wB.Div(tau)
+	stateB.angularVelocity = wB
 }

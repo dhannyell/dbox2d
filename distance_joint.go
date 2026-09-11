@@ -344,12 +344,12 @@ func (jointId JointId) SetMotorSpeed(motorSpeed Q) {
 		joint.distanceJoint.motorSpeed = motorSpeed
 	case RevoluteJoint:
 		// D-004: revolute motor speed is stored in turns per second.
-		joint.revoluteJoint.motorSpeed = motorSpeed
+		joint.revoluteJoint.motorSpeed = angleFromTurns(motorSpeed)
 	case PrismaticJoint:
 		joint.prismaticJoint.motorSpeed = motorSpeed
 	case WheelJoint:
 		// D-004: wheel motor speed is stored in turns per second.
-		joint.wheelJoint.motorSpeed = motorSpeed
+		joint.wheelJoint.motorSpeed = angleFromTurns(motorSpeed)
 	default:
 		panic("dbox2d: joint type does not support motor speed")
 	}
@@ -365,12 +365,12 @@ func (jointId JointId) GetMotorSpeed() Q {
 		return joint.distanceJoint.motorSpeed
 	case RevoluteJoint:
 		// D-004: revolute motor speed is stored in turns per second.
-		return joint.revoluteJoint.motorSpeed
+		return angleToTurns(joint.revoluteJoint.motorSpeed)
 	case PrismaticJoint:
 		return joint.prismaticJoint.motorSpeed
 	case WheelJoint:
 		// D-004: wheel motor speed is stored in turns per second.
-		return joint.wheelJoint.motorSpeed
+		return angleToTurns(joint.wheelJoint.motorSpeed)
 	default:
 		panic("dbox2d: joint type does not support motor speed")
 	}
@@ -544,11 +544,10 @@ func warmStartDistanceJoint(base *jointSim, context *stepContext) {
 	axialImpulse := joint.impulse.Add(joint.lowerImpulse).Sub(joint.upperImpulse).Add(joint.motorImpulse)
 	P := axis.Mul(axialImpulse)
 
-	// D-004: the angular velocity of the state is turns per second.
 	stateA.linearVelocity = MulSub(stateA.linearVelocity, mA, P)
-	stateA.angularVelocity = stateA.angularVelocity.Mul(tau).Sub(iA.Mul(Cross(rA, P))).Div(tau)
+	stateA.angularVelocity = stateA.angularVelocity.Sub(iA.Mul(Cross(rA, P)))
 	stateB.linearVelocity = MulAdd(stateB.linearVelocity, mB, P)
-	stateB.angularVelocity = stateB.angularVelocity.Mul(tau).Add(iB.Mul(Cross(rB, P))).Div(tau)
+	stateB.angularVelocity = stateB.angularVelocity.Add(iB.Mul(Cross(rB, P)))
 }
 
 // solveDistanceJoint corresponds to b2SolveDistanceJoint in
@@ -570,9 +569,9 @@ func solveDistanceJoint(base *jointSim, context *stepContext, useBias bool) {
 	stateA, stateB := jointStates(context.states, &dummyState, joint.indexA, joint.indexB)
 
 	vA := stateA.linearVelocity
-	wA := stateA.angularVelocity.Mul(tau)
+	wA := stateA.angularVelocity
 	vB := stateB.linearVelocity
-	wB := stateB.angularVelocity.Mul(tau)
+	wB := stateB.angularVelocity
 
 	// current anchors
 	rA := RotateVector(stateA.deltaRotation, joint.anchorA)
@@ -717,7 +716,7 @@ func solveDistanceJoint(base *jointSim, context *stepContext, useBias bool) {
 	}
 
 	stateA.linearVelocity = vA
-	stateA.angularVelocity = wA.Div(tau)
+	stateA.angularVelocity = wA
 	stateB.linearVelocity = vB
-	stateB.angularVelocity = wB.Div(tau)
+	stateB.angularVelocity = wB
 }

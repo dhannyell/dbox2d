@@ -20,8 +20,9 @@ func drawPrismaticJoint(draw *DebugDraw, base *jointSim, transformA, transformB 
 	draw.DrawPoint(pB, QFromInt(5), ColorBlue)
 }
 
-// This file corresponds to src/prismatic_joint.c of the reference. The
-// angles are turns (D-004); the angular error enters C in radians.
+// This file corresponds to src/prismatic_joint.c of the reference. The API
+// takes the reference angle in turns (D-004); the joint keeps it in the
+// angle unit of the mode, and the angular error enters C in radians.
 
 // getPrismaticJointForce reports the constraint force of the last step. It
 // corresponds to b2GetPrismaticJointForce in src/prismatic_joint.c.
@@ -107,9 +108,8 @@ func (jointId JointId) GetSpeed() Q {
 		wB = bodyStateB.angularVelocity
 	}
 
-	// D-004: solver angular velocities are turns per second; CrossSV uses radians.
-	vRel := vB.Add(CrossSV(wB.Mul(tau), rB)).Sub(vA.Add(CrossSV(wA.Mul(tau), rA)))
-	return d.Dot(CrossSV(wA.Mul(tau), axisA)).Add(axisA.Dot(vRel))
+	vRel := vB.Add(CrossSV(wB, rB)).Sub(vA.Add(CrossSV(wA, rA)))
+	return d.Dot(CrossSV(wA, axisA)).Add(axisA.Dot(vRel))
 }
 
 // Linear constraint (point-to-line)
@@ -212,8 +212,8 @@ func preparePrismaticJoint(base *jointSim, context *stepContext) {
 	joint.anchorB = RotateVector(qB, base.localOriginAnchorB.Sub(bodySimB.localCenter))
 	joint.axisA = RotateVector(qA, joint.localAxisA)
 	joint.deltaCenter = bodySimB.center.Sub(bodySimA.center)
-	joint.deltaAngle = RelativeAngle(qB, qA).Sub(joint.referenceAngle)
-	joint.deltaAngle = UnwindAngle(joint.deltaAngle)
+	joint.deltaAngle = relativeAngle(qB, qA).Sub(joint.referenceAngle)
+	joint.deltaAngle = unwindAngle(joint.deltaAngle)
 
 	rA := joint.anchorA
 	rB := joint.anchorB
@@ -283,11 +283,10 @@ func warmStartPrismaticJoint(base *jointSim, context *stepContext) {
 	LA := axialImpulse.Mul(a1).Add(perpImpulse.Mul(s1)).Add(angleImpulse)
 	LB := axialImpulse.Mul(a2).Add(perpImpulse.Mul(s2)).Add(angleImpulse)
 
-	// D-004: the angular velocity of the state is turns per second.
 	stateA.linearVelocity = MulSub(stateA.linearVelocity, mA, P)
-	stateA.angularVelocity = stateA.angularVelocity.Mul(tau).Sub(iA.Mul(LA)).Div(tau)
+	stateA.angularVelocity = stateA.angularVelocity.Sub(iA.Mul(LA))
 	stateB.linearVelocity = MulAdd(stateB.linearVelocity, mB, P)
-	stateB.angularVelocity = stateB.angularVelocity.Mul(tau).Add(iB.Mul(LB)).Div(tau)
+	stateB.angularVelocity = stateB.angularVelocity.Add(iB.Mul(LB))
 }
 
 // solvePrismaticJoint corresponds to b2SolvePrismaticJoint in
@@ -310,9 +309,9 @@ func solvePrismaticJoint(base *jointSim, context *stepContext, useBias bool) {
 	stateA, stateB := jointStates(context.states, &dummyState, joint.indexA, joint.indexB)
 
 	vA := stateA.linearVelocity
-	wA := stateA.angularVelocity.Mul(tau)
+	wA := stateA.angularVelocity
 	vB := stateB.linearVelocity
-	wB := stateB.angularVelocity.Mul(tau)
+	wB := stateB.angularVelocity
 
 	// current anchors
 	rA := RotateVector(stateA.deltaRotation, joint.anchorA)
@@ -459,8 +458,7 @@ func solvePrismaticJoint(base *jointSim, context *stepContext, useBias bool) {
 		if useBias {
 			var C Vec2
 			C.X = perpA.Dot(d)
-			// D-004: the angle enters the error in radians.
-			C.Y = RelativeAngle(stateB.deltaRotation, stateA.deltaRotation).Add(joint.deltaAngle).Mul(tau)
+			C.Y = angleRadians(relativeAngle(stateB.deltaRotation, stateA.deltaRotation).Add(joint.deltaAngle))
 
 			bias = C.Mul(base.constraintSoftness.biasRate)
 			massScale = base.constraintSoftness.massScale
@@ -496,7 +494,7 @@ func solvePrismaticJoint(base *jointSim, context *stepContext, useBias bool) {
 	}
 
 	stateA.linearVelocity = vA
-	stateA.angularVelocity = wA.Div(tau)
+	stateA.angularVelocity = wA
 	stateB.linearVelocity = vB
-	stateB.angularVelocity = wB.Div(tau)
+	stateB.angularVelocity = wB
 }

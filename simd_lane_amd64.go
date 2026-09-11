@@ -57,7 +57,7 @@ func storeBodyRowW(states []bodyState, idx int, row archsimd.Float32x8) {
 
 // gatherBodyW loads one constraint's bodies; null lanes are identities.
 // The transpose is written out twice: a helper with vector arrays copies through the stack.
-func gatherBodyW(states []bodyState, indices *[wideWidth]int, tauW laneW, b *bodyStateW) {
+func gatherBodyW(states []bodyState, indices *[wideWidth]int, b *bodyStateW) {
 	identity := archsimd.LoadFloat32x8Array(&identityBodyRowW)
 	r0 := bodyRowW(states, indices[0], identity)
 	r1 := bodyRowW(states, indices[1], identity)
@@ -88,7 +88,7 @@ func gatherBodyW(states []bodyState, indices *[wideWidth]int, tauW laneW, b *bod
 
 	b.v.x = laneW{v: c0.ConcatPermute128Scalars(0, 2, d0)}
 	b.v.y = laneW{v: c1.ConcatPermute128Scalars(0, 2, d1)}
-	b.w = laneW{v: c2.ConcatPermute128Scalars(0, 2, d2)}.Mul(tauW)
+	b.w = laneW{v: c2.ConcatPermute128Scalars(0, 2, d2)}
 	b.flags = laneW{v: c3.ConcatPermute128Scalars(0, 2, d3)}
 	b.dp.x = laneW{v: c0.ConcatPermute128Scalars(1, 3, d0)}
 	b.dp.y = laneW{v: c1.ConcatPermute128Scalars(1, 3, d1)}
@@ -96,11 +96,11 @@ func gatherBodyW(states []bodyState, indices *[wideWidth]int, tauW laneW, b *bod
 	b.dq.c = laneW{v: c3.ConcatPermute128Scalars(1, 3, d3)}
 }
 
-// scatterBodyW writes real-lane velocities back with angular velocity in turns per second.
-func scatterBodyW(states []bodyState, indices *[wideWidth]int, tauW laneW, b *bodyStateW) {
+// scatterBodyW writes real-lane velocities back.
+func scatterBodyW(states []bodyState, indices *[wideWidth]int, b *bodyStateW) {
 	r0 := b.v.x.v
 	r1 := b.v.y.v
-	r2 := b.w.toLane().Div(tauW).v
+	r2 := b.w.toLane().v
 	r3 := b.flags.v
 	r4 := b.dp.x.v
 	r5 := b.dp.y.v

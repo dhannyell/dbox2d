@@ -27,31 +27,31 @@ type conformanceToleranceConfig struct {
 // Function traces use ulps in float mode and abs in fixed mode.
 // Scene step 1 uses abs in fixed mode and absFloat in float mode.
 var conformanceTolerance = map[string]conformanceToleranceConfig{
-	"collide_capsules.txt":                  {ulps: 0, abs: 2e-6},         // precision
-	"collide_capsule_and_circle.txt":        {ulps: 0, abs: 1e-5},         // precision
-	"collide_circles.txt":                   {ulps: 0, abs: 1e-6},         // precision
-	"collide_polygon_and_circle.txt":        {ulps: 0, abs: 2e-6},         // precision
-	"collide_segment_and_capsule.txt":       {ulps: 0, abs: 2e-6},         // precision
-	"collide_polygon_and_capsule.txt":       {ulps: 0, abs: 2e-6},         // precision
-	"collide_polygons.txt":                  {ulps: 0, abs: 2e-6},         // precision
-	"collide_segment_and_circle.txt":        {ulps: 0, abs: 4e-5},         // precision
-	"collide_segment_and_polygon.txt":       {ulps: 0, abs: 2e-6},         // precision
-	"collide_chain_segment_and_circle.txt":  {ulps: 1028, abs: 2e-5},      // ulps: D-006 (1/ee); abs: precision
-	"collide_chain_segment_and_capsule.txt": {ulps: 0, abs: 1e-6},         // precision
-	"collide_chain_segment_and_polygon.txt": {ulps: 0, abs: 2e-6},         // precision
-	"shape_distance.txt":                    {ulps: 512, abs: 8e-6},       // ulps: D-006 (inv_d12); abs: precision
-	"time_of_impact.txt":                    {ulps: 0, abs: 1e-7},         // precision
-	"compute_hull.txt":                      {ulps: 0, abs: 0},            // exact after cyclic alignment
-	"make_rot.txt":                          {ulps: 1328, abs: 4e-3},      // ulps: D-004; abs: D-017 (CORDIC vs Bhaskara)
-	"atan2.txt":                             {ulps: 0, abs: 6e-5},         // abs: D-017 (CORDIC vs polynomial)
-	"falling_hinges.txt":                    {abs: 4e-3, absFloat: 1e-6},  // abs: D-017 (rotation from an angle); absFloat: D-006
-	"joint_grid.txt":                        {},                           // no step-1 dump; count and hash only
-	"large_pyramid.txt":                     {},                           // no step-1 dump; count and hash only
-	"many_pyramids.txt":                     {},                           // no step-1 dump; count and hash only
-	"rain.txt":                              {abs: 4e-5, absFloat: 4e-7},  // precision; absFloat: D-006
-	"smash.txt":                             {hashSteps: 69},              // no step-1 dump; count and hash only; hash equal through step 69 in float mode
-	"spinner.txt":                           {abs: 1e-2, absFloat: 1e-2},  // D-013: the colored set of the bar contacts differs
-	"tumbler.txt":                           {abs: 2e-5, absFloat: 1e-10}, // precision; absFloat: D-006
+	"collide_capsules.txt":                  {ulps: 0, abs: 2e-6},        // precision
+	"collide_capsule_and_circle.txt":        {ulps: 0, abs: 1e-5},        // precision
+	"collide_circles.txt":                   {ulps: 0, abs: 1e-6},        // precision
+	"collide_polygon_and_circle.txt":        {ulps: 0, abs: 2e-6},        // precision
+	"collide_segment_and_capsule.txt":       {ulps: 0, abs: 2e-6},        // precision
+	"collide_polygon_and_capsule.txt":       {ulps: 0, abs: 2e-6},        // precision
+	"collide_polygons.txt":                  {ulps: 0, abs: 2e-6},        // precision
+	"collide_segment_and_circle.txt":        {ulps: 0, abs: 4e-5},        // precision
+	"collide_segment_and_polygon.txt":       {ulps: 0, abs: 2e-6},        // precision
+	"collide_chain_segment_and_circle.txt":  {ulps: 0, abs: 2e-5},        // precision
+	"collide_chain_segment_and_capsule.txt": {ulps: 0, abs: 1e-6},        // precision
+	"collide_chain_segment_and_polygon.txt": {ulps: 0, abs: 2e-6},        // precision
+	"shape_distance.txt":                    {ulps: 0, abs: 8e-6},        // precision
+	"time_of_impact.txt":                    {ulps: 0, abs: 1e-7},        // precision
+	"compute_hull.txt":                      {ulps: 0, abs: 0},           // exact after cyclic alignment
+	"make_rot.txt":                          {ulps: 1328, abs: 4e-3},     // ulps: D-004; abs: D-017 (CORDIC vs Bhaskara)
+	"atan2.txt":                             {ulps: 0, abs: 6e-5},        // abs: D-017 (CORDIC vs polynomial)
+	"falling_hinges.txt":                    {abs: 4e-3, hashSteps: 158}, // abs: D-017 (rotation from an angle); exact at step 1 and hash equal through step 158 in float mode
+	"joint_grid.txt":                        {hashSteps: 500},            // no step-1 dump; count and hash only; hash equal through step 500 in float mode
+	"large_pyramid.txt":                     {},                          // no step-1 dump; count and hash only
+	"many_pyramids.txt":                     {},                          // no step-1 dump; count and hash only
+	"rain.txt":                              {abs: 4e-5, hashSteps: 171}, // precision; exact at step 1 and hash equal through step 171 in float mode
+	"smash.txt":                             {hashSteps: 69},             // no step-1 dump; count and hash only; hash equal through step 69 in float mode
+	"spinner.txt":                           {abs: 1e-2, absFloat: 1e-2}, // D-013: the colored set of the bar contacts differs
+	"tumbler.txt":                           {abs: 2e-5, hashSteps: 6},   // precision; exact at step 1 and hash equal through step 6 in float mode
 }
 
 type conformanceTraceFloat struct {
@@ -826,6 +826,12 @@ func runConformanceSceneTrace(t *testing.T, name, path string, floatMode bool) {
 	}
 
 	tolerance := conformanceTolerance[name]
+	if floatMode && upstreamPairOrder {
+		// D-013: with the pair order of the reference, float mode matches every
+		// scene bit for bit.
+		tolerance.absFloat = 0
+		tolerance.hashSteps = len(trace.steps)
+	}
 	residues := make([]conformanceSceneResidue, len(trace.steps))
 	for i := range residues {
 		residues[i].field = "x"
@@ -1197,7 +1203,17 @@ func buildConformanceTumbler(worldId WorldId) conformanceStepFn {
 	jointDef.MotorSpeed = QFromRatio(25, 360)
 	jointDef.MaxMotorTorque = QFromInt(100000000)
 	jointDef.EnableMotor = true
-	CreateRevoluteJoint(worldId, &jointDef)
+	jointId := CreateRevoluteJoint(worldId, &jointDef)
+	if conformanceFloatMode() {
+		// The reference sets (B2_PI / 180.0f) * 25.0f radians per second. No
+		// binary32 turn rate times floatTau rounds to that value, so float
+		// mode stores the radians of the reference.
+		pi := float32(3.14159265359)
+		speed := pi / 180
+		speed *= 25
+		joint := getJointSimCheckType(getWorldFromId(worldId), jointId, RevoluteJoint)
+		joint.revoluteJoint.motorSpeed = QFromFloat64(float64(speed))
+	}
 
 	const gridCount = 45
 	box := MakeBox(QMustParse("0.125"), QMustParse("0.125"))
@@ -1255,7 +1271,7 @@ func buildConformanceFallingHinges(worldId WorldId) conformanceStepFn {
 			bodyDef.Type = DynamicBody
 			bodyDef.Position = Vec2{X: x.Add(offset.Mul(QFromInt(i))), Y: half.Add(QFromInt(2).Mul(half).Mul(QFromInt(i)))}
 			radians := float32(0.1*float32(i) - 1)
-			bodyDef.Rotation = MakeRot(QFromFloat64(float64(radians) / (2 * QToFloat64(Pi()))))
+			bodyDef.Rotation = conformanceRotFromRadians(radians)
 			bodyId := CreateBody(worldId, &bodyDef)
 			if i&1 == 0 {
 				previous = bodyId

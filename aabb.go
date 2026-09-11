@@ -134,8 +134,9 @@ func aabbRayCast(a AABB, p1, p2 Vec2) CastOutput {
 			return output
 		}
 	} else {
-		t1 := a.LowerBound.X.Sub(p.X).Div(d.X)
-		t2 := a.UpperBound.X.Sub(p.X).Div(d.X)
+		invD := makeRecip(d.X)
+		t1 := invD.scale(a.LowerBound.X.Sub(p.X))
+		t2 := invD.scale(a.UpperBound.X.Sub(p.X))
 
 		// Sign of the normal vector.
 		s := one.Neg()
@@ -167,8 +168,9 @@ func aabbRayCast(a AABB, p1, p2 Vec2) CastOutput {
 			return output
 		}
 	} else {
-		t1 := a.LowerBound.Y.Sub(p.Y).Div(d.Y)
-		t2 := a.UpperBound.Y.Sub(p.Y).Div(d.Y)
+		invD := makeRecip(d.Y)
+		t1 := invD.scale(a.LowerBound.Y.Sub(p.Y))
+		t2 := invD.scale(a.UpperBound.Y.Sub(p.Y))
 
 		// Sign of the normal vector.
 		s := one.Neg()

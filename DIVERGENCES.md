@@ -71,8 +71,9 @@ Numbering is sequential from `D-001` and never reused.
 
 ### D-004 An angle is a turn
 
-- Files: math.go, body.go, world.go, solver.go, contact_solver.go, joint.go,
-  motor_joint.go and the other six joint files (upstream
+- Files: math.go, scalar_fixed.go, scalar_float.go, body.go, world.go,
+  solver.go, contact_solver.go, joint.go, motor_joint.go and the other six
+  joint files (upstream
   include/box2d/math_functions.h; src/body.c `b2UpdateBodyMassData`,
   `b2Body_ApplyTorque`, `b2Body_ApplyAngularImpulse`,
   `b2Body_SetTargetTransform`; src/world.c `b2World_Explode`;
@@ -92,38 +93,39 @@ Numbering is sequential from `D-001` and never reused.
   turn before the first order step, and `ComputeAngularVelocity` divides by
   one turn after it. `RotGetAngle`, `RelativeAngle` and `UnwindAngle` work in
   turns, and `UnwindAngle` subtracts the nearest whole turn instead of taking
-  a remainder of two pi. `updateBodyMassData` stores the angular velocity in
-  turns per second, so it scales the velocity by one turn before the cross
-  product that corrects the linear velocity of a moved center of mass.
-  `integrateVelocitiesTask` divides the torque delta by one turn, and
-  `finalizeBodiesTask` scales the arc speed of the sleep test by one turn.
-  `makeSoft` multiplies the frequency by one turn where the reference
-  multiplies by two pi. Each stage of the contact solver scales the
-  angular velocity by one turn on load and divides it by one turn on
-  store, so the cross products with the anchors stay in radians. The joint
-  stages do the same. A reference angle, a limit, a target angle and an
-  angular offset are turns, and each enters a constraint error or a bias
-  multiplied by one turn; a motor speed is turns per second and multiplies
-  by one turn before the motor row. The revolute limit check bounds the
+  a remainder of two pi. The body state keeps the angular velocity in
+  radians per second, the unit of the reference, so the contact and joint
+  stages, the velocity integration, the sleep test and `updateBodyMassData`
+  use it as the reference does, and the solver advances the rotation with
+  the radian form of `IntegrateRotation`. The turn per second is a unit of
+  the API: `BodyDef.AngularVelocity` and `BodyId.SetAngularVelocity`
+  multiply by one turn, and `BodyId.GetAngularVelocity` divides by it.
+  `integrateVelocitiesTask` scales `MaxRotation` by one turn, an exact
+  product. `makeSoft` multiplies the frequency by one turn where the
+  reference multiplies by two pi. The API takes a reference angle, a limit,
+  a target angle and an angular offset in turns, and an angular motor speed
+  in turns per second. A joint keeps them in the angle unit of the mode,
+  which the scalar files define (D-017). Fixed mode keeps turns, and each
+  enters a constraint error, a bias or the motor row multiplied by one turn.
+  Float mode keeps radians, and the joint computes each error with
+  `b2RelativeAngle` and `b2UnwindAngle` as the reference does. A turn of the
+  form a/2 converts to the `a * B2_PI` of the reference exactly, because
+  halving a float32 is exact; the tumbler motor speed,
+  `(B2_PI / 180) * 25`, has no such form and stays one ulp away. The
+  revolute limit check bounds the
   angles at 0.495 turns, the `0.99 * pi` of the reference. Every joint angle
   accessor, including `GetAngularSeparation`, reports turns; the motor
   joint's `SetAngularOffset` and `GetAngularOffset` keep the same unit.
-  `BodyId.ApplyTorque` accumulates the torque as given, because the turn
-  conversion happens where the solver consumes it, but
-  `BodyId.ApplyAngularImpulse` divides by `tau` on the spot to turn the
-  reference's radian impulse into turns per second, and
-  `BodyId.SetTargetTransform` scales its angular velocity target the same
-  way through `RelativeAngle`, which already returns turns.
-  `WorldId.Explode` divides by `tau` as well, converting the angular
-  impulse of each struck body from the reference's radians to turns per
-  second.
-  Debug-draw revolute limits also pass their stored turn angles directly to
-  `MakeRot`; no radians conversion is introduced by presentation.
+  `BodyId.ApplyTorque`, `BodyId.ApplyAngularImpulse` and `WorldId.Explode`
+  apply the reference's radian units as given. `BodyId.SetTargetTransform`
+  takes the relative angle in the angle unit of the mode and converts it to
+  radians for its velocity. The debug draw converts the stored revolute
+  limits to turns for `MakeRot`.
 - Test: TestIntegrateRotationCompletesATurn,
   TestComputeAngularVelocityInvertsIntegration and
   TestUnwindAngleReducesToHalfTurn in math_test.go,
   TestBodyMassComesFromItsShapes in world_test.go,
-  TestStepConvertsTorqueAndArcSpeedToTurns in step_test.go,
+  TestStepAppliesTorqueAndArcSpeedInRadians in step_test.go,
   TestFrictionSaturatesAtTheNormalImpulse in contact_solver_test.go,
   TestRevoluteRejectsAFullTurnLimit in joint_test.go,
   TestMotorTurnsTowardTheAngularOffset and
@@ -147,7 +149,8 @@ Numbering is sequential from `D-001` and never reused.
 
 ### D-006 A reciprocal becomes a division
 
-- Files: math.go, aabb.go, geometry.go, body.go, world.go, solver.go,
+- Files: scalar_fixed.go, scalar_float.go, math.go, aabb.go, geometry.go,
+  body.go, world.go, solver.go,
   manifold.go, contact_solver.go, joint.go and the seven joint files
   (upstream
   include/box2d/math_functions.h `b2GetInverse22`, `b2Solve22`,
@@ -174,7 +177,10 @@ Numbering is sequential from `D-001` and never reused.
 - Tier: T2
 - Reason: a Q32.32 reciprocal keeps only the leading bits of a large value.
   Multiplying by it discards the precision that a division keeps.
-- Behaviour: each site divides by its denominator. Normalization delegates
+- Behaviour: in fixed mode each site divides by its denominator. In float
+  mode each site multiplies by one rounded reciprocal, as the reference
+  does: the sites go through `makeRecip`, which the scalar files define per
+  mode (D-017). The forms below are the fixed forms. Normalization delegates
   to the fixed-point module, which scales the pair before it squares, so a
   short vector cannot underflow to zero. The guard against a zero length
   becomes an exact test against zero instead of a test against an epsilon.
@@ -212,7 +218,7 @@ Numbering is sequential from `D-001` and never reused.
   TestAABBRayCastHitsTheNearFace in aabb_test.go,
   TestPolygonCentroidOfATriangle, TestTriangleMassMatchesTheReference and
   TestRayCastCapsuleHitsTheSide in geometry_test.go,
-  TestStepAppliesDampingByDivision in step_test.go, and
+  TestStepAppliesDampingByTheReciprocal in step_test.go, and
   TestMakeSoftSplitsTheUnit and TestPrepareOverflowContactsBuildsTheMasses
   in contact_solver_test.go, TestStepKeepsAZeroContactFrequencyFinite
   in step_test.go, TestShapeDistanceMatchesHandCases in
@@ -426,17 +432,25 @@ Numbering is sequential from `D-001` and never reused.
   different order, and the contact ids, the graph colors and the solver
   order would follow. The port promises the same world for any equivalent
   tree.
-- Behaviour: the callback inserts each pair in ascending `(shapeIdA,
-  shapeIdB)` order in the list of its moved proxy. The order across moved
-  proxies stays the order of the move array, as upstream. The shape ids
-  come from the pair itself: the shape of the smaller proxy key is A, as
-  upstream.
+- Behaviour: the callback appends the pairs of a moved proxy, which stay
+  contiguous, and `linkMovePairs` sorts them once in ascending `(shapeIdA,
+  shapeIdB)` order and links them into the list of that proxy. One sort
+  costs O(n log n) in the new pairs of one proxy, where a sorted insertion
+  would cost O(n^2). The order across moved proxies stays the order of the
+  move array, as upstream. The shape ids come from the pair itself: the
+  shape of the smaller proxy key is A, as upstream.
   When one moved proxy finds several new pairs in the same step, this
   ascending order can still differ from the reference's prepend order, so
   the contact ids and the graph colors that `WorldId.Draw` emits can diverge
   from the reference for that step. The golden draw scene avoids this case.
+  The `dbox2d_upstream_pairs` build tag links the pairs newest first
+  instead, which is the prepend order of the reference, and gives up the
+  independence from the tree topology. The port's trees walk their leaves
+  in the reference's order, so with this tag float mode matches every
+  conformance scene of D-018 bit for bit.
 - Test: TestBroadPhasePairsAreSortedByShapeId in broad_phase_test.go and
-  TestChecksumIgnoresTheTreeTopology in checksum_test.go
+  TestChecksumIgnoresTheTreeTopology in checksum_test.go, which skip under
+  the tag; TestConformance gates the tag in float mode (D-018)
 
 ### D-014 A callback with a context becomes a closure
 
@@ -524,7 +538,26 @@ Numbering is sequential from `D-001` and never reused.
   worker order: the bit sets by union, the bullet list by concatenation,
   the split candidate by the first worker on a tie, as the first body
   wins inside one worker; the reference breaks that tie by island id
-  because its work stealing has no order. The pair nodes of a moved proxy
+  because its work stealing has no order. That rule makes the reference
+  depend on how its bodies split across workers: when two islands tie on
+  sleep time, one worker keeps the first body it meets and two workers
+  keep the larger island id. In the rain scene of D-018 the reference
+  with 2, 4 or 8 workers leaves its own single-worker run at step 450, and
+  the three counts also disagree with each other; the reference's own
+  determinism test runs only falling_hinges, which has no such tie. The
+  port's rule is the single-worker choice of the reference: a copy of the
+  reference patched to prefer the smallest awake index gave the same
+  trace at 1, 2, 4 and 8 workers. The upstream documentation (docs/FAQ.md,
+  docs/simulation.md) promises the same result for any thread count, so
+  this is a v3.1.1 bug, not a documented limit. Upstream fixed it without a
+  note in commit 436365a246 (PR #1065, "Snapshot recording", after
+  v3.1.1): a worker breaks a sleep-time tie by the larger island id, as the
+  cross-worker reduction already did. When the port moves to a release
+  with that commit, the candidate test in `finalizeBodiesTask` and the
+  reduction in `solve` both take the larger island id on a tie. The
+  choice becomes a maximum over (sleep time, island id) that no longer
+  needs the ordered ranges, the worker-order clause above goes, and the
+  witnesses and traces change with the release. The pair nodes of a moved proxy
   live in the slice of the worker that queried it, and the move result
   records that worker. The island split runs on the last worker beside
   the script. The broad-phase tree rebuild is the one task the pool
@@ -589,6 +622,12 @@ Numbering is sequential from `D-001` and never reused.
   Epsilon guards use exact zero in fixed mode. Float mode uses the reference
   FLT_EPSILON forms through `scalarEpsilon`, `scalarEpsilonSq`,
   `belowEpsilon`, `belowEpsilonSq` and `sensorOverlaps`, all defined per mode.
+  A reciprocal goes through `makeRecip`, also per mode: fixed mode keeps the
+  denominator and divides, float mode multiplies by one rounded reciprocal
+  as the reference does (D-006). The angle unit of a joint is per mode as
+  well: `angleFromTurns`, `angleToTurns`, `angleRadians`, `relativeAngle`
+  and `unwindAngle` keep turns in fixed mode and radians in float mode
+  (D-004).
   Fixed `IsValidQ` rejects the two saturation values. Float `IsValidQ` rejects
   NaN and Inf as `b2IsValidFloat` does, and `QMaxValue()` is FLT_MAX and is
   valid. `normalizedTolerance` is 2^-16 in fixed mode and 100 times
@@ -629,33 +668,54 @@ Numbering is sequential from `D-001` and never reused.
   testdata/conformance/SOURCE.md for the compiler and flags.
 
   TestConformance reads every trace in both modes. Function traces: float mode is gated in ulps
-  and is exact (0 ulps) for 14 of 17 files. The three non-zero budgets are make_rot 1328 ulps
-  (D-004: the turn is converted to a radian before the reference approximation), shape_distance
-  512 ulps and collide_chain_segment_and_circle 1028 ulps (D-006: a reciprocal became a
-  division; the chain case normalizes a short vector, which amplifies one ulp). Fixed mode is
+  and is exact (0 ulps) for 16 of 17 files. The one non-zero budget is make_rot 1328 ulps
+  (D-004: the turn is converted to a radian before the reference approximation). Fixed mode is
   gated by an absolute budget of twice the measured residue: the twelve manifolds between 1e-6
   and 4e-5, shape_distance 8e-6, time_of_impact 1e-7, make_rot 4e-3 and atan2 6e-5 (D-017:
   CORDIC against the reference polynomials). compute_hull is exact after a cyclic alignment: the
   first hull vertex is the point farthest from the AABB center, and a near tie can start the hull
   at another vertex in Q32.32.
 
-  Scene traces: a step of the solver does not match the reference bit for bit in either mode.
-  D-004 and D-006 change bits inside the first step, and D-013 changes which contacts get a graph
-  color when one body has many contacts; colored and overflow contacts clamp their bias by
-  different speeds (contactSpeed and maxContactPushSpeed, per b2SolveContactsTask and
-  b2SolveOverflowContacts), so the spinner bar diverges by 4e-3 at step 1 with an identical set
-  of contacts. Later steps diverge chaotically. So the gate is the step-1 dump, with a budget per
-  scene and per mode: tumbler 2e-5 fixed and 1e-10 float, rain 4e-5 and 4e-7, falling_hinges
-  4e-3 and 1e-6, spinner 1e-2 in both. The per-step hash and the later dumps are logged, not
-  gated: the test reports the first divergent step and the largest residue of each sampled step.
-  smash keeps an equal hash through step 69 in float mode, and the test gates that count. Scenes over 5 000 bodies (joint_grid,
+  Scene traces: fixed mode does not match the reference bit for bit. Float mode with the pair
+  order of the reference (the `dbox2d_upstream_pairs` tag of D-013) matches every scene bit for
+  bit, in the scalar and the SIMD families: the dumps are exact and the hash is equal at every
+  step. A joint keeps its angles in radians in float mode (D-004), and the falling_hinges builder
+  makes its body rotations from radians in float mode, as the reference does. The tumbler
+  builder stores the motor speed of the reference, `(B2_PI / 180.0f) * 25.0f`, in float mode: no
+  binary32 turn rate times 2π rounds to that value.
+
+  The default build sorts the pairs (D-013), which changes which contacts get a graph color when
+  one body finds several new pairs in one step. The pyramid scenes and the spinner diverge at
+  step 1 for that reason; colored and overflow contacts clamp their bias by different speeds
+  (contactSpeed and maxContactPushSpeed, per b2SolveContactsTask and b2SolveOverflowContacts),
+  so the spinner bar diverges by 4e-3 at step 1 with an identical set of contacts. Later steps
+  diverge chaotically. So the default gate is the step-1 dump, with a budget per scene and per
+  mode: tumbler 2e-5 fixed and exact in float, rain 4e-5 and exact, falling_hinges 4e-3 and
+  exact, spinner 1e-2 in both. The per-step hash and the later dumps are logged, not gated: the
+  test reports the first divergent step and the largest residue of each sampled step. In float
+  mode the test also gates the number of leading steps with an equal hash: falling_hinges 158,
+  joint_grid 500, rain 171, smash 69 and tumbler 6. Under the tag it gates exact dumps and an
+  equal hash at every step instead. Scenes over 5 000 bodies (joint_grid,
   large_pyramid, many_pyramids, smash) have no step-1 dump, so only the body count and the hash
   report apply. Scene traces are skipped under `go test -short`: they take minutes on 32-bit and
   wasm targets, where fixed mode is bit-identical by construction and the witness hashes already
   hold.
 
+  The traces come from the reference with one worker. A reference run with 2, 4 or 8 workers,
+  through the task pool of tools/cbench, differs from it only in rain, from step 450 on, because
+  of its split-island tie (D-016). The port with 1, 4 or 8 workers, in the scalar and the SIMD
+  families, matches the single-worker trace in every scene. The SIMD builds of the reference, SSE2
+  and AVX2, write the same bits as the `BOX2D_DISABLE_SIMD` build at the same worker count, so
+  the traces stand for them as well.
+
   The traces found one port bug: the colored contacts clamped by maxContactPushSpeed instead of
-  contactSpeed; the fix changed both witnesses.
+  contactSpeed; the fix changed both witnesses. They found a second: the colored contacts took
+  the normal impulse of b2SolveOverflowContacts, `-m * s * (vn + b) - i * p` grouped from the
+  left, where b2SolveContactsTask computes `p - (m * (s * (vn + b)) + i * p)`, with m the normal
+  mass, s the mass scale, b the velocity bias, i the impulse scale and p the accumulated
+  impulse. Each mode rounds the two groupings differently. The colored contacts now take the
+  grouping of the task family, in the scalar, Q32 and SIMD families, and the overflow contacts
+  keep theirs; the fix changed both witnesses.
 - Test: TestConformance in conformance_test.go
 
 ### D-019 SIMD contact family
@@ -668,8 +728,9 @@ Numbering is sequential from `D-001` and never reused.
 - Reason: the reference selects a SIMD `Task` family with `B2_SIMD_WIDTH` lanes
   at compile time, including an `B2_SIMD_NONE` variant that keeps four scalar
   lanes with no vector instructions. The port has no scalar-lane variant: its
-  oracle is the scalar family in solver.go, applied to every color the same way
-  it applies to the overflow color. A SIMD lane also needs a fixed number of
+  oracle is the scalar family in contact_solver.go, which serves every color
+  and the overflow color and computes the normal impulse of a colored contact
+  with the grouping of the `Task` family (D-018). A SIMD lane also needs a fixed number of
   contacts per call, and a color rarely holds a multiple of the lane width.
 - Behaviour: the `dbox2d_simd` tag adds a second contact-solving path beside
   the scalar family, in both modes. Contacts of
@@ -681,9 +742,9 @@ Numbering is sequential from `D-001` and never reused.
   32-byte row; its `flags` field is `int32` for that reason, and the reference
   asserts the same 32-byte size. It transposes eight rows into lanes with
   shuffles. The scatter transposes back and stores whole rows for the real
-  lanes. The arm64 and generic paths gather through a scalar scratch. On every
-  float path, the lanes convert the angular velocity with a lane multiply and a lane
-  division by `tau`, both rounded once like the scalar `Q.Mul` and `Q.Div`.
+  lanes. The arm64 and generic paths gather through a scalar scratch. The body
+  state holds the angular velocity in radians per second (D-004), so every
+  path loads and stores it unchanged.
 
   Four lane implementations share one padding and dispatch layer:
   avx2 (amd64, width 8), neon (arm64, width 4), simd128 (wasm, width 4), and

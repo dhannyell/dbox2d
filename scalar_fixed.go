@@ -58,6 +58,22 @@ func MakeRot(t Q) Rot { return fixed.RotFromTurns(t) }
 // atan2Turns returns the angle of (x, y), in turns.
 func atan2Turns(y, x Q) Q { return fixed.Atan2Turns(y, x) }
 
+// A joint keeps its angles, its limits, its angular offset and its angular
+// motor speed in the angle unit of the mode (D-004). Fixed mode keeps turns:
+// one turn is one unit, so the unwind is exact, and angleRadians converts an
+// angle where it enters an error.
+func angleFromTurns(t Q) Q { return t }
+
+func angleToTurns(a Q) Q { return a }
+
+func angleRadians(a Q) Q { return a.Mul(tau) }
+
+// relativeAngle returns the angle of b relative to a, in the angle unit.
+func relativeAngle(b, a Rot) Q { return RelativeAngle(b, a) }
+
+// unwindAngle reduces an angle in the angle unit to half a turn.
+func unwindAngle(a Q) Q { return UnwindAngle(a) }
+
 var (
 	// The fixed mode uses zero as its rounding-noise threshold.
 	scalarEpsilon = QZero()
@@ -68,6 +84,17 @@ var (
 	// upstream 100.0f * FLT_EPSILON, about 1.2e-5. One raw unit is 2^-32.
 	normalizedTolerance = QFromRatio(1, 1<<16)
 )
+
+// recip scales by the reciprocal of a denominator. Fixed mode keeps the
+// denominator and divides at each use, because a Q32.32 reciprocal keeps
+// only the leading bits of a large value (D-006).
+type recip struct{ d Q }
+
+func makeRecip(d Q) recip { return recip{d: d} }
+
+func (r recip) scale(x Q) Q { return x.Div(r.d) }
+
+func (r recip) scaleVec(v Vec2) Vec2 { return v.Div(r.d) }
 
 // belowEpsilon reports whether a non-negative x is below the rounding noise
 // of the fixed-point format.
@@ -270,13 +297,14 @@ func warmStartContacts32(startIndex, endIndex int, context *stepContext, colorIn
 }
 
 // solveContacts32 solves a range of the Q32 contacts of one color, with the
-// push-out speed of its family.
+// push-out speed and the normal impulse of its family.
 func solveContacts32(startIndex, endIndex int, context *stepContext, colorIndex int, useBias bool) {
 	pushout := context.world.contactSpeed
-	if colorIndex == overflowIndex {
+	colored := colorIndex != overflowIndex
+	if !colored {
 		pushout = context.world.maxContactPushSpeed
 	}
-	solveContactRange32(startIndex, endIndex, context, context.graph.colors[colorIndex].contactConstraints32, useBias, qcwFrom(pushout))
+	solveContactRange32(startIndex, endIndex, context, context.graph.colors[colorIndex].contactConstraints32, useBias, qcwFrom(pushout), colored)
 }
 
 // applyRestitution32 applies restitution to a range of the Q32 contacts of

@@ -364,7 +364,7 @@ func CollideCapsules(capsuleA *Capsule, xfA Transform, capsuleB *Capsule, xfB Tr
 		}
 
 		// Biased to avoid feature flip-flop; upstream 0.1f * B2_LINEAR_SLOP.
-		slopBias := linearSlop.Div(QFromInt(10))
+		slopBias := linearSlopTenth
 		if !separationA.Add(slopBias).Less(separationB) {
 			manifold.Normal = normalA
 
@@ -645,7 +645,6 @@ func findMaxSeparation(poly1, poly2 *Polygon) (Q, int) {
 // b2CollidePolygons in src/manifold.c.
 func CollidePolygons(polygonA *Polygon, xfA Transform, polygonB *Polygon, xfB Transform) Manifold {
 	origin := polygonA.Vertices[0]
-	linearSlop := LinearSlop()
 	speculativeDistance := SpeculativeDistance()
 	zero := QZero()
 	one := QOne()
@@ -722,7 +721,7 @@ func CollidePolygons(polygonA *Polygon, xfA Transform, polygonB *Polygon, xfB Tr
 
 	// The slop keeps vertex-vertex normals safely normalizable; upstream
 	// 0.1f * B2_LINEAR_SLOP.
-	slopBias := linearSlop.Div(QFromInt(10))
+	slopBias := linearSlopTenth
 	if slopBias.Less(separationA) || slopBias.Less(separationB) {
 		// The edges are disjoint. Find the closest points of the reference
 		// edge and the incident edge.
@@ -767,9 +766,9 @@ func CollidePolygons(polygonA *Polygon, xfA Transform, polygonB *Polygon, xfB Tr
 		// Does vertex-vertex have a substantially larger separation?
 		if separation.Add(slopBias).Less(minSeparation) {
 			if result.Fraction1.Eq(zero) && result.Fraction2.Eq(zero) {
-				// v11 versus v21. The reference multiplies by the reciprocal
-				// of the distance; the port divides per D-006.
-				normal := v21.Sub(v11).Div(distance)
+				// v11 versus v21, scaled by the reciprocal of the distance
+				// (D-006).
+				normal := makeRecip(distance).scaleVec(v21.Sub(v11))
 
 				c1 := MulAdd(v11, localPolyA.Radius, normal)
 				c2 := MulAdd(v21, localPolyB.Radius.Neg(), normal)
@@ -781,7 +780,7 @@ func CollidePolygons(polygonA *Polygon, xfA Transform, polygonB *Polygon, xfB Tr
 				manifold.PointCount = 1
 			} else if result.Fraction1.Eq(zero) && result.Fraction2.Eq(one) {
 				// v11 versus v22.
-				normal := v22.Sub(v11).Div(distance)
+				normal := makeRecip(distance).scaleVec(v22.Sub(v11))
 
 				c1 := MulAdd(v11, localPolyA.Radius, normal)
 				c2 := MulAdd(v22, localPolyB.Radius.Neg(), normal)
@@ -793,7 +792,7 @@ func CollidePolygons(polygonA *Polygon, xfA Transform, polygonB *Polygon, xfB Tr
 				manifold.PointCount = 1
 			} else if result.Fraction1.Eq(one) && result.Fraction2.Eq(zero) {
 				// v12 versus v21.
-				normal := v21.Sub(v12).Div(distance)
+				normal := makeRecip(distance).scaleVec(v21.Sub(v12))
 
 				c1 := MulAdd(v12, localPolyA.Radius, normal)
 				c2 := MulAdd(v21, localPolyB.Radius.Neg(), normal)
@@ -805,7 +804,7 @@ func CollidePolygons(polygonA *Polygon, xfA Transform, polygonB *Polygon, xfB Tr
 				manifold.PointCount = 1
 			} else if result.Fraction1.Eq(one) && result.Fraction2.Eq(one) {
 				// v12 versus v22.
-				normal := v22.Sub(v12).Div(distance)
+				normal := makeRecip(distance).scaleVec(v22.Sub(v12))
 
 				c1 := MulAdd(v12, localPolyA.Radius, normal)
 				c2 := MulAdd(v22, localPolyB.Radius.Neg(), normal)
@@ -899,11 +898,10 @@ func CollideChainSegmentAndCircle(segmentA *ChainSegment, xfA Transform, circleB
 
 		pA = p2
 	} else {
-		// The reference multiplies by the reciprocal of e dot e; the port
-		// divides per D-006.
+		// D-006: pA scales by the reciprocal of e dot e.
 		ee := e.Dot(e)
 		if zero.Less(ee) {
-			pA = p1.Mul(u).Add(p2.Mul(v)).Div(ee)
+			pA = makeRecip(ee).scaleVec(p1.Mul(u).Add(p2.Mul(v)))
 		} else {
 			pA = p1
 		}
@@ -1143,7 +1141,7 @@ func CollideChainSegmentAndPolygon(segmentA *ChainSegment, xfA Transform, polygo
 	incidentIndex := -1
 	incidentNormal := -1
 
-	if !behind1 && linearSlop.Div(QFromInt(10)).Less(output.Distance) {
+	if !behind1 && linearSlopTenth.Less(output.Distance) {
 		// The closest features may be two vertices or an edge and a vertex even when there should
 		// be face contact
 

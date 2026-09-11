@@ -5,7 +5,16 @@ package dbox2d
 import "math"
 
 // The trace stores radians; each mode reaches them on its own path, so the 0-ulp budget of atan2.txt holds.
-func conformanceAtan2Radians(y, x Q) Q { return atan2TurnsBody(y, x) }
+func conformanceAtan2Radians(y, x Q) Q { return atan2Radians(y, x) }
+
+// conformanceRotFromRadians builds the rotation of b2MakeRot from its radian
+// angle, in [-pi, pi], as the reference scene does.
+func conformanceRotFromRadians(radians float32) Rot {
+	return makeRotRadians(QFromFloat64(float64(radians)))
+}
+
+// radiansF64 returns a joint angle in radians. Float mode keeps radians.
+func radiansF64(a Q) float64 { return qToF64(a) }
 
 // qUlps returns an absolute tolerance of n float32 ulps at one.
 func qUlps(n int64) Q { return scalarEpsilon.Mul(QFromInt(int(n))) }

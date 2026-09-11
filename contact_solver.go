@@ -59,9 +59,8 @@ func contactSoftFrom(s softness) contactSoft {
 // velocities and the total normal impulse in qa: the same grid with more
 // integer range, so a sum does not saturate.
 
-// D-004: the body state keeps the angular velocity in turns per second.
-// The solver works in radians per second, so each stage scales the
-// velocity by one turn on load and divides by one turn on store.
+// D-004: the body state keeps the angular velocity in radians per second,
+// the unit of the reference, so the stages load and store it unchanged.
 
 // contactBody is the velocity of one body while a stage solves a contact.
 type contactBody struct {
@@ -72,13 +71,13 @@ func loadContactBody(state *bodyState) contactBody {
 	return contactBody{
 		vx: qaFrom(state.linearVelocity.X),
 		vy: qaFrom(state.linearVelocity.Y),
-		w:  qaFrom(state.angularVelocity.Mul(tau)),
+		w:  qaFrom(state.angularVelocity),
 	}
 }
 
 func (b *contactBody) store(state *bodyState) {
 	state.linearVelocity = Vec2{X: b.vx.toQ(), Y: b.vy.toQ()}
-	state.angularVelocity = b.w.toQ().Div(tau)
+	state.angularVelocity = b.w.toQ()
 }
 
 // velocityAt returns the velocity of the body at the anchor r.
@@ -168,7 +167,7 @@ func prepareContactRange(startIndex, endIndex int, context *stepContext, contact
 		if indexA != nullIndex {
 			stateA := &awakeStates[indexA]
 			vA = stateA.linearVelocity
-			wA = stateA.angularVelocity.Mul(tau)
+			wA = stateA.angularVelocity
 		}
 
 		vB := Vec2Zero()
@@ -178,7 +177,7 @@ func prepareContactRange(startIndex, endIndex int, context *stepContext, contact
 		if indexB != nullIndex {
 			stateB := &awakeStates[indexB]
 			vB = stateB.linearVelocity
-			wB = stateB.angularVelocity.Mul(tau)
+			wB = stateB.angularVelocity
 		}
 
 		if indexA == nullIndex || indexB == nullIndex {
@@ -319,7 +318,7 @@ func warmStartContactRange(startIndex, endIndex int, context *stepContext, const
 func solveContactsTask(startIndex, endIndex int, context *stepContext, colorIndex int, useBias bool) {
 	constraints := context.graph.colors[colorIndex].contactConstraints
 	// Colored contacts clamp by the contact speed, per b2SolveContactsTask.
-	solveContactRange(startIndex, endIndex, context, constraints, useBias, qcFrom(context.world.contactSpeed))
+	solveContactRange(startIndex, endIndex, context, constraints, useBias, qcFrom(context.world.contactSpeed), true)
 }
 
 // solveOverflowContacts solves the overflow contacts. It corresponds to
@@ -327,11 +326,14 @@ func solveContactsTask(startIndex, endIndex int, context *stepContext, colorInde
 func solveOverflowContacts(context *stepContext, useBias bool) {
 	overflow := &context.graph.colors[overflowIndex]
 	// Overflow contacts clamp by the push speed, per b2SolveOverflowContacts.
-	solveContactRange(0, len(overflow.contactConstraints), context, overflow.contactConstraints, useBias, qcFrom(context.world.maxContactPushSpeed))
+	solveContactRange(0, len(overflow.contactConstraints), context, overflow.contactConstraints, useBias, qcFrom(context.world.maxContactPushSpeed), false)
 	solveContacts32(0, len(overflow.contacts32), context, overflowIndex, useBias)
 }
 
-func solveContactRange(startIndex, endIndex int, context *stepContext, constraints []contactConstraint, useBias bool, pushout qc) {
+// solveContactRange solves the contacts of one range. colored selects the
+// normal impulse of b2SolveContactsTask, which groups its products apart
+// from b2SolveOverflowContacts; each rounds the same values differently.
+func solveContactRange(startIndex, endIndex int, context *stepContext, constraints []contactConstraint, useBias bool, pushout qc, colored bool) {
 	w := context.world
 	awake := &w.solverSets[awakeSet]
 	states := awake.bodyStates
@@ -392,12 +394,16 @@ func solveContactRange(startIndex, endIndex int, context *stepContext, constrain
 			// relative normal velocity at contact
 			vn := bodyB.velocityAt(rB).Sub(bodyA.velocityAt(rA)).Dot(normal)
 
-			// incremental normal impulse
-			impulse := cp.normalMass.Neg().Mul(massScale).Mul(vn.Add(velocityBias)).Sub(impulseScale.Mul(cp.normalImpulse))
-
-			// clamp the accumulated impulse
-			newImpulse := cp.normalImpulse.Add(impulse).Max(zero)
-			impulse = newImpulse.Sub(cp.normalImpulse)
+			// incremental normal impulse, clamped as an accumulated impulse
+			var newImpulse qc
+			if colored {
+				negImpulse := cp.normalMass.Mul(massScale.Mul(vn.Add(velocityBias))).Add(impulseScale.Mul(cp.normalImpulse))
+				newImpulse = cp.normalImpulse.Sub(negImpulse).Max(zero)
+			} else {
+				impulse := cp.normalMass.Neg().Mul(massScale).Mul(vn.Add(velocityBias)).Sub(impulseScale.Mul(cp.normalImpulse))
+				newImpulse = cp.normalImpulse.Add(impulse).Max(zero)
+			}
+			impulse := newImpulse.Sub(cp.normalImpulse)
 			cp.normalImpulse = newImpulse
 			cp.totalNormalImpulse = cp.totalNormalImpulse.Add(newImpulse.widen())
 			totalNormalImpulse = totalNormalImpulse.Add(newImpulse.widen())

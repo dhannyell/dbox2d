@@ -1,5 +1,10 @@
 package dbox2d
 
+import (
+	"cmp"
+	"slices"
+)
+
 // The proxy key packs the body type in the low two bits and the tree
 // proxy id above them. It corresponds to B2_PROXY_KEY and its companions
 // in src/broad_phase.h.
@@ -270,29 +275,8 @@ func (ctx *queryPairContext) pairQueryCallback(proxyId int, userData uint64) boo
 		}
 	}
 
-	pairs := ctx.pairs
-	pairIndex := len(*pairs)
-	*pairs = append(*pairs, movePair{shapeIndexA: shapeIdA, shapeIndexB: shapeIdB, next: nullIndex})
-
-	// D-013: the reference prepends, so the list follows the tree walk.
-	// The port keeps the list sorted by (shapeIdA, shapeIdB), so any tree
-	// with the same leaves creates the contacts in the same order.
-	prev := nullIndex
-	cur := ctx.moveResult.pairList
-	for cur != nullIndex {
-		p := &(*pairs)[cur]
-		if shapeIdA < p.shapeIndexA || (shapeIdA == p.shapeIndexA && shapeIdB < p.shapeIndexB) {
-			break
-		}
-		prev = cur
-		cur = p.next
-	}
-	(*pairs)[pairIndex].next = cur
-	if prev == nullIndex {
-		ctx.moveResult.pairList = pairIndex
-	} else {
-		(*pairs)[prev].next = pairIndex
-	}
+	// findPairsTask links the pairs of the moved proxy once its queries end.
+	*ctx.pairs = append(*ctx.pairs, movePair{shapeIndexA: shapeIdA, shapeIndexB: shapeIdB, next: nullIndex})
 
 	// continue the query
 	return true
@@ -329,6 +313,7 @@ func findPairsTask(startIndex, endIndex, workerIndex int, context *stepContext) 
 		// we don't fail to create a contact that may touch later.
 		fatAABB := baseTree.getAABB(proxyId)
 		ctx.queryShapeIndex = int(baseTree.getUserData(proxyId))
+		firstPair := len(*ctx.pairs)
 
 		// Query trees. Only dynamic proxies collide with kinematic and static proxies.
 		// Using DefaultMaskBits so that Filter.GroupIndex works.
@@ -344,7 +329,48 @@ func findPairsTask(startIndex, endIndex, workerIndex int, context *stepContext) 
 		// Using DefaultMaskBits so that Filter.GroupIndex works.
 		ctx.queryTreeType = DynamicBody
 		bp.trees[DynamicBody].queryStack(&w.taskContexts[workerIndex].queryStack, fatAABB, DefaultMaskBits, ctx.pairQueryCallback)
+
+		linkMovePairs(ctx.moveResult, *ctx.pairs, firstPair)
 	}
+}
+
+// linkMovePairs links the pairs of one moved proxy, which its queries
+// appended from index first on, into its pair list.
+//
+// D-013: the reference prepends each pair, so its list follows the tree
+// walk. The port sorts the list by (shapeIdA, shapeIdB), so any tree with
+// the same leaves creates the contacts in the same order. The pairs of one
+// proxy are contiguous, so one sort costs O(n log n) where a sorted
+// insertion would cost O(n^2). The dbox2d_upstream_pairs build links them
+// newest first instead, which is the prepend order of the reference.
+func linkMovePairs(result *moveResult, pairs []movePair, first int) {
+	own := pairs[first:]
+	if len(own) == 0 {
+		return
+	}
+	if upstreamPairOrder {
+		for k := range own {
+			own[k].next = first + k - 1
+		}
+		own[0].next = nullIndex
+		result.pairList = first + len(own) - 1
+		return
+	}
+	if len(own) > 1 {
+		slices.SortFunc(own, compareMovePairs)
+	}
+	for k := range own {
+		own[k].next = first + k + 1
+	}
+	own[len(own)-1].next = nullIndex
+	result.pairList = first
+}
+
+func compareMovePairs(a, b movePair) int {
+	if c := cmp.Compare(a.shapeIndexA, b.shapeIndexA); c != 0 {
+		return c
+	}
+	return cmp.Compare(a.shapeIndexB, b.shapeIndexB)
 }
 
 // updateBroadPhasePairs finds the new pairs of the moved proxies and

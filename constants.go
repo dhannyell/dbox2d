@@ -12,6 +12,9 @@ var (
 	// upstream 0.005f * b2_lengthUnitsPerMeter
 	linearSlop = QMustParse("0.005")
 
+	// upstream 0.1f * B2_LINEAR_SLOP, the tolerance of the distance queries
+	linearSlopTenth = makeRecip(QFromInt(10)).scale(linearSlop)
+
 	// Huge is the largest coordinate the world accepts and the rigid push
 	// limit of a collision plane. It corresponds to B2_HUGE in
 	// include/box2d/math_functions.h. It bounds a length that an

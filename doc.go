@@ -13,6 +13,11 @@
 // The optional dbox2d_simd tag opts in to a SIMD contact solver in either
 // mode. It produces the same result bits as the scalar solver.
 //
+// The optional dbox2d_upstream_pairs tag keeps the broadphase pair order of
+// Box2D, which follows the walk of the tree. In float mode it reproduces
+// the output bits of the reference built without SIMD and FMA, at the cost
+// of a world that depends on the tree topology.
+//
 // # Fidelity
 //
 // The package is a port of Box2D v3.1.1. It keeps the upstream file
