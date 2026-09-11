@@ -186,20 +186,37 @@ jobs:
         run: go test -timeout 600s ${{ matrix.goos == 'js' && '-short' || '' }} -tags $TAGS ./...
 
   samples:
-    name: samples (${{ matrix.tags || 'float' }})
+    name: samples (${{ matrix.mode }})
     strategy:
       fail-fast: false
       matrix:
-        tags: ["", dbox2d_fixed]
+        mode: [float, fixed, float-simd, fixed-simd]
+        include:
+          - mode: float
+            tags: ""
+          - mode: fixed
+            tags: dbox2d_fixed
+          # The SIMD family pins the toolchain of the wide job.
+          - mode: float-simd
+            tags: dbox2d_simd
+            go: "1.27.0"
+            experiment: simd
+          - mode: fixed-simd
+            tags: dbox2d_simd,dbox2d_fixed
+            go: "1.27.0"
+            experiment: simd
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: samples
+    env:
+      GOEXPERIMENT: ${{ matrix.experiment }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version-file: samples/go.mod
+          go-version: ${{ matrix.go }}
+          go-version-file: ${{ !matrix.go && 'samples/go.mod' || '' }}
       - name: Vet
         run: go vet -tags "${{ matrix.tags }}" . ./internal/app ./internal/draw
       # The scene checksums, the app and the draw layer need no GPU host.
