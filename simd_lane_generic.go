@@ -9,25 +9,6 @@ const (
 	wideShift = 2
 )
 
-// laneScalar is the element type the lane loads and stores.
-type laneScalar = float32
-
-// laneScalarFromQ converts a scalar-mode value to a lane element.
-func laneScalarFromQ(q Q) laneScalar { return q.v }
-
-// laneScalarToQ converts a lane element back to a scalar-mode value.
-func laneScalarToQ(s laneScalar) Q { return Q{v: s} }
-
-// accScalar is the element type the accumulator stores.
-type accScalar = laneScalar
-
-// accScalarToQ converts an accumulator element back to a scalar-mode value.
-func accScalarToQ(s accScalar) Q { return laneScalarToQ(s) }
-
-// signedZeroSurvives is true because float lanes keep a sign on zero:
-// skipping a block that only adds zero could change a stored bit.
-const signedZeroSurvives = true
-
 // laneW is the pure-Go float32 lane type.
 type laneW struct {
 	l0, l1, l2, l3 laneScalar
@@ -36,19 +17,6 @@ type laneW struct {
 // maskW is the pure-Go comparison-mask type.
 type maskW struct {
 	m0, m1, m2, m3 bool
-}
-
-// accW is the accumulation lane; on this path it is the same type as laneW.
-type accW = laneW
-
-// vec2W stores two wide vectors.
-type vec2W struct {
-	x, y laneW
-}
-
-// rotW stores a wide cosine and sine pair.
-type rotW struct {
-	c, s laneW
 }
 
 // wideAvailable reports that the generic path is available.
@@ -222,12 +190,3 @@ func (a laneW) toAcc() laneW { return a }
 
 // toLane preserves a lane while naming the lane conversion.
 func (a laneW) toLane() laneW { return a }
-
-// Float lanes have no overflow check to skip, so the bounded forms are the
-// plain ones.
-
-// AddBounded returns the accumulator sum.
-func (a accW) AddBounded(b accW) accW { return a.Add(b) }
-
-// SubBounded returns the accumulator difference.
-func (a accW) SubBounded(b accW) accW { return a.Sub(b) }

@@ -643,9 +643,10 @@ Numbering is sequential from `D-001` and never reused.
 
 ### D-019 SIMD contact family
 
-- Files: simd.go, simd_common.go, simd_off.go, simd_lane_amd64.go,
-  simd_lane_arm64.go, simd_lane_wasm.go, simd_lane_generic.go,
-  simd_lane_fixed.go, simd_lane_gather_amd64.go, simd_lane_gather_generic.go,
+- Files: simd.go, simd_common.go, simd_off.go, simd_lane_float.go,
+  simd_lane_float_archsimd.go, simd_lane_amd64.go, simd_lane_arm64.go,
+  simd_lane_wasm.go, simd_lane_generic.go, simd_lane_fixed.go,
+  simd_lane_gather_amd64.go, simd_lane_gather_generic.go,
   simd_lane_gather_fixed.go, contact_solver_simd.go
 - Tier: T2
 - Reason: the reference selects a SIMD `Task` family with `B2_SIMD_WIDTH` lanes

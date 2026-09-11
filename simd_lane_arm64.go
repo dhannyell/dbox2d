@@ -11,47 +11,11 @@ const (
 	wideShift = 2
 )
 
-// laneScalar is the element type the lane loads and stores.
-type laneScalar = float32
+// laneData is the arm64 float32 vector type.
+type laneData = archsimd.Float32x4
 
-// laneScalarFromQ converts a scalar-mode value to a lane element.
-func laneScalarFromQ(q Q) laneScalar { return q.v }
-
-// laneScalarToQ converts a lane element back to a scalar-mode value.
-func laneScalarToQ(s laneScalar) Q { return Q{v: s} }
-
-// accScalar is the element type the accumulator stores.
-type accScalar = laneScalar
-
-// accScalarToQ converts an accumulator element back to a scalar-mode value.
-func accScalarToQ(s accScalar) Q { return laneScalarToQ(s) }
-
-// signedZeroSurvives is true because float lanes keep a sign on zero:
-// skipping a block that only adds zero could change a stored bit.
-const signedZeroSurvives = true
-
-// laneW is the arm64 float32 SIMD lane type.
-type laneW struct {
-	v archsimd.Float32x4
-}
-
-// maskW is the arm64 SIMD comparison-mask type.
-type maskW struct {
-	v archsimd.Mask32x4
-}
-
-// accW is the accumulation lane; on this path it is the same type as laneW.
-type accW = laneW
-
-// vec2W stores two wide vectors.
-type vec2W struct {
-	x, y laneW
-}
-
-// rotW stores a wide cosine and sine pair.
-type rotW struct {
-	c, s laneW
-}
+// maskData is the arm64 comparison-mask type.
+type maskData = archsimd.Mask32x4
 
 // wideAvailable reports that the arm64 SIMD path is available.
 func wideAvailable() bool { return true }
@@ -59,83 +23,11 @@ func wideAvailable() bool { return true }
 // widePath reports the selected arm64 SIMD path.
 func widePath() string { return "neon" }
 
-// laneZero returns a lane filled with positive zero.
-func laneZero() laneW { return laneW{v: archsimd.BroadcastFloat32x4(0)} }
+// laneBroadcast fills a vector with one value.
+func laneBroadcast(s laneScalar) laneData { return archsimd.BroadcastFloat32x4(s) }
 
-// laneSplat fills a lane with a scalar float32 value.
-func laneSplat(q Q) laneW {
-	return laneW{v: archsimd.BroadcastFloat32x4(laneScalarFromQ(q))}
-}
-
-// laneLoad loads one aligned-width lane-element array.
-func laneLoad(p *[wideWidth]laneScalar) laneW {
-	return laneW{v: archsimd.LoadFloat32x4Array(p)}
-}
-
-// store writes the lane to one aligned-width lane-element array.
-func (a laneW) store(p *[wideWidth]laneScalar) { a.v.StoreArray(p) }
-
-// Add returns the lane-wise sum.
-func (a laneW) Add(b laneW) laneW { return laneW{v: a.v.Add(b.v)} }
-
-// Sub returns the lane-wise difference.
-func (a laneW) Sub(b laneW) laneW { return laneW{v: a.v.Sub(b.v)} }
-
-// Neg returns the lane-wise negation. It multiplies by -1 so a zero flips its
-// sign, as the scalar Neg does; 0 - x would not.
-func (a laneW) Neg() laneW { return laneW{v: a.v.Mul(archsimd.BroadcastFloat32x4(-1))} }
-
-// Mul returns the lane-wise product.
-func (a laneW) Mul(b laneW) laneW { return laneW{v: a.v.Mul(b.v)} }
-
-// Div returns the lane-wise quotient, rounded once like the scalar division.
-func (a laneW) Div(b laneW) laneW { return laneW{v: a.v.Div(b.v)} }
-
-// MulAdd returns a plus the separately rounded product of b and c.
-func (a laneW) MulAdd(b, c laneW) laneW { return a.Add(b.Mul(c)) }
-
-// MulSub returns a minus the separately rounded product of b and c.
-func (a laneW) MulSub(b, c laneW) laneW { return a.Sub(b.Mul(c)) }
-
-// Min returns the lane-wise minimum, selecting b on equality.
-// The hardware min/max do not honor the tie rule on signed zeros; compare and select do.
-func (a laneW) Min(b laneW) laneW { less := b.v.Greater(a.v); return laneW{v: a.v.IfElse(less, b.v)} }
-
-// Max returns the lane-wise maximum, selecting b on equality.
-// The hardware min/max do not honor the tie rule on signed zeros; compare and select do.
-func (a laneW) Max(b laneW) laneW {
-	greater := a.v.Greater(b.v)
-	return laneW{v: a.v.IfElse(greater, b.v)}
-}
-
-// Greater compares corresponding lane values.
-func (a laneW) Greater(b laneW) maskW { return maskW{v: a.v.Greater(b.v)} }
-
-// Equals compares corresponding lane values for equality.
-func (a laneW) Equals(b laneW) maskW { return maskW{v: a.v.Equal(b.v)} }
-
-// Or returns the lane-wise mask union.
-func (m maskW) Or(n maskW) maskW { return maskW{v: m.v.Or(n.v)} }
+// laneLoadData loads one aligned-width lane-element array.
+func laneLoadData(p *[wideWidth]laneScalar) laneData { return archsimd.LoadFloat32x4Array(p) }
 
 // AllZero reports whether no mask lane is set.
 func (m maskW) AllZero() bool { return m.v.ToInt32x4().ReduceMin() == 0 }
-
-// laneBlend selects a where the mask is set and b otherwise.
-func laneBlend(m maskW, a, b laneW) laneW {
-	return laneW{v: a.v.IfElse(m.v, b.v)}
-}
-
-// toAcc preserves a lane while naming the accumulation conversion.
-func (a laneW) toAcc() laneW { return a }
-
-// toLane preserves a lane while naming the lane conversion.
-func (a laneW) toLane() laneW { return a }
-
-// Float lanes have no overflow check to skip, so the bounded forms are the
-// plain ones.
-
-// AddBounded returns the accumulator sum.
-func (a accW) AddBounded(b accW) accW { return a.Add(b) }
-
-// SubBounded returns the accumulator difference.
-func (a accW) SubBounded(b accW) accW { return a.Sub(b) }
