@@ -332,9 +332,16 @@ func drawTextMatches(got, want string) bool {
 	if strings.HasSuffix(got, " deg") != strings.HasSuffix(want, " deg") {
 		return false
 	}
+	want = strings.TrimSpace(strings.TrimSuffix(want, " deg"))
 	a, errA := strconv.ParseFloat(strings.TrimSpace(strings.TrimSuffix(got, " deg")), 64)
-	b, errB := strconv.ParseFloat(strings.TrimSpace(strings.TrimSuffix(want, " deg")), 64)
-	return errA == nil && errB == nil && math.Abs(a-b) <= 1e-3
+	b, errB := strconv.ParseFloat(want, 64)
+	limit := 1e-3
+	// In fixed mode, a label near a rounding boundary may print one unit apart
+	// in its last place.
+	if i := strings.IndexByte(want, '.'); i >= 0 && ScalarMode == "fixed" {
+		limit = math.Max(limit, 1.0001*math.Pow(10, -float64(len(want)-i-1)))
+	}
+	return errA == nil && errB == nil && math.Abs(a-b) <= limit
 }
 
 func TestDrawShapeCallbacksPerType(t *testing.T) {

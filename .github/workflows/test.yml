@@ -7,12 +7,12 @@ on:
 
 jobs:
   test:
-    name: test (${{ matrix.goarch }}, ${{ matrix.tags || 'fixed' }})
+    name: test (${{ matrix.goarch }}, ${{ matrix.tags || 'float' }})
     strategy:
       fail-fast: false
       matrix:
         goarch: [amd64, arm64, "386", wasm]
-        tags: ["", dbox2d_float, "dbox2d_float,dbox2d_simd"]
+        tags: ["", "dbox2d_fixed,fixed_satcounter", dbox2d_simd, "dbox2d_simd,dbox2d_fixed,fixed_satcounter"]
         include:
           - goarch: amd64
             goos: linux
@@ -48,54 +48,54 @@ jobs:
         if: matrix.goarch == 'amd64'
         run: go vet ./...
       - name: Guard the scalar layer
-        if: (matrix.goarch == 'amd64' || matrix.goarch == 'wasm') && matrix.tags == ''
+        if: (matrix.goarch == 'amd64' || matrix.goarch == 'wasm') && matrix.tags == 'dbox2d_fixed,fixed_satcounter'
         shell: bash
         run: |
-          leaks="$(grep -rlE 'fixed\.(Q32(Zero|One|Half|FromInt|FromRatio|MustParse|MaxValue|MinValue)|RotIdentity|RotFromTurns|Atan2Turns)\(' --include=*.go --exclude=scalar_fixed.go --exclude=probe_q16_test.go --exclude=probe_wide_test.go . || true)"
+          leaks="$(grep -rlE 'fixed\.(Q32(Zero|One|Half|FromInt|FromRatio|MustParse|MaxValue|MinValue)|RotIdentity|RotFromTurns|Atan2Turns)\(' --include=*.go --exclude=scalar_fixed.go . || true)"
           if [ -n "$leaks" ]; then
             printf 'Files bypass the scalar layer:\n%s\n' "$leaks"
             exit 1
           fi
           # MakeRot stays out of the count: its body costs 83, over the budget of 80, since before the layer.
-          inlined="$(go build -gcflags=-m=1 . 2>&1 | grep -cE 'can inline (QZero|QOne|QHalf|QFromInt|QFromRatio|QMustParse|QMaxValue|QMinValue|RotIdentity|atan2Turns)$')"
+          inlined="$(go build -tags dbox2d_fixed -gcflags=-m=1 . 2>&1 | grep -cE 'can inline (QZero|QOne|QHalf|QFromInt|QFromRatio|QMustParse|QMaxValue|QMinValue|RotIdentity|atan2Turns)$')"
           if [ "$inlined" != "10" ]; then
             echo "expected 10 inlinable constructors, got $inlined"
             exit 1
           fi
       - name: Guard the float mode
-        if: matrix.goarch == 'amd64' && matrix.tags == 'dbox2d_float'
+        if: matrix.goarch == 'amd64' && matrix.tags == ''
         shell: bash
         run: |
-          if ! go build -tags dbox2d_float ./... || ! go vet -tags dbox2d_float ./...; then
+          if ! go build ./... || ! go vet ./...; then
             echo "float build or vet failed"
             exit 1
           fi
-          count="$(GOARCH=arm64 go build -tags dbox2d_float -gcflags=-S . 2>&1 | grep -cE '\b(FMADD|FMSUB|FNMADD|FNMSUB|FMLA|FMLS)\b' || true)"
+          count="$(GOARCH=arm64 go build -gcflags=-S . 2>&1 | grep -cE '\b(FMADD|FMSUB|FNMADD|FNMSUB|FMLA|FMLS)\b' || true)"
           if [ "$count" != "0" ]; then
             echo "expected no fused multiply-add instructions, got $count"
             exit 1
           fi
-          inlined="$(go build -tags dbox2d_float -gcflags=-m=1 . 2>&1 | grep -cE 'can inline (QZero|QOne|QHalf|QFromInt|QFromRatio|QMustParse|QMaxValue|QMinValue|RotIdentity|atan2Turns)$' || true)"
+          inlined="$(go build -gcflags=-m=1 . 2>&1 | grep -cE 'can inline (QZero|QOne|QHalf|QFromInt|QFromRatio|QMustParse|QMaxValue|QMinValue|RotIdentity|atan2Turns)$' || true)"
           if [ "$inlined" != "10" ]; then
             echo "expected 10 inlinable float constructors, got $inlined"
             exit 1
           fi
-          methods="$(go build -tags dbox2d_float -gcflags=-m=1 . 2>&1 | grep -cE 'can inline (Q|Vec2)\.(Add|Sub|Mul|Div|Neg|Dot)$' || true)"
+          methods="$(go build -gcflags=-m=1 . 2>&1 | grep -cE 'can inline (Q|Vec2)\.(Add|Sub|Mul|Div|Neg|Dot)$' || true)"
           if [ "$methods" != "10" ]; then
             echo "expected 10 inlinable float methods, got $methods"
             exit 1
           fi
           # A package use is fixed.<Identifier>; prose in a comment is not.
-          leaks="$(grep -rlE 'fixed\.[A-Z]' --include=*.go --exclude=scalar_fixed.go --exclude=*_test.go --exclude-dir=samples . || true)"
+          leaks="$(grep -rlE 'fixed\.[A-Z]' --include=*.go --exclude=scalar_fixed.go --exclude=simd_lane_fixed.go --exclude=*_test.go --exclude-dir=samples . || true)"
           if [ -n "$leaks" ]; then
             printf 'Unexpected fixed-layer imports in float mode:\n%s\n' "$leaks"
             exit 1
           fi
-          if grep -rn 'QFromFloat64\|QToFloat64' --include=*.go . | grep -v '_test.go\|scalar_fixed.go\|scalar_float.go\|samples/camera.go'; then
+          if grep -rn 'QFromFloat64\|QToFloat64' --include=*.go . | grep -v '_test.go\|scalar_fixed.go\|scalar_float.go\|samples/camera.go\|samples/determinism_float.go'; then
             echo "float64 conversion helpers leaked into production code"
             exit 1
           fi
-          if grep -rl 'go:build' --include=*.go . | grep -v '_test.go\|scalar_fixed.go\|scalar_float.go\|executor.go\|executor_wasm.go\|samples/\|wide_lane_\|wide_guard.go\|wide.go\|wide_off.go\|contact_solver_wide.go\|spin_asm.go\|spin_stub.go'; then
+          if grep -rl 'go:build' --include=*.go . | grep -v '_test.go\|scalar_fixed.go\|scalar_float.go\|executor.go\|executor_wasm.go\|samples/\|simd_lane_\|simd_off.go\|contact_solver_simd.go\|contact_solver_q32.go\|internal/q32gen/\|spin_asm.go\|spin_stub.go\|validate_debug.go\|validate_release.go'; then
             echo "unexpected build tags found"
             exit 1
           fi
@@ -107,11 +107,6 @@ jobs:
           epsilon="$(grep -chE 'scalarEpsilon|belowEpsilon|sensorOverlaps' aabb.go geometry.go distance.go manifold.go sensor.go world.go | paste -sd+ | bc)"
           if [ "$epsilon" != "23" ]; then
             echo "expected 23 epsilon references, got $epsilon"
-            exit 1
-          fi
-          guard="$(go build -tags dbox2d_simd . 2>&1 | grep -c wideRequiresFloatMode || true)"
-          if [ "$guard" != "1" ]; then
-            echo "expected the wide family to require float mode, got $guard"
             exit 1
           fi
           # b2ValidateSolverSets is empty unless B2_VALIDATE is set. The
@@ -126,21 +121,24 @@ jobs:
       - name: Configure Wasm runner
         if: matrix.goarch == 'wasm'
         run: echo "$(go env GOROOT)/lib/wasm" >> "$GITHUB_PATH"
-      # The generic wide path on wasm runs the conformance traces past the
-      # timeout; the native jobs and the wide job cover them.
+      # The generic wide paths run the conformance traces past the timeout:
+      # fixed on every target, float on wasm. The wide job runs them natively.
+      # The no-saturation checks read the fixed counter, which is off by default.
       - name: Test
-        run: go test -timeout 600s -tags "${{ matrix.tags }}" -skip "${{ (matrix.goarch == 'wasm' && matrix.tags == 'dbox2d_float,dbox2d_simd') && 'TestConformance' || '^$' }}" ./...
+        run: go test -timeout 600s -tags "${{ matrix.tags }}" -skip "${{ (matrix.tags == 'dbox2d_simd,dbox2d_fixed,fixed_satcounter' || (matrix.goarch == 'wasm' && contains(matrix.tags, 'dbox2d_simd'))) && 'TestConformance' || '^$' }}" ./...
       # The gated validation is off in every other job, so it needs one job
       # that actually runs it.
       - name: Test with the solver-set validation on
-        if: matrix.goarch == 'amd64' && matrix.tags == 'dbox2d_float'
-        run: go test -timeout 600s -tags "${{ matrix.tags }},dbox2d_validate" ./...
+        if: matrix.goarch == 'amd64' && matrix.tags == ''
+        run: go test -timeout 600s -tags dbox2d_validate ./...
 
   wide:
-    name: wide (${{ matrix.path }})
+    name: wide (${{ matrix.path }}, ${{ matrix.mode }})
     strategy:
       fail-fast: false
       matrix:
+        path: [avx2, neon, simd128]
+        mode: [float, fixed]
         include:
           - os: ubuntu-latest
             path: avx2
@@ -149,17 +147,25 @@ jobs:
             goarch: ""
           - os: ubuntu-24.04-arm
             path: neon
-            fma: '\b(FMADD|FMSUB|FNMADD|FNMSUB|FMLA|FMLS)S?\b'
+            fma: '\b(FMADD|FMSUB|FNMADD|FNMSUB|FMLA|FMLS|VFMLA|VFMLS)S?\b'
             goos: ""
             goarch: ""
           - os: ubuntu-latest
             path: simd128
             goos: js
             goarch: wasm
+          - mode: float
+            tags: dbox2d_simd
+          - mode: fixed
+            tags: dbox2d_simd,dbox2d_fixed,fixed_satcounter
+          # fixed has no simd128 lanes; its wasm build runs the generic lanes.
+          - path: simd128
+            mode: fixed
+            lanes: generic
     runs-on: ${{ matrix.os }}
     env:
       GOEXPERIMENT: simd
-      TAGS: dbox2d_float,dbox2d_simd
+      TAGS: ${{ matrix.tags }}
       GOOS: ${{ matrix.goos }}
       GOARCH: ${{ matrix.goarch }}
       # the native host uses cgo; wasm must not try it.
@@ -177,13 +183,59 @@ jobs:
       - name: Path
         shell: bash
         run: |
-          go test -tags $TAGS -run TestWidePath -v . | tee /dev/stderr | grep -q 'path: ${{ matrix.path }}'
+          go test -tags $TAGS -run TestWidePath -v . | tee /dev/stderr | grep -q 'path: ${{ matrix.lanes || matrix.path }}'
       - name: Vet
         run: go vet -tags $TAGS ./...
+      - name: Guard the float lanes
+        if: matrix.mode == 'float' && matrix.fma
+        shell: bash
+        run: |
+          count="$(go build -tags $TAGS -gcflags=-S . 2>&1 | grep -cE '${{ matrix.fma }}' || true)"
+          if [ "$count" != "0" ]; then
+            echo "expected no fused multiply-add instructions, got $count"
+            exit 1
+          fi
       - name: Test
-        # Fixed mode is bit-identical on every target, so the slow scene traces
-        # run only on the 64-bit jobs; the witness hashes still cover 386 and wasm.
-        run: go test -timeout 600s ${{ matrix.tags == '' && (matrix.goarch == '386' || matrix.goarch == 'wasm') && '-short' || '' }} -tags "${{ matrix.tags }}" ./...
+        # The scene traces take minutes on wasm; the native paths run them.
+        run: go test -timeout 600s ${{ matrix.goos == 'js' && '-short' || '' }} -tags $TAGS ./...
+
+  samples:
+    name: samples (${{ matrix.mode }})
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [float, fixed, float-simd, fixed-simd]
+        include:
+          - mode: float
+            tags: ""
+          - mode: fixed
+            tags: dbox2d_fixed
+          # The SIMD family pins the toolchain of the wide job.
+          - mode: float-simd
+            tags: dbox2d_simd
+            go: "1.27.0"
+            experiment: simd
+          - mode: fixed-simd
+            tags: dbox2d_simd,dbox2d_fixed
+            go: "1.27.0"
+            experiment: simd
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: samples
+    env:
+      GOEXPERIMENT: ${{ matrix.experiment }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+          go-version-file: ${{ !matrix.go && 'samples/go.mod' || '' }}
+      - name: Vet
+        run: go vet -tags "${{ matrix.tags }}" . ./internal/app ./internal/draw
+      # The app and the draw layer need no GPU host.
+      - name: Test
+        run: go test -timeout 600s -tags "${{ matrix.tags }}" ./internal/app ./internal/draw
 
   race:
     name: race (amd64)
@@ -204,11 +256,11 @@ jobs:
         with:
           go-version-file: go.mod
       - uses: golangci/golangci-lint-action@v8
-        name: Lint fixed mode
-        with:
-          version: latest
-      - uses: golangci/golangci-lint-action@v8
         name: Lint float mode
         with:
           version: latest
-          args: --build-tags dbox2d_float ./...
+      - uses: golangci/golangci-lint-action@v8
+        name: Lint fixed mode
+        with:
+          version: latest
+          args: --build-tags dbox2d_fixed ./...

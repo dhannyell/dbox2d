@@ -3,10 +3,12 @@ package dbox2d
 import (
 	"bytes"
 	"fmt"
+	"math"
 	"math/rand"
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 )
 
 // This file tests the world state as one unit: the handles, the id pools,
@@ -175,6 +177,23 @@ func TestDumpMemoryStatsListsEverySection(t *testing.T) {
 	}
 }
 
+// profileClockGranularityMs returns the smallest non-zero reading of the
+// clock that feeds the profile, in milliseconds. Windows quantises it at
+// about half a millisecond; other hosts report tens of nanoseconds. The
+// test sizes its work with this value, so no assertion depends on the host.
+func profileClockGranularityMs() float64 {
+	granule := math.Inf(1)
+	for range 5 {
+		start := time.Now()
+		tick := 0.0
+		for tick == 0 {
+			tick = millisecondsSince(start)
+		}
+		granule = math.Min(granule, tick)
+	}
+	return granule
+}
+
 // TestStepFillsTheProfile pins that GetProfile reports non-negative parts
 // that sum consistently, and that a zero time step leaves it zeroed.
 func TestStepFillsTheProfile(t *testing.T) {
@@ -186,19 +205,32 @@ func TestStepFillsTheProfile(t *testing.T) {
 	ground := MakeBox(QFromInt(50), QOne())
 	CreatePolygonShape(groundId, &groundShapeDef, &ground)
 
-	// A stack of boxes, not a handful: the timer resolution of some hosts
-	// is coarse, so the step needs enough work to read back above zero.
 	for i := range 200 {
 		addDynamicBox(t, worldId, v2(i%10, 3+2*(i/10)))
 	}
 
-	for range 10 {
-		worldId.Step(stepDt(), 4)
+	// The profile clock is quantised, and a step that costs less than one
+	// tick reads back as zero. Windows ticks about every half millisecond,
+	// which one step of this stack can fit inside. So raise the substep
+	// count until a step spans several ticks. Each round doubles the solver
+	// work, which bounds the loop on any host.
+	granularity := profileClockGranularityMs()
+	subStepCount := 4
+	var p Profile
+	for range 8 {
+		for range 10 {
+			worldId.Step(stepDt(), subStepCount)
+		}
+		p = worldId.GetProfile()
+		if p.Step > 4*granularity {
+			break
+		}
+		subStepCount *= 2
 	}
-
-	p := worldId.GetProfile()
+	t.Logf("clock granularity %v ms, Step = %v ms at %d substeps", granularity, p.Step, subStepCount)
 	if p.Step <= 0 {
-		t.Fatalf("Step = %v, want > 0", p.Step)
+		t.Fatalf("Step = %v after %d substeps, want > 0 (clock granularity %v ms)",
+			p.Step, subStepCount, granularity)
 	}
 	parts := []float64{
 		p.Pairs, p.Collide, p.Solve, p.MergeIslands, p.PrepareStages, p.SolveConstraints,
@@ -212,7 +244,11 @@ func TestStepFillsTheProfile(t *testing.T) {
 		}
 	}
 
-	const slack = 0.5
+	// Each part reads the clock twice, so a part can overstate itself by up
+	// to one granule. The sums below hold four and eight parts. The 0.5 floor
+	// keeps the historic bound on hosts whose clock is finer than the timing
+	// noise the assertion tolerates.
+	slack := math.Max(0.5, 8*granularity)
 	if top := p.Pairs + p.Collide + p.Solve + p.Sensors; top > p.Step+slack {
 		t.Errorf("Pairs+Collide+Solve+Sensors = %v, want <= Step (%v) + %v", top, p.Step, slack)
 	}

@@ -1,4 +1,4 @@
-//go:build dbox2d_simd && dbox2d_float && (!goexperiment.simd || !go1.27 || (!amd64 && !arm64 && !wasm))
+//go:build dbox2d_simd && !dbox2d_fixed && (!goexperiment.simd || !go1.27 || (!amd64 && !arm64 && !wasm))
 
 package dbox2d
 
@@ -11,25 +11,12 @@ const (
 
 // laneW is the pure-Go float32 lane type.
 type laneW struct {
-	l0, l1, l2, l3 float32
+	l0, l1, l2, l3 laneScalar
 }
 
 // maskW is the pure-Go comparison-mask type.
 type maskW struct {
 	m0, m1, m2, m3 bool
-}
-
-// accW is the accumulation lane; on this path it is the same type as laneW.
-type accW = laneW
-
-// vec2W stores two wide vectors.
-type vec2W struct {
-	x, y laneW
-}
-
-// rotW stores a wide cosine and sine pair.
-type rotW struct {
-	c, s laneW
 }
 
 // wideAvailable reports that the generic path is available.
@@ -43,16 +30,17 @@ func laneZero() laneW { return laneW{} }
 
 // laneSplat fills a lane with a scalar float32 value.
 func laneSplat(q Q) laneW {
-	return laneW{l0: q.v, l1: q.v, l2: q.v, l3: q.v}
+	s := laneScalarFromQ(q)
+	return laneW{l0: s, l1: s, l2: s, l3: s}
 }
 
-// laneLoad loads one aligned-width float32 array.
-func laneLoad(p *[wideWidth]float32) laneW {
+// laneLoad loads one aligned-width lane-element array.
+func laneLoad(p *[wideWidth]laneScalar) laneW {
 	return laneW{l0: p[0], l1: p[1], l2: p[2], l3: p[3]}
 }
 
-// store writes the lane to one aligned-width float32 array.
-func (a laneW) store(p *[wideWidth]float32) {
+// store writes the lane to one aligned-width lane-element array.
+func (a laneW) store(p *[wideWidth]laneScalar) {
 	p[0], p[1], p[2], p[3] = a.l0, a.l1, a.l2, a.l3
 }
 
@@ -66,14 +54,25 @@ func (a laneW) Sub(b laneW) laneW {
 	return laneW{l0: a.l0 - b.l0, l1: a.l1 - b.l1, l2: a.l2 - b.l2, l3: a.l3 - b.l3}
 }
 
+// Neg returns the lane-wise negation. It multiplies by -1 so a zero flips its
+// sign, as the scalar Neg does; 0 - x would not.
+func (a laneW) Neg() laneW {
+	return laneW{
+		l0: laneScalar(-1 * a.l0),
+		l1: laneScalar(-1 * a.l1),
+		l2: laneScalar(-1 * a.l2),
+		l3: laneScalar(-1 * a.l3),
+	}
+}
+
 // Mul returns the lane-wise product. The conversions round each product
 // explicitly, which forbids the compiler to fuse it with a later add.
 func (a laneW) Mul(b laneW) laneW {
 	return laneW{
-		l0: float32(a.l0 * b.l0),
-		l1: float32(a.l1 * b.l1),
-		l2: float32(a.l2 * b.l2),
-		l3: float32(a.l3 * b.l3),
+		l0: laneScalar(a.l0 * b.l0),
+		l1: laneScalar(a.l1 * b.l1),
+		l2: laneScalar(a.l2 * b.l2),
+		l3: laneScalar(a.l3 * b.l3),
 	}
 }
 

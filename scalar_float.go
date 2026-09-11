@@ -1,4 +1,4 @@
-//go:build dbox2d_float
+//go:build !dbox2d_fixed
 
 package dbox2d
 
@@ -48,6 +48,9 @@ var (
 	// The reference uses 100 * FLT_EPSILON for normalized vectors.
 	normalizedTolerance = QFromInt(100).Mul(scalarEpsilon)
 )
+
+// ScalarMode names the scalar mode of this build: "float" or "fixed".
+const ScalarMode = "float"
 
 // QZero returns zero.
 func QZero() Q { return Q{0} }
@@ -354,3 +357,46 @@ func QFromFloat64(f float64) Q { return Q{float32(f)} }
 // QToFloat64 converts a scalar to a presentation value, such as a camera
 // value. It must never be used by simulation code.
 func QToFloat64(q Q) float64 { return float64(q.v) }
+
+// The float mode solves contacts in its one scalar, so the contact types
+// are aliases and the conversions do nothing.
+type (
+	qc    = Q
+	qa    = Q
+	vec2c = Vec2
+	rotc  = Rot
+)
+
+func qcFrom(x Q) qc { return x }
+
+func qaFrom(x Q) qa { return x }
+
+func (q Q) toQ() Q { return q }
+
+func (q Q) widen() Q { return q }
+
+func (q Q) narrow() Q { return q }
+
+// rollingBound returns the rolling resistance bound rr·total.
+func rollingBound(rr qc, total qa) qc { return rr.Mul(total) }
+
+// Float mode has one grid, so every contact fits the lane and the Q32 path
+// is empty. These stubs keep the dispatch one source for both modes.
+
+// contactConstraint32 keeps the color layout available in float mode.
+type contactConstraint32 struct{}
+
+// contactFitsLane reports that every contact fits the float lane.
+func contactFitsLane(*contactSim) bool { return true }
+
+func allocateContactConstraints32(*world, *stepContext, *[graphColorCount]graphColor) {}
+
+func prepareContacts32(*stepContext) {}
+
+func warmStartContacts32(int, int, *stepContext, int) {}
+
+func solveContacts32(int, int, *stepContext, int, bool) {}
+
+func applyRestitution32(int, int, *stepContext, int) {}
+
+func storeImpulses32(*stepContext) {}

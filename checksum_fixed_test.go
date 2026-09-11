@@ -1,11 +1,11 @@
-//go:build !dbox2d_float
+//go:build dbox2d_fixed
 
 package dbox2d
 
 import "testing"
 
-// Rebased when the joint count and sum entered the hash.
-const checksumWitness uint64 = 13651739241485441098
+// Rebased when the contact stages moved to the Q16 grid.
+const checksumWitness uint64 = 10358468013614385083
 
 // TestChecksumContactsIgnoreCreationOrder checks the contact graph as well as
 // the body and shape folds. The second world reverses both object creation and

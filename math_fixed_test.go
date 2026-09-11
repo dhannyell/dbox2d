@@ -1,4 +1,4 @@
-//go:build !dbox2d_float
+//go:build dbox2d_fixed
 
 package dbox2d_test
 
@@ -22,7 +22,9 @@ func TestSaturationMarksAValueInvalid(t *testing.T) {
 	fixed.ResetSaturationCount()
 	over := big.Mul(big)
 
-	if fixed.SaturationCount() == 0 {
+	// The counter only runs under fixed_satcounter. The saturation itself,
+	// which IsValidQ notices below, happens either way.
+	if fixed.SaturationCountingEnabled && fixed.SaturationCount() == 0 {
 		t.Errorf("the product of two huge values did not saturate")
 	}
 	if dbox2d.IsValidQ(over) {

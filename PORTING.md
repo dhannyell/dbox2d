@@ -28,12 +28,12 @@ A name is exported when the reference exports it from `include/box2d/`, plus
 the tolerances of `constants.h`, which content authoring needs. Everything
 else that the reference keeps under `src/` stays unexported here.
 
-The scalar has two owners: `scalar_fixed.go` is the default Q32.32 mode, and
-`scalar_float.go` is the `dbox2d_float` float32 mode. Both declare `Q`, `Vec2`
+The scalar has two owners: `scalar_float.go` is the default float32 mode, and
+`scalar_fixed.go` is the `dbox2d_fixed` Q32.32 mode. Both declare `Q`, `Vec2`
 and `Rot` and the constructors that build a scalar. Every other file calls those
-constructors; only the tests that read the raw format still import the fixed
-module. A second scalar mode is a second file under another build tag, not a
-sweep of the solver.
+constructors; only the fixed SIMD lanes and the tests that read the raw format
+still import the fixed module. A second scalar mode is a second file under
+another build tag, not a sweep of the solver.
 
 A sizing constant lands with the file that reads it, not before. A constant
 with no consumer is dead weight that the compiler cannot check.
@@ -358,11 +358,12 @@ constraint scratch from one arena block. See D-004 and D-006.
 - The effective masses store the reciprocal once, as the reference and
   the body inverse mass do. The guard against a zero mass is an exact
   test.
-- The reference solves the colors with the wide `Task` family and the
+- The reference solves the colors with the SIMD `Task` family and the
   overflow color with the scalar `Overflow` family. The default build runs
   the scalar family in both places: the overflow color on worker 0, then the
-  colors in blocks of four contacts that the workers steal. The wide `Task`
-  family landed under the `dbox2d_simd` tag, in float mode; see D-019.
+  colors in blocks of four contacts that the workers steal. The SIMD `Task`
+  family landed under the `dbox2d_simd` tag, in both modes; see D-019 and
+  D-020.
 
 **Order 23 is complete**: `solve` follows `b2Solve`: the island merge,
 the overflow constraints from the arena, the stage script of blocks per
@@ -626,7 +627,7 @@ D-014 grew entries.
 | `src/contact.h`, `src/contact.c` | `contact.go` | T0 | manifolds | 21 | Contact bookkeeping and the collide dispatch table. The island and graph branches landed with orders 25 and 26. |
 | `src/table.h`, `src/table.c` | `table.go` | T0 | manifolds | 22 | Open-addressing set of contact pairs. |
 | `src/solver.h`, `src/solver.c` | `solver.go` | T0/T1/T2 | solver | 23 | Nine ordered stages, from prepare joints to store impulses. `makeSoft` landed with order 24. The integration tasks and the body finalize landed with order 16; the stage script with the per-color contact stages, the island split and the sleep tail landed with order 23; the stage blocks and the worker pool landed with D-016; the enlarged body bits and the broadphase refit landed with order 30; the continuous stage landed with order 32; the joint stages landed with order 33; see D-004 and D-006. Under `dbox2d_simd`, the stage table packs each color's contacts into lanes and pads to the lane width; see D-019. |
-| `src/contact_solver.h`, `src/contact_solver.c` | `contact_solver.go` | T0/T1/T2 | solver | 24 | The scalar stages landed and serve every color; see D-004 and D-006. The wide `Task` family landed under `dbox2d_simd` in float mode; see D-019. |
+| `src/contact_solver.h`, `src/contact_solver.c` | `contact_solver.go` | T0/T1/T2 | solver | 24 | The scalar stages landed and serve every color; see D-004 and D-006. The SIMD `Task` family landed under `dbox2d_simd` in both modes; see D-019 and D-020. |
 | `src/island.h`, `src/island.c` | `island.go` | T0 | solver | 25 | Island linking, merging and splitting landed; the wake calls and the sleep path landed when order 13 completed. The joint lists landed with order 33. |
 | `src/constraint_graph.h`, `src/constraint_graph.c` | `constraint_graph.go` | T0 | solver | 26 | Eleven colors plus the overflow color landed. The color schedule is the parallel contract. The joint functions landed with order 33. |
 | `src/bitset.h`, `src/bitset.c` | `bitset.go` | T0 | broadphase | 27 | Set, clear, test, grow and union landed. Backs the constraint graph and the contact state of the step. |
@@ -642,6 +643,23 @@ D-014 grew entries.
 | `src/mover.c` | `mover.go` | T0/T2 | surface | 34 | Landed. `SolvePlanes`, `ClipVector`, the four `CollideMoverAnd*` functions and `WorldId.CollideMover`. The rigid push limit is `Huge`, not `FLT_MAX`; see D-009 and D-014. |
 | `src/timer.c` | `time` package (`step.go`) | T2 | — | — | The standard clock replaces the platform timers; the profile is its only consumer. Timing never enters a deterministic result. |
 | `src/CMakeLists.txt`, `src/box2d.natvis` | none | — | — | — | Build system and debugger visualizers do not apply. |
+
+### Port-only files
+
+The reference selects its scalar type, its SIMD width and its task system
+with preprocessor conditions inside the files above. Go selects them with
+build tags, and a build tag needs a file of its own. These files have no
+upstream counterpart; each one carries the tag that selects it.
+
+| Go | Tag | Notes |
+|---|---|---|
+| `scalar_fixed.go`, `scalar_float.go` | `dbox2d_fixed`, its negation | The scalar layer of each mode: `Q`, `Vec2`, `Rot`, the constructors, the contact grid types and the Q32 contact hooks. See D-017 and D-020. |
+| `contact_solver_q32.go` | `dbox2d_fixed` | The contact stages over Q32.32 for the contacts outside the lane window. `go generate` derives it from `contact_solver.go` through `internal/q32gen` and `tools/q32gen`. See D-020. |
+| `contact_solver_simd.go` | `dbox2d_simd` | The SIMD `Task` family with its dispatch and its scratch layout. See D-019. |
+| `simd_off.go` | `!dbox2d_simd` | The scalar family behind the same hooks. |
+| `simd_lane_amd64.go`, `simd_lane_arm64.go`, `simd_lane_wasm.go`, `simd_lane_generic.go`, `simd_lane_float.go`, `simd_lane_float_archsimd.go`, `simd_lane_gather_generic.go` | `dbox2d_simd && !dbox2d_fixed` plus the target | The float lanes: one width and vector type per target, the shared lane algebra, and the body gather of each path. See D-019. |
+| `simd_lane_fixed.go` | `dbox2d_simd && dbox2d_fixed` | The fixed lanes and their body gather, over the fixed module. See D-019. |
+| `executor.go`, `executor_wasm.go`, `executor_pool.go`, `spin_asm.go`, `spin_stub.go` | target | The worker pool and its spin wait; the reference leaves the task system to the caller. See D-016. |
 
 ## Conformance
 

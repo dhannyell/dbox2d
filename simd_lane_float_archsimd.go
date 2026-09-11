@@ -1,66 +1,42 @@
-//go:build dbox2d_simd && dbox2d_float && goexperiment.simd && go1.27 && wasm
+//go:build dbox2d_simd && !dbox2d_fixed && goexperiment.simd && go1.27 && (amd64 || arm64 || wasm)
 
 package dbox2d
 
-import "simd/archsimd"
+// The archsimd float paths differ only in the vector width and in a few
+// constructors; the per-architecture files supply those, and this file holds
+// the lane operations over laneData.
 
-const (
-	// wideWidth is the number of float32 lanes in the SIMD vector.
-	wideWidth = 4
-	// wideShift is the base-two logarithm of wideWidth.
-	wideShift = 2
-)
-
-// laneW is the wasm SIMD128 float32 lane type.
+// laneW is the float32 SIMD lane type.
 type laneW struct {
-	v archsimd.Float32x4
+	v laneData
 }
 
-// maskW is the wasm SIMD128 comparison-mask type.
+// maskW is the SIMD comparison-mask type.
 type maskW struct {
-	v archsimd.Mask32x4
+	v maskData
 }
-
-// accW is the accumulation lane; on this path it is the same type as laneW.
-type accW = laneW
-
-// vec2W stores two wide vectors.
-type vec2W struct {
-	x, y laneW
-}
-
-// rotW stores a wide cosine and sine pair.
-type rotW struct {
-	c, s laneW
-}
-
-// wideAvailable reports that the wasm SIMD128 path is available.
-func wideAvailable() bool { return true }
-
-// widePath reports the selected wasm SIMD128 path.
-func widePath() string { return "simd128" }
 
 // laneZero returns a lane filled with positive zero.
-func laneZero() laneW { return laneW{v: archsimd.BroadcastFloat32x4(0)} }
+func laneZero() laneW { return laneW{v: laneBroadcast(0)} }
 
 // laneSplat fills a lane with a scalar float32 value.
-func laneSplat(q Q) laneW {
-	return laneW{v: archsimd.BroadcastFloat32x4(q.v)}
-}
+func laneSplat(q Q) laneW { return laneW{v: laneBroadcast(laneScalarFromQ(q))} }
 
-// laneLoad loads one aligned-width float32 array.
-func laneLoad(p *[wideWidth]float32) laneW {
-	return laneW{v: archsimd.LoadFloat32x4Array(p)}
-}
+// laneLoad loads one aligned-width lane-element array.
+func laneLoad(p *[wideWidth]laneScalar) laneW { return laneW{v: laneLoadData(p)} }
 
-// store writes the lane to one aligned-width float32 array.
-func (a laneW) store(p *[wideWidth]float32) { a.v.StoreArray(p) }
+// store writes the lane to one aligned-width lane-element array.
+func (a laneW) store(p *[wideWidth]laneScalar) { a.v.StoreArray(p) }
 
 // Add returns the lane-wise sum.
 func (a laneW) Add(b laneW) laneW { return laneW{v: a.v.Add(b.v)} }
 
 // Sub returns the lane-wise difference.
 func (a laneW) Sub(b laneW) laneW { return laneW{v: a.v.Sub(b.v)} }
+
+// Neg returns the lane-wise negation. It multiplies by -1 so a zero flips its
+// sign, as the scalar Neg does; 0 - x would not.
+func (a laneW) Neg() laneW { return laneW{v: a.v.Mul(laneBroadcast(-1))} }
 
 // Mul returns the lane-wise product.
 func (a laneW) Mul(b laneW) laneW { return laneW{v: a.v.Mul(b.v)} }
@@ -93,13 +69,6 @@ func (a laneW) Equals(b laneW) maskW { return maskW{v: a.v.Equal(b.v)} }
 
 // Or returns the lane-wise mask union.
 func (m maskW) Or(n maskW) maskW { return maskW{v: m.v.Or(n.v)} }
-
-// The wasm backend has no mask reduction; four lanes are cheap to test.
-func (m maskW) AllZero() bool {
-	var v [4]int32
-	m.v.ToInt32x4().StoreArray(&v)
-	return v[0]|v[1]|v[2]|v[3] == 0
-}
 
 // laneBlend selects a where the mask is set and b otherwise.
 func laneBlend(m maskW, a, b laneW) laneW {

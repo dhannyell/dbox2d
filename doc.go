@@ -1,17 +1,17 @@
 // Package dbox2d implements a deterministic 2D rigid body solver.
 //
-// The package computes with the Q32.32 fixed-point arithmetic of
-// github.com/dhannyell/fixed. Equal inputs produce the same result bits on
-// every supported architecture, on every run. A world therefore survives a
-// snapshot, a replay and a rollback without drift.
+// Equal inputs produce the same result bits on every supported architecture,
+// on every run. A world therefore survives a snapshot, a replay and a rollback
+// without drift.
 //
-// The package builds in two scalar modes. The default is Q32.32. The build tag
-// dbox2d_float selects float32 with the same determinism promise; see the
-// README for the mode details and commands.
+// The package builds in two scalar modes. The default is float32. The build
+// tag dbox2d_fixed selects the Q32.32 fixed-point arithmetic of
+// github.com/dhannyell/fixed, with the same determinism promise; see the
+// README for the mode details and commands. ScalarMode reports the mode of a
+// build.
 //
-// The optional dbox2d_simd tag, on top of dbox2d_float, opts in to a wide
-// contact-solving path that produces the same result bits as the scalar
-// family.
+// The optional dbox2d_simd tag opts in to a SIMD contact solver in either
+// mode. It produces the same result bits as the scalar solver.
 //
 // # Fidelity
 //

@@ -33,6 +33,11 @@ type world struct {
 	graphBlocks        []solverBlock
 	contactPointers    []*contactSim
 	jointPointers      []*jointSim
+	// wide is the scratch of the SIMD family; empty in scalar builds.
+	wide wideScratch
+
+	// contactCount32 counts the contacts of the step outside the lane window.
+	contactCount32 int
 
 	// spareSet holds the sim storage of the last destroyed sleeping set, for
 	// the next island that falls asleep. Only its slices are used. See D-010.

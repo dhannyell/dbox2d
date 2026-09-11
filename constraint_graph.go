@@ -20,12 +20,19 @@ type graphColor struct {
 	// contactSims of the touching contacts in this color.
 	contactSims []contactSim
 
+	// The step splits contactSims, in order, into the contacts the lane grid
+	// fits and the contacts32 it does not. In float mode contacts32 is empty.
+	contacts   []*contactSim
+	contacts32 []*contactSim
+
 	// contactConstraints is the solver scratch of the color. The solver
 	// fills it on each step from the arena.
 	contactConstraints []contactConstraint
 	// contactConstraintsWide is the wide-family solver scratch of the color.
 	// The solver fills it on each step from the arena when dbox2d_simd is set.
 	contactConstraintsWide []contactConstraintWide
+	// contactConstraints32 is the scalar-grid scratch of contacts32.
+	contactConstraints32 []contactConstraint32
 
 	// jointSims of the joints in this color.
 	jointSims []jointSim

@@ -1,4 +1,4 @@
-//go:build dbox2d_float
+//go:build !dbox2d_fixed
 
 package dbox2d
 
@@ -9,6 +9,9 @@ func conformanceAtan2Radians(y, x Q) Q { return atan2TurnsBody(y, x) }
 
 // qUlps returns an absolute tolerance of n float32 ulps at one.
 func qUlps(n int64) Q { return scalarEpsilon.Mul(QFromInt(int(n))) }
+
+// The float mode solves contacts in Q, so the contact grid adds no rounding.
+func contactRounding() Q { return QZero() }
 
 // mirrorTolerance has a 2e-4 floor plus 2e-5 per unit of magnitude. The
 // measured maximum error is 2.4379e-4 absolute at |want| > 12, inside the

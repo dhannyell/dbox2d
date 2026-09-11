@@ -263,6 +263,7 @@ func TestStageTableMatchesTheReferenceSizing(t *testing.T) {
 
 			graph := constraintGraph{}
 			graph.colors[0].contactSims = make([]contactSim, contactCount)
+			graph.colors[0].contacts = testContactPointers(graph.colors[0].contactSims)
 			w := world{}
 			context := stepContext{graph: &graph, activeColorCount: 1, workerCount: workerCount}
 			context.activeColorIndices[0] = 0
@@ -274,6 +275,7 @@ func TestStageTableMatchesTheReferenceSizing(t *testing.T) {
 	graph := constraintGraph{}
 	graph.colors[0].jointSims = make([]jointSim, 2)
 	graph.colors[0].contactSims = make([]contactSim, 5)
+	graph.colors[0].contacts = testContactPointers(graph.colors[0].contactSims)
 	w := world{}
 	context := stepContext{graph: &graph, activeColorCount: 1, workerCount: 4}
 	context.activeColorIndices[0] = 0

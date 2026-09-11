@@ -335,6 +335,7 @@ func solverMainTask(context *stepContext) {
 	graphSyncIndex := 1
 	prepareOverflowJoints(context)
 	prepareOverflowContacts(context)
+	prepareContacts32(context)
 	context.world.profile.PrepareConstraints += millisecondsAndReset(&ticks)
 
 	for range context.subStepCount {
@@ -397,6 +398,7 @@ func solverMainTask(context *stepContext) {
 	context.world.profile.ApplyRestitution += millisecondsAndReset(&ticks)
 
 	storeOverflowImpulses(context)
+	storeImpulses32(context)
 	syncBits = uint32(contactSyncIndex)<<16 | uint32(stageIndex)
 	executeMainStage(&stages[stageIndex], context, syncBits)
 	context.world.profile.StoreImpulses += millisecondsAndReset(&ticks)
@@ -905,6 +907,55 @@ func setSolverStage(stage *solverStage, stageType solverStageType, blocks []solv
 	stage.completionCount.Store(0)
 }
 
+// partitionContacts splits each color into the contacts the lane grid fits
+// and the contacts it solves in Q32. The pointer list keeps the active
+// fitting contacts first, then the overflow fitting contacts, then the Q32
+// contacts of every color. It returns the active fitting count.
+func partitionContacts(w *world, context *stepContext, colors *[graphColorCount]graphColor) int {
+	var fitCounts [graphColorCount]int
+	fitCount := 0
+	count32 := 0
+	for i := range graphColorCount {
+		for j := range colors[i].contactSims {
+			if contactFitsLane(&colors[i].contactSims[j]) {
+				fitCounts[i]++
+			}
+		}
+		fitCount += fitCounts[i]
+		count32 += len(colors[i].contactSims) - fitCounts[i]
+	}
+
+	total := fitCount + count32
+	w.contactPointers = slices.Grow(w.contactPointers[:0], total)[:total]
+	pointers := w.contactPointers
+	fitBase := 0
+	base32 := fitCount
+	for i := range graphColorCount {
+		color := &colors[i]
+		fitStart, start32 := fitBase, base32
+		for j := range color.contactSims {
+			cs := &color.contactSims[j]
+			if contactFitsLane(cs) {
+				pointers[fitBase] = cs
+				fitBase++
+			} else {
+				pointers[base32] = cs
+				base32++
+			}
+		}
+		if fitBase != fitStart+fitCounts[i] {
+			panic("dbox2d: the contact partition is inconsistent")
+		}
+		color.contacts = pointers[fitStart:fitBase:fitBase]
+		color.contacts32 = pointers[start32:base32:base32]
+	}
+
+	activeFitCount := fitCount - fitCounts[overflowIndex]
+	context.contacts = pointers[:activeFitCount:activeFitCount]
+	w.contactCount32 = count32
+	return activeFitCount
+}
+
 func buildSolverStages(w *world, context *stepContext, awakeBodyCount int) {
 	const blocksPerWorker = 4
 	maxBlockCount := blocksPerWorker * context.workerCount
@@ -929,7 +980,7 @@ func buildSolverStages(w *world, context *stepContext, awakeBodyCount int) {
 	for c := range context.activeColorCount {
 		colorIndex := context.activeColorIndices[c]
 		color := &context.graph.colors[colorIndex]
-		colorContactCount := colorContactConstraintCount(len(color.contactSims))
+		colorContactCount := colorContactUnits(color)
 		colorJointCount := len(color.jointSims)
 
 		colorContactCounts[c] = colorContactCount
@@ -1128,12 +1179,10 @@ func solve(w *world, context *stepContext) {
 
 		// One contiguous scratch serves every color, as the SIMD scratch of
 		// the reference does.
-		activeContactCount := 0
 		activeJointCount := 0
 		for i := range overflowIndex {
 			colorContactCount := len(colors[i].contactSims)
 			colorJointCount := len(colors[i].jointSims)
-			activeContactCount += colorContactCount
 			activeJointCount += colorJointCount
 			if colorContactCount+colorJointCount > 0 {
 				context.activeColorIndices[context.activeColorCount] = i
@@ -1155,12 +1204,9 @@ func solve(w *world, context *stepContext) {
 			jointBase += colorJointCount
 		}
 
-		// The contact pointer table is gathered by the constraint allocator,
-		// as the reference gathers it in the same block that lays the
-		// constraints out. The wide layout pads every color up to a lane
-		// boundary, so only that layout knows where a color begins; filling
-		// the table here as well meant writing every pointer twice.
-		allocateContactConstraints(w, context, colors, overflowIndex, activeContactCount)
+		activeContactCount := partitionContacts(w, context, colors)
+		w.wide.allocateContactConstraints(w, context, colors, overflowIndex, activeContactCount)
+		allocateContactConstraints32(w, context, colors)
 		buildSolverStages(w, context, awakeBodyCount)
 
 		w.profile.PrepareStages = millisecondsSince(prepareStagesStart)
@@ -1208,14 +1254,21 @@ func solve(w *world, context *stepContext) {
 			inPlaceUnion(&w.taskContexts[0].enlargedSimBitSet, &w.taskContexts[i].enlargedSimBitSet)
 		}
 		for i := range graphColorCount {
+			colors[i].contacts = nil
+			colors[i].contacts32 = nil
 			colors[i].contactConstraints = nil
 			colors[i].contactConstraintsWide = nil
+			colors[i].contactConstraints32 = nil
 		}
 		context.contactConstraints = nil
 		context.contactConstraintsWide = nil
 		context.joints = nil
 		context.contacts = nil
 		context.stages = nil
+		if context.contactConstraintMem32 != nil {
+			w.arena.freeItem(context.contactConstraintMem32)
+			context.contactConstraintMem32 = nil
+		}
 		if context.contactConstraintMemWide != nil {
 			w.arena.freeItem(context.contactConstraintMem)
 			w.arena.freeItem(context.contactConstraintMemWide)
@@ -1454,4 +1507,76 @@ func resizeMoveEvents(events []BodyMoveEvent, count int) []BodyMoveEvent {
 	}
 	grown := make([]BodyMoveEvent, count, max(count, 2*cap(events)))
 	return grown
+}
+
+// runContactStageBlockScalar keeps flat prepare/store work behind the family hook.
+func runContactStageBlockScalar(stage *solverStage, context *stepContext, startIndex, endIndex int) {
+	switch stage.stageType {
+	case stagePrepareContacts:
+		prepareContactsTask(startIndex, endIndex, context)
+	case stageStoreImpulses:
+		storeImpulsesTask(startIndex, endIndex, context)
+	}
+}
+
+// runGraphContactBlockScalar keeps the existing scalar graph-contact stages
+// behind one hook so the wide family can replace them as a unit.
+func runGraphContactBlockScalar(stage *solverStage, context *stepContext, startIndex, endIndex int) {
+	switch stage.stageType {
+	case stageWarmStart:
+		warmStartContactsTask(startIndex, endIndex, context, stage.colorIndex)
+	case stageSolve:
+		solveContactsTask(startIndex, endIndex, context, stage.colorIndex, true)
+	case stageRelax:
+		solveContactsTask(startIndex, endIndex, context, stage.colorIndex, false)
+	case stageRestitution:
+		applyRestitutionTask(startIndex, endIndex, context, stage.colorIndex)
+	}
+}
+
+// colorContactUnits counts the solver units of a color: the family units of
+// the fitting contacts, then one unit per Q32 contact.
+func colorContactUnits(color *graphColor) int {
+	return colorContactConstraintCount(len(color.contacts)) + len(color.contacts32)
+}
+
+// runGraphContactBlock runs a block of color units: the family units it
+// covers, then its Q32 contacts.
+func runGraphContactBlock(stage *solverStage, context *stepContext, startIndex, endIndex int) {
+	color := &context.graph.colors[stage.colorIndex]
+	familyUnits := colorContactConstraintCount(len(color.contacts))
+	if startIndex < familyUnits {
+		runGraphContactFamilyBlock(stage, context, startIndex, min(endIndex, familyUnits))
+	}
+	if endIndex <= familyUnits {
+		return
+	}
+	start32 := max(startIndex, familyUnits) - familyUnits
+	end32 := endIndex - familyUnits
+	switch stage.stageType {
+	case stageWarmStart:
+		warmStartContacts32(start32, end32, context, stage.colorIndex)
+	case stageSolve:
+		solveContacts32(start32, end32, context, stage.colorIndex, true)
+	case stageRelax:
+		solveContacts32(start32, end32, context, stage.colorIndex, false)
+	case stageRestitution:
+		applyRestitution32(start32, end32, context, stage.colorIndex)
+	}
+}
+
+// allocateContactConstraintsScalar preserves the scalar arena layout while
+// allowing the wide hook to own its separate scratch allocation.
+func allocateContactConstraintsScalar(w *world, context *stepContext, colors *[graphColorCount]graphColor, overflowIndex, activeContactCount int) {
+	contactCount := activeContactCount + len(colors[overflowIndex].contacts)
+	contactConstraints, constraintMem := arenaSlice[contactConstraint](&w.arena, contactCount, "contact constraint")
+	context.contactConstraints = contactConstraints[:activeContactCount:activeContactCount]
+	context.contactConstraintMem = constraintMem
+	contactBase := 0
+	for i := range graphColorCount {
+		color := &colors[i]
+		colorContactCount := len(color.contacts)
+		color.contactConstraints = contactConstraints[contactBase : contactBase+colorContactCount : contactBase+colorContactCount]
+		contactBase += colorContactCount
+	}
 }

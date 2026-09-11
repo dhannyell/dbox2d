@@ -549,7 +549,7 @@ Numbering is sequential from `D-001` and never reused.
   and the mixing callbacks run on worker goroutines, as in the reference.
   `Counters.TaskCount` counts the tasks of the last step and does not
   depend on the worker count. The stage is the
-  seam: a wide or a GPU family replaces the body of one stage and keeps
+  seam: a SIMD or a GPU family replaces the body of one stage and keeps
   the script.
 - Test: TestStepIsWorkerCountIndependent in checksum_test.go,
   TestSensorEventsAreWorkerCountIndependent in sensor_test.go,
@@ -658,32 +658,31 @@ Numbering is sequential from `D-001` and never reused.
   contactSpeed; the fix changed both witnesses.
 - Test: TestConformance in conformance_test.go
 
-### D-019 Wide contact family
+### D-019 SIMD contact family
 
-- Files: wide.go, wide_common.go, wide_off.go, wide_guard.go, wide_lane_amd64.go,
-  wide_lane_arm64.go, wide_lane_wasm.go, wide_lane_generic.go,
-  wide_lane_gather_amd64.go,
-  wide_lane_gather_generic.go, contact_solver_wide.go
+- Files: contact_solver_simd.go, simd_off.go, solver.go, simd_lane_float.go,
+  simd_lane_float_archsimd.go, simd_lane_amd64.go, simd_lane_arm64.go,
+  simd_lane_wasm.go, simd_lane_generic.go, simd_lane_gather_generic.go,
+  simd_lane_fixed.go, scalar_fixed.go, scalar_float.go
 - Tier: T2
-- Reason: the reference selects a wide `Task` family with `B2_SIMD_WIDTH` lanes
+- Reason: the reference selects a SIMD `Task` family with `B2_SIMD_WIDTH` lanes
   at compile time, including an `B2_SIMD_NONE` variant that keeps four scalar
   lanes with no vector instructions. The port has no scalar-lane variant: its
   oracle is the scalar family in solver.go, applied to every color the same way
-  it applies to the overflow color. A wide lane also needs a fixed number of
+  it applies to the overflow color. A SIMD lane also needs a fixed number of
   contacts per call, and a color rarely holds a multiple of the lane width.
 - Behaviour: the `dbox2d_simd` tag adds a second contact-solving path beside
-  the scalar family; it requires `dbox2d_float` and fails the build otherwise
-  (wide_guard.go), because no wide fixed-point lane exists yet. Contacts of
+  the scalar family, in both modes. Contacts of
   each color are padded to a multiple of the lane width; the padding lanes
   hold a null contact index and an identity body state, and the store step
-  never writes them back. The solver stage table sizes each color's wide
+  never writes them back. The solver stage table sizes each color's SIMD
   constraint block by `⌈n/width⌉`, mirroring the reference
   `colorContactCountSIMD`. On avx2, the gather loads each `bodyState` as one
   32-byte row; its `flags` field is `int32` for that reason, and the reference
   asserts the same 32-byte size. It transposes eight rows into lanes with
   shuffles. The scatter transposes back and stores whole rows for the real
   lanes. The arm64 and generic paths gather through a scalar scratch. On every
-  path, the lanes convert the angular velocity with a lane multiply and a lane
+  float path, the lanes convert the angular velocity with a lane multiply and a lane
   division by `tau`, both rounded once like the scalar `Q.Mul` and `Q.Div`.
 
   Four lane implementations share one padding and dispatch layer:
@@ -695,16 +694,87 @@ Numbering is sequential from `D-001` and never reused.
   path, where the reference `b2MulAddW` is unfused on SSE2 and AVX2 but fused
   through `vmlaq_f32` on NEON. `Min` and `Max` are compare-and-select, so a
   signed-zero tie follows the same `if a < b` rule as the scalar family. The
-  result is that the wide family is bit-identical to the scalar family, and
+  result is that the SIMD family is bit-identical to the scalar family, and
   therefore bit-identical across ISAs, where the reference is not. There is no
   SSE2 path. A velocity component that is exactly -0 becomes +0 when it
-  passes an empty second manifold point or a masked restitution lane, because
-  the lane computes `v - (-0)`; this is unreachable from +0 states, and the
-  reference behaves the same way.
-- Test: TestBodyGatherScatterW, TestWideMatchesScalarStepByStep,
+  passes an empty second manifold point or a masked point of a contact with
+  restitution, because the lane computes `v - (-0)`; this is unreachable from
+  +0 states, and the reference behaves the same way. A contact without
+  restitution does not write its bodies back, as in the scalar stage; in
+  fixed mode the write would round a velocity left by a Q32 contact of a
+  later color (D-020).
+
+  In fixed mode the lanes come from the fixed module: Q16.16 lanes with
+  Q48.16 accumulators, the grid of the scalar contact stages (D-020). The
+  module selects avx2 (width 8), neon (width 4) or a generic path; wasm runs
+  the generic path. Every fixed path gathers through a scalar scratch. The
+  scratch carries the velocities in Q48.16 and the position deltas in Q16.16,
+  as the scalar contact stages do. It converts the angular velocity to radians
+  per second in Q32.32 and rounds the result to the grid, as the scalar family
+  does, because the lane grid is too coarse for that product. The velocity
+  accumulations skip the
+  Q48 overflow check, because their budget stays far inside the Q48 range
+  (`AddBounded`). A pack with no rolling resistance and no stored rolling
+  impulse skips the rolling blocks, which would only add zero. Float mode
+  keeps them, because there a skipped block can change the sign of a zero. The
+  two families match while no contact value saturates (D-020).
+- Test: TestWidePath, TestWideMatchesScalarStepByStep,
   TestWideStagesRunWithColoredContacts
-  and TestWideContactLayoutPadsEachColor in wide_test.go; wide_lane_test.go
-  checks each lane operation against the scalar family on every path; the
+  and TestWideContactLayoutPadsEachColor in simd_test.go, in both modes;
+  simd_lane_test.go checks each float lane operation against the scalar
+  family on every path, and the fixed module tests its own lanes; the
   witness, samples and conformance suites all run under the `dbox2d_simd` tag
-  in CI, on amd64 and arm64 with `GOEXPERIMENT=simd` and on the generic path
-  across the four-architecture matrix.
+  in both modes in CI, on amd64 and arm64 with `GOEXPERIMENT=simd` and on the
+  generic path across the four-architecture matrix.
+
+### D-020 Contacts solve on a Q16 grid
+
+- Files: contact_solver.go, contact_solver_q32.go, scalar_fixed.go,
+  scalar_float.go, internal/q32gen, tools/q32gen
+- Tier: T2
+- Reason: a fixed-point SIMD lane holds Q16.16 values, so a Q32.32 contact
+  solver could never match it bit for bit. The scalar family is the oracle of
+  the SIMD family (D-019), so both families solve contacts on the same grid.
+- Behaviour: in fixed mode the contact stages use `qc`, a Q16.16 value whose
+  products round to nearest, and `qa`, a Q48.16 accumulator with the same 16
+  fraction bits. The prepare stage computes in Q32.32, as before, and rounds
+  each result to the grid: the normal, the anchors, the separation, the
+  masses, the coefficients and the warm-start impulses. The other stages load
+  the body velocities into `qa` and the position deltas into `qc`, both
+  rounded to nearest. They compute each product on the grid and accumulate
+  each velocity change and the total normal impulse in `qa`. The store writes
+  the values back to the Q32.32 body state and manifold without rounding. The
+  order of operations does not change. The rolling resistance bound multiplies
+  the two-point total in `qa` and narrows only the product, because that total
+  can pass the Q16 range while each point fits.
+
+  The grid has a lane window: every nonzero inverse mass and inverse inertia
+  of a contact must lie in [2^-6, 2^15). Below the window a coefficient keeps
+  fewer than ten bits; at the top it does not fit. Each step partitions the
+  contacts of every color once, by that rule. The contacts inside the window
+  solve on the Q16 grid, in the scalar or the SIMD family. The contacts
+  outside it solve in Q32.32, one stage unit each after the family units of
+  their color, so the stage blocks spread them over the workers; the overflow
+  color runs them whole after its scalar contacts. The Q32 stages are
+  contact_solver_q32.go, which `go generate` derives from contact_solver.go
+  with the same operations over Q32.32 values, and a test keeps it fresh. A
+  body of 200000 kg rests and slides on the ground with this path. The Q32
+  tail admits a Q32 lane later, if a scene with a heavy majority makes it
+  worth the cost. In float mode every contact fits the lane and the Q32 path
+  is empty.
+
+  In float mode `qc` and `qa` are aliases of `Q` and every conversion is the
+  identity, so the float witness does not change. The Q16 range is ±32768. A
+  contact value outside it saturates, so the scene traces of TestConformance
+  require zero saturations in fixed mode when the build sets
+  `fixed_satcounter`. This change moved the fixed witness and four samples
+  checksums; the lane window moved the Tumbler checksum, which holds a
+  heavy body. The conformance budgets did not move. One grid unit moves a
+  bounded friction label of the draw golden by 0.015, so in fixed mode the
+  golden accepts one unit in the last printed place of a decimal label.
+- Test: TestChecksumMatchesDeterministicWitness; the contact tests in
+  contact_solver_test.go, with `contactRounding()` for one rounding to the
+  grid; TestHeavyBoxRestsOnTheGround in step_test.go and
+  TestStepPartitionsContactsByTheLaneWindow in step_fixed_test.go;
+  TestQ32ContactSolverIsFresh; the saturation gate of the scene traces in
+  TestConformance.

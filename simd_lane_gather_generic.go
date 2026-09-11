@@ -1,9 +1,9 @@
-//go:build dbox2d_simd && dbox2d_float && (!goexperiment.simd || !go1.27 || !amd64)
+//go:build dbox2d_simd && !dbox2d_fixed && (!goexperiment.simd || !go1.27 || !amd64)
 
 package dbox2d
 
 // bodyScratchW carries the gathered scalars between the body states and the lanes.
-type bodyScratchW struct{ vx, vy, w, dpx, dpy, dqc, dqs [wideWidth]float32 }
+type bodyScratchW struct{ vx, vy, w, dpx, dpy, dqc, dqs [wideWidth]laneScalar }
 
 // gatherBodies fills every lane of the scratch: real bodies from the states, null lanes as the identity.
 func gatherBodies(states []bodyState, indices *[wideWidth]int, s *bodyScratchW) {
@@ -15,13 +15,13 @@ func gatherBodies(states []bodyState, indices *[wideWidth]int, s *bodyScratchW) 
 			continue
 		}
 		b := &states[idx]
-		s.vx[j] = b.linearVelocity.X.v
-		s.vy[j] = b.linearVelocity.Y.v
-		s.w[j] = b.angularVelocity.v
-		s.dpx[j] = b.deltaPosition.X.v
-		s.dpy[j] = b.deltaPosition.Y.v
-		s.dqc[j] = b.deltaRotation.Cos.v
-		s.dqs[j] = b.deltaRotation.Sin.v
+		s.vx[j] = laneScalarFromQ(b.linearVelocity.X)
+		s.vy[j] = laneScalarFromQ(b.linearVelocity.Y)
+		s.w[j] = laneScalarFromQ(b.angularVelocity)
+		s.dpx[j] = laneScalarFromQ(b.deltaPosition.X)
+		s.dpy[j] = laneScalarFromQ(b.deltaPosition.Y)
+		s.dqc[j] = laneScalarFromQ(b.deltaRotation.Cos)
+		s.dqs[j] = laneScalarFromQ(b.deltaRotation.Sin)
 	}
 }
 
@@ -53,9 +53,9 @@ func scatterBodies(states []bodyState, indices *[wideWidth]int, s *bodyScratchW)
 			continue
 		}
 		b := &states[idx]
-		b.linearVelocity.X.v = s.vx[j]
-		b.linearVelocity.Y.v = s.vy[j]
-		b.angularVelocity.v = s.w[j]
+		b.linearVelocity.X = laneScalarToQ(s.vx[j])
+		b.linearVelocity.Y = laneScalarToQ(s.vy[j])
+		b.angularVelocity = laneScalarToQ(s.w[j])
 	}
 }
 

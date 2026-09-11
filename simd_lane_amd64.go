@@ -1,4 +1,4 @@
-//go:build dbox2d_simd && dbox2d_float && goexperiment.simd && go1.27 && amd64
+//go:build dbox2d_simd && !dbox2d_fixed && goexperiment.simd && go1.27 && amd64
 
 package dbox2d
 
@@ -7,7 +7,35 @@ import (
 	"unsafe"
 )
 
-var identityBodyRowW = [8]float32{0, 0, 0, 0, 0, 0, 0, 1}
+const (
+	// wideWidth is the number of float32 lanes in the SIMD vector.
+	wideWidth = 8
+	// wideShift is the base-two logarithm of wideWidth.
+	wideShift = 3
+)
+
+// laneData is the amd64 float32 vector type.
+type laneData = archsimd.Float32x8
+
+// maskData is the amd64 comparison-mask type.
+type maskData = archsimd.Mask32x8
+
+// wideAvailable reports whether the required amd64 feature is available.
+func wideAvailable() bool { return archsimd.X86.AVX2() }
+
+// widePath reports the selected amd64 SIMD path.
+func widePath() string { return "avx2" }
+
+// laneBroadcast fills a vector with one value.
+func laneBroadcast(s laneScalar) laneData { return archsimd.BroadcastFloat32x8(s) }
+
+// laneLoadData loads one aligned-width lane-element array.
+func laneLoadData(p *[wideWidth]laneScalar) laneData { return archsimd.LoadFloat32x8Array(p) }
+
+// AllZero reports whether no mask lane is set.
+func (m maskW) AllZero() bool { return m.v.ToBits() == 0 }
+
+var identityBodyRowW = [wideWidth]laneScalar{0, 0, 0, 0, 0, 0, 0, 1}
 
 // Whole-row SIMD loads and stores require bodyState to occupy exactly one vector.
 var _ [32]struct{} = [unsafe.Sizeof(bodyState{})]struct{}{}
@@ -17,13 +45,13 @@ func bodyRowW(states []bodyState, idx int, identity archsimd.Float32x8) archsimd
 	if idx == nullIndex {
 		return identity
 	}
-	return archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Pointer(&states[idx])))
+	return archsimd.LoadFloat32x8Array((*[wideWidth]laneScalar)(unsafe.Pointer(&states[idx])))
 }
 
 // storeBodyRowW writes one row back; null lanes have no body.
 func storeBodyRowW(states []bodyState, idx int, row archsimd.Float32x8) {
 	if idx != nullIndex {
-		row.StoreArray((*[8]float32)(unsafe.Pointer(&states[idx])))
+		row.StoreArray((*[wideWidth]laneScalar)(unsafe.Pointer(&states[idx])))
 	}
 }
 

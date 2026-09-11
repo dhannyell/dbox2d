@@ -1,10 +1,46 @@
 package dbox2d
 
-import "testing"
+import (
+	"bytes"
+	"os"
+	"testing"
+
+	"github.com/dhannyell/dbox2d/internal/q32gen"
+)
+
+// TestQ32ContactSolverIsFresh keeps contact_solver_q32.go in step with
+// contact_solver.go; run go generate after a change to the source.
+func TestQ32ContactSolverIsFresh(t *testing.T) {
+	src, err := os.ReadFile("contact_solver.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := q32gen.Generate(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile("contact_solver_q32.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatal("contact_solver_q32.go is stale; run go generate")
+	}
+}
 
 // withinQ reports whether a and b differ by at most limit.
 func withinQ(a, b, limit Q) bool {
 	return !limit.Less(a.Sub(b).Abs())
+}
+
+// testContactPointers points a color at every one of its sims, as the step
+// partition does when all of them fit the lane.
+func testContactPointers(sims []contactSim) []*contactSim {
+	pointers := make([]*contactSim, len(sims))
+	for i := range sims {
+		pointers[i] = &sims[i]
+	}
+	return pointers
 }
 
 // restingBox builds a unit box of mass one on a static ground and moves
@@ -41,6 +77,7 @@ func restingBox(t *testing.T) (*world, *body, *stepContext) {
 	c.colorIndex = overflowIndex
 	c.localIndex = len(overflow.contactSims)
 	overflow.contactSims = append(overflow.contactSims, cs)
+	overflow.contacts = []*contactSim{&overflow.contactSims[0]}
 	overflow.contactConstraints = make([]contactConstraint, 1)
 
 	// One point at the bottom center of the box, on the top of the ground.
@@ -112,27 +149,27 @@ func TestPrepareOverflowContactsBuildsTheMasses(t *testing.T) {
 	if constraint.indexA != nullIndex || constraint.indexB != box.localIndex {
 		t.Fatalf("the constraint points at bodies %d and %d", constraint.indexA, constraint.indexB)
 	}
-	if constraint.softness != context.staticSoftness {
+	if constraint.softness != contactSoftFrom(context.staticSoftness) {
 		t.Errorf("a ground contact did not take the static softness")
 	}
-	tolerance := qUlps(64)
-	if constraint.invMassB != QOne() || !withinQ(constraint.invIB, QFromInt(6), tolerance) {
-		t.Errorf("the box has inverse mass %v and inverse inertia %v, want 1 and 6", constraint.invMassB, constraint.invIB)
+	tolerance := qUlps(64).Add(contactRounding())
+	if constraint.invMassB.toQ() != QOne() || !withinQ(constraint.invIB.toQ(), QFromInt(6), tolerance) {
+		t.Errorf("the box has inverse mass %v and inverse inertia %v, want 1 and 6", constraint.invMassB.toQ(), constraint.invIB.toQ())
 	}
 
 	cp := &constraint.points[0]
-	if !withinQ(cp.normalMass, QOne(), tolerance) {
-		t.Errorf("normalMass is %v, want 1", cp.normalMass)
+	if !withinQ(cp.normalMass.toQ(), QOne(), tolerance) {
+		t.Errorf("normalMass is %v, want 1", cp.normalMass.toQ())
 	}
-	if !withinQ(cp.tangentMass, QFromRatio(2, 5), tolerance) {
-		t.Errorf("tangentMass is %v, want 0.4", cp.tangentMass)
+	if !withinQ(cp.tangentMass.toQ(), QFromRatio(2, 5), tolerance) {
+		t.Errorf("tangentMass is %v, want 0.4", cp.tangentMass.toQ())
 	}
 	// baseSeparation = 0 - dot(rB - rA, n) = -(-0.5 - 0.5) = 1
-	if !cp.baseSeparation.Eq(QOne()) {
-		t.Errorf("baseSeparation is %v, want 1", cp.baseSeparation)
+	if !cp.baseSeparation.toQ().Eq(QOne()) {
+		t.Errorf("baseSeparation is %v, want 1", cp.baseSeparation.toQ())
 	}
-	if !cp.relativeVelocity.Eq(QFromInt(-3)) {
-		t.Errorf("relativeVelocity is %v, want -3", cp.relativeVelocity)
+	if !cp.relativeVelocity.toQ().Eq(QFromInt(-3)) {
+		t.Errorf("relativeVelocity is %v, want -3", cp.relativeVelocity.toQ())
 	}
 }
 
@@ -220,16 +257,34 @@ func TestFrictionSaturatesAtTheNormalImpulse(t *testing.T) {
 
 	cp := &w.constraintGraph.colors[overflowIndex].contactConstraints[0].points[0]
 	constraint := &w.constraintGraph.colors[overflowIndex].contactConstraints[0]
-	if !QZero().Less(cp.normalImpulse) {
-		t.Fatalf("the normal impulse is %v, want positive", cp.normalImpulse)
+	if !QZero().Less(cp.normalImpulse.toQ()) {
+		t.Fatalf("the normal impulse is %v, want positive", cp.normalImpulse.toQ())
 	}
 	want := constraint.friction.Mul(cp.normalImpulse).Neg()
 	if !cp.tangentImpulse.Eq(want) {
-		t.Errorf("the tangent impulse is %v, want %v", cp.tangentImpulse, want)
+		t.Errorf("the tangent impulse is %v, want %v", cp.tangentImpulse.toQ(), want.toQ())
 	}
 	// A slide to the right rolls the box clockwise.
 	if !state.angularVelocity.Less(QZero()) {
 		t.Errorf("the friction under the center did not roll the box")
+	}
+}
+
+// TestRollingBoundKeepsATwoPointTotal pins the rolling bound when the total
+// of two points passes the contact grid range.
+func TestRollingBoundKeepsATwoPointTotal(t *testing.T) {
+	for _, tc := range []struct{ rr, total, want Q }{
+		{QFromRatio(1, 8), QFromInt(40000), QFromInt(5000)},
+		// An exact product: one rounding, and no saturation in the split.
+		{QHalf(), QFromInt(32768), QFromInt(16384)},
+	} {
+		before := saturationCount()
+		if got, want := rollingBound(qcFrom(tc.rr), qaFrom(tc.total)), qcFrom(tc.want); !got.Eq(want) {
+			t.Fatalf("the rolling bound of %v·%v is %v, want %v", tc.rr, tc.total, got.toQ(), want.toQ())
+		}
+		if n := saturationCount() - before; n != 0 {
+			t.Fatalf("the rolling bound of %v·%v saturated %d times", tc.rr, tc.total, n)
+		}
 	}
 }
 
@@ -285,8 +340,8 @@ func TestStoreOverflowImpulsesFillsTheManifold(t *testing.T) {
 
 	cp := &w.constraintGraph.colors[overflowIndex].contactConstraints[0].points[0]
 	mp := &w.constraintGraph.colors[overflowIndex].contactSims[0].manifold.Points[0]
-	if mp.NormalImpulse != cp.normalImpulse || mp.TangentImpulse != cp.tangentImpulse || mp.TotalNormalImpulse != cp.totalNormalImpulse {
-		t.Errorf("the manifold holds %v, %v, %v, want %v, %v, %v", mp.NormalImpulse, mp.TangentImpulse, mp.TotalNormalImpulse, cp.normalImpulse, cp.tangentImpulse, cp.totalNormalImpulse)
+	if mp.NormalImpulse != cp.normalImpulse.toQ() || mp.TangentImpulse != cp.tangentImpulse.toQ() || mp.TotalNormalImpulse != cp.totalNormalImpulse.toQ() {
+		t.Errorf("the manifold holds %v, %v, %v, want %v, %v, %v", mp.NormalImpulse, mp.TangentImpulse, mp.TotalNormalImpulse, cp.normalImpulse.toQ(), cp.tangentImpulse.toQ(), cp.totalNormalImpulse.toQ())
 	}
 	if !mp.NormalVelocity.Eq(QFromInt(-2)) {
 		t.Errorf("the normal velocity is %v, want -2", mp.NormalVelocity)

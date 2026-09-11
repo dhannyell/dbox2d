@@ -1,4 +1,4 @@
-//go:build !dbox2d_float
+//go:build dbox2d_fixed
 
 package dbox2d
 
@@ -9,6 +9,9 @@ func conformanceAtan2Radians(y, x Q) Q { return atan2Turns(y, x).Mul(tau) }
 
 // qUlps returns n raw Q32.32 units, where one ulp is 2^-32.
 func qUlps(n int64) Q { return fixed.Q32FromRaw(n) }
+
+// contactRounding is the largest error of one rounding to the contact grid.
+func contactRounding() Q { return fixed.Q32FromRaw(1 << 15) }
 
 // mirrorTolerance preserves the fixed-mode absolute mirror tolerance.
 func mirrorTolerance(fixedTolerance, _ float64) float64 { return fixedTolerance }

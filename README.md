@@ -2,11 +2,11 @@
 
 `dbox2d` is a deterministic 2D physics library for Go and a port of
 [Box2D](https://box2d.org) v3.1.1. It has two scalar modes: the default build
-uses Q32.32 fixed-point arithmetic, while `-tags dbox2d_float` selects
-`float32`. In either mode, equal inputs produce the same result bits on every
+uses `float32`, while `-tags dbox2d_fixed` selects Q32.32 fixed-point
+arithmetic. In either mode, equal inputs produce the same result bits on every
 supported architecture and on every run.
 
-Fixed point is the safer default for cross-platform rollback, replay, and
+Fixed point is the safer choice for cross-platform rollback, replay, and
 authoritative simulation. Float mode is also deterministic on the
 architectures covered by this repository's CI, and is usually faster in the
 measured workloads. A float-mode application must still control its complete
@@ -16,7 +16,7 @@ The project is pre-v1. Its public API and import path may change before the
 first stable release. It requires Go 1.26.4 or newer.
 
 **[![Tumbler in the browser host](samples/tumbler.gif)](https://dhannyell.github.io/dbox2d/)**\
-**Try the sample scenes in browser: [fixed mode](https://dhannyell.github.io/dbox2d/) · [float mode](https://dhannyell.github.io/dbox2d/?mode=float) (WebGPU required)**
+**Try the sample scenes in browser: [float mode](https://dhannyell.github.io/dbox2d/) · [fixed mode](https://dhannyell.github.io/dbox2d/?mode=fixed) (WebGPU required)**
 
 ## What is included
 
@@ -68,7 +68,7 @@ To build the browser host:
 ```sh
 cd samples
 CGO_ENABLED=0 GOOS=js GOARCH=wasm go build -o web/app.wasm ./cmd/web
-GOTOOLCHAIN=go1.27.0 GOEXPERIMENT=simd CGO_ENABLED=0 GOOS=js GOARCH=wasm go build -tags dbox2d_float,dbox2d_simd -o web/app.wasm ./cmd/web
+GOTOOLCHAIN=go1.27.0 GOEXPERIMENT=simd CGO_ENABLED=0 GOOS=js GOARCH=wasm go build -tags dbox2d_simd -o web/app.wasm ./cmd/web
 go run ./cmd/serve
 ```
 
@@ -78,16 +78,17 @@ requirements, and instructions for adding a scene are in
 
 ## Determinism and scalar modes
 
-The default build stores simulation values in signed Q32.32 fixed point from
-[`fixed`](https://github.com/dhannyell/fixed). The optional `dbox2d_float`
-build tag uses `float32` instead. Both modes keep a deterministic result for a
-given architecture-supported build, but they are different numeric systems and
-can follow different trajectories.
+The default build stores simulation values in `float32`. The optional
+`dbox2d_fixed` build tag uses signed Q32.32 fixed point from
+[`fixed`](https://github.com/dhannyell/fixed) instead. Both modes keep a
+deterministic result for a given architecture-supported build, but they are
+different numeric systems and can follow different trajectories. `ScalarMode`
+reports the mode of a build: `"float"` or `"fixed"`.
 
 | Build | Scalar type | Determinism promise | When to use it |
 | --- | --- | --- | --- |
-| default | Q32.32 fixed point | identical Q32.32 bits across supported architectures | authoritative simulation, replay, rollback, and checksums |
-| `-tags dbox2d_float` | `float32` | identical float32 bits on amd64, arm64, 386, and wasm | comparison work and float-mode sample builds |
+| default | `float32` | identical float32 bits on amd64, arm64, 386, and wasm | most applications |
+| `-tags dbox2d_fixed` | Q32.32 fixed point | identical Q32.32 bits across supported architectures | authoritative simulation, replay, rollback, and checksums |
 
 Use the package constructors to create simulation values:
 
@@ -104,68 +105,81 @@ QMustParse("0.35")
 simulation. The solver itself does not use them. Angles are expressed in turns:
 one quarter turn is `QFromRatio(1, 4)`.
 
-Build and test float mode with:
+Build and test fixed mode with:
 
 ```sh
-go build -tags dbox2d_float ./...
-go test -tags dbox2d_float ./...
+go build -tags dbox2d_fixed ./...
+go test -tags dbox2d_fixed ./...
 cd samples
-go test -tags dbox2d_float ./...
-go run -tags dbox2d_float ./cmd/native
+go test -tags dbox2d_fixed ./...
+go run -tags dbox2d_fixed ./cmd/native
 ```
 
-The published sample page serves the fixed build by default. Add
-`?mode=float` to load the float build instead.
+The published sample page serves the float build by default. Add
+`?mode=fixed` to load the fixed build instead.
 
 The port is checked against traces of the reference compiled without SIMD and
 without FMA; the collision functions match the reference bit for bit in float
 mode except at three documented sites, and the fixed mode stays within measured
 budgets. See DIVERGENCES.md D-018.
 
-### Wide family
+### SIMD family
 
-The `dbox2d_simd` build tag adds a wide contact-solving path beside the
-scalar family. It requires `dbox2d_float`; the build fails otherwise, because
-no wide fixed-point lane exists yet. Four lane paths cover it: avx2 (amd64,
-width 8), neon (arm64, width 4), simd128 (wasm, width 4), and a generic path
-of four named floats for every other target. avx2, neon, and simd128 need
-`GOEXPERIMENT=simd` with Go 1.27.0 and the `simd/archsimd` package; without the
-experiment, the same tags build the generic path. avx2 falls back to the
-scalar family at runtime on a CPU without AVX2.
+The `dbox2d_simd` build tag enables a SIMD contact solver alongside the scalar
+solver in both modes. Colored contacts are solved in lanes; the overflow color
+remains scalar.
+
+| Mode | amd64 | arm64 | wasm | Other targets |
+| --- | --- | --- | --- | --- |
+| fixed | AVX2, width 8 | NEON, width 4 | generic | generic |
+| float | AVX2, width 8 | NEON, width 4 | SIMD128, width 4 | generic |
+
+In fixed mode, the `fixed` module selects the lane implementation and
+`fixed.LanePath()` reports the active path. Native vector paths require
+`GOEXPERIMENT=simd` with Go 1.27.0. Without the experiment, the same build tag
+uses the generic path.
+
+On amd64, AVX2 falls back to the scalar contact solver at runtime when the CPU
+does not support AVX2.
 
 ```sh
-GOTOOLCHAIN=go1.27.0 GOEXPERIMENT=simd go build -tags dbox2d_float,dbox2d_simd ./...
+GOTOOLCHAIN=go1.27.0 GOEXPERIMENT=simd go build -tags dbox2d_simd ./...
+GOTOOLCHAIN=go1.27.0 GOEXPERIMENT=simd go build -tags dbox2d_simd,dbox2d_fixed ./...
 ```
 
-The `dbox2d_simd` tag requires `dbox2d_float`; without it the build stops with
-`undefined: wideRequiresFloatMode`.
+The SIMD and scalar families produce identical result bits on every supported
+path in both modes. Float SIMD never fuses multiply-add or multiply-subtract
+operations (DIVERGENCES.md D-019). Fixed SIMD uses the same Q16.16 contact grid
+as the scalar solver and matches it while no contact value saturates. A
+contact whose inverse mass or inertia falls outside the lane window of that
+grid solves in Q32.32 in both families (D-020).
 
-The wide family produces the same result bits as the scalar family, on every
-path, because it never fuses a multiply with an add or a subtract. See
-DIVERGENCES.md D-019.
+Measured on an AMD Ryzen 7 5800X3D: milliseconds for 60 steps of a settled
+scene (after 240 warmup steps), median of 5 interleaved runs.
 
-The wide avx2 path is faster than the scalar family. Measured on an AMD
-Ryzen 7 5800X3D, `benchstat` n=6, samples benchmarks of 60 steps:
+| Scene | Mode | Workers | Scalar | SIMD AVX2 | Generic |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Tumbler | float | 1 | 444 | 298 | 531 |
+| Tumbler | float | 8 | 124 | 100 | 176 |
+| Tumbler | fixed | 1 | 1312 | 815 | 3563 |
+| Tumbler | fixed | 8 | 350 | 244 | 817 |
+| LargePyramid | float | 1 | 734 | 377 | 993 |
+| LargePyramid | float | 8 | 152 | 92 | 227 |
+| LargePyramid | fixed | 1 | 3125 | 1746 | 11093 |
+| LargePyramid | fixed | 8 | 636 | 416 | 1867 |
+| Barrel | float | 1 | 363 | 288 | 412 |
+| Barrel | float | 8 | 133 | 120 | 157 |
+| Barrel | fixed | 1 | 876 | 581 | 2555 |
+| Barrel | fixed | 8 | 258 | 203 | 578 |
 
-| benchmark | scalar float | wide avx2 | delta |
-| --- | ---: | ---: | ---: |
-| Tumbler, 1 worker | 403 ms | 276 ms | -31.6% |
-| Tumbler, 8 workers | 122 ms | 97 ms | -20.8% |
-| LargePyramid, 1 worker | 770 ms | 391 ms | -49.3% |
-| LargePyramid, 8 workers | 162 ms | 98 ms | -39.4% |
+Fixed SIMD remains 1.7 to 4.6 times slower than float SIMD in these scenes. On
+AVX2, each Q16.16 lane multiplication must widen to 64 bits before narrowing
+back to Q16.16.
 
-StepPyramid per step: scalar 487 µs, wide avx2 270 µs. A 60-step run
-allocates less than the scalar family does. The generic path is slower than
-the scalar family: 8% to 44% on amd64 and 14% to 49% on wasm, most on
-LargePyramid. Its lanes are structs of four named floats, so the compiler
-keeps them in registers, but it still runs four scalar operations per lane
-step. It exists for conformance, so do not enable the tag on a target
-without a vector path. NEON is cross-built and tested in CI but not
-benchmarked yet.
-
-On the avx2 path, the gather loads each body state as one 32-byte row and
-transposes eight rows into lanes with register shuffles; the other paths
-gather through a scalar scratch.
+The generic lane path exists for conformance and is slower than the scalar
+solver: up to 1.5 times in float mode and up to 3.5 times in fixed mode. Do not
+enable `dbox2d_simd` on targets without a native vector path.
+For fixed mode, this currently includes wasm.
 
 ### Choosing a mode for deterministic simulation
 
@@ -199,9 +213,9 @@ This is a port, not a new physics design. It preserves the upstream file
 structure, names without the `b2` prefix, and order of operations so code can
 be compared with its Box2D counterpart.
 
-It does not promise the same output bits as Box2D. Upstream uses floating-point
-arithmetic while the default build uses fixed point, and some float-oriented
-operations must change as a result. Each intentional change is documented with
+It does not promise the same output bits as Box2D. Both scalar modes share one
+source, and the fixed-point mode forbids some float-oriented operations, so
+those operations change in both modes. Each intentional change is documented with
 its rationale and test coverage in [DIVERGENCES.md](DIVERGENCES.md).
 
 `dbox2d` is not affiliated with, endorsed by, or supported by the Box2D
@@ -239,16 +253,12 @@ Run the benchmarks on the hardware and workload that matter to your project:
 
 ```sh
 go test -run "^$" -bench . -benchmem
+go test -tags dbox2d_fixed -run "^$" -bench . -benchmem
 ```
 
-The repository also contains experimental solver probes for narrower fixed
-formats and batch kernels. They are test-only measurements; Q32.32 remains the
-library's production scalar format.
-
-`fixed_nosatcounter` removes the optional saturation diagnostic counter while
-keeping numerical results unchanged. `SaturationCount` then returns zero. This
-is useful for production and WebAssembly builds, but repository tests that read
-the counter must run without the tag.
+The saturation counter of `fixed` is off by default and never changes a
+result. The tests that assert that no operation saturated read it, so they
+check nothing unless the build sets `fixed_satcounter`. CI sets it.
 
 ## Reference source
 

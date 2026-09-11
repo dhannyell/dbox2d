@@ -310,7 +310,7 @@ func readConformanceSceneTrace(t *testing.T, path string) conformanceSceneTrace 
 }
 
 func conformanceFloatMode() bool {
-	return qBits(QFromFloat64(1.5)) == uint64(math.Float32bits(1.5))
+	return ScalarMode == "float"
 }
 
 func orderedConformanceFloat(bits uint32) uint32 {
@@ -832,6 +832,7 @@ func runConformanceSceneTrace(t *testing.T, name, path string, floatMode bool) {
 	}
 	firstHashDivergence := 0
 	portSleepStep := 0
+	resetSaturationCount()
 	for stepIndex, expected := range trace.steps {
 		if stepFn != nil {
 			stepFn(stepIndex)
@@ -881,6 +882,10 @@ func runConformanceSceneTrace(t *testing.T, name, path string, floatMode bool) {
 		if name == "falling_hinges.txt" && portSleepStep == 0 && worldId.GetAwakeBodyCount() == 0 {
 			portSleepStep = step
 		}
+	}
+	// The contact grid is Q16: a saturation there changes the physics silently.
+	if n := saturationCount(); n != 0 {
+		t.Errorf("scene %s: %d operations saturated", name, n)
 	}
 	if name == "falling_hinges.txt" {
 		referenceSleepStep := len(trace.steps)
