@@ -273,10 +273,18 @@ func TestFrictionSaturatesAtTheNormalImpulse(t *testing.T) {
 // TestRollingBoundKeepsATwoPointTotal pins the rolling bound when the total
 // of two points passes the contact grid range.
 func TestRollingBoundKeepsATwoPointTotal(t *testing.T) {
-	rr := qcFrom(QFromRatio(1, 8))
-	total := qaFrom(QFromInt(40000))
-	if got, want := rollingBound(rr, total), qcFrom(QFromInt(5000)); !got.Eq(want) {
-		t.Fatalf("the rolling bound is %v, want %v", got.toQ(), want.toQ())
+	for _, tc := range []struct{ rr, total, want Q }{
+		{QFromRatio(1, 8), QFromInt(40000), QFromInt(5000)},
+		// An exact product: one rounding, and no saturation in the split.
+		{QHalf(), QFromInt(32768), QFromInt(16384)},
+	} {
+		before := saturationCount()
+		if got, want := rollingBound(qcFrom(tc.rr), qaFrom(tc.total)), qcFrom(tc.want); !got.Eq(want) {
+			t.Fatalf("the rolling bound of %v·%v is %v, want %v", tc.rr, tc.total, got.toQ(), want.toQ())
+		}
+		if n := saturationCount() - before; n != 0 {
+			t.Fatalf("the rolling bound of %v·%v saturated %d times", tc.rr, tc.total, n)
+		}
 	}
 }
 

@@ -18,14 +18,23 @@ func TestWidePath(t *testing.T) {
 // TestRollingBoundWKeepsATwoPointTotal pins the lane rolling bound when the
 // total of two points passes the lane range.
 func TestRollingBoundWKeepsATwoPointTotal(t *testing.T) {
-	rr := laneSplat(QFromRatio(1, 8))
-	total := laneSplat(QFromInt(20000)).toAcc().Add(laneSplat(QFromInt(20000)).toAcc())
-	var got [wideWidth]laneScalar
-	rollingBoundW(rr, total).store(&got)
-	want := QFromInt(5000)
-	for j := range wideWidth {
-		if !laneScalarToQ(got[j]).Eq(want) {
-			t.Fatalf("lane %d: the rolling bound is %v, want %v", j, laneScalarToQ(got[j]), want)
+	for _, tc := range []struct{ rr, total, want Q }{
+		{QFromRatio(1, 8), QFromInt(40000), QFromInt(5000)},
+		// An exact product: one rounding, and no saturation in the split.
+		{QHalf(), QFromInt(32768), QFromInt(16384)},
+	} {
+		rr := laneSplat(tc.rr)
+		half := laneSplat(tc.total.Div(QFromInt(2))).toAcc()
+		before := saturationCount()
+		var got [wideWidth]laneScalar
+		rollingBoundW(rr, half.Add(half)).store(&got)
+		for j := range wideWidth {
+			if !laneScalarToQ(got[j]).Eq(tc.want) {
+				t.Fatalf("lane %d: the rolling bound of %v·%v is %v, want %v", j, tc.rr, tc.total, laneScalarToQ(got[j]), tc.want)
+			}
+		}
+		if n := saturationCount() - before; n != 0 {
+			t.Fatalf("the rolling bound of %v·%v saturated %d times", tc.rr, tc.total, n)
 		}
 	}
 }

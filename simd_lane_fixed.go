@@ -154,14 +154,18 @@ func (a accW) AddBounded(b accW) accW { return accW{v: a.v.AddWrap(b.v)} }
 // SubBounded subtracts under the same budget as AddBounded.
 func (a accW) SubBounded(b accW) accW { return accW{v: a.v.SubWrap(b.v)} }
 
-// rollingBoundW returns rr·total per lane and narrows only the product. The
-// total of two points can pass the Q16 range, so it enters as a high and a
-// low part.
+// rollingBoundW returns rr·total per lane through the scalar rollingBound:
+// the lanes have no floor, and the split of the total must not saturate.
 func rollingBoundW(rr laneW, total accW) laneW {
-	hi := total.toLane()
-	lo := total.Sub(hi.toAcc()).toLane()
-	zero := fixed.SplatLane48(fixed.Q48Zero())
-	return laneW{v: zero.MulAdd16Round(rr.v, hi.v).MulAdd16Round(rr.v, lo.v).ToLane16()}
+	var rrs [wideWidth]laneScalar
+	var totals [wideWidth]accScalar
+	var bounds [wideWidth]laneScalar
+	rr.store(&rrs)
+	total.store(&totals)
+	for j := range wideWidth {
+		bounds[j] = rollingBound(qc{rrs[j]}, qa{totals[j]}).v
+	}
+	return laneLoad(&bounds)
 }
 
 // bodyScratchW carries the gathered scalars between the body states and the

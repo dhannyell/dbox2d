@@ -142,12 +142,13 @@ func (a qa) Add(b qa) qa  { return qa{a.v.Add(b.v)} }
 func (a qa) Sub(b qa) qa  { return qa{a.v.Sub(b.v)} }
 func (a qa) Eq(b qa) bool { return a.v.Eq(b.v) }
 
-// rollingBound returns rr·total and narrows only the product. The total of
-// two points can pass the Q16 range, so it enters as a high and a low part.
+// rollingBound returns rr·total, rounded once, and narrows only the product.
+// The total of two points can pass the Q16 range, so it splits into an
+// integer part, whose product is exact, and a fraction in [0, 1).
 func rollingBound(rr qc, total qa) qc {
-	hi := total.narrow()
-	lo := total.Sub(hi.widen()).narrow()
-	return qc{fixed.Q48Zero().MulAdd16Round(rr.v, hi.v).MulAdd16Round(rr.v, lo.v).ToQ16()}
+	hi := total.v.Floor()
+	lo := total.v.Sub(hi).ToQ16()
+	return qc{hi.Mul16(rr.v).MulAdd16Round(rr.v, lo).ToQ16()}
 }
 
 // The Q32 contact path (contact_solver_q32.go) is the same solver on the
