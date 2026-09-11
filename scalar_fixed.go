@@ -150,6 +150,60 @@ func rollingBound(rr qc, total qa) qc {
 	return qc{fixed.Q48Zero().MulAdd16Round(rr.v, hi.v).MulAdd16Round(rr.v, lo.v).ToQ16()}
 }
 
+// The Q32 contact path (contact_solver_q32.go) is the same solver on the
+// scalar grid. Its types wrap Q, so every conversion is the identity and the
+// products truncate like the rest of the solver.
+type (
+	// qcw is the contact scalar of the Q32 path.
+	qcw struct{ v Q }
+
+	// qaw is the contact accumulator of the Q32 path.
+	qaw struct{ v Q }
+
+	// vec2cw is a contact vector of the Q32 path.
+	vec2cw struct{ X, Y qcw }
+
+	// rotcw is a contact rotation of the Q32 path.
+	rotcw struct{ Sin, Cos qcw }
+)
+
+func qcwFrom(x Q) qcw { return qcw{x} }
+
+func qawFrom(x Q) qaw { return qaw{x} }
+
+func (a qcw) toQ() Q               { return a.v }
+func (a qcw) widen() qaw           { return qaw{a.v} }
+func (a qcw) Add(b qcw) qcw        { return qcw{a.v.Add(b.v)} }
+func (a qcw) Sub(b qcw) qcw        { return qcw{a.v.Sub(b.v)} }
+func (a qcw) Mul(b qcw) qcw        { return qcw{a.v.Mul(b.v)} }
+func (a qcw) Neg() qcw             { return qcw{a.v.Neg()} }
+func (a qcw) Max(b qcw) qcw        { return qcw{a.v.Max(b.v)} }
+func (a qcw) Clamp(lo, hi qcw) qcw { return qcw{a.v.Clamp(lo.v, hi.v)} }
+func (a qcw) Less(b qcw) bool      { return a.v.Less(b.v) }
+func (a qcw) Eq(b qcw) bool        { return a.v.Eq(b.v) }
+
+func (a qaw) toQ() Q        { return a.v }
+func (a qaw) narrow() qcw   { return qcw{a.v} }
+func (a qaw) Add(b qaw) qaw { return qaw{a.v.Add(b.v)} }
+func (a qaw) Sub(b qaw) qaw { return qaw{a.v.Sub(b.v)} }
+func (a qaw) Eq(b qaw) bool { return a.v.Eq(b.v) }
+
+func (v vec2cw) Add(o vec2cw) vec2cw { return vec2cw{X: v.X.Add(o.X), Y: v.Y.Add(o.Y)} }
+func (v vec2cw) Sub(o vec2cw) vec2cw { return vec2cw{X: v.X.Sub(o.X), Y: v.Y.Sub(o.Y)} }
+func (v vec2cw) Mul(s qcw) vec2cw    { return vec2cw{X: v.X.Mul(s), Y: v.Y.Mul(s)} }
+func (v vec2cw) Dot(o vec2cw) qcw    { return v.X.Mul(o.X).Add(v.Y.Mul(o.Y)) }
+
+// Apply rotates the vector v by r.
+func (r rotcw) Apply(v vec2cw) vec2cw {
+	return vec2cw{
+		X: r.Cos.Mul(v.X).Sub(r.Sin.Mul(v.Y)),
+		Y: r.Sin.Mul(v.X).Add(r.Cos.Mul(v.Y)),
+	}
+}
+
+// rollingBound32 returns rr·total on the scalar grid.
+func rollingBound32(rr qcw, total qaw) qcw { return qcw{rr.v.Mul(total.v)} }
+
 func (v vec2c) Add(o vec2c) vec2c { return vec2c{X: v.X.Add(o.X), Y: v.Y.Add(o.Y)} }
 func (v vec2c) Sub(o vec2c) vec2c { return vec2c{X: v.X.Sub(o.X), Y: v.Y.Sub(o.Y)} }
 func (v vec2c) Mul(s qc) vec2c    { return vec2c{X: v.X.Mul(s), Y: v.Y.Mul(s)} }

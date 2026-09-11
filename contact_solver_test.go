@@ -1,6 +1,32 @@
 package dbox2d
 
-import "testing"
+import (
+	"bytes"
+	"os"
+	"testing"
+
+	"github.com/dhannyell/dbox2d/internal/q32gen"
+)
+
+// TestQ32ContactSolverIsFresh keeps contact_solver_q32.go in step with
+// contact_solver.go; run go generate after a change to the source.
+func TestQ32ContactSolverIsFresh(t *testing.T) {
+	src, err := os.ReadFile("contact_solver.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := q32gen.Generate(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile("contact_solver_q32.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatal("contact_solver_q32.go is stale; run go generate")
+	}
+}
 
 // withinQ reports whether a and b differ by at most limit.
 func withinQ(a, b, limit Q) bool {
