@@ -691,3 +691,33 @@ Numbering is sequential from `D-001` and never reused.
   witness, samples and conformance suites all run under the `dbox2d_simd` tag
   in CI, on amd64 and arm64 with `GOEXPERIMENT=simd` and on the generic path
   across the four-architecture matrix.
+
+### D-020 Contacts solve on a Q16 grid
+
+- Files: contact_solver.go, scalar_fixed.go, scalar_float.go
+- Tier: T2
+- Reason: a fixed-point wide lane holds Q16.16 values, so a Q32.32 contact
+  solver could never match it bit for bit. The scalar family is the oracle of
+  the wide family (D-019), so both families solve contacts on the same grid.
+- Behaviour: in fixed mode the contact stages use `qc`, a Q16.16 value whose
+  products round to nearest, and `qa`, a Q48.16 accumulator with the same 16
+  fraction bits. The prepare stage computes in Q32.32, as before, and rounds
+  each result to the grid: the normal, the anchors, the separation, the
+  masses, the coefficients and the warm-start impulses. The other stages load
+  the body velocities into `qa` and the position deltas into `qc`, both
+  rounded to nearest. They compute each product on the grid and accumulate
+  each velocity change and the total normal impulse in `qa`. The store writes
+  the values back to the Q32.32 body state and manifold without rounding. The
+  order of operations does not change.
+
+  In float mode `qc` and `qa` are aliases of `Q` and every conversion is the
+  identity, so the float witness does not change. The Q16 range is ±32768. A
+  contact value outside it saturates, so the scene traces of TestConformance
+  require zero saturations in fixed mode when the build sets
+  `fixed_satcounter`. This change moved the fixed witness and four samples
+  checksums. The conformance budgets did not move. One grid unit moves a
+  bounded friction label of the draw golden by 0.015, so the golden accepts
+  one unit in the last printed place of a decimal label.
+- Test: TestChecksumMatchesDeterministicWitness; the contact tests in
+  contact_solver_test.go, with `contactRounding()` for one rounding to the
+  grid; the saturation gate of the scene traces in TestConformance.

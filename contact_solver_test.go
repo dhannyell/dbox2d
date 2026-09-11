@@ -112,27 +112,27 @@ func TestPrepareOverflowContactsBuildsTheMasses(t *testing.T) {
 	if constraint.indexA != nullIndex || constraint.indexB != box.localIndex {
 		t.Fatalf("the constraint points at bodies %d and %d", constraint.indexA, constraint.indexB)
 	}
-	if constraint.softness != context.staticSoftness {
+	if constraint.softness != contactSoftFrom(context.staticSoftness) {
 		t.Errorf("a ground contact did not take the static softness")
 	}
-	tolerance := qUlps(64)
-	if constraint.invMassB != QOne() || !withinQ(constraint.invIB, QFromInt(6), tolerance) {
-		t.Errorf("the box has inverse mass %v and inverse inertia %v, want 1 and 6", constraint.invMassB, constraint.invIB)
+	tolerance := qUlps(64).Add(contactRounding())
+	if constraint.invMassB.toQ() != QOne() || !withinQ(constraint.invIB.toQ(), QFromInt(6), tolerance) {
+		t.Errorf("the box has inverse mass %v and inverse inertia %v, want 1 and 6", constraint.invMassB.toQ(), constraint.invIB.toQ())
 	}
 
 	cp := &constraint.points[0]
-	if !withinQ(cp.normalMass, QOne(), tolerance) {
-		t.Errorf("normalMass is %v, want 1", cp.normalMass)
+	if !withinQ(cp.normalMass.toQ(), QOne(), tolerance) {
+		t.Errorf("normalMass is %v, want 1", cp.normalMass.toQ())
 	}
-	if !withinQ(cp.tangentMass, QFromRatio(2, 5), tolerance) {
-		t.Errorf("tangentMass is %v, want 0.4", cp.tangentMass)
+	if !withinQ(cp.tangentMass.toQ(), QFromRatio(2, 5), tolerance) {
+		t.Errorf("tangentMass is %v, want 0.4", cp.tangentMass.toQ())
 	}
 	// baseSeparation = 0 - dot(rB - rA, n) = -(-0.5 - 0.5) = 1
-	if !cp.baseSeparation.Eq(QOne()) {
-		t.Errorf("baseSeparation is %v, want 1", cp.baseSeparation)
+	if !cp.baseSeparation.toQ().Eq(QOne()) {
+		t.Errorf("baseSeparation is %v, want 1", cp.baseSeparation.toQ())
 	}
-	if !cp.relativeVelocity.Eq(QFromInt(-3)) {
-		t.Errorf("relativeVelocity is %v, want -3", cp.relativeVelocity)
+	if !cp.relativeVelocity.toQ().Eq(QFromInt(-3)) {
+		t.Errorf("relativeVelocity is %v, want -3", cp.relativeVelocity.toQ())
 	}
 }
 
@@ -220,12 +220,12 @@ func TestFrictionSaturatesAtTheNormalImpulse(t *testing.T) {
 
 	cp := &w.constraintGraph.colors[overflowIndex].contactConstraints[0].points[0]
 	constraint := &w.constraintGraph.colors[overflowIndex].contactConstraints[0]
-	if !QZero().Less(cp.normalImpulse) {
-		t.Fatalf("the normal impulse is %v, want positive", cp.normalImpulse)
+	if !QZero().Less(cp.normalImpulse.toQ()) {
+		t.Fatalf("the normal impulse is %v, want positive", cp.normalImpulse.toQ())
 	}
 	want := constraint.friction.Mul(cp.normalImpulse).Neg()
 	if !cp.tangentImpulse.Eq(want) {
-		t.Errorf("the tangent impulse is %v, want %v", cp.tangentImpulse, want)
+		t.Errorf("the tangent impulse is %v, want %v", cp.tangentImpulse.toQ(), want.toQ())
 	}
 	// A slide to the right rolls the box clockwise.
 	if !state.angularVelocity.Less(QZero()) {
@@ -285,8 +285,8 @@ func TestStoreOverflowImpulsesFillsTheManifold(t *testing.T) {
 
 	cp := &w.constraintGraph.colors[overflowIndex].contactConstraints[0].points[0]
 	mp := &w.constraintGraph.colors[overflowIndex].contactSims[0].manifold.Points[0]
-	if mp.NormalImpulse != cp.normalImpulse || mp.TangentImpulse != cp.tangentImpulse || mp.TotalNormalImpulse != cp.totalNormalImpulse {
-		t.Errorf("the manifold holds %v, %v, %v, want %v, %v, %v", mp.NormalImpulse, mp.TangentImpulse, mp.TotalNormalImpulse, cp.normalImpulse, cp.tangentImpulse, cp.totalNormalImpulse)
+	if mp.NormalImpulse != cp.normalImpulse.toQ() || mp.TangentImpulse != cp.tangentImpulse.toQ() || mp.TotalNormalImpulse != cp.totalNormalImpulse.toQ() {
+		t.Errorf("the manifold holds %v, %v, %v, want %v, %v, %v", mp.NormalImpulse, mp.TangentImpulse, mp.TotalNormalImpulse, cp.normalImpulse.toQ(), cp.tangentImpulse.toQ(), cp.totalNormalImpulse.toQ())
 	}
 	if !mp.NormalVelocity.Eq(QFromInt(-2)) {
 		t.Errorf("the normal velocity is %v, want -2", mp.NormalVelocity)

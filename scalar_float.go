@@ -354,3 +354,22 @@ func QFromFloat64(f float64) Q { return Q{float32(f)} }
 // QToFloat64 converts a scalar to a presentation value, such as a camera
 // value. It must never be used by simulation code.
 func QToFloat64(q Q) float64 { return float64(q.v) }
+
+// The float mode solves contacts in its one scalar, so the contact types
+// are aliases and the conversions do nothing.
+type (
+	qc    = Q
+	qa    = Q
+	vec2c = Vec2
+	rotc  = Rot
+)
+
+func qcFrom(x Q) qc { return x }
+
+func qaFrom(x Q) qa { return x }
+
+func (q Q) toQ() Q { return q }
+
+func (q Q) widen() Q { return q }
+
+func (q Q) narrow() Q { return q }

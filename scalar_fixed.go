@@ -97,3 +97,57 @@ func QFromFloat64(f float64) Q {
 // QToFloat64 converts a scalar to a presentation value, such as a camera
 // value. It must never be used by simulation code.
 func QToFloat64(q Q) float64 { return float64(q.Raw()) / (1 << 32) }
+
+// The contact stages solve on a narrower grid than the rest of the solver:
+// Q16.16 values, with Q48.16 accumulators for the velocities and the total
+// impulse. Both have 16 fraction bits, so a widen or a narrow is exact
+// inside the Q16 range.
+type (
+	// qc is the contact scalar. Its products round to nearest.
+	qc struct{ v fixed.Q16 }
+
+	// qa is the contact accumulator.
+	qa struct{ v fixed.Q48 }
+
+	// vec2c is a contact vector.
+	vec2c struct{ X, Y qc }
+
+	// rotc is a contact rotation.
+	rotc struct{ Sin, Cos qc }
+)
+
+// qcFrom rounds x to the contact grid.
+func qcFrom(x Q) qc { return qc{x.ToQ16Round()} }
+
+// qaFrom rounds x to the accumulator grid.
+func qaFrom(x Q) qa { return qa{x.ToQ48Round()} }
+
+func (a qc) toQ() Q             { return a.v.ToQ32() }
+func (a qc) widen() qa          { return qa{a.v.ToQ48()} }
+func (a qc) Add(b qc) qc        { return qc{a.v.Add(b.v)} }
+func (a qc) Sub(b qc) qc        { return qc{a.v.Sub(b.v)} }
+func (a qc) Mul(b qc) qc        { return qc{a.v.MulRound(b.v)} }
+func (a qc) Neg() qc            { return qc{a.v.Neg()} }
+func (a qc) Max(b qc) qc        { return qc{a.v.Max(b.v)} }
+func (a qc) Clamp(lo, hi qc) qc { return qc{a.v.Clamp(lo.v, hi.v)} }
+func (a qc) Less(b qc) bool     { return a.v.Less(b.v) }
+func (a qc) Eq(b qc) bool       { return a.v.Eq(b.v) }
+
+func (a qa) toQ() Q       { return a.v.ToQ32() }
+func (a qa) narrow() qc   { return qc{a.v.ToQ16()} }
+func (a qa) Add(b qa) qa  { return qa{a.v.Add(b.v)} }
+func (a qa) Sub(b qa) qa  { return qa{a.v.Sub(b.v)} }
+func (a qa) Eq(b qa) bool { return a.v.Eq(b.v) }
+
+func (v vec2c) Add(o vec2c) vec2c { return vec2c{X: v.X.Add(o.X), Y: v.Y.Add(o.Y)} }
+func (v vec2c) Sub(o vec2c) vec2c { return vec2c{X: v.X.Sub(o.X), Y: v.Y.Sub(o.Y)} }
+func (v vec2c) Mul(s qc) vec2c    { return vec2c{X: v.X.Mul(s), Y: v.Y.Mul(s)} }
+func (v vec2c) Dot(o vec2c) qc    { return v.X.Mul(o.X).Add(v.Y.Mul(o.Y)) }
+
+// Apply rotates the vector v by r.
+func (r rotc) Apply(v vec2c) vec2c {
+	return vec2c{
+		X: r.Cos.Mul(v.X).Sub(r.Sin.Mul(v.Y)),
+		Y: r.Sin.Mul(v.X).Add(r.Cos.Mul(v.Y)),
+	}
+}
