@@ -1,4 +1,4 @@
-//go:build dbox2d_simd && dbox2d_float
+//go:build dbox2d_simd
 
 package dbox2d
 
@@ -40,17 +40,21 @@ func prepareContactsTaskWide(startIndex, endIndex int, context *stepContext) {
 
 	for i := startIndex; i < endIndex; i++ {
 		var (
-			invMassA, invMassB, invIA, invIB                                    [wideWidth]float32
-			normalX, normalY                                                    [wideWidth]float32
-			friction, tangentSpeed, restitution, rollingResistance              [wideWidth]float32
-			rollingMass, rollingImpulse                                         [wideWidth]float32
-			biasRate, massScale, impulseScale                                   [wideWidth]float32
-			anchorAX, anchorAY, anchorBX, anchorBY                              [2][wideWidth]float32
-			normalMass, tangentMass, baseSeparation                             [2][wideWidth]float32
-			normalImpulse, totalNormalImpulse, tangentImpulse, relativeVelocity [2][wideWidth]float32
+			invMassA, invMassB, invIA, invIB                                    [wideWidth]laneScalar
+			normalX, normalY                                                    [wideWidth]laneScalar
+			friction, tangentSpeed, restitution, rollingResistance              [wideWidth]laneScalar
+			rollingMass, rollingImpulse                                         [wideWidth]laneScalar
+			biasRate, massScale, impulseScale                                   [wideWidth]laneScalar
+			anchorAX, anchorAY, anchorBX, anchorBY                              [2][wideWidth]laneScalar
+			normalMass, tangentMass, baseSeparation                             [2][wideWidth]laneScalar
+			normalImpulse, totalNormalImpulse, tangentImpulse, relativeVelocity [2][wideWidth]laneScalar
 		)
 
 		constraint := &context.contactConstraintsWide[i]
+		used := 0
+		// Float lanes never skip: the skipped blocks would store +0 where
+		// they write -0, and the checksum reads the sign bit.
+		anyRolling := signedZeroSurvives
 		for j := range wideWidth {
 			constraint.indexA[j] = nullIndex
 			constraint.indexB[j] = nullIndex
@@ -60,6 +64,7 @@ func prepareContactsTaskWide(startIndex, endIndex int, context *stepContext) {
 				continue
 			}
 
+			used++
 			manifold := &contact.manifold
 			pointCount := manifold.PointCount
 			if pointCount <= 0 || pointCount > 2 {
@@ -96,62 +101,70 @@ func prepareContactsTaskWide(startIndex, endIndex int, context *stepContext) {
 				soft = staticSoftness
 			}
 
-			invMassA[j] = mA.v
-			invMassB[j] = mB.v
-			invIA[j] = iA.v
-			invIB[j] = iB.v
+			invMassA[j] = laneScalarFromQ(mA)
+			invMassB[j] = laneScalarFromQ(mB)
+			invIA[j] = laneScalarFromQ(iA)
+			invIB[j] = laneScalarFromQ(iB)
 
 			k := iA.Add(iB)
 			if zero.Less(k) {
-				rollingMass[j] = one.Div(k).v
+				rollingMass[j] = laneScalarFromQ(one.Div(k))
 			}
 
 			normal := manifold.Normal
 			tangent := RightPerp(normal)
-			normalX[j] = normal.X.v
-			normalY[j] = normal.Y.v
-			friction[j] = contact.friction.v
-			tangentSpeed[j] = contact.tangentSpeed.v
-			restitution[j] = contact.restitution.v
-			rollingResistance[j] = contact.rollingResistance.v
-			rollingImpulse[j] = warmStartScale.Mul(manifold.RollingImpulse).v
-			biasRate[j] = soft.biasRate.v
-			massScale[j] = soft.massScale.v
-			impulseScale[j] = soft.impulseScale.v
+			normalX[j] = laneScalarFromQ(normal.X)
+			normalY[j] = laneScalarFromQ(normal.Y)
+			friction[j] = laneScalarFromQ(contact.friction)
+			tangentSpeed[j] = laneScalarFromQ(contact.tangentSpeed)
+			restitution[j] = laneScalarFromQ(contact.restitution)
+			rollingResistance[j] = laneScalarFromQ(contact.rollingResistance)
+			rollingImpulse[j] = laneScalarFromQ(warmStartScale.Mul(manifold.RollingImpulse))
+			// A stored impulse counts too: it is released on the step after the
+			// rolling resistance drops to zero.
+			if zero.Less(contact.rollingResistance) || !manifold.RollingImpulse.Eq(zero) {
+				anyRolling = true
+			}
+			biasRate[j] = laneScalarFromQ(soft.biasRate)
+			massScale[j] = laneScalarFromQ(soft.massScale)
+			impulseScale[j] = laneScalarFromQ(soft.impulseScale)
 
 			for pointIndex := range pointCount {
 				mp := &manifold.Points[pointIndex]
 				rA := mp.AnchorA
 				rB := mp.AnchorB
 
-				anchorAX[pointIndex][j] = rA.X.v
-				anchorAY[pointIndex][j] = rA.Y.v
-				anchorBX[pointIndex][j] = rB.X.v
-				anchorBY[pointIndex][j] = rB.Y.v
-				baseSeparation[pointIndex][j] = mp.Separation.Sub(rB.Sub(rA).Dot(normal)).v
-				normalImpulse[pointIndex][j] = warmStartScale.Mul(mp.NormalImpulse).v
-				tangentImpulse[pointIndex][j] = warmStartScale.Mul(mp.TangentImpulse).v
-				totalNormalImpulse[pointIndex][j] = zero.v
+				baseSeparationQ := mp.Separation.Sub(rB.Sub(rA).Dot(normal))
+				anchorAX[pointIndex][j] = laneScalarFromQ(rA.X)
+				anchorAY[pointIndex][j] = laneScalarFromQ(rA.Y)
+				anchorBX[pointIndex][j] = laneScalarFromQ(rB.X)
+				anchorBY[pointIndex][j] = laneScalarFromQ(rB.Y)
+				baseSeparation[pointIndex][j] = laneScalarFromQ(baseSeparationQ)
+				normalImpulse[pointIndex][j] = laneScalarFromQ(warmStartScale.Mul(mp.NormalImpulse))
+				tangentImpulse[pointIndex][j] = laneScalarFromQ(warmStartScale.Mul(mp.TangentImpulse))
+				totalNormalImpulse[pointIndex][j] = laneScalarFromQ(zero)
 
 				rnA := Cross(rA, normal)
 				rnB := Cross(rB, normal)
 				kNormal := mA.Add(mB).Add(iA.Mul(rnA).Mul(rnA)).Add(iB.Mul(rnB).Mul(rnB))
 				if zero.Less(kNormal) {
-					normalMass[pointIndex][j] = one.Div(kNormal).v
+					normalMass[pointIndex][j] = laneScalarFromQ(one.Div(kNormal))
 				}
 
 				rtA := Cross(rA, tangent)
 				rtB := Cross(rB, tangent)
 				kTangent := mA.Add(mB).Add(iA.Mul(rtA).Mul(rtA)).Add(iB.Mul(rtB).Mul(rtB))
 				if zero.Less(kTangent) {
-					tangentMass[pointIndex][j] = one.Div(kTangent).v
+					tangentMass[pointIndex][j] = laneScalarFromQ(one.Div(kTangent))
 				}
 
 				vrA := vA.Add(CrossSV(wA, rA))
 				vrB := vB.Add(CrossSV(wB, rB))
-				relativeVelocity[pointIndex][j] = normal.Dot(vrB.Sub(vrA)).v
+				relativeVelocityQ := normal.Dot(vrB.Sub(vrA))
+				relativeVelocity[pointIndex][j] = laneScalarFromQ(relativeVelocityQ)
 			}
 		}
+		constraint.hasRolling = anyRolling
 
 		constraint.invMassA = laneLoad(&invMassA)
 		constraint.invMassB = laneLoad(&invMassB)
@@ -163,7 +176,7 @@ func prepareContactsTaskWide(startIndex, endIndex int, context *stepContext) {
 		constraint.restitution = laneLoad(&restitution)
 		constraint.rollingResistance = laneLoad(&rollingResistance)
 		constraint.rollingMass = laneLoad(&rollingMass)
-		constraint.rollingImpulse = laneLoad(&rollingImpulse).toAcc()
+		constraint.rollingImpulse = laneLoad(&rollingImpulse)
 		constraint.biasRate = laneLoad(&biasRate)
 		constraint.massScale = laneLoad(&massScale)
 		constraint.impulseScale = laneLoad(&impulseScale)
@@ -173,9 +186,9 @@ func prepareContactsTaskWide(startIndex, endIndex int, context *stepContext) {
 		constraint.normalMass1 = laneLoad(&normalMass[0])
 		constraint.tangentMass1 = laneLoad(&tangentMass[0])
 		constraint.baseSeparation1 = laneLoad(&baseSeparation[0])
-		constraint.normalImpulse1 = laneLoad(&normalImpulse[0]).toAcc()
+		constraint.normalImpulse1 = laneLoad(&normalImpulse[0])
 		constraint.totalNormalImpulse1 = laneLoad(&totalNormalImpulse[0]).toAcc()
-		constraint.tangentImpulse1 = laneLoad(&tangentImpulse[0]).toAcc()
+		constraint.tangentImpulse1 = laneLoad(&tangentImpulse[0])
 		constraint.relativeVelocity1 = laneLoad(&relativeVelocity[0])
 
 		constraint.anchorA2 = vec2W{x: laneLoad(&anchorAX[1]), y: laneLoad(&anchorAY[1])}
@@ -183,9 +196,9 @@ func prepareContactsTaskWide(startIndex, endIndex int, context *stepContext) {
 		constraint.normalMass2 = laneLoad(&normalMass[1])
 		constraint.tangentMass2 = laneLoad(&tangentMass[1])
 		constraint.baseSeparation2 = laneLoad(&baseSeparation[1])
-		constraint.normalImpulse2 = laneLoad(&normalImpulse[1]).toAcc()
+		constraint.normalImpulse2 = laneLoad(&normalImpulse[1])
 		constraint.totalNormalImpulse2 = laneLoad(&totalNormalImpulse[1]).toAcc()
-		constraint.tangentImpulse2 = laneLoad(&tangentImpulse[1]).toAcc()
+		constraint.tangentImpulse2 = laneLoad(&tangentImpulse[1])
 		constraint.relativeVelocity2 = laneLoad(&relativeVelocity[1])
 	}
 }
@@ -195,7 +208,6 @@ func prepareContactsTaskWide(startIndex, endIndex int, context *stepContext) {
 func warmStartContactsTaskWide(startIndex, endIndex int, context *stepContext, colorIndex int) {
 	states := context.states
 	constraints := context.graph.colors[colorIndex].contactConstraintsWide
-	negOne := laneSplat(Q{v: -1})
 	tauW := laneSplat(tau)
 
 	for i := startIndex; i < endIndex; i++ {
@@ -204,40 +216,42 @@ func warmStartContactsTaskWide(startIndex, endIndex int, context *stepContext, c
 		gatherBodyW(states, &constraint.indexA, tauW, &bodyA)
 		gatherBodyW(states, &constraint.indexB, tauW, &bodyB)
 		tangentX := constraint.normal.y
-		tangentY := negOne.Mul(constraint.normal.x)
+		tangentY := constraint.normal.x.Neg()
 
 		{
-			normalImpulse := constraint.normalImpulse1.toLane()
-			tangentImpulse := constraint.tangentImpulse1.toLane()
+			normalImpulse := constraint.normalImpulse1
+			tangentImpulse := constraint.tangentImpulse1
 			p := vec2W{
 				x: constraint.normal.x.Mul(normalImpulse).Add(tangentX.Mul(tangentImpulse)),
 				y: constraint.normal.y.Mul(normalImpulse).Add(tangentY.Mul(tangentImpulse)),
 			}
-			bodyA.w = bodyA.w.Sub(constraint.invIA.Mul(crossW(constraint.anchorA1, p)).toAcc())
-			bodyA.v.x = bodyA.v.x.Sub(constraint.invMassA.Mul(p.x).toAcc())
-			bodyA.v.y = bodyA.v.y.Sub(constraint.invMassA.Mul(p.y).toAcc())
-			bodyB.w = bodyB.w.Add(constraint.invIB.Mul(crossW(constraint.anchorB1, p)).toAcc())
-			bodyB.v.x = bodyB.v.x.Add(constraint.invMassB.Mul(p.x).toAcc())
-			bodyB.v.y = bodyB.v.y.Add(constraint.invMassB.Mul(p.y).toAcc())
+			bodyA.w = bodyA.w.SubBounded(constraint.invIA.Mul(crossW(constraint.anchorA1, p)).toAcc())
+			bodyA.v.x = bodyA.v.x.SubBounded(constraint.invMassA.Mul(p.x).toAcc())
+			bodyA.v.y = bodyA.v.y.SubBounded(constraint.invMassA.Mul(p.y).toAcc())
+			bodyB.w = bodyB.w.AddBounded(constraint.invIB.Mul(crossW(constraint.anchorB1, p)).toAcc())
+			bodyB.v.x = bodyB.v.x.AddBounded(constraint.invMassB.Mul(p.x).toAcc())
+			bodyB.v.y = bodyB.v.y.AddBounded(constraint.invMassB.Mul(p.y).toAcc())
 		}
 
 		{
-			normalImpulse := constraint.normalImpulse2.toLane()
-			tangentImpulse := constraint.tangentImpulse2.toLane()
+			normalImpulse := constraint.normalImpulse2
+			tangentImpulse := constraint.tangentImpulse2
 			p := vec2W{
 				x: constraint.normal.x.Mul(normalImpulse).Add(tangentX.Mul(tangentImpulse)),
 				y: constraint.normal.y.Mul(normalImpulse).Add(tangentY.Mul(tangentImpulse)),
 			}
-			bodyA.w = bodyA.w.Sub(constraint.invIA.Mul(crossW(constraint.anchorA2, p)).toAcc())
-			bodyA.v.x = bodyA.v.x.Sub(constraint.invMassA.Mul(p.x).toAcc())
-			bodyA.v.y = bodyA.v.y.Sub(constraint.invMassA.Mul(p.y).toAcc())
-			bodyB.w = bodyB.w.Add(constraint.invIB.Mul(crossW(constraint.anchorB2, p)).toAcc())
-			bodyB.v.x = bodyB.v.x.Add(constraint.invMassB.Mul(p.x).toAcc())
-			bodyB.v.y = bodyB.v.y.Add(constraint.invMassB.Mul(p.y).toAcc())
+			bodyA.w = bodyA.w.SubBounded(constraint.invIA.Mul(crossW(constraint.anchorA2, p)).toAcc())
+			bodyA.v.x = bodyA.v.x.SubBounded(constraint.invMassA.Mul(p.x).toAcc())
+			bodyA.v.y = bodyA.v.y.SubBounded(constraint.invMassA.Mul(p.y).toAcc())
+			bodyB.w = bodyB.w.AddBounded(constraint.invIB.Mul(crossW(constraint.anchorB2, p)).toAcc())
+			bodyB.v.x = bodyB.v.x.AddBounded(constraint.invMassB.Mul(p.x).toAcc())
+			bodyB.v.y = bodyB.v.y.AddBounded(constraint.invMassB.Mul(p.y).toAcc())
 		}
 
-		bodyA.w = bodyA.w.Sub(constraint.invIA.Mul(constraint.rollingImpulse.toLane()).toAcc())
-		bodyB.w = bodyB.w.Add(constraint.invIB.Mul(constraint.rollingImpulse.toLane()).toAcc())
+		if constraint.hasRolling {
+			bodyA.w = bodyA.w.SubBounded(constraint.invIA.Mul(constraint.rollingImpulse).toAcc())
+			bodyB.w = bodyB.w.AddBounded(constraint.invIB.Mul(constraint.rollingImpulse).toAcc())
+		}
 		scatterBodyW(states, &constraint.indexA, tauW, &bodyA)
 		scatterBodyW(states, &constraint.indexB, tauW, &bodyB)
 	}
@@ -252,7 +266,6 @@ func solveContactsTaskWide(startIndex, endIndex int, context *stepContext, color
 	minBiasVelocity := laneSplat(context.world.contactSpeed.Neg())
 	zero := laneZero()
 	one := laneSplat(QOne())
-	negOne := laneSplat(Q{v: -1})
 	tauW := laneSplat(tau)
 
 	for i := startIndex; i < endIndex; i++ {
@@ -273,7 +286,7 @@ func solveContactsTaskWide(startIndex, endIndex int, context *stepContext, color
 		totalNormalImpulse := zero.toAcc()
 		dp := vec2W{x: bodyB.dp.x.Sub(bodyA.dp.x), y: bodyB.dp.y.Sub(bodyA.dp.y)}
 		normal := constraint.normal
-		tangent := vec2W{x: normal.y, y: negOne.Mul(normal.x)}
+		tangent := vec2W{x: normal.y, y: normal.x.Neg()}
 
 		{
 			rA := constraint.anchorA1
@@ -290,8 +303,8 @@ func solveContactsTaskWide(startIndex, endIndex int, context *stepContext, color
 			pointMassScale := laneBlend(separated, one, massScale)
 			pointImpulseScale := laneBlend(separated, zero, impulseScale)
 
-			negWA := negOne.Mul(bodyA.w.toLane())
-			negWB := negOne.Mul(bodyB.w.toLane())
+			negWA := bodyA.w.toLane().Neg()
+			negWB := bodyB.w.toLane().Neg()
 			vrA := vec2W{
 				x: bodyA.v.x.toLane().Add(negWA.Mul(rA.y)),
 				y: bodyA.v.y.toLane().Add(bodyA.w.toLane().Mul(rA.x)),
@@ -302,20 +315,20 @@ func solveContactsTaskWide(startIndex, endIndex int, context *stepContext, color
 			}
 			vn := dotW(vec2W{x: vrB.x.Sub(vrA.x), y: vrB.y.Sub(vrA.y)}, normal)
 
-			impulse := negOne.Mul(constraint.normalMass1).Mul(pointMassScale).Mul(vn.Add(velocityBias)).Sub(pointImpulseScale.Mul(constraint.normalImpulse1.toLane()))
-			newImpulse := constraint.normalImpulse1.toLane().Add(impulse).Max(zero)
-			impulse = newImpulse.Sub(constraint.normalImpulse1.toLane())
-			constraint.normalImpulse1 = newImpulse.toAcc()
-			constraint.totalNormalImpulse1 = constraint.totalNormalImpulse1.Add(newImpulse.toAcc())
-			totalNormalImpulse = totalNormalImpulse.Add(newImpulse.toAcc())
+			impulse := constraint.normalMass1.Neg().Mul(pointMassScale).Mul(vn.Add(velocityBias)).Sub(pointImpulseScale.Mul(constraint.normalImpulse1))
+			newImpulse := constraint.normalImpulse1.Add(impulse).Max(zero)
+			impulse = newImpulse.Sub(constraint.normalImpulse1)
+			constraint.normalImpulse1 = newImpulse
+			constraint.totalNormalImpulse1 = constraint.totalNormalImpulse1.AddBounded(newImpulse.toAcc())
+			totalNormalImpulse = totalNormalImpulse.AddBounded(newImpulse.toAcc())
 
 			p := vec2W{x: normal.x.Mul(impulse), y: normal.y.Mul(impulse)}
-			bodyA.v.x = bodyA.v.x.Sub(constraint.invMassA.Mul(p.x).toAcc())
-			bodyA.v.y = bodyA.v.y.Sub(constraint.invMassA.Mul(p.y).toAcc())
-			bodyA.w = bodyA.w.Sub(constraint.invIA.Mul(crossW(rA, p)).toAcc())
-			bodyB.v.x = bodyB.v.x.Add(constraint.invMassB.Mul(p.x).toAcc())
-			bodyB.v.y = bodyB.v.y.Add(constraint.invMassB.Mul(p.y).toAcc())
-			bodyB.w = bodyB.w.Add(constraint.invIB.Mul(crossW(rB, p)).toAcc())
+			bodyA.v.x = bodyA.v.x.SubBounded(constraint.invMassA.Mul(p.x).toAcc())
+			bodyA.v.y = bodyA.v.y.SubBounded(constraint.invMassA.Mul(p.y).toAcc())
+			bodyA.w = bodyA.w.SubBounded(constraint.invIA.Mul(crossW(rA, p)).toAcc())
+			bodyB.v.x = bodyB.v.x.AddBounded(constraint.invMassB.Mul(p.x).toAcc())
+			bodyB.v.y = bodyB.v.y.AddBounded(constraint.invMassB.Mul(p.y).toAcc())
+			bodyB.w = bodyB.w.AddBounded(constraint.invIB.Mul(crossW(rB, p)).toAcc())
 		}
 
 		{
@@ -333,8 +346,8 @@ func solveContactsTaskWide(startIndex, endIndex int, context *stepContext, color
 			pointMassScale := laneBlend(separated, one, massScale)
 			pointImpulseScale := laneBlend(separated, zero, impulseScale)
 
-			negWA := negOne.Mul(bodyA.w.toLane())
-			negWB := negOne.Mul(bodyB.w.toLane())
+			negWA := bodyA.w.toLane().Neg()
+			negWB := bodyB.w.toLane().Neg()
 			vrA := vec2W{
 				x: bodyA.v.x.toLane().Add(negWA.Mul(rA.y)),
 				y: bodyA.v.y.toLane().Add(bodyA.w.toLane().Mul(rA.x)),
@@ -345,27 +358,27 @@ func solveContactsTaskWide(startIndex, endIndex int, context *stepContext, color
 			}
 			vn := dotW(vec2W{x: vrB.x.Sub(vrA.x), y: vrB.y.Sub(vrA.y)}, normal)
 
-			impulse := negOne.Mul(constraint.normalMass2).Mul(pointMassScale).Mul(vn.Add(velocityBias)).Sub(pointImpulseScale.Mul(constraint.normalImpulse2.toLane()))
-			newImpulse := constraint.normalImpulse2.toLane().Add(impulse).Max(zero)
-			impulse = newImpulse.Sub(constraint.normalImpulse2.toLane())
-			constraint.normalImpulse2 = newImpulse.toAcc()
-			constraint.totalNormalImpulse2 = constraint.totalNormalImpulse2.Add(newImpulse.toAcc())
-			totalNormalImpulse = totalNormalImpulse.Add(newImpulse.toAcc())
+			impulse := constraint.normalMass2.Neg().Mul(pointMassScale).Mul(vn.Add(velocityBias)).Sub(pointImpulseScale.Mul(constraint.normalImpulse2))
+			newImpulse := constraint.normalImpulse2.Add(impulse).Max(zero)
+			impulse = newImpulse.Sub(constraint.normalImpulse2)
+			constraint.normalImpulse2 = newImpulse
+			constraint.totalNormalImpulse2 = constraint.totalNormalImpulse2.AddBounded(newImpulse.toAcc())
+			totalNormalImpulse = totalNormalImpulse.AddBounded(newImpulse.toAcc())
 
 			p := vec2W{x: normal.x.Mul(impulse), y: normal.y.Mul(impulse)}
-			bodyA.v.x = bodyA.v.x.Sub(constraint.invMassA.Mul(p.x).toAcc())
-			bodyA.v.y = bodyA.v.y.Sub(constraint.invMassA.Mul(p.y).toAcc())
-			bodyA.w = bodyA.w.Sub(constraint.invIA.Mul(crossW(rA, p)).toAcc())
-			bodyB.v.x = bodyB.v.x.Add(constraint.invMassB.Mul(p.x).toAcc())
-			bodyB.v.y = bodyB.v.y.Add(constraint.invMassB.Mul(p.y).toAcc())
-			bodyB.w = bodyB.w.Add(constraint.invIB.Mul(crossW(rB, p)).toAcc())
+			bodyA.v.x = bodyA.v.x.SubBounded(constraint.invMassA.Mul(p.x).toAcc())
+			bodyA.v.y = bodyA.v.y.SubBounded(constraint.invMassA.Mul(p.y).toAcc())
+			bodyA.w = bodyA.w.SubBounded(constraint.invIA.Mul(crossW(rA, p)).toAcc())
+			bodyB.v.x = bodyB.v.x.AddBounded(constraint.invMassB.Mul(p.x).toAcc())
+			bodyB.v.y = bodyB.v.y.AddBounded(constraint.invMassB.Mul(p.y).toAcc())
+			bodyB.w = bodyB.w.AddBounded(constraint.invIB.Mul(crossW(rB, p)).toAcc())
 		}
 
 		{
 			rA := constraint.anchorA1
 			rB := constraint.anchorB1
-			negWA := negOne.Mul(bodyA.w.toLane())
-			negWB := negOne.Mul(bodyB.w.toLane())
+			negWA := bodyA.w.toLane().Neg()
+			negWB := bodyB.w.toLane().Neg()
 			vrB := vec2W{
 				x: bodyB.v.x.toLane().Add(negWB.Mul(rB.y)),
 				y: bodyB.v.y.toLane().Add(bodyB.w.toLane().Mul(rB.x)),
@@ -375,28 +388,28 @@ func solveContactsTaskWide(startIndex, endIndex int, context *stepContext, color
 				y: bodyA.v.y.toLane().Add(bodyA.w.toLane().Mul(rA.x)),
 			}
 			vt := dotW(vec2W{x: vrB.x.Sub(vrA.x), y: vrB.y.Sub(vrA.y)}, tangent).Sub(constraint.tangentSpeed)
-			impulse := constraint.tangentMass1.Mul(negOne.Mul(vt))
+			impulse := constraint.tangentMass1.Mul(vt.Neg())
 
-			maxFriction := constraint.friction.Mul(constraint.normalImpulse1.toLane())
-			newImpulse := constraint.tangentImpulse1.toLane().Add(impulse)
-			newImpulse = negOne.Mul(maxFriction).Max(maxFriction.Min(newImpulse))
-			impulse = newImpulse.Sub(constraint.tangentImpulse1.toLane())
-			constraint.tangentImpulse1 = newImpulse.toAcc()
+			maxFriction := constraint.friction.Mul(constraint.normalImpulse1)
+			newImpulse := constraint.tangentImpulse1.Add(impulse)
+			newImpulse = maxFriction.Neg().Max(maxFriction.Min(newImpulse))
+			impulse = newImpulse.Sub(constraint.tangentImpulse1)
+			constraint.tangentImpulse1 = newImpulse
 
 			p := vec2W{x: tangent.x.Mul(impulse), y: tangent.y.Mul(impulse)}
-			bodyA.v.x = bodyA.v.x.Sub(constraint.invMassA.Mul(p.x).toAcc())
-			bodyA.v.y = bodyA.v.y.Sub(constraint.invMassA.Mul(p.y).toAcc())
-			bodyA.w = bodyA.w.Sub(constraint.invIA.Mul(crossW(rA, p)).toAcc())
-			bodyB.v.x = bodyB.v.x.Add(constraint.invMassB.Mul(p.x).toAcc())
-			bodyB.v.y = bodyB.v.y.Add(constraint.invMassB.Mul(p.y).toAcc())
-			bodyB.w = bodyB.w.Add(constraint.invIB.Mul(crossW(rB, p)).toAcc())
+			bodyA.v.x = bodyA.v.x.SubBounded(constraint.invMassA.Mul(p.x).toAcc())
+			bodyA.v.y = bodyA.v.y.SubBounded(constraint.invMassA.Mul(p.y).toAcc())
+			bodyA.w = bodyA.w.SubBounded(constraint.invIA.Mul(crossW(rA, p)).toAcc())
+			bodyB.v.x = bodyB.v.x.AddBounded(constraint.invMassB.Mul(p.x).toAcc())
+			bodyB.v.y = bodyB.v.y.AddBounded(constraint.invMassB.Mul(p.y).toAcc())
+			bodyB.w = bodyB.w.AddBounded(constraint.invIB.Mul(crossW(rB, p)).toAcc())
 		}
 
 		{
 			rA := constraint.anchorA2
 			rB := constraint.anchorB2
-			negWA := negOne.Mul(bodyA.w.toLane())
-			negWB := negOne.Mul(bodyB.w.toLane())
+			negWA := bodyA.w.toLane().Neg()
+			negWB := bodyB.w.toLane().Neg()
 			vrB := vec2W{
 				x: bodyB.v.x.toLane().Add(negWB.Mul(rB.y)),
 				y: bodyB.v.y.toLane().Add(bodyB.w.toLane().Mul(rB.x)),
@@ -406,32 +419,34 @@ func solveContactsTaskWide(startIndex, endIndex int, context *stepContext, color
 				y: bodyA.v.y.toLane().Add(bodyA.w.toLane().Mul(rA.x)),
 			}
 			vt := dotW(vec2W{x: vrB.x.Sub(vrA.x), y: vrB.y.Sub(vrA.y)}, tangent).Sub(constraint.tangentSpeed)
-			impulse := constraint.tangentMass2.Mul(negOne.Mul(vt))
+			impulse := constraint.tangentMass2.Mul(vt.Neg())
 
-			maxFriction := constraint.friction.Mul(constraint.normalImpulse2.toLane())
-			newImpulse := constraint.tangentImpulse2.toLane().Add(impulse)
-			newImpulse = negOne.Mul(maxFriction).Max(maxFriction.Min(newImpulse))
-			impulse = newImpulse.Sub(constraint.tangentImpulse2.toLane())
-			constraint.tangentImpulse2 = newImpulse.toAcc()
+			maxFriction := constraint.friction.Mul(constraint.normalImpulse2)
+			newImpulse := constraint.tangentImpulse2.Add(impulse)
+			newImpulse = maxFriction.Neg().Max(maxFriction.Min(newImpulse))
+			impulse = newImpulse.Sub(constraint.tangentImpulse2)
+			constraint.tangentImpulse2 = newImpulse
 
 			p := vec2W{x: tangent.x.Mul(impulse), y: tangent.y.Mul(impulse)}
-			bodyA.v.x = bodyA.v.x.Sub(constraint.invMassA.Mul(p.x).toAcc())
-			bodyA.v.y = bodyA.v.y.Sub(constraint.invMassA.Mul(p.y).toAcc())
-			bodyA.w = bodyA.w.Sub(constraint.invIA.Mul(crossW(rA, p)).toAcc())
-			bodyB.v.x = bodyB.v.x.Add(constraint.invMassB.Mul(p.x).toAcc())
-			bodyB.v.y = bodyB.v.y.Add(constraint.invMassB.Mul(p.y).toAcc())
-			bodyB.w = bodyB.w.Add(constraint.invIB.Mul(crossW(rB, p)).toAcc())
+			bodyA.v.x = bodyA.v.x.SubBounded(constraint.invMassA.Mul(p.x).toAcc())
+			bodyA.v.y = bodyA.v.y.SubBounded(constraint.invMassA.Mul(p.y).toAcc())
+			bodyA.w = bodyA.w.SubBounded(constraint.invIA.Mul(crossW(rA, p)).toAcc())
+			bodyB.v.x = bodyB.v.x.AddBounded(constraint.invMassB.Mul(p.x).toAcc())
+			bodyB.v.y = bodyB.v.y.AddBounded(constraint.invMassB.Mul(p.y).toAcc())
+			bodyB.w = bodyB.w.AddBounded(constraint.invIB.Mul(crossW(rB, p)).toAcc())
 		}
 
-		deltaLambda := negOne.Mul(constraint.rollingMass).Mul(bodyB.w.Sub(bodyA.w).toLane())
-		lambda := constraint.rollingImpulse
-		maxLambda := constraint.rollingResistance.Mul(totalNormalImpulse.toLane())
-		newRollingImpulse := lambda.toLane().Add(deltaLambda)
-		newRollingImpulse = negOne.Mul(maxLambda).Max(maxLambda.Min(newRollingImpulse))
-		constraint.rollingImpulse = newRollingImpulse.toAcc()
-		deltaLambdaAcc := constraint.rollingImpulse.Sub(lambda)
-		bodyA.w = bodyA.w.Sub(constraint.invIA.Mul(deltaLambdaAcc.toLane()).toAcc())
-		bodyB.w = bodyB.w.Add(constraint.invIB.Mul(deltaLambdaAcc.toLane()).toAcc())
+		if constraint.hasRolling {
+			deltaLambda := constraint.rollingMass.Neg().Mul(bodyB.w.SubBounded(bodyA.w).toLane())
+			lambda := constraint.rollingImpulse
+			maxLambda := constraint.rollingResistance.Mul(totalNormalImpulse.toLane())
+			newRollingImpulse := lambda.Add(deltaLambda)
+			newRollingImpulse = maxLambda.Neg().Max(maxLambda.Min(newRollingImpulse))
+			constraint.rollingImpulse = newRollingImpulse
+			appliedLambda := constraint.rollingImpulse.Sub(lambda)
+			bodyA.w = bodyA.w.SubBounded(constraint.invIA.Mul(appliedLambda).toAcc())
+			bodyB.w = bodyB.w.AddBounded(constraint.invIB.Mul(appliedLambda).toAcc())
+		}
 
 		scatterBodyW(states, &constraint.indexA, tauW, &bodyA)
 		scatterBodyW(states, &constraint.indexB, tauW, &bodyB)
@@ -446,7 +461,6 @@ func applyRestitutionTaskWide(startIndex, endIndex int, context *stepContext, co
 	threshold := laneSplat(context.world.restitutionThreshold)
 	zero := laneZero()
 	one := laneSplat(QOne())
-	negOne := laneSplat(Q{v: -1})
 	tauW := laneSplat(tau)
 
 	for i := startIndex; i < endIndex; i++ {
@@ -470,8 +484,8 @@ func applyRestitutionTaskWide(startIndex, endIndex int, context *stepContext, co
 
 			rA := constraint.anchorA1
 			rB := constraint.anchorB1
-			negWA := negOne.Mul(bodyA.w.toLane())
-			negWB := negOne.Mul(bodyB.w.toLane())
+			negWA := bodyA.w.toLane().Neg()
+			negWB := bodyB.w.toLane().Neg()
 			vrB := vec2W{
 				x: bodyB.v.x.toLane().Add(negWB.Mul(rB.y)),
 				y: bodyB.v.y.toLane().Add(bodyB.w.toLane().Mul(rB.x)),
@@ -481,20 +495,20 @@ func applyRestitutionTaskWide(startIndex, endIndex int, context *stepContext, co
 				y: bodyA.v.y.toLane().Add(bodyA.w.toLane().Mul(rA.x)),
 			}
 			vn := dotW(vec2W{x: vrB.x.Sub(vrA.x), y: vrB.y.Sub(vrA.y)}, normal)
-			impulse := negOne.Mul(mass).Mul(vn.Add(constraint.restitution.Mul(constraint.relativeVelocity1)))
+			impulse := mass.Neg().Mul(vn.Add(constraint.restitution.Mul(constraint.relativeVelocity1)))
 
-			newImpulse := constraint.normalImpulse1.toLane().Add(impulse).Max(zero)
-			impulse = newImpulse.Sub(constraint.normalImpulse1.toLane())
-			constraint.normalImpulse1 = newImpulse.toAcc()
-			constraint.totalNormalImpulse1 = constraint.totalNormalImpulse1.Add(impulse.toAcc())
+			newImpulse := constraint.normalImpulse1.Add(impulse).Max(zero)
+			impulse = newImpulse.Sub(constraint.normalImpulse1)
+			constraint.normalImpulse1 = newImpulse
+			constraint.totalNormalImpulse1 = constraint.totalNormalImpulse1.AddBounded(impulse.toAcc())
 
 			p := vec2W{x: normal.x.Mul(impulse), y: normal.y.Mul(impulse)}
-			bodyA.v.x = bodyA.v.x.Sub(constraint.invMassA.Mul(p.x).toAcc())
-			bodyA.v.y = bodyA.v.y.Sub(constraint.invMassA.Mul(p.y).toAcc())
-			bodyA.w = bodyA.w.Sub(constraint.invIA.Mul(crossW(rA, p)).toAcc())
-			bodyB.v.x = bodyB.v.x.Add(constraint.invMassB.Mul(p.x).toAcc())
-			bodyB.v.y = bodyB.v.y.Add(constraint.invMassB.Mul(p.y).toAcc())
-			bodyB.w = bodyB.w.Add(constraint.invIB.Mul(crossW(rB, p)).toAcc())
+			bodyA.v.x = bodyA.v.x.SubBounded(constraint.invMassA.Mul(p.x).toAcc())
+			bodyA.v.y = bodyA.v.y.SubBounded(constraint.invMassA.Mul(p.y).toAcc())
+			bodyA.w = bodyA.w.SubBounded(constraint.invIA.Mul(crossW(rA, p)).toAcc())
+			bodyB.v.x = bodyB.v.x.AddBounded(constraint.invMassB.Mul(p.x).toAcc())
+			bodyB.v.y = bodyB.v.y.AddBounded(constraint.invMassB.Mul(p.y).toAcc())
+			bodyB.w = bodyB.w.AddBounded(constraint.invIB.Mul(crossW(rB, p)).toAcc())
 		}
 
 		{
@@ -505,8 +519,8 @@ func applyRestitutionTaskWide(startIndex, endIndex int, context *stepContext, co
 
 			rA := constraint.anchorA2
 			rB := constraint.anchorB2
-			negWA := negOne.Mul(bodyA.w.toLane())
-			negWB := negOne.Mul(bodyB.w.toLane())
+			negWA := bodyA.w.toLane().Neg()
+			negWB := bodyB.w.toLane().Neg()
 			vrB := vec2W{
 				x: bodyB.v.x.toLane().Add(negWB.Mul(rB.y)),
 				y: bodyB.v.y.toLane().Add(bodyB.w.toLane().Mul(rB.x)),
@@ -516,20 +530,20 @@ func applyRestitutionTaskWide(startIndex, endIndex int, context *stepContext, co
 				y: bodyA.v.y.toLane().Add(bodyA.w.toLane().Mul(rA.x)),
 			}
 			vn := dotW(vec2W{x: vrB.x.Sub(vrA.x), y: vrB.y.Sub(vrA.y)}, normal)
-			impulse := negOne.Mul(mass).Mul(vn.Add(constraint.restitution.Mul(constraint.relativeVelocity2)))
+			impulse := mass.Neg().Mul(vn.Add(constraint.restitution.Mul(constraint.relativeVelocity2)))
 
-			newImpulse := constraint.normalImpulse2.toLane().Add(impulse).Max(zero)
-			impulse = newImpulse.Sub(constraint.normalImpulse2.toLane())
-			constraint.normalImpulse2 = newImpulse.toAcc()
-			constraint.totalNormalImpulse2 = constraint.totalNormalImpulse2.Add(impulse.toAcc())
+			newImpulse := constraint.normalImpulse2.Add(impulse).Max(zero)
+			impulse = newImpulse.Sub(constraint.normalImpulse2)
+			constraint.normalImpulse2 = newImpulse
+			constraint.totalNormalImpulse2 = constraint.totalNormalImpulse2.AddBounded(impulse.toAcc())
 
 			p := vec2W{x: normal.x.Mul(impulse), y: normal.y.Mul(impulse)}
-			bodyA.v.x = bodyA.v.x.Sub(constraint.invMassA.Mul(p.x).toAcc())
-			bodyA.v.y = bodyA.v.y.Sub(constraint.invMassA.Mul(p.y).toAcc())
-			bodyA.w = bodyA.w.Sub(constraint.invIA.Mul(crossW(rA, p)).toAcc())
-			bodyB.v.x = bodyB.v.x.Add(constraint.invMassB.Mul(p.x).toAcc())
-			bodyB.v.y = bodyB.v.y.Add(constraint.invMassB.Mul(p.y).toAcc())
-			bodyB.w = bodyB.w.Add(constraint.invIB.Mul(crossW(rB, p)).toAcc())
+			bodyA.v.x = bodyA.v.x.SubBounded(constraint.invMassA.Mul(p.x).toAcc())
+			bodyA.v.y = bodyA.v.y.SubBounded(constraint.invMassA.Mul(p.y).toAcc())
+			bodyA.w = bodyA.w.SubBounded(constraint.invIA.Mul(crossW(rA, p)).toAcc())
+			bodyB.v.x = bodyB.v.x.AddBounded(constraint.invMassB.Mul(p.x).toAcc())
+			bodyB.v.y = bodyB.v.y.AddBounded(constraint.invMassB.Mul(p.y).toAcc())
+			bodyB.w = bodyB.w.AddBounded(constraint.invIB.Mul(crossW(rB, p)).toAcc())
 		}
 
 		scatterBodyW(states, &constraint.indexA, tauW, &bodyA)
@@ -543,17 +557,17 @@ func storeImpulsesTaskWide(startIndex, endIndex int, context *stepContext) {
 	for constraintIndex := startIndex; constraintIndex < endIndex; constraintIndex++ {
 		constraint := &context.contactConstraintsWide[constraintIndex]
 		var (
-			rollingImpulse                           [wideWidth]float32
-			normalImpulse1, normalImpulse2           [wideWidth]float32
-			tangentImpulse1, tangentImpulse2         [wideWidth]float32
-			totalNormalImpulse1, totalNormalImpulse2 [wideWidth]float32
-			relativeVelocity1, relativeVelocity2     [wideWidth]float32
+			rollingImpulse                           [wideWidth]laneScalar
+			normalImpulse1, normalImpulse2           [wideWidth]laneScalar
+			tangentImpulse1, tangentImpulse2         [wideWidth]laneScalar
+			totalNormalImpulse1, totalNormalImpulse2 [wideWidth]laneScalar
+			relativeVelocity1, relativeVelocity2     [wideWidth]laneScalar
 		)
-		constraint.rollingImpulse.toLane().store(&rollingImpulse)
-		constraint.normalImpulse1.toLane().store(&normalImpulse1)
-		constraint.normalImpulse2.toLane().store(&normalImpulse2)
-		constraint.tangentImpulse1.toLane().store(&tangentImpulse1)
-		constraint.tangentImpulse2.toLane().store(&tangentImpulse2)
+		constraint.rollingImpulse.store(&rollingImpulse)
+		constraint.normalImpulse1.store(&normalImpulse1)
+		constraint.normalImpulse2.store(&normalImpulse2)
+		constraint.tangentImpulse1.store(&tangentImpulse1)
+		constraint.tangentImpulse2.store(&tangentImpulse2)
 		constraint.totalNormalImpulse1.toLane().store(&totalNormalImpulse1)
 		constraint.totalNormalImpulse2.toLane().store(&totalNormalImpulse2)
 		constraint.relativeVelocity1.store(&relativeVelocity1)
@@ -569,18 +583,18 @@ func storeImpulsesTaskWide(startIndex, endIndex int, context *stepContext) {
 			manifold := &contact.manifold
 			for pointIndex := range manifold.PointCount {
 				if pointIndex == 0 {
-					manifold.Points[pointIndex].NormalImpulse = Q{v: normalImpulse1[laneIndex]}
-					manifold.Points[pointIndex].TangentImpulse = Q{v: tangentImpulse1[laneIndex]}
-					manifold.Points[pointIndex].TotalNormalImpulse = Q{v: totalNormalImpulse1[laneIndex]}
-					manifold.Points[pointIndex].NormalVelocity = Q{v: relativeVelocity1[laneIndex]}
+					manifold.Points[pointIndex].NormalImpulse = laneScalarToQ(normalImpulse1[laneIndex])
+					manifold.Points[pointIndex].TangentImpulse = laneScalarToQ(tangentImpulse1[laneIndex])
+					manifold.Points[pointIndex].TotalNormalImpulse = laneScalarToQ(totalNormalImpulse1[laneIndex])
+					manifold.Points[pointIndex].NormalVelocity = laneScalarToQ(relativeVelocity1[laneIndex])
 				} else {
-					manifold.Points[pointIndex].NormalImpulse = Q{v: normalImpulse2[laneIndex]}
-					manifold.Points[pointIndex].TangentImpulse = Q{v: tangentImpulse2[laneIndex]}
-					manifold.Points[pointIndex].TotalNormalImpulse = Q{v: totalNormalImpulse2[laneIndex]}
-					manifold.Points[pointIndex].NormalVelocity = Q{v: relativeVelocity2[laneIndex]}
+					manifold.Points[pointIndex].NormalImpulse = laneScalarToQ(normalImpulse2[laneIndex])
+					manifold.Points[pointIndex].TangentImpulse = laneScalarToQ(tangentImpulse2[laneIndex])
+					manifold.Points[pointIndex].TotalNormalImpulse = laneScalarToQ(totalNormalImpulse2[laneIndex])
+					manifold.Points[pointIndex].NormalVelocity = laneScalarToQ(relativeVelocity2[laneIndex])
 				}
 			}
-			manifold.RollingImpulse = Q{v: rollingImpulse[laneIndex]}
+			manifold.RollingImpulse = laneScalarToQ(rollingImpulse[laneIndex])
 		}
 	}
 }

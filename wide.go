@@ -1,4 +1,4 @@
-//go:build dbox2d_simd && dbox2d_float
+//go:build dbox2d_simd
 
 package dbox2d
 
@@ -10,22 +10,30 @@ import (
 // contactConstraintWide mirrors b2ContactConstraintSIMD in contact_solver.c
 // at lines 1034-1064; it always carries two point slots, with the second zero for a one-point manifold.
 type contactConstraintWide struct {
-	indexA, indexB                                       [wideWidth]int
-	invMassA, invMassB, invIA, invIB                     laneW
-	normal                                               vec2W
-	friction, tangentSpeed, rollingResistance            laneW
-	rollingMass                                          laneW
-	rollingImpulse                                       accW
-	biasRate, massScale, impulseScale                    laneW
-	anchorA1, anchorB1                                   vec2W
-	normalMass1, tangentMass1, baseSeparation1           laneW
-	normalImpulse1, totalNormalImpulse1, tangentImpulse1 accW
-	anchorA2, anchorB2                                   vec2W
-	baseSeparation2                                      laneW
-	normalImpulse2, totalNormalImpulse2, tangentImpulse2 accW
-	normalMass2, tangentMass2                            laneW
-	restitution                                          laneW
-	relativeVelocity1, relativeVelocity2                 laneW
+	indexA, indexB [wideWidth]int
+	// hasRolling is false when no lane uses rolling resistance or holds a
+	// rolling impulse. The solver then skips the rolling blocks, which would
+	// only add zero.
+	hasRolling                                bool
+	invMassA, invMassB, invIA, invIB          laneW
+	normal                                    vec2W
+	friction, tangentSpeed, rollingResistance laneW
+	rollingMass                               laneW
+	// The warm-started impulses stay in Q16, since every stage uses them in
+	// lane form. Only the totals need the Q48 range.
+	rollingImpulse                             laneW
+	biasRate, massScale, impulseScale          laneW
+	anchorA1, anchorB1                         vec2W
+	normalMass1, tangentMass1, baseSeparation1 laneW
+	normalImpulse1, tangentImpulse1            laneW
+	totalNormalImpulse1                        accW
+	anchorA2, anchorB2                         vec2W
+	baseSeparation2                            laneW
+	normalImpulse2, tangentImpulse2            laneW
+	totalNormalImpulse2                        accW
+	normalMass2, tangentMass2                  laneW
+	restitution                                laneW
+	relativeVelocity1, relativeVelocity2       laneW
 }
 
 // bodyStateW keeps gathered state in lane form for the wide stages.

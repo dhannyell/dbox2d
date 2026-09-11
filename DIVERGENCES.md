@@ -643,10 +643,10 @@ Numbering is sequential from `D-001` and never reused.
 
 ### D-019 Wide contact family
 
-- Files: wide.go, wide_common.go, wide_off.go, wide_guard.go, wide_lane_amd64.go,
+- Files: wide.go, wide_common.go, wide_off.go, wide_lane_amd64.go,
   wide_lane_arm64.go, wide_lane_wasm.go, wide_lane_generic.go,
-  wide_lane_gather_amd64.go,
-  wide_lane_gather_generic.go, contact_solver_wide.go
+  wide_lane_fixed.go, wide_lane_gather_amd64.go, wide_lane_gather_generic.go,
+  wide_lane_gather_fixed.go, contact_solver_wide.go
 - Tier: T2
 - Reason: the reference selects a wide `Task` family with `B2_SIMD_WIDTH` lanes
   at compile time, including an `B2_SIMD_NONE` variant that keeps four scalar
@@ -655,8 +655,7 @@ Numbering is sequential from `D-001` and never reused.
   it applies to the overflow color. A wide lane also needs a fixed number of
   contacts per call, and a color rarely holds a multiple of the lane width.
 - Behaviour: the `dbox2d_simd` tag adds a second contact-solving path beside
-  the scalar family; it requires `dbox2d_float` and fails the build otherwise
-  (wide_guard.go), because no wide fixed-point lane exists yet. Contacts of
+  the scalar family, in both modes. Contacts of
   each color are padded to a multiple of the lane width; the padding lanes
   hold a null contact index and an identity body state, and the store step
   never writes them back. The solver stage table sizes each color's wide
@@ -666,7 +665,7 @@ Numbering is sequential from `D-001` and never reused.
   asserts the same 32-byte size. It transposes eight rows into lanes with
   shuffles. The scatter transposes back and stores whole rows for the real
   lanes. The arm64 and generic paths gather through a scalar scratch. On every
-  path, the lanes convert the angular velocity with a lane multiply and a lane
+  float path, the lanes convert the angular velocity with a lane multiply and a lane
   division by `tau`, both rounded once like the scalar `Q.Mul` and `Q.Div`.
 
   Four lane implementations share one padding and dispatch layer:
@@ -684,13 +683,26 @@ Numbering is sequential from `D-001` and never reused.
   passes an empty second manifold point or a masked restitution lane, because
   the lane computes `v - (-0)`; this is unreachable from +0 states, and the
   reference behaves the same way.
+
+  In fixed mode the lanes come from the fixed module: Q16.16 lanes with
+  Q48.16 accumulators, the grid of the scalar contact stages (D-020). The
+  module selects avx2 (width 8), neon (width 4) or a generic path; wasm runs
+  the generic path. Every fixed path gathers through a scalar scratch. The
+  scratch converts the angular velocity to radians per second in Q32.32 and
+  rounds the result to the grid, as the scalar family does, because the lane
+  grid is too coarse for that product. The velocity accumulations skip the
+  Q48 overflow check, because their budget stays far inside the Q48 range
+  (`AddBounded`). A pack with no rolling resistance and no stored rolling
+  impulse skips the rolling blocks, which would only add zero. Float mode
+  keeps them, because there a skipped block can change the sign of a zero.
 - Test: TestBodyGatherScatterW, TestWideMatchesScalarStepByStep,
   TestWideStagesRunWithColoredContacts
   and TestWideContactLayoutPadsEachColor in wide_test.go; wide_lane_test.go
-  checks each lane operation against the scalar family on every path; the
+  checks each float lane operation against the scalar family on every path,
+  and the fixed module tests its own lanes; the
   witness, samples and conformance suites all run under the `dbox2d_simd` tag
-  in CI, on amd64 and arm64 with `GOEXPERIMENT=simd` and on the generic path
-  across the four-architecture matrix.
+  in both modes in CI, on amd64 and arm64 with `GOEXPERIMENT=simd` and on the
+  generic path across the four-architecture matrix.
 
 ### D-020 Contacts solve on a Q16 grid
 

@@ -7,7 +7,7 @@ import (
 	"unsafe"
 )
 
-var identityBodyRowW = [8]float32{0, 0, 0, 0, 0, 0, 0, 1}
+var identityBodyRowW = [wideWidth]laneScalar{0, 0, 0, 0, 0, 0, 0, 1}
 
 // Whole-row SIMD loads and stores require bodyState to occupy exactly one vector.
 var _ [32]struct{} = [unsafe.Sizeof(bodyState{})]struct{}{}
@@ -17,13 +17,13 @@ func bodyRowW(states []bodyState, idx int, identity archsimd.Float32x8) archsimd
 	if idx == nullIndex {
 		return identity
 	}
-	return archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Pointer(&states[idx])))
+	return archsimd.LoadFloat32x8Array((*[wideWidth]laneScalar)(unsafe.Pointer(&states[idx])))
 }
 
 // storeBodyRowW writes one row back; null lanes have no body.
 func storeBodyRowW(states []bodyState, idx int, row archsimd.Float32x8) {
 	if idx != nullIndex {
-		row.StoreArray((*[8]float32)(unsafe.Pointer(&states[idx])))
+		row.StoreArray((*[wideWidth]laneScalar)(unsafe.Pointer(&states[idx])))
 	}
 }
 

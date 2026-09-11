@@ -9,9 +9,22 @@ const (
 	wideShift = 2
 )
 
+// laneScalar is the element type the lane loads and stores.
+type laneScalar = float32
+
+// laneScalarFromQ converts a scalar-mode value to a lane element.
+func laneScalarFromQ(q Q) laneScalar { return q.v }
+
+// laneScalarToQ converts a lane element back to a scalar-mode value.
+func laneScalarToQ(s laneScalar) Q { return Q{v: s} }
+
+// signedZeroSurvives is true because float lanes keep a sign on zero:
+// skipping a block that only adds zero could change a stored bit.
+const signedZeroSurvives = true
+
 // laneW is the pure-Go float32 lane type.
 type laneW struct {
-	l0, l1, l2, l3 float32
+	l0, l1, l2, l3 laneScalar
 }
 
 // maskW is the pure-Go comparison-mask type.
@@ -43,16 +56,17 @@ func laneZero() laneW { return laneW{} }
 
 // laneSplat fills a lane with a scalar float32 value.
 func laneSplat(q Q) laneW {
-	return laneW{l0: q.v, l1: q.v, l2: q.v, l3: q.v}
+	s := laneScalarFromQ(q)
+	return laneW{l0: s, l1: s, l2: s, l3: s}
 }
 
-// laneLoad loads one aligned-width float32 array.
-func laneLoad(p *[wideWidth]float32) laneW {
+// laneLoad loads one aligned-width lane-element array.
+func laneLoad(p *[wideWidth]laneScalar) laneW {
 	return laneW{l0: p[0], l1: p[1], l2: p[2], l3: p[3]}
 }
 
-// store writes the lane to one aligned-width float32 array.
-func (a laneW) store(p *[wideWidth]float32) {
+// store writes the lane to one aligned-width lane-element array.
+func (a laneW) store(p *[wideWidth]laneScalar) {
 	p[0], p[1], p[2], p[3] = a.l0, a.l1, a.l2, a.l3
 }
 
@@ -66,14 +80,25 @@ func (a laneW) Sub(b laneW) laneW {
 	return laneW{l0: a.l0 - b.l0, l1: a.l1 - b.l1, l2: a.l2 - b.l2, l3: a.l3 - b.l3}
 }
 
+// Neg returns the lane-wise negation. It multiplies by -1 so a zero flips its
+// sign, as the scalar Neg does; 0 - x would not.
+func (a laneW) Neg() laneW {
+	return laneW{
+		l0: laneScalar(-1 * a.l0),
+		l1: laneScalar(-1 * a.l1),
+		l2: laneScalar(-1 * a.l2),
+		l3: laneScalar(-1 * a.l3),
+	}
+}
+
 // Mul returns the lane-wise product. The conversions round each product
 // explicitly, which forbids the compiler to fuse it with a later add.
 func (a laneW) Mul(b laneW) laneW {
 	return laneW{
-		l0: float32(a.l0 * b.l0),
-		l1: float32(a.l1 * b.l1),
-		l2: float32(a.l2 * b.l2),
-		l3: float32(a.l3 * b.l3),
+		l0: laneScalar(a.l0 * b.l0),
+		l1: laneScalar(a.l1 * b.l1),
+		l2: laneScalar(a.l2 * b.l2),
+		l3: laneScalar(a.l3 * b.l3),
 	}
 }
 
@@ -191,3 +216,12 @@ func (a laneW) toAcc() laneW { return a }
 
 // toLane preserves a lane while naming the lane conversion.
 func (a laneW) toLane() laneW { return a }
+
+// Float lanes have no overflow check to skip, so the bounded forms are the
+// plain ones.
+
+// AddBounded returns the accumulator sum.
+func (a accW) AddBounded(b accW) accW { return a.Add(b) }
+
+// SubBounded returns the accumulator difference.
+func (a accW) SubBounded(b accW) accW { return a.Sub(b) }

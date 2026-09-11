@@ -164,7 +164,7 @@ func TestGatherBodiesSubstitutesIdentityForNull(t *testing.T) {
 
 	var body bodyStateW
 	gatherBodyW(states, &indices, laneSplat(tau), &body)
-	var vx, vy, w, dpx, dpy, dqc, dqs [wideWidth]float32
+	var vx, vy, w, dpx, dpy, dqc, dqs [wideWidth]laneScalar
 	body.v.x.store(&vx)
 	body.v.y.store(&vy)
 	body.w.store(&w)
@@ -184,14 +184,14 @@ func TestGatherBodiesSubstitutesIdentityForNull(t *testing.T) {
 	}
 	for i := range nullLane {
 		s := &states[indices[i]]
-		values := [][2]float32{
-			{vx[i], s.linearVelocity.X.v},
-			{vy[i], s.linearVelocity.Y.v},
-			{w[i], s.angularVelocity.Mul(tau).v},
-			{dpx[i], s.deltaPosition.X.v},
-			{dpy[i], s.deltaPosition.Y.v},
-			{dqc[i], s.deltaRotation.Cos.v},
-			{dqs[i], s.deltaRotation.Sin.v},
+		values := [][2]laneScalar{
+			{vx[i], laneScalarFromQ(s.linearVelocity.X)},
+			{vy[i], laneScalarFromQ(s.linearVelocity.Y)},
+			{w[i], laneScalarFromQ(s.angularVelocity.Mul(tau))},
+			{dpx[i], laneScalarFromQ(s.deltaPosition.X)},
+			{dpy[i], laneScalarFromQ(s.deltaPosition.Y)},
+			{dqc[i], laneScalarFromQ(s.deltaRotation.Cos)},
+			{dqs[i], laneScalarFromQ(s.deltaRotation.Sin)},
 		}
 		for field, value := range values {
 			if math.Float32bits(value[0]) != math.Float32bits(value[1]) {
@@ -224,10 +224,10 @@ func TestScatterBodiesRestoresConvertedVelocities(t *testing.T) {
 	tauW := laneSplat(tau)
 	var got bodyStateW
 	gatherBodyW(states, &indices, tauW, &got)
-	got.v.x = got.v.x.Add(laneSplat(Q{v: 0.25}))
-	got.v.y = got.v.y.Sub(laneSplat(Q{v: 0.5}))
-	got.w = got.w.Add(laneSplat(Q{v: 1.25}))
-	var wantVx, wantVy, wantW [wideWidth]float32
+	got.v.x = got.v.x.Add(laneSplat(laneScalarToQ(0.25)))
+	got.v.y = got.v.y.Sub(laneSplat(laneScalarToQ(0.5)))
+	got.w = got.w.Add(laneSplat(laneScalarToQ(1.25)))
+	var wantVx, wantVy, wantW [wideWidth]laneScalar
 	got.v.x.store(&wantVx)
 	got.v.y.store(&wantVy)
 	got.w.store(&wantW)
@@ -239,11 +239,11 @@ func TestScatterBodiesRestoresConvertedVelocities(t *testing.T) {
 	}
 	for i := range nullLane {
 		s := &after[indices[i]]
-		wantAngular := Q{v: wantW[i]}.Div(tau).v
-		if math.Float32bits(s.linearVelocity.X.v) != math.Float32bits(wantVx[i]) ||
-			math.Float32bits(s.linearVelocity.Y.v) != math.Float32bits(wantVy[i]) ||
-			math.Float32bits(s.angularVelocity.v) != math.Float32bits(wantAngular) {
-			t.Fatalf("real lane %d: got v=(%#08x,%#08x) w=%#08x want v=(%#08x,%#08x) w=%#08x", i, math.Float32bits(s.linearVelocity.X.v), math.Float32bits(s.linearVelocity.Y.v), math.Float32bits(s.angularVelocity.v), math.Float32bits(wantVx[i]), math.Float32bits(wantVy[i]), math.Float32bits(wantAngular))
+		wantAngular := laneScalarFromQ(laneScalarToQ(wantW[i]).Div(tau))
+		if math.Float32bits(laneScalarFromQ(s.linearVelocity.X)) != math.Float32bits(wantVx[i]) ||
+			math.Float32bits(laneScalarFromQ(s.linearVelocity.Y)) != math.Float32bits(wantVy[i]) ||
+			math.Float32bits(laneScalarFromQ(s.angularVelocity)) != math.Float32bits(wantAngular) {
+			t.Fatalf("real lane %d: got v=(%#08x,%#08x) w=%#08x want v=(%#08x,%#08x) w=%#08x", i, math.Float32bits(laneScalarFromQ(s.linearVelocity.X)), math.Float32bits(laneScalarFromQ(s.linearVelocity.Y)), math.Float32bits(laneScalarFromQ(s.angularVelocity)), math.Float32bits(wantVx[i]), math.Float32bits(wantVy[i]), math.Float32bits(wantAngular))
 		}
 	}
 }

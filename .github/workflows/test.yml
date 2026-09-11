@@ -12,7 +12,7 @@ jobs:
       fail-fast: false
       matrix:
         goarch: [amd64, arm64, "386", wasm]
-        tags: ["", dbox2d_float, "dbox2d_float,dbox2d_simd"]
+        tags: ["", dbox2d_float, "dbox2d_float,dbox2d_simd", "dbox2d_simd,fixed_satcounter"]
         include:
           - goarch: amd64
             goos: linux
@@ -86,7 +86,7 @@ jobs:
             exit 1
           fi
           # A package use is fixed.<Identifier>; prose in a comment is not.
-          leaks="$(grep -rlE 'fixed\.[A-Z]' --include=*.go --exclude=scalar_fixed.go --exclude=*_test.go --exclude-dir=samples . || true)"
+          leaks="$(grep -rlE 'fixed\.[A-Z]' --include=*.go --exclude=scalar_fixed.go --exclude=wide_lane_fixed.go --exclude=wide_lane_gather_fixed.go --exclude=*_test.go --exclude-dir=samples . || true)"
           if [ -n "$leaks" ]; then
             printf 'Unexpected fixed-layer imports in float mode:\n%s\n' "$leaks"
             exit 1
@@ -95,7 +95,7 @@ jobs:
             echo "float64 conversion helpers leaked into production code"
             exit 1
           fi
-          if grep -rl 'go:build' --include=*.go . | grep -v '_test.go\|scalar_fixed.go\|scalar_float.go\|executor.go\|executor_wasm.go\|samples/\|wide_lane_\|wide_guard.go\|wide.go\|wide_off.go\|contact_solver_wide.go\|spin_asm.go\|spin_stub.go'; then
+          if grep -rl 'go:build' --include=*.go . | grep -v '_test.go\|scalar_fixed.go\|scalar_float.go\|executor.go\|executor_wasm.go\|samples/\|wide_lane_\|wide.go\|wide_off.go\|contact_solver_wide.go\|spin_asm.go\|spin_stub.go'; then
             echo "unexpected build tags found"
             exit 1
           fi
@@ -109,19 +109,14 @@ jobs:
             echo "expected 23 epsilon references, got $epsilon"
             exit 1
           fi
-          guard="$(go build -tags dbox2d_simd . 2>&1 | grep -c wideRequiresFloatMode || true)"
-          if [ "$guard" != "1" ]; then
-            echo "expected the wide family to require float mode, got $guard"
-            exit 1
-          fi
       - name: Configure Wasm runner
         if: matrix.goarch == 'wasm'
         run: echo "$(go env GOROOT)/lib/wasm" >> "$GITHUB_PATH"
-      # The generic wide path on wasm runs the conformance traces past the
-      # timeout; the native jobs and the wide job cover them.
+      # The generic wide paths run the conformance traces past the timeout:
+      # fixed on every target, float on wasm. The wide job runs them natively.
       # The no-saturation checks read the fixed counter, which is off by default.
       - name: Test
-        run: go test -timeout 600s -tags "${{ matrix.tags || 'fixed_satcounter' }}" -skip "${{ (matrix.goarch == 'wasm' && matrix.tags == 'dbox2d_float,dbox2d_simd') && 'TestConformance' || '^$' }}" ./...
+        run: go test -timeout 600s -tags "${{ matrix.tags || 'fixed_satcounter' }}" -skip "${{ (matrix.tags == 'dbox2d_simd,fixed_satcounter' || (matrix.goarch == 'wasm' && contains(matrix.tags, 'dbox2d_simd'))) && 'TestConformance' || '^$' }}" ./...
 
   wide:
     name: wide (${{ matrix.path }})

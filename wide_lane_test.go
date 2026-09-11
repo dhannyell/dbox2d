@@ -53,7 +53,7 @@ func wideRandomValue(r *rand.Rand) float32 {
 }
 
 // wideRandomArray builds one reproducible random lane-width input.
-func wideRandomArray(r *rand.Rand) (out [wideWidth]float32) {
+func wideRandomArray(r *rand.Rand) (out [wideWidth]laneScalar) {
 	for i := range out {
 		out[i] = wideRandomValue(r)
 	}
@@ -61,12 +61,12 @@ func wideRandomArray(r *rand.Rand) (out [wideWidth]float32) {
 }
 
 // wideRandomOperands builds the arrays used by the arithmetic checks.
-func wideRandomOperands(r *rand.Rand) (a, b, c [wideWidth]float32) {
+func wideRandomOperands(r *rand.Rand) (a, b, c [wideWidth]laneScalar) {
 	return wideRandomArray(r), wideRandomArray(r), wideRandomArray(r)
 }
 
 // wideArithmeticInputsValid excludes only undefined NaN-producing operations.
-func wideArithmeticInputsValid(a, b, c [wideWidth]float32) bool {
+func wideArithmeticInputsValid(a, b, c [wideWidth]laneScalar) bool {
 	for i := range a {
 		var sum = a[i] + b[i]
 		var difference = a[i] - b[i]
@@ -82,7 +82,7 @@ func wideArithmeticInputsValid(a, b, c [wideWidth]float32) bool {
 }
 
 // wideCheckBits reports the first lane whose result is not bit-for-bit equal.
-func wideCheckBits(t *testing.T, name string, got, want [wideWidth]float32) {
+func wideCheckBits(t *testing.T, name string, got, want [wideWidth]laneScalar) {
 	t.Helper()
 	for i := range got {
 		if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
@@ -126,7 +126,7 @@ func TestBodyGatherScatterW(t *testing.T) {
 	var body bodyStateW
 	gatherBodyW(states, &indices, tauW, &body)
 
-	var gotVX, gotVY, gotW, gotFlags, gotDPX, gotDPY, gotDQC, gotDQS [wideWidth]float32
+	var gotVX, gotVY, gotW, gotFlags, gotDPX, gotDPY, gotDQC, gotDQS [wideWidth]laneScalar
 	body.v.x.toLane().store(&gotVX)
 	body.v.y.toLane().store(&gotVY)
 	body.w.toLane().store(&gotW)
@@ -136,7 +136,7 @@ func TestBodyGatherScatterW(t *testing.T) {
 	body.dq.c.store(&gotDQC)
 	body.dq.s.store(&gotDQS)
 
-	var wantVX, wantVY, wantW, wantFlags, wantDPX, wantDPY, wantDQC, wantDQS [wideWidth]float32
+	var wantVX, wantVY, wantW, wantFlags, wantDPX, wantDPY, wantDQC, wantDQS [wideWidth]laneScalar
 	for i := range wideWidth {
 		idx := indices[i]
 		if idx == nullIndex {
@@ -144,16 +144,16 @@ func TestBodyGatherScatterW(t *testing.T) {
 			continue
 		}
 		state := states[idx]
-		wantVX[i] = state.linearVelocity.X.v
-		wantVY[i] = state.linearVelocity.Y.v
-		wantW[i] = state.angularVelocity.Mul(tau).v
+		wantVX[i] = laneScalarFromQ(state.linearVelocity.X)
+		wantVY[i] = laneScalarFromQ(state.linearVelocity.Y)
+		wantW[i] = laneScalarFromQ(state.angularVelocity.Mul(tau))
 		if widePath() == "avx2" {
 			wantFlags[i] = math.Float32frombits(uint32(state.flags))
 		}
-		wantDPX[i] = state.deltaPosition.X.v
-		wantDPY[i] = state.deltaPosition.Y.v
-		wantDQC[i] = state.deltaRotation.Cos.v
-		wantDQS[i] = state.deltaRotation.Sin.v
+		wantDPX[i] = laneScalarFromQ(state.deltaPosition.X)
+		wantDPY[i] = laneScalarFromQ(state.deltaPosition.Y)
+		wantDQC[i] = laneScalarFromQ(state.deltaRotation.Cos)
+		wantDQS[i] = laneScalarFromQ(state.deltaRotation.Sin)
 	}
 	wideCheckBits(t, "body v.x", gotVX, wantVX)
 	wideCheckBits(t, "body v.y", gotVY, wantVY)
@@ -164,7 +164,7 @@ func TestBodyGatherScatterW(t *testing.T) {
 	wideCheckBits(t, "body dq.c", gotDQC, wantDQC)
 	wideCheckBits(t, "body dq.s", gotDQS, wantDQS)
 
-	var newVX, newVY, newW [wideWidth]float32
+	var newVX, newVY, newW [wideWidth]laneScalar
 	for i := range wideWidth {
 		newVX[i] = math.Float32frombits(finiteBits[(3*i+17)%len(finiteBits)])
 		newVY[i] = math.Float32frombits(finiteBits[(5*i+9)%len(finiteBits)])
@@ -182,9 +182,9 @@ func TestBodyGatherScatterW(t *testing.T) {
 			continue
 		}
 		referenced[idx] = true
-		if math.Float32bits(states[idx].linearVelocity.X.v) != math.Float32bits(newVX[i]) ||
-			math.Float32bits(states[idx].linearVelocity.Y.v) != math.Float32bits(newVY[i]) ||
-			math.Float32bits(states[idx].angularVelocity.v) != math.Float32bits(Q{v: newW[i]}.Div(tau).v) {
+		if math.Float32bits(laneScalarFromQ(states[idx].linearVelocity.X)) != math.Float32bits(newVX[i]) ||
+			math.Float32bits(laneScalarFromQ(states[idx].linearVelocity.Y)) != math.Float32bits(newVY[i]) ||
+			math.Float32bits(laneScalarFromQ(states[idx].angularVelocity)) != math.Float32bits(laneScalarFromQ(laneScalarToQ(newW[i]).Div(tau))) {
 			t.Fatalf("body %d velocity bits changed incorrectly", idx)
 		}
 		if !sameBodyNonVelocityBits(states[idx], before[idx]) {
@@ -200,23 +200,23 @@ func TestBodyGatherScatterW(t *testing.T) {
 
 func sameBodyNonVelocityBits(a, b bodyState) bool {
 	return a.flags == b.flags &&
-		math.Float32bits(a.deltaPosition.X.v) == math.Float32bits(b.deltaPosition.X.v) &&
-		math.Float32bits(a.deltaPosition.Y.v) == math.Float32bits(b.deltaPosition.Y.v) &&
-		math.Float32bits(a.deltaRotation.Cos.v) == math.Float32bits(b.deltaRotation.Cos.v) &&
-		math.Float32bits(a.deltaRotation.Sin.v) == math.Float32bits(b.deltaRotation.Sin.v)
+		math.Float32bits(laneScalarFromQ(a.deltaPosition.X)) == math.Float32bits(laneScalarFromQ(b.deltaPosition.X)) &&
+		math.Float32bits(laneScalarFromQ(a.deltaPosition.Y)) == math.Float32bits(laneScalarFromQ(b.deltaPosition.Y)) &&
+		math.Float32bits(laneScalarFromQ(a.deltaRotation.Cos)) == math.Float32bits(laneScalarFromQ(b.deltaRotation.Cos)) &&
+		math.Float32bits(laneScalarFromQ(a.deltaRotation.Sin)) == math.Float32bits(laneScalarFromQ(b.deltaRotation.Sin))
 }
 
 func sameBodyStateBits(a, b bodyState) bool {
-	return math.Float32bits(a.linearVelocity.X.v) == math.Float32bits(b.linearVelocity.X.v) &&
-		math.Float32bits(a.linearVelocity.Y.v) == math.Float32bits(b.linearVelocity.Y.v) &&
-		math.Float32bits(a.angularVelocity.v) == math.Float32bits(b.angularVelocity.v) &&
+	return math.Float32bits(laneScalarFromQ(a.linearVelocity.X)) == math.Float32bits(laneScalarFromQ(b.linearVelocity.X)) &&
+		math.Float32bits(laneScalarFromQ(a.linearVelocity.Y)) == math.Float32bits(laneScalarFromQ(b.linearVelocity.Y)) &&
+		math.Float32bits(laneScalarFromQ(a.angularVelocity)) == math.Float32bits(laneScalarFromQ(b.angularVelocity)) &&
 		sameBodyNonVelocityBits(a, b)
 }
 
 // wideCheckMaskLanes checks mask bits through the public lane blend contract.
 func wideCheckMaskLanes(t *testing.T, name string, got maskW, want [wideWidth]bool) {
 	t.Helper()
-	var actual [wideWidth]float32
+	var actual [wideWidth]laneScalar
 	laneBlend(got, laneSplat(QOne()), laneZero()).store(&actual)
 	for i := range actual {
 		wantValue := float32(0)
@@ -250,8 +250,8 @@ func TestLaneArithmeticRoundsTwice(t *testing.T) {
 			continue
 		}
 
-		var gotAdd, gotSub, gotMul, gotDiv, gotMulAdd, gotMulSub [wideWidth]float32
-		var gotMin, gotMax [wideWidth]float32
+		var gotAdd, gotSub, gotMul, gotDiv, gotMulAdd, gotMulSub [wideWidth]laneScalar
+		var gotMin, gotMax [wideWidth]laneScalar
 		laneLoad(&a).Add(laneLoad(&b)).store(&gotAdd)
 		laneLoad(&a).Sub(laneLoad(&b)).store(&gotSub)
 		laneLoad(&a).Mul(laneLoad(&b)).store(&gotMul)
@@ -261,8 +261,8 @@ func TestLaneArithmeticRoundsTwice(t *testing.T) {
 		laneLoad(&a).Min(laneLoad(&b)).store(&gotMin)
 		laneLoad(&a).Max(laneLoad(&b)).store(&gotMax)
 
-		var wantAdd, wantSub, wantMul, wantDiv, wantMulAdd, wantMulSub [wideWidth]float32
-		var wantMin, wantMax [wideWidth]float32
+		var wantAdd, wantSub, wantMul, wantDiv, wantMulAdd, wantMulSub [wideWidth]laneScalar
+		var wantMin, wantMax [wideWidth]laneScalar
 		for i := range a {
 			wantAdd[i] = a[i] + b[i]
 			wantSub[i] = a[i] - b[i]
@@ -292,7 +292,7 @@ func TestLaneArithmeticRoundsTwice(t *testing.T) {
 		wideCheckBits(t, "min", gotMin, wantMin)
 		wideCheckBits(t, "max", gotMax, wantMax)
 
-		var gotIdentity [wideWidth]float32
+		var gotIdentity [wideWidth]laneScalar
 		laneLoad(&a).toAcc().toLane().store(&gotIdentity)
 		wideCheckBits(t, "lane identity", gotIdentity, a)
 	}
@@ -328,9 +328,9 @@ func TestLaneComparisonsAndBlend(t *testing.T) {
 			t.Fatalf("or AllZero mismatch")
 		}
 
-		var gotBlend [wideWidth]float32
+		var gotBlend [wideWidth]laneScalar
 		laneBlend(combined, laneLoad(&a), laneLoad(&b)).store(&gotBlend)
-		var wantBlend [wideWidth]float32
+		var wantBlend [wideWidth]laneScalar
 		for i := range wantBlend {
 			if wantCombined[i] {
 				wantBlend[i] = a[i]
@@ -357,7 +357,7 @@ func TestLaneLoadStorePreservesBits(t *testing.T) {
 	r := rand.New(rand.NewSource(1))
 	for vector := 0; vector < wideRandomVectors; vector++ {
 		want := wideRandomArray(r)
-		var got [wideWidth]float32
+		var got [wideWidth]laneScalar
 		laneLoad(&want).store(&got)
 		wideCheckBits(t, "load-store", got, want)
 	}
@@ -368,24 +368,24 @@ func TestLaneSplatAndZeroPreserveBits(t *testing.T) {
 	r := rand.New(rand.NewSource(1))
 	for vector := 0; vector < wideRandomVectors; vector++ {
 		value := wideRandomValue(r)
-		var gotSplat [wideWidth]float32
-		laneSplat(Q{v: value}).store(&gotSplat)
-		var wantSplat [wideWidth]float32
+		var gotSplat [wideWidth]laneScalar
+		laneSplat(laneScalarToQ(value)).store(&gotSplat)
+		var wantSplat [wideWidth]laneScalar
 		for i := range wantSplat {
 			wantSplat[i] = value
 		}
 		wideCheckBits(t, "splat", gotSplat, wantSplat)
 
-		var gotZero [wideWidth]float32
+		var gotZero [wideWidth]laneScalar
 		laneZero().store(&gotZero)
-		var wantZero [wideWidth]float32
+		var wantZero [wideWidth]laneScalar
 		wideCheckBits(t, "zero", gotZero, wantZero)
 	}
 }
 
 // TestLaneMinMaxReturnSecondOnEqual protects signed-zero and tie semantics.
 func TestLaneMinMaxReturnSecondOnEqual(t *testing.T) {
-	var first, second [wideWidth]float32
+	var first, second [wideWidth]laneScalar
 	for i := range first {
 		switch i % 4 {
 		case 0:
@@ -401,7 +401,7 @@ func TestLaneMinMaxReturnSecondOnEqual(t *testing.T) {
 			second[i] = math.Float32frombits(0x80000000)
 		}
 	}
-	var gotMin, gotMax [wideWidth]float32
+	var gotMin, gotMax [wideWidth]laneScalar
 	laneLoad(&first).Min(laneLoad(&second)).store(&gotMin)
 	laneLoad(&first).Max(laneLoad(&second)).store(&gotMax)
 	wideCheckBits(t, "min equal", gotMin, second)
