@@ -185,6 +185,27 @@ jobs:
         # The scene traces take minutes on wasm; the native paths run them.
         run: go test -timeout 600s ${{ matrix.goos == 'js' && '-short' || '' }} -tags $TAGS ./...
 
+  samples:
+    name: samples (${{ matrix.tags || 'float' }})
+    strategy:
+      fail-fast: false
+      matrix:
+        tags: ["", dbox2d_fixed]
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: samples
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: samples/go.mod
+      - name: Vet
+        run: go vet -tags "${{ matrix.tags }}" . ./internal/app ./internal/draw
+      # The scene checksums, the app and the draw layer need no GPU host.
+      - name: Test
+        run: go test -timeout 600s -tags "${{ matrix.tags }}" . ./internal/app ./internal/draw
+
   race:
     name: race (amd64)
     runs-on: ubuntu-latest
