@@ -139,8 +139,14 @@ Body Move, Sensor Types.
 **Robustness** (6): HighMassRatio1, HighMassRatio2, HighMassRatio3, Overlap
 Recovery, Tiny Pyramid, Cart.
 
-The other categories of the reference are not ported yet. The scenes produce
-the same bits with any worker count.
+**Shapes** (16): Chain Shape, Compound Shapes, Filter, Custom Filter,
+Restitution, Friction, Rolling Resistance, Conveyor Belt, Tangent Speed,
+Modify Geometry, Chain Link, Rounded, Ellipse, Offset, Explosion, Recreate
+Static.
+
+**World** (1): Large World.
+
+The scenes produce the same bits with any worker count.
 
 ## Layout
 
