@@ -124,6 +124,11 @@ Doohickey, Scissor Lift, Gear Lift, Door, Scale Ragdoll.
 **Collision** (9): Shape Distance, Dynamic Tree, Ray Cast, Cast World,
 Overlap World, Manifold, Smooth Manifold, Shape Cast, Time of Impact.
 
+**Continuous** (15): Bounce House, Bounce Humans, Chain Drop, Chain Slide,
+Segment Slide, Skinny Box, Ghost Bumps, Speculative Fallback, Speculative
+Sliver, Speculative Ghost, Pixel Imperfect, Restitution Threshold, Drop,
+Pinball, Wedge.
+
 The other categories of the reference are not ported yet. The scenes produce
 the same bits with any worker count.
 
