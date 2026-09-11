@@ -134,6 +134,8 @@ Pinball, Wedge.
 **Events** (7): Sensor Funnel, Sensor Bookend, Foot Sensor, Contact, Platformer,
 Body Move, Sensor Types.
 
+**Geometry** (1): Convex Hull.
+
 The other categories of the reference are not ported yet. The scenes produce
 the same bits with any worker count.
 
