@@ -529,7 +529,7 @@ func (ctx *continuousContext) queryCallback(_ int, userData uint64) bool {
 			offset2 := Cross(c2.Sub(p1), e)
 
 			// todo this should use the min extent of the fast shape, not the body
-			allowedFraction := QFromRatio(1, 4)
+			allowedFraction := oneQuarter
 			if offset1.Less(zero) || offset1.Sub(offset2).Less(allowedFraction.Mul(fastBodySim.minExtent)) {
 				// Minimal clipping
 				return true
@@ -555,7 +555,7 @@ func (ctx *continuousContext) queryCallback(_ int, userData uint64) bool {
 		// fallback to TOI of a small circle around the fast shape centroid
 		centroid := getShapeCentroid(fastShape)
 		extent := computeShapeExtent(fastShape, centroid)
-		radius := QFromRatio(1, 4).Mul(extent.minExtent)
+		radius := oneQuarter.Mul(extent.minExtent)
 		centroidPoint := [1]Vec2{centroid}
 		input.ProxyB = MakeProxy(centroidPoint[:], radius)
 		output = TimeOfImpact(&input)

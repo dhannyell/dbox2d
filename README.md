@@ -16,7 +16,7 @@ in [Scalar modes and determinism](#scalar-modes-and-determinism).
 
 **[![Try the browser samples](samples/gopher.gif)](https://dhannyell.github.io/dbox2d/)**
 
-[Open the live demo](https://dhannyell.github.io/dbox2d/) · [float mode](https://dhannyell.github.io/dbox2d/?mode=float) · [fixed mode](https://dhannyell.github.io/dbox2d/?mode=fixed)
+[Open the live demo](https://dhannyell.github.io/dbox2d/) · [fixed mode](https://dhannyell.github.io/dbox2d/?mode=fixed)
 
 The browser demo requires WebGPU and run on a single thread due to limitations in Go's WebAssembly implementation. To use multithreading, try the native version. see [the samples](samples/README.md).
 
@@ -67,17 +67,31 @@ The `samples` module includes the Box2D scenes in native and WebAssembly
 hosts. Native runs need cgo, a C toolchain, and a Vulkan, Metal, or D3D12
 driver. The browser host needs WebGPU.
 
+### SIMD
+
 ```sh
 cd samples
-go run ./cmd/native
+GOTOOLCHAIN=go1.27.0 GOEXPERIMENT=simd go run -tags dbox2d_simd ./cmd/native
 ```
 
 To build the browser host:
 
 ```sh
 cd samples
-CGO_ENABLED=0 GOOS=js GOARCH=wasm go build -o web/app.wasm ./cmd/web
 GOTOOLCHAIN=go1.27.0 GOEXPERIMENT=simd CGO_ENABLED=0 GOOS=js GOARCH=wasm go build -tags dbox2d_simd -o web/app.wasm ./cmd/web
+go run ./cmd/serve
+```
+
+### Scalar
+
+```sh
+cd samples
+go run ./cmd/native
+```
+
+```sh
+cd samples
+CGO_ENABLED=0 GOOS=js GOARCH=wasm go build -o web/app.wasm ./cmd/web
 go run ./cmd/serve
 ```
 
@@ -236,15 +250,15 @@ minima, and each figure is a geometric mean over the seven scenes.
 
 | Workers | Port over reference | With PGO | Reference speedup | Port speedup | Reference efficiency | Port efficiency |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1 | 1.46x | 1.42x | 1.00x | 1.00x | 100% | 100% |
-| 2 | 1.29x | 1.22x | 1.60x | 1.81x | 80% | 91% |
-| 4 | 1.34x | 1.26x | 2.77x | 3.02x | 69% | 75% |
-| 8 | 1.39x | 1.31x | 4.00x | 4.20x | 50% | 52% |
+| 1 | 1.39x | 1.34x | 1.00x | 1.00x | 100% | 100% |
+| 2 | 1.34x | 1.27x | 1.74x | 1.82x | 87% | 91% |
+| 4 | 1.29x | 1.23x | 2.80x | 3.03x | 70% | 76% |
+| 8 | 1.35x | 1.36x | 4.00x | 4.13x | 50% | 52% |
 
-The port scales better than the reference at every worker count: it keeps
-more of its single-thread speed as threads are added, so the gap narrows
-from 1.46x on one thread to 1.39x on eight. The per-scene ratios at eight
-workers run 1.32x to 1.53x.
+The port scales slightly better than the reference at every worker count,
+so the gap is single-thread work rather than the executor. The per-scene
+ratios at one worker run 1.36x to 1.44x; at eight they run 1.30x to 1.55x,
+with `many_pyramids` the outlier inside a noisy band.
 
 The port also lands on the same result bits at every worker count, in all
 seven scenes. The reference does so in six; its `rain` hash changes with the
@@ -304,8 +318,8 @@ one whose hot paths matter:
 
 ```sh
 go test -run "^$" -bench . -cpuprofile=cpu.pprof
-cp cpu.pprof ./cmd/game/default.pgo
-go build ./cmd/game
+cp cpu.pprof ./cmd/your_app/default.pgo
+go build ./cmd/your_app
 ```
 
 A profile kept elsewhere works through the flag, and `-pgo=off` builds without

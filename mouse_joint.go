@@ -68,8 +68,7 @@ func prepareMouseJoint(base *jointSim, context *stepContext) {
 	joint.linearSoftness = makeSoft(joint.hertz, joint.dampingRatio, context.h)
 
 	angularHertz := QHalf()
-	angularDampingRatio := QMustParse("0.1")
-	joint.angularSoftness = makeSoft(angularHertz, angularDampingRatio, context.h)
+	joint.angularSoftness = makeSoft(angularHertz, mouseAngularDampingRatio, context.h)
 
 	rB := joint.anchorB
 	mB := bodySimB.invMass

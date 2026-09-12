@@ -153,7 +153,7 @@ func (a *App) Frame(dtSeconds float64) (*draw.Batches, []render.UICommand) {
 	if a.showUI {
 		a.drawFrameOverlay(dtSeconds)
 	}
-	a.drawToast(dtSeconds)
+	a.drawTelemetry(dtSeconds)
 
 	return &a.drawer.Batches, a.collectUICommands()
 }

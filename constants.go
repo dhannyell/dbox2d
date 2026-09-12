@@ -38,6 +38,36 @@ var (
 
 	// upstream 2.0f
 	jointConstraintDampingRatio = QFromInt(2)
+
+	// The constructors below are hoisted out of per-step and per-manifold
+	// code: QMustParse scans a string and the fixed QFromRatio divides, and
+	// neither belongs inside a prepare or collide call. The bits are the
+	// ones the call sites produced.
+
+	// upstream 0.1f, the angular damping ratio of the mouse joint
+	mouseAngularDampingRatio = QMustParse("0.1")
+
+	// upstream 0.01f, the Gauss map tolerances of a chain segment
+	chainSegmentTolerance = QFromRatio(1, 100)
+
+	// upstream 0.25f, the continuous clip fraction and the rounded polygon
+	// mass push-out; exact in both modes
+	oneQuarter = QFromRatio(1, 4)
+
+	// upstream 1.412f, the rounded polygon mass push-out
+	roundedMassSqrt2 = QMustParse("1.412")
+
+	// upstream 0.99f * B2_PI, the revolute limit range, in turns
+	revoluteLimitAngle = QMustParse("0.495")
+
+	// The literals of the Default*Def constructors. A definition is built
+	// per body, shape and joint, so the parse runs once here rather than
+	// on every creation.
+	defaultSleepThreshold    = QMustParse("0.05")
+	defaultFriction          = QMustParse("0.6")
+	defaultCorrectionFactor  = QMustParse("0.3")
+	defaultDrawSize          = QMustParse("0.25")
+	defaultWheelDampingRatio = QMustParse("0.7")
 )
 
 // LinearSlop is the collision and constraint tolerance in meters. It is

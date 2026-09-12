@@ -228,7 +228,7 @@ func DefaultBodyDef() BodyDef {
 	return BodyDef{
 		Type:           StaticBody,
 		Rotation:       RotIdentity(),
-		SleepThreshold: QMustParse("0.05"),
+		SleepThreshold: defaultSleepThreshold,
 		GravityScale:   QOne(),
 		EnableSleep:    true,
 		IsAwake:        true,
@@ -340,7 +340,7 @@ type SurfaceMaterial struct {
 
 // DefaultSurfaceMaterial returns the default material: friction 0.6.
 func DefaultSurfaceMaterial() SurfaceMaterial {
-	return SurfaceMaterial{Friction: QMustParse("0.6")}
+	return SurfaceMaterial{Friction: defaultFriction}
 }
 
 // ShapeDef holds the data to create a shape. It is a temporary bundle of
@@ -699,7 +699,7 @@ func DefaultMotorJointDef() MotorJointDef {
 	return MotorJointDef{
 		MaxForce:         QOne(),
 		MaxTorque:        QOne(),
-		CorrectionFactor: QMustParse("0.3"),
+		CorrectionFactor: defaultCorrectionFactor,
 		internalValue:    secretCookie,
 	}
 }
@@ -912,7 +912,7 @@ type RevoluteJointDef struct {
 // DefaultRevoluteJointDef returns the default revolute joint definition.
 func DefaultRevoluteJointDef() RevoluteJointDef {
 	return RevoluteJointDef{
-		DrawSize:      QMustParse("0.25"),
+		DrawSize:      defaultDrawSize,
 		internalValue: secretCookie,
 	}
 }
@@ -1421,7 +1421,7 @@ func DefaultWheelJointDef() WheelJointDef {
 		LocalAxisA:    Vec2{Y: QOne()},
 		EnableSpring:  true,
 		Hertz:         QOne(),
-		DampingRatio:  QMustParse("0.7"),
+		DampingRatio:  defaultWheelDampingRatio,
 		internalValue: secretCookie,
 	}
 }

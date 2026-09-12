@@ -294,7 +294,7 @@ func ComputePolygonMass(shape *Polygon, density Q) MassData {
 
 	zero := QZero()
 	half := QHalf()
-	quarter := QMustParse("0.25")
+	quarter := oneQuarter
 	third := makeRecip(QFromInt(3))
 
 	var vertices [MaxPolygonVertices]Vec2
@@ -303,7 +303,7 @@ func ComputePolygonMass(shape *Polygon, density Q) MassData {
 
 	if zero.Less(radius) {
 		// Approximate mass of rounded polygons by pushing out the vertices.
-		sqrt2 := QMustParse("1.412")
+		sqrt2 := roundedMassSqrt2
 		for i := range count {
 			j := i - 1
 			if i == 0 {

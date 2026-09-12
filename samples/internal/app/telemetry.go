@@ -18,7 +18,7 @@ type telemetry struct {
 
 func (e *telemetry) show(text string) {
 	e.text = text
-	e.remaining = toastSeconds
+	e.remaining = telemetrySeconds
 }
 
 func (e *telemetry) key(k samples.Key) {
@@ -26,26 +26,26 @@ func (e *telemetry) key(k samples.Key) {
 	e.recent[len(e.recent)-1] = k
 	if slices.Equal(e.recent[:], input) {
 		clear(e.recent[:])
-		e.show(decode(o))
+		e.show(decode(W))
 	}
 }
 
 func inputSettings(s *samples.Settings) string {
 	switch {
 	case s.Hertz <= 5 && s.SubStepCount >= 32:
-		if labelShowCount[0] < 1 {
-			labelShowCount[0]++
-			return decode(f)
+		if telemetryCount[0] < 1 {
+			telemetryCount[0]++
+			return decode(A)
 		}
 	case s.Hertz >= 240 && s.SubStepCount >= 32:
-		if labelShowCount[1] < 1 {
-			labelShowCount[1]++
-			return decode(r)
+		if telemetryCount[1] < 1 {
+			telemetryCount[1]++
+			return decode(S)
 		}
 	case s.Hertz <= 5 && s.SubStepCount <= 1:
-		if labelShowCount[2] < 1 {
-			labelShowCount[2]++
-			return decode(c)
+		if telemetryCount[2] < 1 {
+			telemetryCount[2]++
+			return decode(D)
 		}
 	}
 	return ""
@@ -59,15 +59,15 @@ func (e *telemetry) settings(s *samples.Settings) {
 	e.lastInput = inputSettings
 }
 
-func (a *App) drawToast(dtSeconds float64) {
+func (a *App) drawTelemetry(dtSeconds float64) {
 	e := &a.telemetry
 	if e.remaining <= 0 {
 		return
 	}
 	e.remaining -= dtSeconds
 	cam := &a.ctx.Camera
-	x := (cam.Width - toastScale*a.measurer.TextWidth(e.text)) / 2
-	a.drawer.DrawStringColor(x, a.measurer.TextHeight(), e.text, toastColor)
+	x := (cam.Width - telemetryScale*a.measurer.TextWidth(e.text)) / 2
+	a.drawer.DrawStringColor(x, a.measurer.TextHeight(), e.text, telemetryColor)
 }
 
 func (a *App) Toast() string {
@@ -86,19 +86,19 @@ func decode(b []byte) string {
 }
 
 const (
-	toastSeconds = 4.0
-	toastScale   = 2
-	xorKey       = 0x42
+	telemetrySeconds = 4.0
+	telemetryScale   = 2
+	xorKey           = 0x42
 )
 
 var (
-	o = []byte{
+	W = []byte{
 		0x16, 0x2a, 0x23, 0x36, 0x62, 0x35, 0x23, 0x31, 0x62, 0x36, 0x2d,
 		0x2d, 0x62, 0x2d, 0x20, 0x34, 0x2b, 0x2d, 0x37, 0x31, 0x2e, 0x6c,
 		0x62, 0x09, 0x27, 0x27, 0x32, 0x62, 0x2e, 0x2d, 0x2d, 0x29, 0x2b,
 		0x2c, 0x25, 0x2e,
 	}
-	f = []byte{
+	A = []byte{
 		0x16, 0x2d, 0x2d, 0x62, 0x2f, 0x23, 0x2c, 0x3b, 0x62, 0x31, 0x37,
 		0x20, 0x31, 0x36, 0x27, 0x32, 0x31, 0x6c, 0x62, 0x0f, 0x2d, 0x34,
 		0x2b, 0x2c, 0x25, 0x62, 0x36, 0x2a, 0x27, 0x62, 0x31, 0x2d, 0x2e,
@@ -106,13 +106,13 @@ var (
 		0x2d, 0x35, 0x27, 0x30, 0x62, 0x37, 0x2c, 0x2b, 0x34, 0x27, 0x30,
 		0x31, 0x27, 0x6c,
 	}
-	r = []byte{
+	S = []byte{
 		0x16, 0x2d, 0x2d, 0x62, 0x31, 0x2e, 0x2d, 0x35, 0x6c, 0x62, 0x10,
 		0x27, 0x35, 0x30, 0x2b, 0x36, 0x2b, 0x2c, 0x25, 0x62, 0x36, 0x2a,
 		0x27, 0x62, 0x32, 0x2a, 0x3b, 0x31, 0x2b, 0x21, 0x31, 0x62, 0x2b,
 		0x2c, 0x62, 0x10, 0x37, 0x31, 0x36, 0x6c,
 	}
-	c = []byte{
+	D = []byte{
 		0x16, 0x2d, 0x2d, 0x62, 0x24, 0x27, 0x35, 0x62, 0x31, 0x37, 0x20,
 		0x31, 0x36, 0x27, 0x32, 0x31, 0x6c, 0x62, 0x25, 0x2d, 0x62, 0x2f,
 		0x2d, 0x26, 0x62, 0x36, 0x2b, 0x26, 0x3b, 0x62, 0x30, 0x27, 0x2f,
@@ -121,9 +121,9 @@ var (
 	}
 )
 
-var labelShowCount [3]int
+var telemetryCount [3]int
 
-var toastColor = draw.RGBA8{R: 255, G: 214, B: 102, A: 255}
+var telemetryColor = draw.RGBA8{R: 255, G: 214, B: 102, A: 255}
 
 var input = []samples.Key{
 	samples.KeyUp, samples.KeyUp, samples.KeyDown, samples.KeyDown,

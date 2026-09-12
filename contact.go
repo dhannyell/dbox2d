@@ -108,7 +108,10 @@ type contactSim struct {
 
 // manifoldFcn computes the manifold of one ordered shape type pair. It
 // corresponds to b2ManifoldFcn in src/contact.c.
-type manifoldFcn func(shapeA *shape, xfA Transform, shapeB *shape, xfB Transform, cache *SimplexCache) Manifold
+//
+// It writes into manifold, which the caller has zeroed, so the polygon paths
+// land the result in the contact without a return-by-value copy per hop.
+type manifoldFcn func(manifold *Manifold, shapeA *shape, xfA Transform, shapeB *shape, xfB Transform, cache *SimplexCache)
 
 // contactRegister pairs the collide function with the order of its
 // arguments. It corresponds to b2ContactRegister in src/contact.c.
@@ -122,52 +125,54 @@ type contactRegister struct {
 // src/contact.c.
 var contactRegisters [ShapeTypeCount][ShapeTypeCount]contactRegister
 
-func circleManifold(shapeA *shape, xfA Transform, shapeB *shape, xfB Transform, _ *SimplexCache) Manifold {
-	return CollideCircles(&shapeA.circle, xfA, &shapeB.circle, xfB)
+func circleManifold(manifold *Manifold, shapeA *shape, xfA Transform, shapeB *shape, xfB Transform, _ *SimplexCache) {
+	*manifold = CollideCircles(&shapeA.circle, xfA, &shapeB.circle, xfB)
 }
 
-func capsuleAndCircleManifold(shapeA *shape, xfA Transform, shapeB *shape, xfB Transform, _ *SimplexCache) Manifold {
-	return CollideCapsuleAndCircle(&shapeA.capsule, xfA, &shapeB.circle, xfB)
+func capsuleAndCircleManifold(manifold *Manifold, shapeA *shape, xfA Transform, shapeB *shape, xfB Transform, _ *SimplexCache) {
+	*manifold = CollideCapsuleAndCircle(&shapeA.capsule, xfA, &shapeB.circle, xfB)
 }
 
-func capsuleManifold(shapeA *shape, xfA Transform, shapeB *shape, xfB Transform, _ *SimplexCache) Manifold {
-	return CollideCapsules(&shapeA.capsule, xfA, &shapeB.capsule, xfB)
+func capsuleManifold(manifold *Manifold, shapeA *shape, xfA Transform, shapeB *shape, xfB Transform, _ *SimplexCache) {
+	*manifold = CollideCapsules(&shapeA.capsule, xfA, &shapeB.capsule, xfB)
 }
 
-func polygonAndCircleManifold(shapeA *shape, xfA Transform, shapeB *shape, xfB Transform, _ *SimplexCache) Manifold {
-	return CollidePolygonAndCircle(&shapeA.polygon, xfA, &shapeB.circle, xfB)
+func polygonAndCircleManifold(manifold *Manifold, shapeA *shape, xfA Transform, shapeB *shape, xfB Transform, _ *SimplexCache) {
+	*manifold = CollidePolygonAndCircle(&shapeA.polygon, xfA, &shapeB.circle, xfB)
 }
 
-func polygonAndCapsuleManifold(shapeA *shape, xfA Transform, shapeB *shape, xfB Transform, _ *SimplexCache) Manifold {
-	return CollidePolygonAndCapsule(&shapeA.polygon, xfA, &shapeB.capsule, xfB)
+func polygonAndCapsuleManifold(manifold *Manifold, shapeA *shape, xfA Transform, shapeB *shape, xfB Transform, _ *SimplexCache) {
+	polyB := makeCapsule(shapeB.capsule.Center1, shapeB.capsule.Center2, shapeB.capsule.Radius)
+	collidePolygonsInto(manifold, &shapeA.polygon, xfA, &polyB, xfB)
 }
 
-func polygonManifold(shapeA *shape, xfA Transform, shapeB *shape, xfB Transform, _ *SimplexCache) Manifold {
-	return CollidePolygons(&shapeA.polygon, xfA, &shapeB.polygon, xfB)
+func polygonManifold(manifold *Manifold, shapeA *shape, xfA Transform, shapeB *shape, xfB Transform, _ *SimplexCache) {
+	collidePolygonsInto(manifold, &shapeA.polygon, xfA, &shapeB.polygon, xfB)
 }
 
-func segmentAndCircleManifold(shapeA *shape, xfA Transform, shapeB *shape, xfB Transform, _ *SimplexCache) Manifold {
-	return CollideSegmentAndCircle(&shapeA.segment, xfA, &shapeB.circle, xfB)
+func segmentAndCircleManifold(manifold *Manifold, shapeA *shape, xfA Transform, shapeB *shape, xfB Transform, _ *SimplexCache) {
+	*manifold = CollideSegmentAndCircle(&shapeA.segment, xfA, &shapeB.circle, xfB)
 }
 
-func segmentAndCapsuleManifold(shapeA *shape, xfA Transform, shapeB *shape, xfB Transform, _ *SimplexCache) Manifold {
-	return CollideSegmentAndCapsule(&shapeA.segment, xfA, &shapeB.capsule, xfB)
+func segmentAndCapsuleManifold(manifold *Manifold, shapeA *shape, xfA Transform, shapeB *shape, xfB Transform, _ *SimplexCache) {
+	*manifold = CollideSegmentAndCapsule(&shapeA.segment, xfA, &shapeB.capsule, xfB)
 }
 
-func segmentAndPolygonManifold(shapeA *shape, xfA Transform, shapeB *shape, xfB Transform, _ *SimplexCache) Manifold {
-	return CollideSegmentAndPolygon(&shapeA.segment, xfA, &shapeB.polygon, xfB)
+func segmentAndPolygonManifold(manifold *Manifold, shapeA *shape, xfA Transform, shapeB *shape, xfB Transform, _ *SimplexCache) {
+	polygonA := makeCapsule(shapeA.segment.Point1, shapeA.segment.Point2, QZero())
+	collidePolygonsInto(manifold, &polygonA, xfA, &shapeB.polygon, xfB)
 }
 
-func chainSegmentAndCircleManifold(shapeA *shape, xfA Transform, shapeB *shape, xfB Transform, _ *SimplexCache) Manifold {
-	return CollideChainSegmentAndCircle(&shapeA.chainSegment, xfA, &shapeB.circle, xfB)
+func chainSegmentAndCircleManifold(manifold *Manifold, shapeA *shape, xfA Transform, shapeB *shape, xfB Transform, _ *SimplexCache) {
+	*manifold = CollideChainSegmentAndCircle(&shapeA.chainSegment, xfA, &shapeB.circle, xfB)
 }
 
-func chainSegmentAndCapsuleManifold(shapeA *shape, xfA Transform, shapeB *shape, xfB Transform, cache *SimplexCache) Manifold {
-	return CollideChainSegmentAndCapsule(&shapeA.chainSegment, xfA, &shapeB.capsule, xfB, cache)
+func chainSegmentAndCapsuleManifold(manifold *Manifold, shapeA *shape, xfA Transform, shapeB *shape, xfB Transform, cache *SimplexCache) {
+	*manifold = CollideChainSegmentAndCapsule(&shapeA.chainSegment, xfA, &shapeB.capsule, xfB, cache)
 }
 
-func chainSegmentAndPolygonManifold(shapeA *shape, xfA Transform, shapeB *shape, xfB Transform, cache *SimplexCache) Manifold {
-	return CollideChainSegmentAndPolygon(&shapeA.chainSegment, xfA, &shapeB.polygon, xfB, cache)
+func chainSegmentAndPolygonManifold(manifold *Manifold, shapeA *shape, xfA Transform, shapeB *shape, xfB Transform, cache *SimplexCache) {
+	*manifold = CollideChainSegmentAndPolygon(&shapeA.chainSegment, xfA, &shapeB.polygon, xfB, cache)
 }
 
 // addType registers a collide function for a type pair, in both orders.
@@ -441,7 +446,8 @@ func updateContact(w *world, cs *contactSim, shapeA *shape, transformA Transform
 
 	// Compute the new manifold.
 	fcn := contactRegisters[shapeA.shapeType][shapeB.shapeType].fcn
-	cs.manifold = fcn(shapeA, transformA, shapeB, transformB, &cs.cache)
+	cs.manifold = Manifold{}
+	fcn(&cs.manifold, shapeA, transformA, shapeB, transformB, &cs.cache)
 
 	// Keep these updated in case the shape values changed.
 	cs.friction = w.frictionCallback(shapeA.friction, shapeA.userMaterialId, shapeB.friction, shapeB.userMaterialId)
@@ -543,5 +549,7 @@ func updateContact(w *world, cs *contactSim, shapeA *shape, transformA Transform
 func computeManifold(shapeA *shape, transformA Transform, shapeB *shape, transformB Transform) Manifold {
 	fcn := contactRegisters[shapeA.shapeType][shapeB.shapeType].fcn
 	cache := SimplexCache{}
-	return fcn(shapeA, transformA, shapeB, transformB, &cache)
+	var manifold Manifold
+	fcn(&manifold, shapeA, transformA, shapeB, transformB, &cache)
+	return manifold
 }

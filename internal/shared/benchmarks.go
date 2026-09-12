@@ -31,9 +31,6 @@ type Options struct {
 	Rotation func(radians float32) Rot
 }
 
-// floatMode reports whether this build is the float scalar mode.
-func floatMode() bool { return ScalarMode == "float" }
-
 // StepFn is the per-step hook of a scene, run before the world step with
 // the index of that step. Only rain and spinner have one.
 type StepFn func(step int)
@@ -371,7 +368,7 @@ func (data *rainData) createGroup(worldId WorldId, rowIndex, columnIndex int) {
 		Y: QFromInt(40).Add(QFromInt(45).Mul(QFromInt(rowIndex))),
 	}
 	for i := range rainGroupSize {
-		data.groups[groupIndex].humans[i] = CreateHuman(worldId, position, QOne(), QMustParse("0.05"), QFromInt(5), QHalf(), i+1, nil, false)
+		data.groups[groupIndex].humans[i] = CreateHuman(worldId, position, QOne(), lit0p05, QFromInt(5), QHalf(), i+1, nil, false)
 		position.X = position.X.Add(QHalf())
 	}
 }

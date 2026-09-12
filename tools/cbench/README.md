@@ -176,10 +176,10 @@ is the number that compares the two solvers.
 
 | workers | port over reference | with PGO | reference over its x1 | port over its x1 | reference efficiency | port efficiency |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1 | 1.46x | 1.42x | 1.00x | 1.00x | 100% | 100% |
-| 2 | 1.29x | 1.22x | 1.60x | 1.81x | 80% | 91% |
-| 4 | 1.34x | 1.26x | 2.77x | 3.02x | 69% | 75% |
-| 8 | 1.39x | 1.31x | 4.00x | 4.20x | 50% | 52% |
+| 1 | 1.39x | 1.34x | 1.00x | 1.00x | 100% | 100% |
+| 2 | 1.34x | 1.27x | 1.74x | 1.82x | 87% | 91% |
+| 4 | 1.29x | 1.23x | 2.80x | 3.03x | 70% | 76% |
+| 8 | 1.35x | 1.36x | 4.00x | 4.13x | 50% | 52% |
 
 Every figure is a geometric mean over the seven scenes: ratios compose by
 multiplication, so an arithmetic mean of them is biased upward. The PGO
@@ -187,28 +187,30 @@ column is the ratio composed with the profile's own gain, measured against a
 `-pgo=off` build in the same sitting, because a profile and a no-profile
 sweep taken hours apart compare the machine as much as the code.
 
-The gap narrows with the thread count: the port keeps more of its
-single-thread speed as threads are added, so parallel efficiency at eight
-workers is 52 percent for the port against 50 percent for the reference. At
-one worker the per-scene ratios run 1.34x to 1.62x; at eight they run 1.32x
-to 1.53x, a tighter spread than the single-thread one.
+The port keeps slightly more of its single-thread speed as threads are
+added, so parallel efficiency at eight workers is 52 percent for the port
+against 50 percent for the reference; the gap is single-thread work, not
+the executor. At one worker the per-scene ratios run 1.36x to 1.44x; at
+eight they run 1.30x to 1.55x, and the eight-worker PGO column sits on the
+no-profile one because two of its scenes ran inside a noisy band.
 
 Solver ms at eight workers:
 
 | scene | bodies | c-avx2 ms | go-avx2 ms | ratio |
 | --- | ---: | ---: | ---: | ---: |
-| joint_grid | 10000 | 746 | 1072 | 1.44x |
-| large_pyramid | 5051 | 392 | 552 | 1.41x |
-| many_pyramids | 22001 | 470 | 720 | 1.53x |
-| rain | 1 | 2437 | 3330 | 1.37x |
-| smash | 9601 | 649 | 872 | 1.34x |
-| spinner | 3040 | 1453 | 1922 | 1.32x |
-| tumbler | 2026 | 625 | 843 | 1.35x |
+| joint_grid | 10000 | 753 | 994 | 1.32x |
+| large_pyramid | 5051 | 396 | 520 | 1.31x |
+| many_pyramids | 22001 | 460 | 711 | 1.55x |
+| rain | 1 | 2437 | 3290 | 1.35x |
+| smash | 9601 | 661 | 869 | 1.32x |
+| spinner | 3040 | 1452 | 1893 | 1.30x |
+| tumbler | 2026 | 623 | 833 | 1.34x |
 
 `benchcmp` prints a repeat spread per scene and marks a scene noisy past five
-percent. At three repeats on this machine `many_pyramids` runs 12 percent and
-`large_pyramid` six; the other five sit under five. Treat a single scene
-inside a noisy band as indicative and the geometric mean as the result.
+percent. At three repeats on this machine every scene sits under four
+percent at one, two and four workers; at eight, `many_pyramids` runs 24
+percent and `large_pyramid` nine. Treat a single scene inside a noisy band
+as indicative and the geometric mean as the result.
 
 An earlier sweep on a busier machine put the eight-worker ratio at 1.55x and
 the port's efficiency below the reference's. Nothing in the port changed
@@ -221,8 +223,13 @@ to 531 ms, so the sweep stops at eight.
 ### What the scene hook measures
 
 `hook_ms` is body creation and destruction rather than stepping, and only
-`rain` does enough of it to matter: 102 ms in the port against 57 ms in the
-reference at eight workers.
+`rain` does enough of it to matter: 97 ms in the port against 57 ms in the
+reference at eight workers. A third of the earlier 107 ms was
+`strconv.ParseFloat`: the definition constructors and the ragdoll builder
+parsed their decimal literals on every call, where the reference spells
+them as float constants. Those literals are now package variables. The rest
+of the hook is dynamic tree insertion and the width of the Go structs, and
+the create and destroy paths match the reference step for step.
 
 That column found a real defect. It first read 50671 ms, which is not a
 language gap but an algorithm one, and the profile put 64 percent of the run
@@ -237,6 +244,23 @@ The port now gates those call sites behind the `dbox2d_validate` build tag,
 matching the reference. The hook fell by a factor of 290 and the solver
 figures did not move, because the step path never called it. The tables
 above are from after the fix.
+
+### Where the single-thread gap sits
+
+The collide phase was the largest single item, and a line profile of
+`CollidePolygons` showed it was not the arithmetic: a `Manifold` is 120
+bytes, Go copies a returned struct at every hop, and the result crossed four
+hops from `clipPolygons` to the contact. The internal collide functions and
+the dispatch table now write into the contact's manifold; the public
+`CollidePolygons` keeps its signature. That took the one-worker geometric
+mean from 1.46x to 1.39x, with the polygon scenes moving most, and every
+scene hash stayed the same.
+
+Two things were tried on the same phase and did nothing. Replacing the
+inner branch of `findMaxSeparation` with the `min` builtin, which the
+compiler lowers to `MINSS` as GCC does, measured 1.01x over seven scenes:
+the branch predicts well on real data. The inner loop assembly is otherwise
+the same as the C, so the separating axis test is done short of assembly.
 
 The lesson for reading this benchmark: a total that diverges from its solver
 column is a scene-hook result, and it is worth chasing rather than

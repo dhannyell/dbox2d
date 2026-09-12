@@ -499,8 +499,11 @@ func CollidePolygonAndCapsule(polygonA *Polygon, xfA Transform, capsuleB *Capsul
 // clipPolygons computes the contact points of two potentially touching
 // polygon edges. It corresponds to the static b2ClipPolygons in
 // src/manifold.c.
-func clipPolygons(polyA, polyB *Polygon, edgeA, edgeB int, flip bool) Manifold {
-	var manifold Manifold
+//
+// It writes into manifold, which the caller has zeroed, instead of returning
+// by value: a Manifold is 120 bytes and Go copies a returned struct at every
+// hop, and this is the hottest path of the collide phase.
+func clipPolygons(manifold *Manifold, polyA, polyB *Polygon, edgeA, edgeB int, flip bool) {
 
 	// The reference polygon and the incident polygon.
 	var poly1, poly2 *Polygon
@@ -556,7 +559,7 @@ func clipPolygons(polyA, polyB *Polygon, edgeA, edgeB int, flip bool) Manifold {
 
 	// Are the segments disjoint?
 	if upper2.Less(lower1) || upper1.Less(lower2) {
-		return manifold
+		return
 	}
 
 	// The reference guards each lerp span with FLT_EPSILON. In Q the span is
@@ -605,7 +608,6 @@ func clipPolygons(polyA, polyB *Polygon, edgeA, edgeB int, flip bool) Manifold {
 		manifold.PointCount = 2
 	}
 
-	return manifold
 }
 
 // findMaxSeparation finds the maximum separation of poly2 from the edge
@@ -644,6 +646,15 @@ func findMaxSeparation(poly1, poly2 *Polygon) (Q, int) {
 // the separating axis test and edge clipping. It corresponds to
 // b2CollidePolygons in src/manifold.c.
 func CollidePolygons(polygonA *Polygon, xfA Transform, polygonB *Polygon, xfB Transform) Manifold {
+	var manifold Manifold
+	collidePolygonsInto(&manifold, polygonA, xfA, polygonB, xfB)
+	return manifold
+}
+
+// collidePolygonsInto is CollidePolygons writing into a zeroed manifold. The
+// contact update calls it directly so the result lands in the contact
+// without passing through three return-by-value copies.
+func collidePolygonsInto(manifold *Manifold, polygonA *Polygon, xfA Transform, polygonB *Polygon, xfB Transform) {
 	origin := polygonA.Vertices[0]
 	speculativeDistance := SpeculativeDistance()
 	zero := QZero()
@@ -680,7 +691,7 @@ func CollidePolygons(polygonA *Polygon, xfA Transform, polygonB *Polygon, xfB Tr
 
 	if speculativeDistance.Add(radius).Less(separationA) ||
 		speculativeDistance.Add(radius).Less(separationB) {
-		return Manifold{}
+		return
 	}
 
 	// Find the incident edge.
@@ -717,8 +728,6 @@ func CollidePolygons(polygonA *Polygon, xfA Transform, polygonB *Polygon, xfB Tr
 		}
 	}
 
-	var manifold Manifold
-
 	// The slop keeps vertex-vertex normals safely normalizable; upstream
 	// 0.1f * B2_LINEAR_SLOP.
 	slopBias := linearSlopTenth
@@ -752,11 +761,11 @@ func CollidePolygons(polygonA *Polygon, xfA Transform, polygonB *Polygon, xfB Tr
 
 		if speculativeDistance.Less(distance.Sub(radius)) {
 			// This can happen in the vertex-vertex case.
-			return manifold
+			return
 		}
 
 		// Attempt to clip the edges.
-		manifold = clipPolygons(&localPolyA, &localPolyB, edgeA, edgeB, flip)
+		clipPolygons(manifold, &localPolyA, &localPolyB, edgeA, edgeB, flip)
 
 		minSeparation := QMaxValue()
 		for i := range manifold.PointCount {
@@ -818,7 +827,7 @@ func CollidePolygons(polygonA *Polygon, xfA Transform, polygonB *Polygon, xfB Tr
 		}
 	} else {
 		// The polygons overlap.
-		manifold = clipPolygons(&localPolyA, &localPolyB, edgeA, edgeB, flip)
+		clipPolygons(manifold, &localPolyA, &localPolyB, edgeA, edgeB, flip)
 	}
 
 	// Convert the manifold to world space.
@@ -834,7 +843,6 @@ func CollidePolygons(polygonA *Polygon, xfA Transform, polygonB *Polygon, xfB Tr
 		}
 	}
 
-	return manifold
 }
 
 // CollideSegmentAndCircle computes the contact manifold of a segment and a
@@ -1030,7 +1038,7 @@ type chainSegmentParams struct {
 // static b2ClassifyNormal in src/manifold.c.
 func classifyNormal(params chainSegmentParams, normal Vec2) normalType {
 	zero := QZero()
-	sinTol := QFromRatio(1, 100)
+	sinTol := chainSegmentTolerance
 
 	if !zero.Less(normal.Dot(params.edge1)) {
 		// Normal points towards the segment tail
@@ -1078,7 +1086,7 @@ func CollideChainSegmentAndPolygon(segmentA *ChainSegment, xfA Transform, polygo
 	var smoothParams chainSegmentParams
 	smoothParams.edge1 = edge1
 
-	convexTol := QFromRatio(1, 100)
+	convexTol := chainSegmentTolerance
 	edge0 := p1.Sub(segmentA.Ghost1).Normalize()
 	smoothParams.normal0 = RightPerp(edge0)
 	smoothParams.convex1 = !Cross(edge0, edge1).Less(convexTol)

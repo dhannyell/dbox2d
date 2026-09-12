@@ -1153,7 +1153,7 @@ func CreateRevoluteJoint(worldId WorldId, def *RevoluteJointDef) JointId {
 		panic("dbox2d: RevoluteJointDef.LowerAngle exceeds UpperAngle")
 	}
 	// The reference limits the range to 0.99 pi; in turns that is 0.495.
-	limitAngle := QMustParse("0.495")
+	limitAngle := revoluteLimitAngle
 	if def.LowerAngle.Less(limitAngle.Neg()) {
 		panic("dbox2d: RevoluteJointDef.LowerAngle is below -0.495 turns")
 	}
