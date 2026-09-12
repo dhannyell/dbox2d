@@ -75,6 +75,12 @@ jobs:
             echo "expected no fused multiply-add instructions, got $count"
             exit 1
           fi
+          # amd64 fuses as well from GOAMD64=v3 up, which is the setting the SIMD builds use.
+          count="$(GOAMD64=v3 go build -gcflags=-S . 2>&1 | grep -cE '\bVFN?M(ADD|SUB)[0-9]*(SS|SD|PS|PD)\b' || true)"
+          if [ "$count" != "0" ]; then
+            echo "expected no fused multiply-add instructions at GOAMD64=v3, got $count"
+            exit 1
+          fi
           inlined="$(go build -gcflags=-m=1 . 2>&1 | grep -cE 'can inline (QZero|QOne|QHalf|QFromInt|QFromRatio|QMustParse|QMaxValue|QMinValue|RotIdentity|atan2Turns)$' || true)"
           if [ "$inlined" != "10" ]; then
             echo "expected 10 inlinable float constructors, got $inlined"

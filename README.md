@@ -151,6 +151,21 @@ without FMA; the collision functions match the reference bit for bit in float
 mode except at three documented sites, and the fixed mode stays within measured
 budgets. See DIVERGENCES.md D-018.
 
+### Reproducing Box2D bit for bit
+
+With `-tags dbox2d_upstream_pairs`, float mode reproduces the output bits of
+the reference built without SIMD and without FMA: every frozen scene trace
+matches over its full length, in the scalar and the SIMD families alike.
+
+```sh
+go test -tags dbox2d_upstream_pairs ./...
+```
+
+The tag restores the broadphase pair order of Box2D, which follows the walk of
+the tree. The default build sorts those pairs instead, so its world does not
+depend on tree topology, and it parts from the reference wherever the two
+orders differ (DIVERGENCES.md D-013). CI runs both.
+
 ### SIMD
 
 Use `dbox2d_simd` to enable the SIMD contact solver. It is optional and
@@ -211,22 +226,64 @@ The repository's benchmark results are historical measurements, not a promise
 for another machine or scene. The saturation counter used by some tests is
 diagnostic only and never changes simulation results.
 
-## Reference source
+### Against Box2D
 
-The original C source is available locally on the
-`reference/box2d-v3.1.1` branch. It never merges into the Go branch and never
-builds as part of this module. It is kept as a fixed reference for porting
-work:
+The seven benchmark scenes of the reference run on both sides under one
+protocol: the same step counts, the same AVX2 lane path at width 8, fused
+multiply-add disabled in the C build because the port never emits it, and
+validation off in both. Solver milliseconds are the sum of the per-step
+minima, and each figure is a geometric mean over the seven scenes.
+
+| Workers | Port over reference | With PGO | Reference speedup | Port speedup | Reference efficiency | Port efficiency |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 1.46x | 1.42x | 1.00x | 1.00x | 100% | 100% |
+| 2 | 1.29x | 1.22x | 1.60x | 1.81x | 80% | 91% |
+| 4 | 1.34x | 1.26x | 2.77x | 3.02x | 69% | 75% |
+| 8 | 1.39x | 1.31x | 4.00x | 4.20x | 50% | 52% |
+
+The port scales better than the reference at every worker count: it keeps
+more of its single-thread speed as threads are added, so the gap narrows
+from 1.46x on one thread to 1.39x on eight. The per-scene ratios at eight
+workers run 1.32x to 1.53x.
+
+The port also lands on the same result bits at every worker count, in all
+seven scenes. The reference does so in six; its `rain` hash changes with the
+worker count, reproducibly.
+
+Measured on an AMD Ryzen 7 5800X3D, Windows/amd64, sixteen logical cores,
+GCC 13.2.0, Go 1.27.0, three repeats. The harness, the protocol and the
+per-scene tables are in `tools/cbench`.
+
+### Profile-guided optimization
+
+A profile takes 3 to 6 percent off the solver: 2.7 percent on one worker and
+5 to 6 percent from two workers up, in all seven scenes. It changes no result
+bits. The checksum witnesses, the conformance traces under
+`dbox2d_upstream_pairs`, the no-FMA gate and the per-scene hashes all hold
+with a profile applied, because every float product already sits inside an
+explicit rounding conversion, and a fused multiply-add cannot cross that
+barrier.
+
+Go reads `default.pgo` from the directory of the `main` package, so a library
+cannot ship one for you. Collect a profile of your own workload, which is the
+one whose hot paths matter:
 
 ```sh
-git show reference/box2d-v3.1.1:src/manifold.c
-git blame reference/box2d-v3.1.1 -- src/manifold.c
+go test -run "^$" -bench . -cpuprofile=cpu.pprof
+cp cpu.pprof ./cmd/game/default.pgo
+go build ./cmd/game
 ```
 
-Upstream tags are intentionally absent from that branch. Go derives module
-versions from tags, and an upstream tag could otherwise make `go get` publish
-a version containing the C reference tree. Module users download only the
-tagged Go tree.
+A profile kept elsewhere works through the flag, and `-pgo=off` builds without
+one:
+
+```sh
+go build -pgo=cpu.pprof ./cmd/game
+go build -pgo=off ./cmd/game
+```
+
+The sample hosts carry a profile of the benchmark scenes, so `go run
+./cmd/native` and the WebAssembly build use it with no flag.
 
 ## License
 
