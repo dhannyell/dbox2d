@@ -7,14 +7,14 @@ package dbox2d
 // getWeldJointForce reports the constraint force of the last step. It
 // corresponds to b2GetWeldJointForce in src/weld_joint.c.
 func getWeldJointForce(w *world, base *jointSim) Vec2 {
-	force := base.weldJoint.linearImpulse.Mul(w.invH)
+	force := base.weld().linearImpulse.Mul(w.invH)
 	return force
 }
 
 // getWeldJointTorque reports the constraint torque of the last step. It
 // corresponds to b2GetWeldJointTorque in src/weld_joint.c.
 func getWeldJointTorque(w *world, base *jointSim) Q {
-	return w.invH.Mul(base.weldJoint.angularImpulse)
+	return w.invH.Mul(base.weld().angularImpulse)
 }
 
 // SetLinearHertz changes the weld joint linear frequency (b2WeldJoint_SetLinearHertz).
@@ -25,14 +25,14 @@ func (jointId JointId) SetLinearHertz(hertz Q) {
 	}
 	w := getWorld(jointId.world0)
 	joint := getJointSimCheckType(w, jointId, WeldJoint)
-	joint.weldJoint.linearHertz = hertz
+	joint.weld().linearHertz = hertz
 }
 
 // GetLinearHertz reports the weld joint linear frequency (b2WeldJoint_GetLinearHertz).
 func (jointId JointId) GetLinearHertz() Q {
 	w := getWorld(jointId.world0)
 	joint := getJointSimCheckType(w, jointId, WeldJoint)
-	return joint.weldJoint.linearHertz
+	return joint.weld().linearHertz
 }
 
 // SetLinearDampingRatio changes the weld joint linear damping ratio (b2WeldJoint_SetLinearDampingRatio).
@@ -43,14 +43,14 @@ func (jointId JointId) SetLinearDampingRatio(dampingRatio Q) {
 	}
 	w := getWorld(jointId.world0)
 	joint := getJointSimCheckType(w, jointId, WeldJoint)
-	joint.weldJoint.linearDampingRatio = dampingRatio
+	joint.weld().linearDampingRatio = dampingRatio
 }
 
 // GetLinearDampingRatio reports the weld joint linear damping ratio (b2WeldJoint_GetLinearDampingRatio).
 func (jointId JointId) GetLinearDampingRatio() Q {
 	w := getWorld(jointId.world0)
 	joint := getJointSimCheckType(w, jointId, WeldJoint)
-	return joint.weldJoint.linearDampingRatio
+	return joint.weld().linearDampingRatio
 }
 
 // SetAngularHertz changes the weld joint angular frequency (b2WeldJoint_SetAngularHertz).
@@ -61,14 +61,14 @@ func (jointId JointId) SetAngularHertz(hertz Q) {
 	}
 	w := getWorld(jointId.world0)
 	joint := getJointSimCheckType(w, jointId, WeldJoint)
-	joint.weldJoint.angularHertz = hertz
+	joint.weld().angularHertz = hertz
 }
 
 // GetAngularHertz reports the weld joint angular frequency (b2WeldJoint_GetAngularHertz).
 func (jointId JointId) GetAngularHertz() Q {
 	w := getWorld(jointId.world0)
 	joint := getJointSimCheckType(w, jointId, WeldJoint)
-	return joint.weldJoint.angularHertz
+	return joint.weld().angularHertz
 }
 
 // SetAngularDampingRatio changes the weld joint angular damping ratio (b2WeldJoint_SetAngularDampingRatio).
@@ -79,14 +79,14 @@ func (jointId JointId) SetAngularDampingRatio(dampingRatio Q) {
 	}
 	w := getWorld(jointId.world0)
 	joint := getJointSimCheckType(w, jointId, WeldJoint)
-	joint.weldJoint.angularDampingRatio = dampingRatio
+	joint.weld().angularDampingRatio = dampingRatio
 }
 
 // GetAngularDampingRatio reports the weld joint angular damping ratio (b2WeldJoint_GetAngularDampingRatio).
 func (jointId JointId) GetAngularDampingRatio() Q {
 	w := getWorld(jointId.world0)
 	joint := getJointSimCheckType(w, jointId, WeldJoint)
-	return joint.weldJoint.angularDampingRatio
+	return joint.weld().angularDampingRatio
 }
 
 // Point-to-point constraint
@@ -140,7 +140,7 @@ func prepareWeldJoint(base *jointSim, context *stepContext) {
 	base.invIA = iA
 	base.invIB = iB
 
-	joint := &base.weldJoint
+	joint := base.weld()
 	joint.indexA = nullIndex
 	if bodyA.setIndex == awakeSet {
 		joint.indexA = localIndexA
@@ -196,7 +196,7 @@ func warmStartWeldJoint(base *jointSim, context *stepContext) {
 	// dummy state for static bodies
 	dummyState := identityBodyState()
 
-	joint := &base.weldJoint
+	joint := base.weld()
 
 	stateA, stateB := jointStates(context.states, &dummyState, joint.indexA, joint.indexB)
 
@@ -228,7 +228,7 @@ func solveWeldJoint(base *jointSim, context *stepContext, useBias bool) {
 	// dummy state for static bodies
 	dummyState := identityBodyState()
 
-	joint := &base.weldJoint
+	joint := base.weld()
 
 	stateA, stateB := jointStates(context.states, &dummyState, joint.indexA, joint.indexB)
 

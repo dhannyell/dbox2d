@@ -33,11 +33,12 @@ func TestDrawRevoluteJointLimitsUseTurns(t *testing.T) {
 	var segments [][2]Vec2
 	draw := DefaultDebugDraw()
 	draw.DrawSegment = func(a, b Vec2, _ HexColor) { segments = append(segments, [2]Vec2{a, b}) }
-	base := jointSim{revoluteJoint: revoluteJoint{
+	var base jointSim
+	*base.revolute() = revoluteJoint{
 		enableLimit: true,
 		lowerAngle:  angleFromTurns(QMustParse("-0.25")),
 		upperAngle:  angleFromTurns(QMustParse("0.25")),
-	}}
+	}
 	drawRevoluteJoint(&draw, &base, TransformIdentity(), TransformIdentity(), QOne())
 	if len(segments) < 4 {
 		t.Fatalf("segments = %d, want limit segments", len(segments))
@@ -557,10 +558,12 @@ func TestDrawDistanceLimitsPreserveEndpointOrder(t *testing.T) {
 	draw := DefaultDebugDraw()
 	var segments [][2]Vec2
 	draw.DrawSegment = func(a, b Vec2, _ HexColor) { segments = append(segments, [2]Vec2{a, b}) }
-	base := jointSim{distanceJoint: distanceJoint{enableLimit: true, minLength: QOne(), maxLength: QFromInt(3)}}
+	var base jointSim
+	*base.distance() = distanceJoint{enableLimit: true, minLength: QOne(), maxLength: QFromInt(3)}
 	drawDistanceJoint(&draw, &base, TransformIdentity(), Transform{P: v2(2, 0), Q: RotIdentity()})
 	want := [2]Vec2{{X: QOne(), Y: QMustParse("0.05")}, {X: QOne(), Y: QMustParse("-0.05")}}
 	if len(segments) != 4 || segments[0] != want {
 		t.Fatalf("limit segments = %+v", segments)
 	}
 }
+

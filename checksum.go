@@ -255,7 +255,7 @@ func checksumSoftness(h uint64, s softness) uint64 {
 func checksumJointData(h uint64, js *jointSim) uint64 {
 	switch js.jointType {
 	case DistanceJoint:
-		d := &js.distanceJoint
+		d := js.distance()
 		h = checksumQ(h, d.length)
 		h = checksumQ(h, d.hertz)
 		h = checksumQ(h, d.dampingRatio)
@@ -273,7 +273,7 @@ func checksumJointData(h uint64, js *jointSim) uint64 {
 	case FilterJoint:
 		return h
 	case MotorJoint:
-		m := &js.motorJoint
+		m := js.motor()
 		h = checksumVec2(h, m.linearOffset)
 		h = checksumQ(h, m.angularOffset)
 		h = checksumVec2(h, m.linearImpulse)
@@ -282,7 +282,7 @@ func checksumJointData(h uint64, js *jointSim) uint64 {
 		h = checksumQ(h, m.maxTorque)
 		return checksumQ(h, m.correctionFactor)
 	case MouseJoint:
-		m := &js.mouseJoint
+		m := js.mouse()
 		h = checksumVec2(h, m.targetA)
 		h = checksumQ(h, m.hertz)
 		h = checksumQ(h, m.dampingRatio)
@@ -290,7 +290,7 @@ func checksumJointData(h uint64, js *jointSim) uint64 {
 		h = checksumVec2(h, m.linearImpulse)
 		return checksumQ(h, m.angularImpulse)
 	case PrismaticJoint:
-		p := &js.prismaticJoint
+		p := js.prismatic()
 		h = checksumVec2(h, p.localAxisA)
 		h = checksumVec2(h, p.impulse)
 		h = checksumQ(h, p.springImpulse)
@@ -309,7 +309,7 @@ func checksumJointData(h uint64, js *jointSim) uint64 {
 		h = checksumBool(h, p.enableLimit)
 		return checksumBool(h, p.enableMotor)
 	case RevoluteJoint:
-		r := &js.revoluteJoint
+		r := js.revolute()
 		h = checksumVec2(h, r.linearImpulse)
 		h = checksumQ(h, r.springImpulse)
 		h = checksumQ(h, r.motorImpulse)
@@ -327,7 +327,7 @@ func checksumJointData(h uint64, js *jointSim) uint64 {
 		h = checksumBool(h, r.enableMotor)
 		return checksumBool(h, r.enableLimit)
 	case WeldJoint:
-		wj := &js.weldJoint
+		wj := js.weld()
 		h = checksumQ(h, wj.referenceAngle)
 		h = checksumQ(h, wj.linearHertz)
 		h = checksumQ(h, wj.linearDampingRatio)
@@ -336,7 +336,7 @@ func checksumJointData(h uint64, js *jointSim) uint64 {
 		h = checksumVec2(h, wj.linearImpulse)
 		return checksumQ(h, wj.angularImpulse)
 	case WheelJoint:
-		wh := &js.wheelJoint
+		wh := js.wheel()
 		h = checksumVec2(h, wh.localAxisA)
 		h = checksumQ(h, wh.perpImpulse)
 		h = checksumQ(h, wh.motorImpulse)

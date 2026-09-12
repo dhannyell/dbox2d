@@ -79,8 +79,8 @@ func TestRevoluteHoldsTheAnchor(t *testing.T) {
 	tolerance := qUlps(1 << 12)
 	js := getJointSim(w, j)
 	seventh := QFromRatio(1, 7)
-	if !withinQ(js.revoluteJoint.linearImpulse.X, QZero(), tolerance) || !withinQ(js.revoluteJoint.linearImpulse.Y, seventh, tolerance) {
-		t.Errorf("linearImpulse is %v, want (0, 1/7)", js.revoluteJoint.linearImpulse)
+	if !withinQ(js.revolute().linearImpulse.X, QZero(), tolerance) || !withinQ(js.revolute().linearImpulse.Y, seventh, tolerance) {
+		t.Errorf("linearImpulse is %v, want (0, 1/7)", js.revolute().linearImpulse)
 	}
 	wB := state.angularVelocity
 	if !withinQ(wB, QFromRatio(-6, 7), tolerance) {
@@ -123,8 +123,8 @@ func TestRevoluteLimitStopsTheSpin(t *testing.T) {
 	tolerance := qUlps(1 << 12)
 	js := getJointSim(w, j)
 	sixth := QFromRatio(1, 6)
-	if !js.revoluteJoint.lowerImpulse.Eq(QZero()) || !withinQ(js.revoluteJoint.upperImpulse, sixth, tolerance) {
-		t.Errorf("the limit impulses are %v and %v, want 0 and 1/6", js.revoluteJoint.lowerImpulse, js.revoluteJoint.upperImpulse)
+	if !js.revolute().lowerImpulse.Eq(QZero()) || !withinQ(js.revolute().upperImpulse, sixth, tolerance) {
+		t.Errorf("the limit impulses are %v and %v, want 0 and 1/6", js.revolute().lowerImpulse, js.revolute().upperImpulse)
 	}
 	if !withinQ(state.angularVelocity, QZero(), tolerance) {
 		t.Errorf("wB is %v turns/s, want 0", state.angularVelocity)
@@ -153,8 +153,8 @@ func TestRevoluteMotorSaturatesAtTheTorque(t *testing.T) {
 
 	tolerance := qUlps(1 << 12)
 	js := getJointSim(w, j)
-	if !withinQ(js.revoluteJoint.motorImpulse, QFromRatio(5, 12), tolerance) {
-		t.Errorf("motorImpulse is %v, want 5/12", js.revoluteJoint.motorImpulse)
+	if !withinQ(js.revolute().motorImpulse, QFromRatio(5, 12), tolerance) {
+		t.Errorf("motorImpulse is %v, want 5/12", js.revolute().motorImpulse)
 	}
 	wB := state.angularVelocity
 	if !withinQ(wB, QFromRatio(5, 2), tolerance) {

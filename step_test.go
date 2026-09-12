@@ -1371,7 +1371,7 @@ func TestStepDragsToTheTarget(t *testing.T) {
 	def.MaxForce = QFromInt(1000)
 	jointId := CreateMouseJoint(worldId, &def)
 	target := Vec2{X: QOne()}
-	getJointSim(w, getJointFullId(w, jointId)).mouseJoint.targetA = target
+	getJointSim(w, getJointFullId(w, jointId)).mouse().targetA = target
 
 	resetSaturationCount()
 	body := getBodyFullId(w, circleId)

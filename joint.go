@@ -1,5 +1,7 @@
 package dbox2d
 
+import "unsafe"
+
 // This file corresponds to src/joint.h and src/joint.c of the reference.
 
 // jointEdge links a joint into the joint list of one body. It corresponds
@@ -254,16 +256,36 @@ type jointSim struct {
 
 	constraintSoftness softness
 
-	// The reference stores the joint data in a union, so the sim carries
-	// all seven; jointType selects the live one.
-	distanceJoint  distanceJoint
-	motorJoint     motorJoint
-	mouseJoint     mouseJoint
-	revoluteJoint  revoluteJoint
-	prismaticJoint prismaticJoint
-	weldJoint      weldJoint
-	wheelJoint     wheelJoint
+	// The reference stores the joint data in a union; jointType selects
+	// the live one. The seven payloads share this storage through the
+	// typed accessors below, so a sim is a quarter of the size it would be
+	// with all seven inline, which is what the solver and the set moves pay.
+	payload jointPayload
 }
+
+// jointPayload is the storage of the joint union: the largest of the seven
+// payloads, in 8-byte words so every field of every payload is aligned.
+// None of the payloads holds a pointer, so the garbage collector never
+// looks inside.
+type jointPayload [(max(
+	unsafe.Sizeof(distanceJoint{}),
+	unsafe.Sizeof(motorJoint{}),
+	unsafe.Sizeof(mouseJoint{}),
+	unsafe.Sizeof(revoluteJoint{}),
+	unsafe.Sizeof(prismaticJoint{}),
+	unsafe.Sizeof(weldJoint{}),
+	unsafe.Sizeof(wheelJoint{}),
+) + 7) / 8]uint64
+
+func (js *jointSim) distance() *distanceJoint { return (*distanceJoint)(unsafe.Pointer(&js.payload)) }
+func (js *jointSim) motor() *motorJoint       { return (*motorJoint)(unsafe.Pointer(&js.payload)) }
+func (js *jointSim) mouse() *mouseJoint       { return (*mouseJoint)(unsafe.Pointer(&js.payload)) }
+func (js *jointSim) revolute() *revoluteJoint { return (*revoluteJoint)(unsafe.Pointer(&js.payload)) }
+func (js *jointSim) prismatic() *prismaticJoint {
+	return (*prismaticJoint)(unsafe.Pointer(&js.payload))
+}
+func (js *jointSim) weld() *weldJoint   { return (*weldJoint)(unsafe.Pointer(&js.payload)) }
+func (js *jointSim) wheel() *wheelJoint { return (*wheelJoint)(unsafe.Pointer(&js.payload)) }
 
 // jointPair binds the cold and the warm data of one joint. It corresponds
 // to b2JointPair in src/joint.h.
@@ -287,9 +309,9 @@ func drawJoint(draw *DebugDraw, w *world, joint *joint) {
 	case DistanceJoint:
 		drawDistanceJoint(draw, base, transformA, transformB)
 	case MouseJoint:
-		draw.DrawPoint(base.mouseJoint.targetA, QFromInt(4), ColorGreen)
+		draw.DrawPoint(base.mouse().targetA, QFromInt(4), ColorGreen)
 		draw.DrawPoint(pB, QFromInt(4), ColorGreen)
-		draw.DrawSegment(base.mouseJoint.targetA, pB, ColorLightGray)
+		draw.DrawSegment(base.mouse().targetA, pB, ColorLightGray)
 	case FilterJoint:
 		draw.DrawSegment(pA, pB, ColorGold)
 	case PrismaticJoint:
@@ -460,11 +482,11 @@ func (jointId JointId) SetReferenceAngle(angle Q) {
 
 	switch j.jointType {
 	case PrismaticJoint:
-		js.prismaticJoint.referenceAngle = angle
+		js.prismatic().referenceAngle = angle
 	case RevoluteJoint:
-		js.revoluteJoint.referenceAngle = angle
+		js.revolute().referenceAngle = angle
 	case WeldJoint:
-		js.weldJoint.referenceAngle = angle
+		js.weld().referenceAngle = angle
 	}
 }
 
@@ -476,11 +498,11 @@ func (jointId JointId) GetReferenceAngle() Q {
 
 	switch j.jointType {
 	case PrismaticJoint:
-		return angleToTurns(js.prismaticJoint.referenceAngle)
+		return angleToTurns(js.prismatic().referenceAngle)
 	case RevoluteJoint:
-		return angleToTurns(js.revoluteJoint.referenceAngle)
+		return angleToTurns(js.revolute().referenceAngle)
 	case WeldJoint:
-		return angleToTurns(js.weldJoint.referenceAngle)
+		return angleToTurns(js.weld().referenceAngle)
 	default:
 		return QZero()
 	}
@@ -500,9 +522,9 @@ func (jointId JointId) SetLocalAxisA(axis Vec2) {
 
 	switch j.jointType {
 	case PrismaticJoint:
-		js.prismaticJoint.localAxisA = axis
+		js.prismatic().localAxisA = axis
 	case WheelJoint:
-		js.wheelJoint.localAxisA = axis
+		js.wheel().localAxisA = axis
 	}
 }
 
@@ -514,9 +536,9 @@ func (jointId JointId) GetLocalAxisA() Vec2 {
 
 	switch j.jointType {
 	case PrismaticJoint:
-		return js.prismaticJoint.localAxisA
+		return js.prismatic().localAxisA
 	case WheelJoint:
-		return js.wheelJoint.localAxisA
+		return js.wheel().localAxisA
 	default:
 		return Vec2Zero()
 	}
@@ -646,7 +668,7 @@ func (jointId JointId) GetLinearSeparation() Q {
 
 	switch j.jointType {
 	case DistanceJoint:
-		distance := &base.distanceJoint
+		distance := base.distance()
 		length := dp.Len()
 		if distance.enableSpring {
 			if distance.enableLimit {
@@ -663,7 +685,7 @@ func (jointId JointId) GetLinearSeparation() Q {
 	case MotorJoint, MouseJoint, FilterJoint:
 		return zero
 	case PrismaticJoint:
-		prismatic := &base.prismaticJoint
+		prismatic := base.prismatic()
 		axisA := RotateVector(xfA.Q, prismatic.localAxisA)
 		perpendicularSeparation := LeftPerp(axisA).Dot(dp).Abs()
 		limitSeparation := zero
@@ -680,12 +702,12 @@ func (jointId JointId) GetLinearSeparation() Q {
 	case RevoluteJoint:
 		return dp.Len()
 	case WeldJoint:
-		if base.weldJoint.linearHertz.Eq(zero) {
+		if base.weld().linearHertz.Eq(zero) {
 			return dp.Len()
 		}
 		return zero
 	case WheelJoint:
-		wheel := &base.wheelJoint
+		wheel := base.wheel()
 		axisA := RotateVector(xfA.Q, wheel.localAxisA)
 		perpendicularSeparation := LeftPerp(axisA).Dot(dp).Abs()
 		limitSeparation := zero
@@ -720,9 +742,9 @@ func (jointId JointId) GetAngularSeparation() Q {
 	case DistanceJoint, MotorJoint, MouseJoint, FilterJoint, WheelJoint:
 		return zero
 	case PrismaticJoint:
-		return angleToTurns(unwindAngle(relative.Sub(base.prismaticJoint.referenceAngle)))
+		return angleToTurns(unwindAngle(relative.Sub(base.prismatic().referenceAngle)))
 	case RevoluteJoint:
-		revolute := &base.revoluteJoint
+		revolute := base.revolute()
 		if revolute.enableLimit {
 			angle := unwindAngle(relative.Sub(revolute.referenceAngle))
 			if angle.Less(revolute.lowerAngle) {
@@ -734,7 +756,7 @@ func (jointId JointId) GetAngularSeparation() Q {
 		}
 		return zero
 	case WeldJoint:
-		weld := &base.weldJoint
+		weld := base.weld()
 		if weld.angularHertz.Eq(zero) {
 			return angleToTurns(unwindAngle(relative.Sub(weld.referenceAngle)))
 		}
@@ -1030,21 +1052,21 @@ func CreateDistanceJoint(worldId WorldId, def *DistanceJointDef) JointId {
 	js.localOriginAnchorA = def.LocalAnchorA
 	js.localOriginAnchorB = def.LocalAnchorB
 
-	js.distanceJoint = distanceJoint{}
-	js.distanceJoint.length = def.Length.Max(linearSlop)
-	js.distanceJoint.hertz = def.Hertz
-	js.distanceJoint.dampingRatio = def.DampingRatio
-	js.distanceJoint.minLength = def.MinLength.Max(linearSlop)
-	js.distanceJoint.maxLength = def.MinLength.Max(def.MaxLength)
-	js.distanceJoint.maxMotorForce = def.MaxMotorForce
-	js.distanceJoint.motorSpeed = def.MotorSpeed
-	js.distanceJoint.enableSpring = def.EnableSpring
-	js.distanceJoint.enableLimit = def.EnableLimit
-	js.distanceJoint.enableMotor = def.EnableMotor
-	js.distanceJoint.impulse = zero
-	js.distanceJoint.lowerImpulse = zero
-	js.distanceJoint.upperImpulse = zero
-	js.distanceJoint.motorImpulse = zero
+	*js.distance() = distanceJoint{}
+	js.distance().length = def.Length.Max(linearSlop)
+	js.distance().hertz = def.Hertz
+	js.distance().dampingRatio = def.DampingRatio
+	js.distance().minLength = def.MinLength.Max(linearSlop)
+	js.distance().maxLength = def.MinLength.Max(def.MaxLength)
+	js.distance().maxMotorForce = def.MaxMotorForce
+	js.distance().motorSpeed = def.MotorSpeed
+	js.distance().enableSpring = def.EnableSpring
+	js.distance().enableLimit = def.EnableLimit
+	js.distance().enableMotor = def.EnableMotor
+	js.distance().impulse = zero
+	js.distance().lowerImpulse = zero
+	js.distance().upperImpulse = zero
+	js.distance().motorImpulse = zero
 
 	// If the joint prevents collisions, then destroy all contacts between attached bodies
 	if !def.CollideConnected {
@@ -1066,12 +1088,12 @@ func CreateMotorJoint(worldId WorldId, def *MotorJointDef) JointId {
 	js.jointType = MotorJoint
 	js.localOriginAnchorA = Vec2Zero()
 	js.localOriginAnchorB = Vec2Zero()
-	js.motorJoint = motorJoint{}
-	js.motorJoint.linearOffset = def.LinearOffset
-	js.motorJoint.angularOffset = angleFromTurns(def.AngularOffset)
-	js.motorJoint.maxForce = def.MaxForce
-	js.motorJoint.maxTorque = def.MaxTorque
-	js.motorJoint.correctionFactor = def.CorrectionFactor.Clamp(QZero(), QOne())
+	*js.motor() = motorJoint{}
+	js.motor().linearOffset = def.LinearOffset
+	js.motor().angularOffset = angleFromTurns(def.AngularOffset)
+	js.motor().maxForce = def.MaxForce
+	js.motor().maxTorque = def.MaxTorque
+	js.motor().correctionFactor = def.CorrectionFactor.Clamp(QZero(), QOne())
 
 	// If the joint prevents collisions, then destroy all contacts between attached bodies
 	if !def.CollideConnected {
@@ -1097,11 +1119,11 @@ func CreateMouseJoint(worldId WorldId, def *MouseJointDef) JointId {
 	js.localOriginAnchorA = InvTransformPoint(transformA, def.Target)
 	js.localOriginAnchorB = InvTransformPoint(transformB, def.Target)
 
-	js.mouseJoint = mouseJoint{}
-	js.mouseJoint.targetA = def.Target
-	js.mouseJoint.hertz = def.Hertz
-	js.mouseJoint.dampingRatio = def.DampingRatio
-	js.mouseJoint.maxForce = def.MaxForce
+	*js.mouse() = mouseJoint{}
+	js.mouse().targetA = def.Target
+	js.mouse().hertz = def.Hertz
+	js.mouse().dampingRatio = def.DampingRatio
+	js.mouse().maxForce = def.MaxForce
 
 	return makeJointId(w, pair)
 }
@@ -1122,20 +1144,20 @@ func CreatePrismaticJoint(worldId WorldId, def *PrismaticJointDef) JointId {
 	js.localOriginAnchorA = def.LocalAnchorA
 	js.localOriginAnchorB = def.LocalAnchorB
 
-	js.prismaticJoint = prismaticJoint{}
+	*js.prismatic() = prismaticJoint{}
 
-	js.prismaticJoint.localAxisA = def.LocalAxisA.Normalize()
-	js.prismaticJoint.referenceAngle = angleFromTurns(def.ReferenceAngle)
-	js.prismaticJoint.targetTranslation = def.TargetTranslation
-	js.prismaticJoint.hertz = def.Hertz
-	js.prismaticJoint.dampingRatio = def.DampingRatio
-	js.prismaticJoint.lowerTranslation = def.LowerTranslation
-	js.prismaticJoint.upperTranslation = def.UpperTranslation
-	js.prismaticJoint.maxMotorForce = def.MaxMotorForce
-	js.prismaticJoint.motorSpeed = def.MotorSpeed
-	js.prismaticJoint.enableSpring = def.EnableSpring
-	js.prismaticJoint.enableLimit = def.EnableLimit
-	js.prismaticJoint.enableMotor = def.EnableMotor
+	js.prismatic().localAxisA = def.LocalAxisA.Normalize()
+	js.prismatic().referenceAngle = angleFromTurns(def.ReferenceAngle)
+	js.prismatic().targetTranslation = def.TargetTranslation
+	js.prismatic().hertz = def.Hertz
+	js.prismatic().dampingRatio = def.DampingRatio
+	js.prismatic().lowerTranslation = def.LowerTranslation
+	js.prismatic().upperTranslation = def.UpperTranslation
+	js.prismatic().maxMotorForce = def.MaxMotorForce
+	js.prismatic().motorSpeed = def.MotorSpeed
+	js.prismatic().enableSpring = def.EnableSpring
+	js.prismatic().enableLimit = def.EnableLimit
+	js.prismatic().enableMotor = def.EnableMotor
 
 	// If the joint prevents collisions, then destroy all contacts between attached bodies
 	if !def.CollideConnected {
@@ -1170,20 +1192,20 @@ func CreateRevoluteJoint(worldId WorldId, def *RevoluteJointDef) JointId {
 	js.localOriginAnchorA = def.LocalAnchorA
 	js.localOriginAnchorB = def.LocalAnchorB
 
-	js.revoluteJoint = revoluteJoint{}
+	*js.revolute() = revoluteJoint{}
 
 	halfTurn := QHalf()
-	js.revoluteJoint.referenceAngle = angleFromTurns(def.ReferenceAngle.Clamp(halfTurn.Neg(), halfTurn))
-	js.revoluteJoint.targetAngle = angleFromTurns(def.TargetAngle.Clamp(halfTurn.Neg(), halfTurn))
-	js.revoluteJoint.hertz = def.Hertz
-	js.revoluteJoint.dampingRatio = def.DampingRatio
-	js.revoluteJoint.lowerAngle = angleFromTurns(def.LowerAngle)
-	js.revoluteJoint.upperAngle = angleFromTurns(def.UpperAngle)
-	js.revoluteJoint.maxMotorTorque = def.MaxMotorTorque
-	js.revoluteJoint.motorSpeed = angleFromTurns(def.MotorSpeed)
-	js.revoluteJoint.enableSpring = def.EnableSpring
-	js.revoluteJoint.enableLimit = def.EnableLimit
-	js.revoluteJoint.enableMotor = def.EnableMotor
+	js.revolute().referenceAngle = angleFromTurns(def.ReferenceAngle.Clamp(halfTurn.Neg(), halfTurn))
+	js.revolute().targetAngle = angleFromTurns(def.TargetAngle.Clamp(halfTurn.Neg(), halfTurn))
+	js.revolute().hertz = def.Hertz
+	js.revolute().dampingRatio = def.DampingRatio
+	js.revolute().lowerAngle = angleFromTurns(def.LowerAngle)
+	js.revolute().upperAngle = angleFromTurns(def.UpperAngle)
+	js.revolute().maxMotorTorque = def.MaxMotorTorque
+	js.revolute().motorSpeed = angleFromTurns(def.MotorSpeed)
+	js.revolute().enableSpring = def.EnableSpring
+	js.revolute().enableLimit = def.EnableLimit
+	js.revolute().enableMotor = def.EnableMotor
 
 	// If the joint prevents collisions, then destroy all contacts between attached bodies
 	if !def.CollideConnected {
@@ -1206,14 +1228,14 @@ func CreateWeldJoint(worldId WorldId, def *WeldJointDef) JointId {
 	js.localOriginAnchorA = def.LocalAnchorA
 	js.localOriginAnchorB = def.LocalAnchorB
 
-	js.weldJoint = weldJoint{}
-	js.weldJoint.referenceAngle = angleFromTurns(def.ReferenceAngle)
-	js.weldJoint.linearHertz = def.LinearHertz
-	js.weldJoint.linearDampingRatio = def.LinearDampingRatio
-	js.weldJoint.angularHertz = def.AngularHertz
-	js.weldJoint.angularDampingRatio = def.AngularDampingRatio
-	js.weldJoint.linearImpulse = Vec2Zero()
-	js.weldJoint.angularImpulse = QZero()
+	*js.weld() = weldJoint{}
+	js.weld().referenceAngle = angleFromTurns(def.ReferenceAngle)
+	js.weld().linearHertz = def.LinearHertz
+	js.weld().linearDampingRatio = def.LinearDampingRatio
+	js.weld().angularHertz = def.AngularHertz
+	js.weld().angularDampingRatio = def.AngularDampingRatio
+	js.weld().linearImpulse = Vec2Zero()
+	js.weld().angularImpulse = QZero()
 
 	// If the joint prevents collisions, then destroy all contacts between attached bodies
 	if !def.CollideConnected {
@@ -1240,22 +1262,22 @@ func CreateWheelJoint(worldId WorldId, def *WheelJointDef) JointId {
 	js.localOriginAnchorB = def.LocalAnchorB
 
 	zero := QZero()
-	js.wheelJoint = wheelJoint{}
-	js.wheelJoint.localAxisA = def.LocalAxisA.Normalize()
-	js.wheelJoint.perpMass = zero
-	js.wheelJoint.axialMass = zero
-	js.wheelJoint.motorImpulse = zero
-	js.wheelJoint.lowerImpulse = zero
-	js.wheelJoint.upperImpulse = zero
-	js.wheelJoint.lowerTranslation = def.LowerTranslation
-	js.wheelJoint.upperTranslation = def.UpperTranslation
-	js.wheelJoint.maxMotorTorque = def.MaxMotorTorque
-	js.wheelJoint.motorSpeed = angleFromTurns(def.MotorSpeed)
-	js.wheelJoint.hertz = def.Hertz
-	js.wheelJoint.dampingRatio = def.DampingRatio
-	js.wheelJoint.enableSpring = def.EnableSpring
-	js.wheelJoint.enableLimit = def.EnableLimit
-	js.wheelJoint.enableMotor = def.EnableMotor
+	*js.wheel() = wheelJoint{}
+	js.wheel().localAxisA = def.LocalAxisA.Normalize()
+	js.wheel().perpMass = zero
+	js.wheel().axialMass = zero
+	js.wheel().motorImpulse = zero
+	js.wheel().lowerImpulse = zero
+	js.wheel().upperImpulse = zero
+	js.wheel().lowerTranslation = def.LowerTranslation
+	js.wheel().upperTranslation = def.UpperTranslation
+	js.wheel().maxMotorTorque = def.MaxMotorTorque
+	js.wheel().motorSpeed = angleFromTurns(def.MotorSpeed)
+	js.wheel().hertz = def.Hertz
+	js.wheel().dampingRatio = def.DampingRatio
+	js.wheel().enableSpring = def.EnableSpring
+	js.wheel().enableLimit = def.EnableLimit
+	js.wheel().enableMotor = def.EnableMotor
 
 	// If the joint prevents collisions, then destroy all contacts between attached bodies
 	if !def.CollideConnected {

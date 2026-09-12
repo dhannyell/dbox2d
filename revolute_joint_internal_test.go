@@ -262,7 +262,7 @@ func makeRevoluteMirrorCase(tb testing.TB) revoluteMirrorCase {
 
 	h := qToF64(context.h)
 	invH := qToF64(context.invH)
-	r := &js.revoluteJoint
+	r := js.revolute()
 	mirror := &f64RevoluteJoint{
 		mA: qToF64(js.invMassA), mB: qToF64(js.invMassB), iA: qToF64(js.invIA), iB: qToF64(js.invIB),
 		constraintSoftness: makeSoftF64(math.Min(qToF64(js.constraintHertz), 0.25*invH), qToF64(js.constraintDampingRatio), h),
@@ -295,7 +295,7 @@ func makeRevoluteMirrorCase(tb testing.TB) revoluteMirrorCase {
 func TestSolveRevoluteJointTracksTheFloat64Mirror(t *testing.T) {
 	c := makeRevoluteMirrorCase(t)
 	js, context, stateA, stateB, mirror, fA, fB := c.js, c.context, c.stateA, c.stateB, c.mirror, c.fA, c.fB
-	r := &js.revoluteJoint
+	r := js.revolute()
 
 	solveRevoluteJoint(js, context, true)
 	f64SolveRevoluteJoint(mirror, &fA, &fB, qToF64(context.h), qToF64(context.invH), true)

@@ -101,8 +101,8 @@ func TestWeldHoldsTheAnchor(t *testing.T) {
 	tolerance := qUlps(1 << 12)
 	js := getJointSim(w, j)
 	seventh := QFromRatio(1, 7)
-	if !withinQ(js.weldJoint.linearImpulse.X, QZero(), tolerance) || !withinQ(js.weldJoint.linearImpulse.Y, seventh, tolerance) {
-		t.Errorf("linearImpulse is %v, want (0, 1/7)", js.weldJoint.linearImpulse)
+	if !withinQ(js.weld().linearImpulse.X, QZero(), tolerance) || !withinQ(js.weld().linearImpulse.Y, seventh, tolerance) {
+		t.Errorf("linearImpulse is %v, want (0, 1/7)", js.weld().linearImpulse)
 	}
 	if !withinQ(state.angularVelocity, QFromRatio(-6, 7), tolerance) {
 		t.Errorf("wB is %v rad/s, want -6/7", state.angularVelocity)
@@ -133,8 +133,8 @@ func TestWeldStopsTheSpin(t *testing.T) {
 
 	tolerance := qUlps(1 << 12)
 	js := getJointSim(w, j)
-	if !withinQ(js.weldJoint.angularImpulse, QFromRatio(-1, 6), tolerance) {
-		t.Errorf("angularImpulse is %v, want -1/6", js.weldJoint.angularImpulse)
+	if !withinQ(js.weld().angularImpulse, QFromRatio(-1, 6), tolerance) {
+		t.Errorf("angularImpulse is %v, want -1/6", js.weld().angularImpulse)
 	}
 	if !withinQ(state.angularVelocity, QZero(), tolerance) {
 		t.Errorf("wB is %v turns/s, want 0", state.angularVelocity)
@@ -253,7 +253,7 @@ func TestSolveWeldJointTracksTheFloat64Mirror(t *testing.T) {
 	prepareJoint(js, context)
 
 	h := qToF64(context.h)
-	wj := &js.weldJoint
+	wj := js.weld()
 	mirror := &f64WeldJoint{
 		mA: qToF64(js.invMassA), mB: qToF64(js.invMassB), iA: qToF64(js.invIA), iB: qToF64(js.invIB),
 		linearHertz:  qToF64(wj.linearHertz),

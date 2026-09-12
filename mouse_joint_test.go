@@ -61,7 +61,7 @@ func TestMousePullsTowardTheTarget(t *testing.T) {
 	def.MaxForce = QFromInt(100)
 	box, j := draggedBox(t, worldId, &def)
 	state := getBodyState(w, box)
-	getJointSim(w, j).mouseJoint.targetA = Vec2{X: QOne()}
+	getJointSim(w, j).mouse().targetA = Vec2{X: QOne()}
 
 	context := jointContext(w)
 	prepareJointsTask(0, len(context.joints), context)
@@ -70,7 +70,7 @@ func TestMousePullsTowardTheTarget(t *testing.T) {
 	tolerance := qUlps(1 << 12)
 	js := getJointSim(w, j)
 	twelfths := QFromRatio(5, 12)
-	impulse := js.mouseJoint.linearImpulse
+	impulse := js.mouse().linearImpulse
 	if !withinQ(impulse.X, twelfths, tolerance) || !withinQ(impulse.Y, QZero(), tolerance) {
 		t.Errorf("linearImpulse is %v, want (5/12, 0)", impulse)
 	}
@@ -187,7 +187,7 @@ func TestSolveMouseJointTracksTheFloat64Mirror(t *testing.T) {
 	prepareJoint(js, context)
 
 	h := qToF64(context.h)
-	m := &js.mouseJoint
+	m := js.mouse()
 	mirror := &f64MouseJoint{
 		mB: qToF64(js.invMassB), iB: qToF64(js.invIB),
 		maxForce:        qToF64(m.maxForce),

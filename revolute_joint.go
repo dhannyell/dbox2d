@@ -5,7 +5,7 @@ package dbox2d
 // the mode, and angleRadians converts an angle where it enters an error C.
 
 func drawRevoluteJoint(draw *DebugDraw, base *jointSim, transformA, transformB Transform, drawSize Q) {
-	joint := &base.revoluteJoint
+	joint := base.revolute()
 	pA := TransformPoint(transformA, base.localOriginAnchorA)
 	pB := TransformPoint(transformB, base.localOriginAnchorB)
 	angle := RelativeAngle(transformB.Q, transformA.Q)
@@ -39,14 +39,14 @@ func drawRevoluteJoint(draw *DebugDraw, base *jointSim, transformA, transformB T
 // getRevoluteJointForce reports the constraint force of the last step. It
 // corresponds to b2GetRevoluteJointForce in src/revolute_joint.c.
 func getRevoluteJointForce(w *world, base *jointSim) Vec2 {
-	force := base.revoluteJoint.linearImpulse.Mul(w.invH)
+	force := base.revolute().linearImpulse.Mul(w.invH)
 	return force
 }
 
 // getRevoluteJointTorque reports the constraint torque of the last step.
 // It corresponds to b2GetRevoluteJointTorque in src/revolute_joint.c.
 func getRevoluteJointTorque(w *world, base *jointSim) Q {
-	revolute := &base.revoluteJoint
+	revolute := base.revolute()
 	torque := w.invH.Mul(revolute.motorImpulse.Add(revolute.lowerImpulse).Sub(revolute.upperImpulse))
 	return torque
 }
@@ -57,14 +57,14 @@ func (jointId JointId) SetTargetAngle(angle Q) {
 	joint := getJointSimCheckType(w, jointId, RevoluteJoint)
 	// D-004: the target angle is bounded to half a turn.
 	halfTurn := QHalf()
-	joint.revoluteJoint.targetAngle = angleFromTurns(angle.Clamp(halfTurn.Neg(), halfTurn))
+	joint.revolute().targetAngle = angleFromTurns(angle.Clamp(halfTurn.Neg(), halfTurn))
 }
 
 // GetTargetAngle reports the revolute spring target angle in turns.
 func (jointId JointId) GetTargetAngle() Q {
 	w := getWorld(jointId.world0)
 	joint := getJointSimCheckType(w, jointId, RevoluteJoint)
-	return angleToTurns(joint.revoluteJoint.targetAngle)
+	return angleToTurns(joint.revolute().targetAngle)
 }
 
 // GetAngle reports the revolute joint angle relative to its reference angle,
@@ -74,7 +74,7 @@ func (jointId JointId) GetAngle() Q {
 	joint := getJointSimCheckType(w, jointId, RevoluteJoint)
 	transformA := getBodyTransform(w, joint.bodyIdA)
 	transformB := getBodyTransform(w, joint.bodyIdB)
-	angle := relativeAngle(transformB.Q, transformA.Q).Sub(joint.revoluteJoint.referenceAngle)
+	angle := relativeAngle(transformB.Q, transformA.Q).Sub(joint.revolute().referenceAngle)
 	return angleToTurns(unwindAngle(angle))
 }
 
@@ -85,11 +85,11 @@ func (jointId JointId) GetLowerLimit() Q {
 	joint := getJointSim(w, j)
 	switch j.jointType {
 	case RevoluteJoint:
-		return angleToTurns(joint.revoluteJoint.lowerAngle)
+		return angleToTurns(joint.revolute().lowerAngle)
 	case PrismaticJoint:
-		return joint.prismaticJoint.lowerTranslation
+		return joint.prismatic().lowerTranslation
 	case WheelJoint:
-		return joint.wheelJoint.lowerTranslation
+		return joint.wheel().lowerTranslation
 	default:
 		panic("dbox2d: joint type does not support lower limits")
 	}
@@ -102,11 +102,11 @@ func (jointId JointId) GetUpperLimit() Q {
 	joint := getJointSim(w, j)
 	switch j.jointType {
 	case RevoluteJoint:
-		return angleToTurns(joint.revoluteJoint.upperAngle)
+		return angleToTurns(joint.revolute().upperAngle)
 	case PrismaticJoint:
-		return joint.prismaticJoint.upperTranslation
+		return joint.prismatic().upperTranslation
 	case WheelJoint:
-		return joint.wheelJoint.upperTranslation
+		return joint.wheel().upperTranslation
 	default:
 		panic("dbox2d: joint type does not support upper limits")
 	}
@@ -125,25 +125,25 @@ func (jointId JointId) SetLimits(lower, upper Q) {
 		upper = upper.Clamp(halfTurn.Neg(), halfTurn)
 		lowerAngle := angleFromTurns(lower.Min(upper))
 		upperAngle := angleFromTurns(lower.Max(upper))
-		if !lowerAngle.Eq(joint.revoluteJoint.lowerAngle) || !upperAngle.Eq(joint.revoluteJoint.upperAngle) {
-			joint.revoluteJoint.lowerAngle = lowerAngle
-			joint.revoluteJoint.upperAngle = upperAngle
-			joint.revoluteJoint.lowerImpulse = QZero()
-			joint.revoluteJoint.upperImpulse = QZero()
+		if !lowerAngle.Eq(joint.revolute().lowerAngle) || !upperAngle.Eq(joint.revolute().upperAngle) {
+			joint.revolute().lowerAngle = lowerAngle
+			joint.revolute().upperAngle = upperAngle
+			joint.revolute().lowerImpulse = QZero()
+			joint.revolute().upperImpulse = QZero()
 		}
 	case PrismaticJoint:
-		if !lower.Eq(joint.prismaticJoint.lowerTranslation) || !upper.Eq(joint.prismaticJoint.upperTranslation) {
-			joint.prismaticJoint.lowerTranslation = lower.Min(upper)
-			joint.prismaticJoint.upperTranslation = lower.Max(upper)
-			joint.prismaticJoint.lowerImpulse = QZero()
-			joint.prismaticJoint.upperImpulse = QZero()
+		if !lower.Eq(joint.prismatic().lowerTranslation) || !upper.Eq(joint.prismatic().upperTranslation) {
+			joint.prismatic().lowerTranslation = lower.Min(upper)
+			joint.prismatic().upperTranslation = lower.Max(upper)
+			joint.prismatic().lowerImpulse = QZero()
+			joint.prismatic().upperImpulse = QZero()
 		}
 	case WheelJoint:
-		if !lower.Eq(joint.wheelJoint.lowerTranslation) || !upper.Eq(joint.wheelJoint.upperTranslation) {
-			joint.wheelJoint.lowerTranslation = lower.Min(upper)
-			joint.wheelJoint.upperTranslation = lower.Max(upper)
-			joint.wheelJoint.lowerImpulse = QZero()
-			joint.wheelJoint.upperImpulse = QZero()
+		if !lower.Eq(joint.wheel().lowerTranslation) || !upper.Eq(joint.wheel().upperTranslation) {
+			joint.wheel().lowerTranslation = lower.Min(upper)
+			joint.wheel().upperTranslation = lower.Max(upper)
+			joint.wheel().lowerImpulse = QZero()
+			joint.wheel().upperImpulse = QZero()
 		}
 	default:
 		panic("dbox2d: joint type does not support limits")
@@ -157,9 +157,9 @@ func (jointId JointId) GetMotorTorque() Q {
 	joint := getJointSim(w, j)
 	switch j.jointType {
 	case RevoluteJoint:
-		return w.invH.Mul(joint.revoluteJoint.motorImpulse)
+		return w.invH.Mul(joint.revolute().motorImpulse)
 	case WheelJoint:
-		return w.invH.Mul(joint.wheelJoint.motorImpulse)
+		return w.invH.Mul(joint.wheel().motorImpulse)
 	default:
 		panic("dbox2d: joint type does not support motor torque")
 	}
@@ -172,9 +172,9 @@ func (jointId JointId) SetMaxMotorTorque(torque Q) {
 	joint := getJointSim(w, j)
 	switch j.jointType {
 	case RevoluteJoint:
-		joint.revoluteJoint.maxMotorTorque = torque
+		joint.revolute().maxMotorTorque = torque
 	case WheelJoint:
-		joint.wheelJoint.maxMotorTorque = torque
+		joint.wheel().maxMotorTorque = torque
 	default:
 		panic("dbox2d: joint type does not support motor torque")
 	}
@@ -187,9 +187,9 @@ func (jointId JointId) GetMaxMotorTorque() Q {
 	joint := getJointSim(w, j)
 	switch j.jointType {
 	case RevoluteJoint:
-		return joint.revoluteJoint.maxMotorTorque
+		return joint.revolute().maxMotorTorque
 	case WheelJoint:
-		return joint.wheelJoint.maxMotorTorque
+		return joint.wheel().maxMotorTorque
 	default:
 		panic("dbox2d: joint type does not support motor torque")
 	}
@@ -246,7 +246,7 @@ func prepareRevoluteJoint(base *jointSim, context *stepContext) {
 	base.invIA = iA
 	base.invIB = iB
 
-	joint := &base.revoluteJoint
+	joint := base.revolute()
 
 	joint.indexA = nullIndex
 	if bodyA.setIndex == awakeSet {
@@ -297,7 +297,7 @@ func warmStartRevoluteJoint(base *jointSim, context *stepContext) {
 	// dummy state for static bodies
 	dummyState := identityBodyState()
 
-	joint := &base.revoluteJoint
+	joint := base.revolute()
 	stateA, stateB := jointStates(context.states, &dummyState, joint.indexA, joint.indexB)
 
 	rA := RotateVector(stateA.deltaRotation, joint.anchorA)
@@ -331,7 +331,7 @@ func solveRevoluteJoint(base *jointSim, context *stepContext, useBias bool) {
 	// dummy state for static bodies
 	dummyState := identityBodyState()
 
-	joint := &base.revoluteJoint
+	joint := base.revolute()
 
 	stateA, stateB := jointStates(context.states, &dummyState, joint.indexA, joint.indexB)
 

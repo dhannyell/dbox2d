@@ -52,8 +52,8 @@ func TestDistanceRigidStopsTheBox(t *testing.T) {
 
 	tolerance := qUlps(1 << 12)
 	js := getJointSim(w, j)
-	if !withinQ(js.distanceJoint.impulse, QOne().Neg(), tolerance) {
-		t.Errorf("impulse is %v, want -1", js.distanceJoint.impulse)
+	if !withinQ(js.distance().impulse, QOne().Neg(), tolerance) {
+		t.Errorf("impulse is %v, want -1", js.distance().impulse)
 	}
 	if !withinQ(state.linearVelocity.X, QZero(), tolerance) {
 		t.Errorf("vB.x is %v, want 0", state.linearVelocity.X)
@@ -92,8 +92,8 @@ func TestDistanceUpperLimitHoldsTheRope(t *testing.T) {
 
 	tolerance := qUlps(1 << 12)
 	js := getJointSim(w, j)
-	if !js.distanceJoint.lowerImpulse.Eq(QZero()) || !withinQ(js.distanceJoint.upperImpulse, QOne(), tolerance) {
-		t.Errorf("the limit impulses are %v and %v, want 0 and 1", js.distanceJoint.lowerImpulse, js.distanceJoint.upperImpulse)
+	if !js.distance().lowerImpulse.Eq(QZero()) || !withinQ(js.distance().upperImpulse, QOne(), tolerance) {
+		t.Errorf("the limit impulses are %v and %v, want 0 and 1", js.distance().lowerImpulse, js.distance().upperImpulse)
 	}
 	if !withinQ(state.linearVelocity.X, QZero(), tolerance) {
 		t.Errorf("vB.x is %v, want 0", state.linearVelocity.X)
@@ -124,8 +124,8 @@ func TestDistanceMotorSaturatesAtTheForce(t *testing.T) {
 	tolerance := qUlps(1 << 12)
 	js := getJointSim(w, j)
 	twelfths := QFromRatio(5, 12)
-	if !withinQ(js.distanceJoint.motorImpulse, twelfths, tolerance) {
-		t.Errorf("motorImpulse is %v, want 5/12", js.distanceJoint.motorImpulse)
+	if !withinQ(js.distance().motorImpulse, twelfths, tolerance) {
+		t.Errorf("motorImpulse is %v, want 5/12", js.distance().motorImpulse)
 	}
 	if !withinQ(state.linearVelocity.X, twelfths, tolerance) {
 		t.Errorf("vB.x is %v, want 5/12", state.linearVelocity.X)
@@ -340,7 +340,7 @@ func TestSolveDistanceJointTracksTheFloat64Mirror(t *testing.T) {
 
 	h := qToF64(context.h)
 	invH := qToF64(context.invH)
-	d := &js.distanceJoint
+	d := js.distance()
 	mirror := &f64DistanceJoint{
 		mA: qToF64(js.invMassA), mB: qToF64(js.invMassB), iA: qToF64(js.invIA), iB: qToF64(js.invIB),
 		constraintSoftness: makeSoftF64(math.Min(qToF64(js.constraintHertz), 0.25*invH), qToF64(js.constraintDampingRatio), h),

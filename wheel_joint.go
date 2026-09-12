@@ -1,7 +1,7 @@
 package dbox2d
 
 func drawWheelJoint(draw *DebugDraw, base *jointSim, transformA, transformB Transform) {
-	joint := &base.wheelJoint
+	joint := base.wheel()
 	pA := TransformPoint(transformA, base.localOriginAnchorA)
 	pB := TransformPoint(transformB, base.localOriginAnchorB)
 	axis := RotateVector(transformA.Q, joint.localAxisA)
@@ -27,7 +27,7 @@ func drawWheelJoint(draw *DebugDraw, base *jointSim, transformA, transformB Tran
 // getWheelJointForce reports the constraint force of the last step. It
 // corresponds to b2GetWheelJointForce in src/wheel_joint.c.
 func getWheelJointForce(w *world, base *jointSim) Vec2 {
-	joint := &base.wheelJoint
+	joint := base.wheel()
 
 	// This is a frame behind
 	axisA := joint.axisA
@@ -43,7 +43,7 @@ func getWheelJointForce(w *world, base *jointSim) Vec2 {
 // getWheelJointTorque reports the constraint torque of the last step. It
 // corresponds to b2GetWheelJointTorque in src/wheel_joint.c.
 func getWheelJointTorque(w *world, base *jointSim) Q {
-	return w.invH.Mul(base.wheelJoint.motorImpulse)
+	return w.invH.Mul(base.wheel().motorImpulse)
 }
 
 // Linear constraint (point-to-line)
@@ -100,7 +100,7 @@ func prepareWheelJoint(base *jointSim, context *stepContext) {
 	base.invIA = iA
 	base.invIB = iB
 
-	joint := &base.wheelJoint
+	joint := base.wheel()
 
 	joint.indexA = nullIndex
 	if bodyA.setIndex == awakeSet {
@@ -182,7 +182,7 @@ func warmStartWheelJoint(base *jointSim, context *stepContext) {
 	// dummy state for static bodies
 	dummyState := identityBodyState()
 
-	joint := &base.wheelJoint
+	joint := base.wheel()
 
 	stateA, stateB := jointStates(context.states, &dummyState, joint.indexA, joint.indexB)
 
@@ -224,7 +224,7 @@ func solveWheelJoint(base *jointSim, context *stepContext, useBias bool) {
 	// dummy state for static bodies
 	dummyState := identityBodyState()
 
-	joint := &base.wheelJoint
+	joint := base.wheel()
 
 	stateA, stateB := jointStates(context.states, &dummyState, joint.indexA, joint.indexB)
 

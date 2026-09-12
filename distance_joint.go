@@ -3,7 +3,7 @@ package dbox2d
 // This file corresponds to src/distance_joint.c of the reference.
 
 func drawDistanceJoint(draw *DebugDraw, base *jointSim, transformA, transformB Transform) {
-	joint := &base.distanceJoint
+	joint := base.distance()
 	pA := TransformPoint(transformA, base.localOriginAnchorA)
 	pB := TransformPoint(transformB, base.localOriginAnchorB)
 	axis := pB.Sub(pA).Normalize()
@@ -32,7 +32,7 @@ func drawDistanceJoint(draw *DebugDraw, base *jointSim, transformA, transformB T
 // getDistanceJointForce reports the constraint force of the last step. It
 // corresponds to b2GetDistanceJointForce in src/distance_joint.c.
 func getDistanceJointForce(w *world, base *jointSim) Vec2 {
-	joint := &base.distanceJoint
+	joint := base.distance()
 
 	transformA := getBodyTransform(w, base.bodyIdA)
 	transformB := getBodyTransform(w, base.bodyIdB)
@@ -50,17 +50,17 @@ func (jointId JointId) SetLength(length Q) {
 	w := getWorld(jointId.world0)
 	joint := getJointSimCheckType(w, jointId, DistanceJoint)
 	length = length.Clamp(linearSlop, Huge)
-	joint.distanceJoint.length = length
-	joint.distanceJoint.impulse = QZero()
-	joint.distanceJoint.lowerImpulse = QZero()
-	joint.distanceJoint.upperImpulse = QZero()
+	joint.distance().length = length
+	joint.distance().impulse = QZero()
+	joint.distance().lowerImpulse = QZero()
+	joint.distance().upperImpulse = QZero()
 }
 
 // GetLength reports the distance joint length.
 func (jointId JointId) GetLength() Q {
 	w := getWorld(jointId.world0)
 	joint := getJointSimCheckType(w, jointId, DistanceJoint)
-	return joint.distanceJoint.length
+	return joint.distance().length
 }
 
 // EnableSpring enables or disables the spring on a distance, revolute,
@@ -71,21 +71,21 @@ func (jointId JointId) EnableSpring(enableSpring bool) {
 	joint := getJointSim(w, j)
 	switch j.jointType {
 	case DistanceJoint:
-		joint.distanceJoint.enableSpring = enableSpring
+		joint.distance().enableSpring = enableSpring
 	case RevoluteJoint:
-		if enableSpring != joint.revoluteJoint.enableSpring {
-			joint.revoluteJoint.enableSpring = enableSpring
-			joint.revoluteJoint.springImpulse = QZero()
+		if enableSpring != joint.revolute().enableSpring {
+			joint.revolute().enableSpring = enableSpring
+			joint.revolute().springImpulse = QZero()
 		}
 	case PrismaticJoint:
-		if enableSpring != joint.prismaticJoint.enableSpring {
-			joint.prismaticJoint.enableSpring = enableSpring
-			joint.prismaticJoint.springImpulse = QZero()
+		if enableSpring != joint.prismatic().enableSpring {
+			joint.prismatic().enableSpring = enableSpring
+			joint.prismatic().springImpulse = QZero()
 		}
 	case WheelJoint:
-		if enableSpring != joint.wheelJoint.enableSpring {
-			joint.wheelJoint.enableSpring = enableSpring
-			joint.wheelJoint.springImpulse = QZero()
+		if enableSpring != joint.wheel().enableSpring {
+			joint.wheel().enableSpring = enableSpring
+			joint.wheel().springImpulse = QZero()
 		}
 	default:
 		panic("dbox2d: joint type does not support spring")
@@ -99,13 +99,13 @@ func (jointId JointId) IsSpringEnabled() bool {
 	joint := getJointSim(w, j)
 	switch j.jointType {
 	case DistanceJoint:
-		return joint.distanceJoint.enableSpring
+		return joint.distance().enableSpring
 	case RevoluteJoint:
-		return joint.revoluteJoint.enableSpring
+		return joint.revolute().enableSpring
 	case PrismaticJoint:
-		return joint.prismaticJoint.enableSpring
+		return joint.prismatic().enableSpring
 	case WheelJoint:
-		return joint.wheelJoint.enableSpring
+		return joint.wheel().enableSpring
 	default:
 		panic("dbox2d: joint type does not support spring")
 	}
@@ -118,15 +118,15 @@ func (jointId JointId) SetSpringHertz(hertz Q) {
 	joint := getJointSim(w, j)
 	switch j.jointType {
 	case DistanceJoint:
-		joint.distanceJoint.hertz = hertz
+		joint.distance().hertz = hertz
 	case RevoluteJoint:
-		joint.revoluteJoint.hertz = hertz
+		joint.revolute().hertz = hertz
 	case PrismaticJoint:
-		joint.prismaticJoint.hertz = hertz
+		joint.prismatic().hertz = hertz
 	case WheelJoint:
-		joint.wheelJoint.hertz = hertz
+		joint.wheel().hertz = hertz
 	case MouseJoint:
-		joint.mouseJoint.hertz = hertz
+		joint.mouse().hertz = hertz
 	default:
 		panic("dbox2d: joint type does not support spring hertz")
 	}
@@ -139,15 +139,15 @@ func (jointId JointId) GetSpringHertz() Q {
 	joint := getJointSim(w, j)
 	switch j.jointType {
 	case DistanceJoint:
-		return joint.distanceJoint.hertz
+		return joint.distance().hertz
 	case RevoluteJoint:
-		return joint.revoluteJoint.hertz
+		return joint.revolute().hertz
 	case PrismaticJoint:
-		return joint.prismaticJoint.hertz
+		return joint.prismatic().hertz
 	case WheelJoint:
-		return joint.wheelJoint.hertz
+		return joint.wheel().hertz
 	case MouseJoint:
-		return joint.mouseJoint.hertz
+		return joint.mouse().hertz
 	default:
 		panic("dbox2d: joint type does not support spring hertz")
 	}
@@ -160,15 +160,15 @@ func (jointId JointId) SetSpringDampingRatio(dampingRatio Q) {
 	joint := getJointSim(w, j)
 	switch j.jointType {
 	case DistanceJoint:
-		joint.distanceJoint.dampingRatio = dampingRatio
+		joint.distance().dampingRatio = dampingRatio
 	case RevoluteJoint:
-		joint.revoluteJoint.dampingRatio = dampingRatio
+		joint.revolute().dampingRatio = dampingRatio
 	case PrismaticJoint:
-		joint.prismaticJoint.dampingRatio = dampingRatio
+		joint.prismatic().dampingRatio = dampingRatio
 	case WheelJoint:
-		joint.wheelJoint.dampingRatio = dampingRatio
+		joint.wheel().dampingRatio = dampingRatio
 	case MouseJoint:
-		joint.mouseJoint.dampingRatio = dampingRatio
+		joint.mouse().dampingRatio = dampingRatio
 	default:
 		panic("dbox2d: joint type does not support spring damping ratio")
 	}
@@ -181,15 +181,15 @@ func (jointId JointId) GetSpringDampingRatio() Q {
 	joint := getJointSim(w, j)
 	switch j.jointType {
 	case DistanceJoint:
-		return joint.distanceJoint.dampingRatio
+		return joint.distance().dampingRatio
 	case RevoluteJoint:
-		return joint.revoluteJoint.dampingRatio
+		return joint.revolute().dampingRatio
 	case PrismaticJoint:
-		return joint.prismaticJoint.dampingRatio
+		return joint.prismatic().dampingRatio
 	case WheelJoint:
-		return joint.wheelJoint.dampingRatio
+		return joint.wheel().dampingRatio
 	case MouseJoint:
-		return joint.mouseJoint.dampingRatio
+		return joint.mouse().dampingRatio
 	default:
 		panic("dbox2d: joint type does not support spring damping ratio")
 	}
@@ -202,24 +202,24 @@ func (jointId JointId) EnableLimit(enableLimit bool) {
 	joint := getJointSim(w, j)
 	switch j.jointType {
 	case DistanceJoint:
-		joint.distanceJoint.enableLimit = enableLimit
+		joint.distance().enableLimit = enableLimit
 	case RevoluteJoint:
-		if enableLimit != joint.revoluteJoint.enableLimit {
-			joint.revoluteJoint.enableLimit = enableLimit
-			joint.revoluteJoint.lowerImpulse = QZero()
-			joint.revoluteJoint.upperImpulse = QZero()
+		if enableLimit != joint.revolute().enableLimit {
+			joint.revolute().enableLimit = enableLimit
+			joint.revolute().lowerImpulse = QZero()
+			joint.revolute().upperImpulse = QZero()
 		}
 	case PrismaticJoint:
-		if enableLimit != joint.prismaticJoint.enableLimit {
-			joint.prismaticJoint.enableLimit = enableLimit
-			joint.prismaticJoint.lowerImpulse = QZero()
-			joint.prismaticJoint.upperImpulse = QZero()
+		if enableLimit != joint.prismatic().enableLimit {
+			joint.prismatic().enableLimit = enableLimit
+			joint.prismatic().lowerImpulse = QZero()
+			joint.prismatic().upperImpulse = QZero()
 		}
 	case WheelJoint:
-		if enableLimit != joint.wheelJoint.enableLimit {
-			joint.wheelJoint.enableLimit = enableLimit
-			joint.wheelJoint.lowerImpulse = QZero()
-			joint.wheelJoint.upperImpulse = QZero()
+		if enableLimit != joint.wheel().enableLimit {
+			joint.wheel().enableLimit = enableLimit
+			joint.wheel().lowerImpulse = QZero()
+			joint.wheel().upperImpulse = QZero()
 		}
 	default:
 		panic("dbox2d: joint type does not support limits")
@@ -233,13 +233,13 @@ func (jointId JointId) IsLimitEnabled() bool {
 	joint := getJointSim(w, j)
 	switch j.jointType {
 	case DistanceJoint:
-		return joint.distanceJoint.enableLimit
+		return joint.distance().enableLimit
 	case RevoluteJoint:
-		return joint.revoluteJoint.enableLimit
+		return joint.revolute().enableLimit
 	case PrismaticJoint:
-		return joint.prismaticJoint.enableLimit
+		return joint.prismatic().enableLimit
 	case WheelJoint:
-		return joint.wheelJoint.enableLimit
+		return joint.wheel().enableLimit
 	default:
 		panic("dbox2d: joint type does not support limits")
 	}
@@ -251,25 +251,25 @@ func (jointId JointId) SetLengthRange(minLength, maxLength Q) {
 	joint := getJointSimCheckType(w, jointId, DistanceJoint)
 	minLength = minLength.Clamp(linearSlop, Huge)
 	maxLength = maxLength.Clamp(linearSlop, Huge)
-	joint.distanceJoint.minLength = minLength.Min(maxLength)
-	joint.distanceJoint.maxLength = minLength.Max(maxLength)
-	joint.distanceJoint.impulse = QZero()
-	joint.distanceJoint.lowerImpulse = QZero()
-	joint.distanceJoint.upperImpulse = QZero()
+	joint.distance().minLength = minLength.Min(maxLength)
+	joint.distance().maxLength = minLength.Max(maxLength)
+	joint.distance().impulse = QZero()
+	joint.distance().lowerImpulse = QZero()
+	joint.distance().upperImpulse = QZero()
 }
 
 // GetMinLength reports the lower distance limit.
 func (jointId JointId) GetMinLength() Q {
 	w := getWorld(jointId.world0)
 	joint := getJointSimCheckType(w, jointId, DistanceJoint)
-	return joint.distanceJoint.minLength
+	return joint.distance().minLength
 }
 
 // GetMaxLength reports the upper distance limit.
 func (jointId JointId) GetMaxLength() Q {
 	w := getWorld(jointId.world0)
 	joint := getJointSimCheckType(w, jointId, DistanceJoint)
-	return joint.distanceJoint.maxLength
+	return joint.distance().maxLength
 }
 
 // GetCurrentLength reports the distance between the current world anchors.
@@ -290,24 +290,24 @@ func (jointId JointId) EnableMotor(enableMotor bool) {
 	joint := getJointSim(w, j)
 	switch j.jointType {
 	case DistanceJoint:
-		if enableMotor != joint.distanceJoint.enableMotor {
-			joint.distanceJoint.enableMotor = enableMotor
-			joint.distanceJoint.motorImpulse = QZero()
+		if enableMotor != joint.distance().enableMotor {
+			joint.distance().enableMotor = enableMotor
+			joint.distance().motorImpulse = QZero()
 		}
 	case RevoluteJoint:
-		if enableMotor != joint.revoluteJoint.enableMotor {
-			joint.revoluteJoint.enableMotor = enableMotor
-			joint.revoluteJoint.motorImpulse = QZero()
+		if enableMotor != joint.revolute().enableMotor {
+			joint.revolute().enableMotor = enableMotor
+			joint.revolute().motorImpulse = QZero()
 		}
 	case PrismaticJoint:
-		if enableMotor != joint.prismaticJoint.enableMotor {
-			joint.prismaticJoint.enableMotor = enableMotor
-			joint.prismaticJoint.motorImpulse = QZero()
+		if enableMotor != joint.prismatic().enableMotor {
+			joint.prismatic().enableMotor = enableMotor
+			joint.prismatic().motorImpulse = QZero()
 		}
 	case WheelJoint:
-		if enableMotor != joint.wheelJoint.enableMotor {
-			joint.wheelJoint.enableMotor = enableMotor
-			joint.wheelJoint.motorImpulse = QZero()
+		if enableMotor != joint.wheel().enableMotor {
+			joint.wheel().enableMotor = enableMotor
+			joint.wheel().motorImpulse = QZero()
 		}
 	default:
 		panic("dbox2d: joint type does not support motors")
@@ -321,13 +321,13 @@ func (jointId JointId) IsMotorEnabled() bool {
 	joint := getJointSim(w, j)
 	switch j.jointType {
 	case DistanceJoint:
-		return joint.distanceJoint.enableMotor
+		return joint.distance().enableMotor
 	case RevoluteJoint:
-		return joint.revoluteJoint.enableMotor
+		return joint.revolute().enableMotor
 	case PrismaticJoint:
-		return joint.prismaticJoint.enableMotor
+		return joint.prismatic().enableMotor
 	case WheelJoint:
-		return joint.wheelJoint.enableMotor
+		return joint.wheel().enableMotor
 	default:
 		panic("dbox2d: joint type does not support motors")
 	}
@@ -341,15 +341,15 @@ func (jointId JointId) SetMotorSpeed(motorSpeed Q) {
 	joint := getJointSim(w, j)
 	switch j.jointType {
 	case DistanceJoint:
-		joint.distanceJoint.motorSpeed = motorSpeed
+		joint.distance().motorSpeed = motorSpeed
 	case RevoluteJoint:
 		// D-004: revolute motor speed is stored in turns per second.
-		joint.revoluteJoint.motorSpeed = angleFromTurns(motorSpeed)
+		joint.revolute().motorSpeed = angleFromTurns(motorSpeed)
 	case PrismaticJoint:
-		joint.prismaticJoint.motorSpeed = motorSpeed
+		joint.prismatic().motorSpeed = motorSpeed
 	case WheelJoint:
 		// D-004: wheel motor speed is stored in turns per second.
-		joint.wheelJoint.motorSpeed = angleFromTurns(motorSpeed)
+		joint.wheel().motorSpeed = angleFromTurns(motorSpeed)
 	default:
 		panic("dbox2d: joint type does not support motor speed")
 	}
@@ -362,15 +362,15 @@ func (jointId JointId) GetMotorSpeed() Q {
 	joint := getJointSim(w, j)
 	switch j.jointType {
 	case DistanceJoint:
-		return joint.distanceJoint.motorSpeed
+		return joint.distance().motorSpeed
 	case RevoluteJoint:
 		// D-004: revolute motor speed is stored in turns per second.
-		return angleToTurns(joint.revoluteJoint.motorSpeed)
+		return angleToTurns(joint.revolute().motorSpeed)
 	case PrismaticJoint:
-		return joint.prismaticJoint.motorSpeed
+		return joint.prismatic().motorSpeed
 	case WheelJoint:
 		// D-004: wheel motor speed is stored in turns per second.
-		return angleToTurns(joint.wheelJoint.motorSpeed)
+		return angleToTurns(joint.wheel().motorSpeed)
 	default:
 		panic("dbox2d: joint type does not support motor speed")
 	}
@@ -383,9 +383,9 @@ func (jointId JointId) SetMaxMotorForce(force Q) {
 	joint := getJointSim(w, j)
 	switch j.jointType {
 	case DistanceJoint:
-		joint.distanceJoint.maxMotorForce = force
+		joint.distance().maxMotorForce = force
 	case PrismaticJoint:
-		joint.prismaticJoint.maxMotorForce = force
+		joint.prismatic().maxMotorForce = force
 	default:
 		panic("dbox2d: joint type does not support motor force")
 	}
@@ -398,9 +398,9 @@ func (jointId JointId) GetMaxMotorForce() Q {
 	joint := getJointSim(w, j)
 	switch j.jointType {
 	case DistanceJoint:
-		return joint.distanceJoint.maxMotorForce
+		return joint.distance().maxMotorForce
 	case PrismaticJoint:
-		return joint.prismaticJoint.maxMotorForce
+		return joint.prismatic().maxMotorForce
 	default:
 		panic("dbox2d: joint type does not support motor force")
 	}
@@ -413,9 +413,9 @@ func (jointId JointId) GetMotorForce() Q {
 	joint := getJointSim(w, j)
 	switch j.jointType {
 	case DistanceJoint:
-		return w.invH.Mul(joint.distanceJoint.motorImpulse)
+		return w.invH.Mul(joint.distance().motorImpulse)
 	case PrismaticJoint:
-		return w.invH.Mul(joint.prismaticJoint.motorImpulse)
+		return w.invH.Mul(joint.prismatic().motorImpulse)
 	default:
 		panic("dbox2d: joint type does not support motor force")
 	}
@@ -474,7 +474,7 @@ func prepareDistanceJoint(base *jointSim, context *stepContext) {
 	base.invIA = iA
 	base.invIB = iB
 
-	joint := &base.distanceJoint
+	joint := base.distance()
 
 	joint.indexA = nullIndex
 	if bodyA.setIndex == awakeSet {
@@ -531,7 +531,7 @@ func warmStartDistanceJoint(base *jointSim, context *stepContext) {
 	// dummy state for static bodies
 	dummyState := identityBodyState()
 
-	joint := &base.distanceJoint
+	joint := base.distance()
 	stateA, stateB := jointStates(context.states, &dummyState, joint.indexA, joint.indexB)
 
 	rA := RotateVector(stateA.deltaRotation, joint.anchorA)
@@ -565,7 +565,7 @@ func solveDistanceJoint(base *jointSim, context *stepContext, useBias bool) {
 	// dummy state for static bodies
 	dummyState := identityBodyState()
 
-	joint := &base.distanceJoint
+	joint := base.distance()
 	stateA, stateB := jointStates(context.states, &dummyState, joint.indexA, joint.indexB)
 
 	vA := stateA.linearVelocity

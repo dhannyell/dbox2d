@@ -154,7 +154,7 @@ func TestMotorDrivesTowardTheOffset(t *testing.T) {
 	tolerance := qUlps(1 << 12)
 	js := getJointSim(w, j)
 	twelfths := QFromRatio(5, 12)
-	impulse := js.motorJoint.linearImpulse
+	impulse := js.motor().linearImpulse
 	if !withinQ(impulse.X, twelfths, tolerance) || !withinQ(impulse.Y, QZero(), tolerance) {
 		t.Errorf("linearImpulse is %v, want (5/12, 0)", impulse)
 	}
@@ -196,8 +196,8 @@ func TestMotorTurnsTowardTheAngularOffset(t *testing.T) {
 
 	tolerance := qUlps(1 << 12)
 	js := getJointSim(w, j)
-	if !withinQ(js.motorJoint.angularImpulse, QFromRatio(5, 12), tolerance) {
-		t.Errorf("angularImpulse is %v, want 5/12", js.motorJoint.angularImpulse)
+	if !withinQ(js.motor().angularImpulse, QFromRatio(5, 12), tolerance) {
+		t.Errorf("angularImpulse is %v, want 5/12", js.motor().angularImpulse)
 	}
 	if wB := state.angularVelocity; !withinQ(wB, QFromRatio(5, 2), tolerance) {
 		t.Errorf("wB is %v rad/s, want 2.5", wB)
@@ -310,7 +310,7 @@ func TestSolveMotorJointTracksTheFloat64Mirror(t *testing.T) {
 
 	h := qToF64(context.h)
 	invH := qToF64(context.invH)
-	m := &js.motorJoint
+	m := js.motor()
 	mirror := &f64MotorJoint{
 		mA: qToF64(js.invMassA), mB: qToF64(js.invMassB), iA: qToF64(js.invIA), iB: qToF64(js.invIB),
 		maxForce:         qToF64(m.maxForce),

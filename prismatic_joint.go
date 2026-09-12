@@ -1,7 +1,7 @@
 package dbox2d
 
 func drawPrismaticJoint(draw *DebugDraw, base *jointSim, transformA, transformB Transform) {
-	joint := &base.prismaticJoint
+	joint := base.prismatic()
 	pA := TransformPoint(transformA, base.localOriginAnchorA)
 	pB := TransformPoint(transformB, base.localOriginAnchorB)
 	axis := RotateVector(transformA.Q, joint.localAxisA)
@@ -30,7 +30,7 @@ func getPrismaticJointForce(w *world, base *jointSim) Vec2 {
 	idA := base.bodyIdA
 	transformA := getBodyTransform(w, idA)
 
-	joint := &base.prismaticJoint
+	joint := base.prismatic()
 
 	axisA := RotateVector(transformA.Q, joint.localAxisA)
 	perpA := LeftPerp(axisA)
@@ -46,21 +46,21 @@ func getPrismaticJointForce(w *world, base *jointSim) Vec2 {
 // getPrismaticJointTorque reports the constraint torque of the last step.
 // It corresponds to b2GetPrismaticJointTorque in src/prismatic_joint.c.
 func getPrismaticJointTorque(w *world, base *jointSim) Q {
-	return w.invH.Mul(base.prismaticJoint.impulse.Y)
+	return w.invH.Mul(base.prismatic().impulse.Y)
 }
 
 // SetTargetTranslation changes the prismatic spring target translation.
 func (jointId JointId) SetTargetTranslation(translation Q) {
 	w := getWorld(jointId.world0)
 	joint := getJointSimCheckType(w, jointId, PrismaticJoint)
-	joint.prismaticJoint.targetTranslation = translation
+	joint.prismatic().targetTranslation = translation
 }
 
 // GetTargetTranslation reports the prismatic spring target translation.
 func (jointId JointId) GetTargetTranslation() Q {
 	w := getWorld(jointId.world0)
 	joint := getJointSimCheckType(w, jointId, PrismaticJoint)
-	return joint.prismaticJoint.targetTranslation
+	return joint.prismatic().targetTranslation
 }
 
 // GetTranslation reports the current translation along the prismatic axis.
@@ -69,7 +69,7 @@ func (jointId JointId) GetTranslation() Q {
 	joint := getJointSimCheckType(w, jointId, PrismaticJoint)
 	transformA := getBodyTransform(w, joint.bodyIdA)
 	transformB := getBodyTransform(w, joint.bodyIdB)
-	axisA := RotateVector(transformA.Q, joint.prismaticJoint.localAxisA)
+	axisA := RotateVector(transformA.Q, joint.prismatic().localAxisA)
 	pA := TransformPoint(transformA, joint.localOriginAnchorA)
 	pB := TransformPoint(transformB, joint.localOriginAnchorB)
 	return axisA.Dot(pB.Sub(pA))
@@ -88,7 +88,7 @@ func (jointId JointId) GetSpeed() Q {
 
 	transformA := bodySimA.transform
 	transformB := bodySimB.transform
-	prismatic := &joint.prismaticJoint
+	prismatic := joint.prismatic()
 	axisA := RotateVector(transformA.Q, prismatic.localAxisA)
 	rA := RotateVector(transformA.Q, joint.localOriginAnchorA.Sub(bodySimA.localCenter))
 	rB := RotateVector(transformB.Q, joint.localOriginAnchorB.Sub(bodySimB.localCenter))
@@ -195,7 +195,7 @@ func preparePrismaticJoint(base *jointSim, context *stepContext) {
 	base.invIA = iA
 	base.invIB = iB
 
-	joint := &base.prismaticJoint
+	joint := base.prismatic()
 	joint.indexA = nullIndex
 	if bodyA.setIndex == awakeSet {
 		joint.indexA = localIndexA
@@ -257,7 +257,7 @@ func warmStartPrismaticJoint(base *jointSim, context *stepContext) {
 	// dummy state for static bodies
 	dummyState := identityBodyState()
 
-	joint := &base.prismaticJoint
+	joint := base.prismatic()
 
 	stateA, stateB := jointStates(context.states, &dummyState, joint.indexA, joint.indexB)
 
@@ -304,7 +304,7 @@ func solvePrismaticJoint(base *jointSim, context *stepContext, useBias bool) {
 	// dummy state for static bodies
 	dummyState := identityBodyState()
 
-	joint := &base.prismaticJoint
+	joint := base.prismatic()
 
 	stateA, stateB := jointStates(context.states, &dummyState, joint.indexA, joint.indexB)
 

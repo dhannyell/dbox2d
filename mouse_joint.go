@@ -7,14 +7,14 @@ func (jointId JointId) SetTarget(target Vec2) {
 	}
 	w := getWorld(jointId.world0)
 	js := getJointSimCheckType(w, jointId, MouseJoint)
-	js.mouseJoint.targetA = target
+	js.mouse().targetA = target
 }
 
 // GetTarget reports the mouse joint target (b2MouseJoint_GetTarget).
 func (jointId JointId) GetTarget() Vec2 {
 	w := getWorld(jointId.world0)
 	js := getJointSimCheckType(w, jointId, MouseJoint)
-	return js.mouseJoint.targetA
+	return js.mouse().targetA
 }
 
 // This file corresponds to src/mouse_joint.c of the reference. The joint
@@ -23,14 +23,14 @@ func (jointId JointId) GetTarget() Vec2 {
 // getMouseJointForce reports the constraint force of the last step. It
 // corresponds to b2GetMouseJointForce in src/mouse_joint.c.
 func getMouseJointForce(w *world, base *jointSim) Vec2 {
-	force := base.mouseJoint.linearImpulse.Mul(w.invH)
+	force := base.mouse().linearImpulse.Mul(w.invH)
 	return force
 }
 
 // getMouseJointTorque reports the constraint torque of the last step. It
 // corresponds to b2GetMouseJointTorque in src/mouse_joint.c.
 func getMouseJointTorque(w *world, base *jointSim) Q {
-	return w.invH.Mul(base.mouseJoint.angularImpulse)
+	return w.invH.Mul(base.mouse().angularImpulse)
 }
 
 // prepareMouseJoint corresponds to b2PrepareMouseJoint in
@@ -58,7 +58,7 @@ func prepareMouseJoint(base *jointSim, context *stepContext) {
 	base.invMassB = bodySimB.invMass
 	base.invIB = bodySimB.invInertia
 
-	joint := &base.mouseJoint
+	joint := base.mouse()
 	joint.indexB = nullIndex
 	if bodyB.setIndex == awakeSet {
 		joint.indexB = localIndexB
@@ -102,7 +102,7 @@ func warmStartMouseJoint(base *jointSim, context *stepContext) {
 	mB := base.invMassB
 	iB := base.invIB
 
-	joint := &base.mouseJoint
+	joint := base.mouse()
 
 	stateB := &context.states[joint.indexB]
 	vB := stateB.linearVelocity
@@ -124,7 +124,7 @@ func solveMouseJoint(base *jointSim, context *stepContext) {
 	mB := base.invMassB
 	iB := base.invIB
 
-	joint := &base.mouseJoint
+	joint := base.mouse()
 	stateB := &context.states[joint.indexB]
 
 	vB := stateB.linearVelocity

@@ -53,8 +53,8 @@ func TestWheelLineHoldsTheBox(t *testing.T) {
 
 	tolerance := qUlps(1 << 12)
 	js := getJointSim(w, j)
-	if !withinQ(js.wheelJoint.perpImpulse, QOne(), tolerance) {
-		t.Errorf("perpImpulse is %v, want 1", js.wheelJoint.perpImpulse)
+	if !withinQ(js.wheel().perpImpulse, QOne(), tolerance) {
+		t.Errorf("perpImpulse is %v, want 1", js.wheel().perpImpulse)
 	}
 	if !withinQ(state.linearVelocity.X, QZero(), tolerance) || !withinQ(state.linearVelocity.Y, QOne(), tolerance) {
 		t.Errorf("vB is %v, want (0, 1)", state.linearVelocity)
@@ -92,8 +92,8 @@ func TestWheelUpperLimitStopsTheTravel(t *testing.T) {
 
 	tolerance := qUlps(1 << 12)
 	js := getJointSim(w, j)
-	if !js.wheelJoint.lowerImpulse.Eq(QZero()) || !withinQ(js.wheelJoint.upperImpulse, QOne(), tolerance) {
-		t.Errorf("the limit impulses are %v and %v, want 0 and 1", js.wheelJoint.lowerImpulse, js.wheelJoint.upperImpulse)
+	if !js.wheel().lowerImpulse.Eq(QZero()) || !withinQ(js.wheel().upperImpulse, QOne(), tolerance) {
+		t.Errorf("the limit impulses are %v and %v, want 0 and 1", js.wheel().lowerImpulse, js.wheel().upperImpulse)
 	}
 	if !withinQ(state.linearVelocity.Y, QZero(), tolerance) {
 		t.Errorf("vB.y is %v, want 0", state.linearVelocity.Y)
@@ -121,8 +121,8 @@ func TestWheelMotorSaturatesAtTheTorque(t *testing.T) {
 
 	tolerance := qUlps(1 << 12)
 	js := getJointSim(w, j)
-	if !withinQ(js.wheelJoint.motorImpulse, QFromRatio(5, 12), tolerance) {
-		t.Errorf("motorImpulse is %v, want 5/12", js.wheelJoint.motorImpulse)
+	if !withinQ(js.wheel().motorImpulse, QFromRatio(5, 12), tolerance) {
+		t.Errorf("motorImpulse is %v, want 5/12", js.wheel().motorImpulse)
 	}
 	wB := state.angularVelocity
 	if !withinQ(wB, QFromRatio(5, 2), tolerance) {
@@ -310,7 +310,7 @@ func TestSolveWheelJointTracksTheFloat64Mirror(t *testing.T) {
 
 	h := qToF64(context.h)
 	invH := qToF64(context.invH)
-	wj := &js.wheelJoint
+	wj := js.wheel()
 	mirror := &f64WheelJoint{
 		mA: qToF64(js.invMassA), mB: qToF64(js.invMassB), iA: qToF64(js.invIA), iB: qToF64(js.invIB),
 		constraintSoftness: makeSoftF64(math.Min(qToF64(js.constraintHertz), 0.25*invH), qToF64(js.constraintDampingRatio), h),

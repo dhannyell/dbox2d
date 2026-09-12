@@ -30,7 +30,7 @@ func ActiveWorkerCount(worldId WorldId) int {
 // public turn-based API, so this test-only bridge bypasses it.
 func SetRevoluteMotorSpeedRadians(worldId WorldId, jointId JointId, radians Q) {
 	joint := getJointSimCheckType(getWorldFromId(worldId), jointId, RevoluteJoint)
-	joint.revoluteJoint.motorSpeed = radians
+	joint.revolute().motorSpeed = radians
 }
 
 // BodyIndex exposes creation order for deterministic scene hashes. BodyId

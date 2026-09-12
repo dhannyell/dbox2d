@@ -7,14 +7,14 @@ package dbox2d
 // getMotorJointForce reports the constraint force of the last step. It
 // corresponds to b2GetMotorJointForce in src/motor_joint.c.
 func getMotorJointForce(w *world, base *jointSim) Vec2 {
-	force := base.motorJoint.linearImpulse.Mul(w.invH)
+	force := base.motor().linearImpulse.Mul(w.invH)
 	return force
 }
 
 // getMotorJointTorque reports the constraint torque of the last step. It
 // corresponds to b2GetMotorJointTorque in src/motor_joint.c.
 func getMotorJointTorque(w *world, base *jointSim) Q {
-	return w.invH.Mul(base.motorJoint.angularImpulse)
+	return w.invH.Mul(base.motor().angularImpulse)
 }
 
 // Point-to-point constraint
@@ -70,7 +70,7 @@ func prepareMotorJoint(base *jointSim, context *stepContext) {
 	base.invIA = iA
 	base.invIB = iB
 
-	joint := &base.motorJoint
+	joint := base.motor()
 	joint.indexA = nullIndex
 	if bodyA.setIndex == awakeSet {
 		joint.indexA = localIndexA
@@ -117,7 +117,7 @@ func warmStartMotorJoint(base *jointSim, context *stepContext) {
 	iA := base.invIA
 	iB := base.invIB
 
-	joint := &base.motorJoint
+	joint := base.motor()
 
 	// dummy state for static bodies
 	dummyState := identityBodyState()
@@ -153,7 +153,7 @@ func solveMotorJoint(base *jointSim, context *stepContext, _ bool) {
 	// dummy state for static bodies
 	dummyState := identityBodyState()
 
-	joint := &base.motorJoint
+	joint := base.motor()
 	bodyA, bodyB := jointStates(context.states, &dummyState, joint.indexA, joint.indexB)
 
 	vA := bodyA.linearVelocity
@@ -224,14 +224,14 @@ func (jointId JointId) SetLinearOffset(linearOffset Vec2) {
 	}
 	w := getWorld(jointId.world0)
 	js := getJointSimCheckType(w, jointId, MotorJoint)
-	js.motorJoint.linearOffset = linearOffset
+	js.motor().linearOffset = linearOffset
 }
 
 // GetLinearOffset reports the motor joint's linear offset (b2MotorJoint_GetLinearOffset).
 func (jointId JointId) GetLinearOffset() Vec2 {
 	w := getWorld(jointId.world0)
 	js := getJointSimCheckType(w, jointId, MotorJoint)
-	return js.motorJoint.linearOffset
+	return js.motor().linearOffset
 }
 
 // SetAngularOffset changes the motor joint's angular offset in turns (b2MotorJoint_SetAngularOffset).
@@ -244,14 +244,14 @@ func (jointId JointId) SetAngularOffset(angularOffset Q) {
 	halfTurn := QHalf()
 	// D-004: the port bounds turns to a half turn; the reference leaves radians unbounded.
 	angularOffset = angularOffset.Clamp(halfTurn.Neg(), halfTurn) // D-004
-	js.motorJoint.angularOffset = angleFromTurns(angularOffset)
+	js.motor().angularOffset = angleFromTurns(angularOffset)
 }
 
 // GetAngularOffset reports the motor joint's angular offset in turns (b2MotorJoint_GetAngularOffset).
 func (jointId JointId) GetAngularOffset() Q {
 	w := getWorld(jointId.world0)
 	js := getJointSimCheckType(w, jointId, MotorJoint)
-	return angleToTurns(js.motorJoint.angularOffset)
+	return angleToTurns(js.motor().angularOffset)
 }
 
 // SetMaxForce changes the maximum force of a motor or mouse joint (b2MotorJoint_SetMaxForce, b2MouseJoint_SetMaxForce).
@@ -268,9 +268,9 @@ func (jointId JointId) SetMaxForce(maxForce Q) {
 	js := getJointSim(w, j)
 	switch j.jointType {
 	case MotorJoint:
-		js.motorJoint.maxForce = maxForce
+		js.motor().maxForce = maxForce
 	case MouseJoint:
-		js.mouseJoint.maxForce = maxForce
+		js.mouse().maxForce = maxForce
 	default:
 		panic("dbox2d: SetMaxForce needs a motor or mouse joint")
 	}
@@ -283,9 +283,9 @@ func (jointId JointId) GetMaxForce() Q {
 	js := getJointSim(w, j)
 	switch j.jointType {
 	case MotorJoint:
-		return js.motorJoint.maxForce
+		return js.motor().maxForce
 	case MouseJoint:
-		return js.mouseJoint.maxForce
+		return js.mouse().maxForce
 	default:
 		panic("dbox2d: GetMaxForce needs a motor or mouse joint")
 	}
@@ -302,14 +302,14 @@ func (jointId JointId) SetMaxTorque(maxTorque Q) {
 	}
 	w := getWorld(jointId.world0)
 	js := getJointSimCheckType(w, jointId, MotorJoint)
-	js.motorJoint.maxTorque = maxTorque
+	js.motor().maxTorque = maxTorque
 }
 
 // GetMaxTorque reports the motor joint's maximum torque (b2MotorJoint_GetMaxTorque).
 func (jointId JointId) GetMaxTorque() Q {
 	w := getWorld(jointId.world0)
 	js := getJointSimCheckType(w, jointId, MotorJoint)
-	return js.motorJoint.maxTorque
+	return js.motor().maxTorque
 }
 
 // SetCorrectionFactor changes the motor joint's correction factor (b2MotorJoint_SetCorrectionFactor).
@@ -319,12 +319,12 @@ func (jointId JointId) SetCorrectionFactor(correctionFactor Q) {
 	}
 	w := getWorld(jointId.world0)
 	js := getJointSimCheckType(w, jointId, MotorJoint)
-	js.motorJoint.correctionFactor = correctionFactor.Clamp(QZero(), QOne())
+	js.motor().correctionFactor = correctionFactor.Clamp(QZero(), QOne())
 }
 
 // GetCorrectionFactor reports the motor joint's correction factor (b2MotorJoint_GetCorrectionFactor).
 func (jointId JointId) GetCorrectionFactor() Q {
 	w := getWorld(jointId.world0)
 	js := getJointSimCheckType(w, jointId, MotorJoint)
-	return js.motorJoint.correctionFactor
+	return js.motor().correctionFactor
 }

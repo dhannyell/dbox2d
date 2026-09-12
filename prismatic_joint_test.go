@@ -54,7 +54,7 @@ func TestPrismaticBlockHoldsTheLine(t *testing.T) {
 
 	tolerance := qUlps(1 << 12)
 	js := getJointSim(w, j)
-	impulse := js.prismaticJoint.impulse
+	impulse := js.prismatic().impulse
 	if !withinQ(impulse.X, QOne().Neg(), tolerance) || !withinQ(impulse.Y, QFromRatio(-1, 6), tolerance) {
 		t.Errorf("impulse is %v, want (-1, -1/6)", impulse)
 	}
@@ -91,8 +91,8 @@ func TestPrismaticUpperLimitStopsTheSlide(t *testing.T) {
 
 	tolerance := qUlps(1 << 12)
 	js := getJointSim(w, j)
-	if !js.prismaticJoint.lowerImpulse.Eq(QZero()) || !withinQ(js.prismaticJoint.upperImpulse, QOne(), tolerance) {
-		t.Errorf("the limit impulses are %v and %v, want 0 and 1", js.prismaticJoint.lowerImpulse, js.prismaticJoint.upperImpulse)
+	if !js.prismatic().lowerImpulse.Eq(QZero()) || !withinQ(js.prismatic().upperImpulse, QOne(), tolerance) {
+		t.Errorf("the limit impulses are %v and %v, want 0 and 1", js.prismatic().lowerImpulse, js.prismatic().upperImpulse)
 	}
 	if !withinQ(state.linearVelocity.X, QZero(), tolerance) {
 		t.Errorf("vB.x is %v, want 0", state.linearVelocity.X)
@@ -126,8 +126,8 @@ func TestPrismaticMotorSaturatesAtTheForce(t *testing.T) {
 	tolerance := qUlps(1 << 12)
 	js := getJointSim(w, j)
 	twelfths := QFromRatio(5, 12)
-	if !withinQ(js.prismaticJoint.motorImpulse, twelfths, tolerance) {
-		t.Errorf("motorImpulse is %v, want 5/12", js.prismaticJoint.motorImpulse)
+	if !withinQ(js.prismatic().motorImpulse, twelfths, tolerance) {
+		t.Errorf("motorImpulse is %v, want 5/12", js.prismatic().motorImpulse)
 	}
 	if !withinQ(state.linearVelocity.X, twelfths, tolerance) {
 		t.Errorf("vB.x is %v, want 5/12", state.linearVelocity.X)
@@ -323,7 +323,7 @@ func TestSolvePrismaticJointTracksTheFloat64Mirror(t *testing.T) {
 
 	h := qToF64(context.h)
 	invH := qToF64(context.invH)
-	p := &js.prismaticJoint
+	p := js.prismatic()
 	mirror := &f64PrismaticJoint{
 		mA: qToF64(js.invMassA), mB: qToF64(js.invMassB), iA: qToF64(js.invIA), iB: qToF64(js.invIB),
 		constraintSoftness: makeSoftF64(math.Min(qToF64(js.constraintHertz), 0.25*invH), qToF64(js.constraintDampingRatio), h),
