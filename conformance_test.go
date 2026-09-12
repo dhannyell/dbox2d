@@ -1,4 +1,4 @@
-package dbox2d
+package dbox2d_test
 
 // The benchmark scene builders mirror samples/benchmarks.go on purpose: the
 // samples module cannot be imported by this library module's tests.
@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	. "github.com/dhannyell/dbox2d"
 )
 
 type conformanceToleranceConfig struct {
@@ -708,7 +710,7 @@ func runConformanceFunctionCase(t *testing.T, file string, caseIndex int, input,
 	case "atan2.txt":
 		y, x := in.float().q(), in.float().q()
 		in.done("function input")
-		got := conformanceAtan2Radians(y, x)
+		got := Atan2Radians(y, x)
 		checker.reportFloat(caseIndex, "radians", got, out.float())
 		out.done("function output")
 	default:
@@ -771,18 +773,18 @@ func conformanceSceneBodies(worldId WorldId) []BodyId {
 	for bodyId := range seen {
 		bodies = append(bodies, bodyId)
 	}
-	sort.Slice(bodies, func(i, j int) bool { return bodies[i].index1 < bodies[j].index1 })
+	sort.Slice(bodies, func(i, j int) bool { return BodyIndex(bodies[i]) < BodyIndex(bodies[j]) })
 	return bodies
 }
 
 func conformanceSceneHash(worldId WorldId) uint64 {
-	hash := fnvOffsetBasis
+	hash := FNVOffsetBasis
 	for _, bodyId := range conformanceSceneBodies(worldId) {
 		transform := bodyId.GetTransform()
-		hash = fnvFold(hash, qBits(transform.P.X))
-		hash = fnvFold(hash, qBits(transform.P.Y))
-		hash = fnvFold(hash, qBits(transform.Q.Cos))
-		hash = fnvFold(hash, qBits(transform.Q.Sin))
+		hash = FNVFold(hash, qBits(transform.P.X))
+		hash = FNVFold(hash, qBits(transform.P.Y))
+		hash = FNVFold(hash, qBits(transform.Q.Cos))
+		hash = FNVFold(hash, qBits(transform.Q.Sin))
 	}
 	return hash
 }
@@ -802,13 +804,14 @@ func reportConformanceSceneAbs(t *testing.T, tolerance float64, gate bool, step,
 }
 
 func runConformanceSceneTrace(t *testing.T, name, path string, floatMode bool) {
-	spec, ok := conformanceSceneSpecs[name]
+	// The trace files carry a .txt suffix; a scene does not.
+	spec, ok := conformanceSpecs[strings.TrimSuffix(name, ".txt")]
 	if !ok {
 		t.Fatalf("no scene builder configured for %s", name)
 	}
 	trace := readConformanceSceneTrace(t, path)
-	if spec.steps > 0 && len(trace.steps) != spec.steps {
-		t.Fatalf("scene %s declares %d steps, want %d", name, len(trace.steps), spec.steps)
+	if spec.Steps > 0 && len(trace.steps) != spec.Steps {
+		t.Fatalf("scene %s declares %d steps, want %d", name, len(trace.steps), spec.Steps)
 	}
 	if name == "falling_hinges.txt" && len(trace.steps) > 2000 {
 		t.Fatalf("falling_hinges trace has %d steps, exceeding the 2000-step cap", len(trace.steps))
@@ -820,13 +823,13 @@ func runConformanceSceneTrace(t *testing.T, name, path string, floatMode bool) {
 		t.Fatalf("scene %s: CreateWorld returned the null id", name)
 	}
 	defer DestroyWorld(worldId)
-	stepFn := spec.build(worldId)
+	stepFn := spec.Build(worldId, conformanceSceneOptions(worldId))
 	if got := len(conformanceSceneBodies(worldId)); got != trace.bodyCount {
 		t.Errorf("scene %s initial body count = %d, want %d", name, got, trace.bodyCount)
 	}
 
 	tolerance := conformanceTolerance[name]
-	if floatMode && upstreamPairOrder {
+	if floatMode && UpstreamPairOrder() {
 		// D-013: with the pair order of the reference, float mode matches every
 		// scene bit for bit.
 		tolerance.absFloat = 0

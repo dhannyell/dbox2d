@@ -1,6 +1,6 @@
 //go:build windows
 
-package dbox2d
+package dbox2d_test
 
 // The Go monotonic clock on Windows quantises to the system tick, which
 // measured 500 microseconds here: a step of a few milliseconds reads with

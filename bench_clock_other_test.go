@@ -1,6 +1,6 @@
 //go:build !windows
 
-package dbox2d
+package dbox2d_test
 
 // Off Windows the Go monotonic clock is already the high-resolution source
 // that src/timer.c reaches for, so the harness uses it directly.

@@ -1,4 +1,4 @@
-package dbox2d
+package dbox2d_test
 
 // The scene benchmark mirrors the protocol of benchmark/main.c in the
 // reference tree, so a Go number and a C number describe the same
@@ -17,6 +17,10 @@ import (
 	"runtime/debug"
 	"sort"
 	"testing"
+
+	"github.com/dhannyell/dbox2d/internal/scenes"
+
+	. "github.com/dhannyell/dbox2d"
 )
 
 var (
@@ -156,16 +160,16 @@ func benchEnv() map[string]string {
 }
 
 func runBenchScene(t *testing.T, name string) benchSceneResult {
-	spec, ok := conformanceSceneSpecs[name+".txt"]
+	spec, ok := scenes.Specs[name]
 	if !ok {
-		t.Fatalf("scene %s is not in the conformance scene table", name)
+		t.Fatalf("scene %s is not in the benchmark scene table", name)
 	}
-	if spec.steps == 0 {
+	if spec.Steps == 0 {
 		t.Fatalf("scene %s has no fixed step count", name)
 	}
 
-	out := benchSceneResult{Name: name, Steps: spec.steps, TimedSteps: spec.steps - 1}
-	stepMin := make([]int64, spec.steps-1)
+	out := benchSceneResult{Name: name, Steps: spec.Steps, TimedSteps: spec.Steps - 1}
+	stepMin := make([]int64, spec.Steps-1)
 	for i := range stepMin {
 		stepMin[i] = 1 << 62
 	}
@@ -177,12 +181,11 @@ func runBenchScene(t *testing.T, name string) benchSceneResult {
 		if worldId.IsNull() {
 			t.Fatalf("scene %s: CreateWorld returned the null id", name)
 		}
-		w := getWorldFromId(worldId)
 		// The scene build is timed too. It is body, shape and joint
 		// creation rather than stepping, and the sample apps stall on it
 		// long before the solver has run once.
 		buildStart := benchTicks()
-		stepFn := spec.build(worldId)
+		stepFn := spec.Build(worldId, conformanceSceneOptions(worldId))
 		if buildMS := benchMilliseconds(benchTicks() - buildStart); repeat == 0 || buildMS < out.BuildMS {
 			out.BuildMS = buildMS
 		}
@@ -198,7 +201,7 @@ func runBenchScene(t *testing.T, name string) benchSceneResult {
 
 		var hookTicks int64
 		start := benchTicks()
-		for stepIndex := 1; stepIndex < spec.steps; stepIndex++ {
+		for stepIndex := 1; stepIndex < spec.Steps; stepIndex++ {
 			if stepFn != nil {
 				hookStart := benchTicks()
 				stepFn(stepIndex)
@@ -209,7 +212,7 @@ func runBenchScene(t *testing.T, name string) benchSceneResult {
 			if d := benchTicks() - stepStart; d < stepMin[stepIndex-1] {
 				stepMin[stepIndex-1] = d
 			}
-			if active := w.executor.activeWorkerCount(); active > out.ObservedWorkers {
+			if active := ActiveWorkerCount(worldId); active > out.ObservedWorkers {
 				out.ObservedWorkers = active
 			}
 		}
