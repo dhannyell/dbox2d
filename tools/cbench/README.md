@@ -8,7 +8,7 @@ The two sides are:
 
 | side | harness | build |
 | --- | --- | --- |
-| Go | `TestSceneBench` in `scenebench_test.go` | `dbox2d_simd`, `GOEXPERIMENT=simd`, Go 1.27.0 |
+| Go | `TestSceneBench` in `bench_scene_test.go` | `dbox2d_simd`, `GOEXPERIMENT=simd`, Go 1.27.0 |
 | C | `tools/cbench` | Box2D v3.1.1 with `BOX2D_AVX2=ON` |
 
 Both select the width-8 AVX2 lane path, so the comparison holds the
