@@ -272,3 +272,31 @@ func TestQParsingAndPresentation(t *testing.T) {
 		t.Errorf("presentation round trip = %v, want 0.375", got)
 	}
 }
+
+// TestUnwindAngleMatchesRemainder pins the inline cases of unwindAngle to
+// the float64 remainder they replace, across the edges and a random sweep.
+func TestUnwindAngleMatchesRemainder(t *testing.T) {
+	want := func(v float32) float32 {
+		return float32(math.Remainder(float64(v), float64(floatTau.v)))
+	}
+	edges := []float32{0, floatPi.v, -floatPi.v, floatTau.v, -floatTau.v, floatThreePi, -floatThreePi,
+		math.Nextafter32(floatPi.v, 10), math.Nextafter32(floatPi.v, 0),
+		math.Nextafter32(floatThreePi, 10), math.Nextafter32(floatThreePi, 0),
+		math.Nextafter32(-floatPi.v, -10), math.Nextafter32(-floatPi.v, 0),
+		float32(math.Inf(1)), float32(math.Inf(-1)), float32(math.NaN()), 1e6, -1e6, 1e-30}
+	for _, v := range edges {
+		got := unwindAngle(Q{v}).v
+		if math.Float32bits(got) != math.Float32bits(want(v)) && !(got != got && want(v) != want(v)) {
+			t.Errorf("unwindAngle(%v) = %v, want %v", v, got, want(v))
+		}
+	}
+	seed := uint32(12345)
+	for range 2_000_000 {
+		seed = seed*1664525 + 1013904223
+		v := (float32(seed>>8)/float32(1<<24) - 0.5) * 40
+		got := unwindAngle(Q{v}).v
+		if math.Float32bits(got) != math.Float32bits(want(v)) {
+			t.Fatalf("unwindAngle(%v) = %v, want %v", v, got, want(v))
+		}
+	}
+}

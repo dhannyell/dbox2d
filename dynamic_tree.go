@@ -1103,10 +1103,10 @@ func (tree *dynamicTree) queryStack(stack *[treeStackSize]int, aabb AABB, maskBi
 	for stackCount > 0 {
 		stackCount--
 		nodeId := stack[stackCount]
-		if nodeId == nullIndex {
-			panic("dbox2d: the tree query popped the null node")
-		}
 
+		// The reference asserts nodeId against B2_NULL_INDEX here. The
+		// slice index below panics on it anyway, so the check is not repeated
+		// in the hottest loop of the broad phase.
 		node := &nodes[nodeId]
 		result.nodeVisits += 1
 

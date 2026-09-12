@@ -36,6 +36,11 @@ var (
 	// floatTau is one full turn in radians.
 	floatTau = floatPi.Add(floatPi)
 
+	// floatThreePi bounds the inline case of unwindAngle. Three times a
+	// float32 is exact in float32 only by luck, so the product is float64
+	// and the comparison happens there.
+	floatThreePi = float32(3 * float64(floatPi.v))
+
 	// The float mode uses FLT_EPSILON as its rounding-noise threshold.
 	scalarEpsilon = QMustParse("1.1920929e-7")
 
@@ -195,7 +200,27 @@ func relativeAngle(b, a Rot) Q {
 
 // unwindAngle is b2UnwindAngle, remainderf by two pi. The remainder of two
 // float32 values is exact, so the float64 remainder rounds to it unchanged.
+//
+// math.Remainder is a software loop and the C side is one libm call, so
+// the two common cases are handled inline with the bits the remainder
+// would produce. The nearest multiple of tau is zero up to and including
+// pi, where ties round to even, so the angle returns unchanged. For an
+// angle strictly between pi and three pi the multiple is one, and the
+// difference with tau is exact by Sterbenz, because the angle lies within
+// a factor of two of tau. Everything else, including NaN, takes the slow
+// path. TestUnwindAngleMatchesRemainder pins the bits.
 func unwindAngle(a Q) Q {
+	if -floatPi.v <= a.v && a.v <= floatPi.v {
+		return a
+	}
+	if floatPi.v < a.v && a.v < floatThreePi {
+		return Q{a.v - floatTau.v}
+	}
+	if -floatThreePi < a.v && a.v < -floatPi.v {
+		// Negated so that exactly minus tau yields the negative zero of
+		// the remainder rather than the positive zero of the sum.
+		return Q{-(-a.v - floatTau.v)}
+	}
 	return Q{float32(math.Remainder(float64(a.v), float64(floatTau.v)))}
 }
 
