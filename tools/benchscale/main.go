@@ -116,7 +116,7 @@ func main() {
 	fmt.Printf("solver ms is the sum of the per-step minima; speedup is each arm against its own one-worker run\n\n")
 
 	out := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintf(out, "scene\tworkers\t%s ms\t%s ms\t%s/%s\t%s x1\t%s x1\tobserved\n",
+	_, _ = fmt.Fprintf(out, "scene\tworkers\t%s ms\t%s ms\t%s/%s\t%s x1\t%s x1\tobserved\n",
 		base, cand, cand, base, base, cand)
 
 	// logRatio accumulates the cross-language ratio per worker count so the
@@ -164,16 +164,16 @@ func main() {
 			if w != workers[0] {
 				label = ""
 			}
-			fmt.Fprintf(out, "%s\t%d\t%.1f\t%.1f\t%.2fx\t%.2fx\t%.2fx\t%d/%d\n",
+			_, _ = fmt.Fprintf(out, "%s\t%d\t%.1f\t%.1f\t%.2fx\t%.2fx\t%.2fx\t%d/%d\n",
 				label, w, b.StepSumMS, c.StepSumMS, ratio, baseSpeed, candSpeed,
 				b.ObservedWorkers, c.ObservedWorkers)
 		}
 	}
-	out.Flush()
+	_ = out.Flush()
 
 	fmt.Printf("\ngeometric mean over the scenes:\n\n")
 	sum := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintf(sum, "workers\t%s/%s\t%s x1\t%s x1\t%s efficiency\t%s efficiency\n",
+	_, _ = fmt.Fprintf(sum, "workers\t%s/%s\t%s x1\t%s x1\t%s efficiency\t%s efficiency\n",
 		cand, base, base, cand, base, cand)
 	for _, w := range workers {
 		n := float64(ratioCount[w])
@@ -182,11 +182,11 @@ func main() {
 		}
 		bs := math.Exp(logSpeedBase[w] / n)
 		cs := math.Exp(logSpeedCand[w] / n)
-		fmt.Fprintf(sum, "%d\t%.2fx\t%.2fx\t%.2fx\t%.0f%%\t%.0f%%\n",
+		_, _ = fmt.Fprintf(sum, "%d\t%.2fx\t%.2fx\t%.2fx\t%.0f%%\t%.0f%%\n",
 			w, math.Exp(logRatio[w]/n), bs, cs,
 			100*bs/float64(w), 100*cs/float64(w))
 	}
-	sum.Flush()
+	_ = sum.Flush()
 
 	if len(problems) > 0 {
 		fmt.Fprintln(os.Stderr, "\nthese runs are not comparable:")

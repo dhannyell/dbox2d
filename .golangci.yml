@@ -25,3 +25,12 @@ linters:
         - -ST1020
         - -ST1021
         - -ST1022
+
+  exclusions:
+    rules:
+      # internal/shared is shared/ of the reference, and it dot-imports the
+      # library so that each scene builder reads as its C counterpart does.
+      - path: internal/shared/
+        linters:
+          - staticcheck
+        text: ST1001

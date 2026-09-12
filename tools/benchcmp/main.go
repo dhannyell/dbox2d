@@ -91,7 +91,7 @@ func main() {
 		base.Workers, base.Clock)
 
 	out := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintf(out, "scene\tbodies\t%s ms\t%s ms\ttotal\tsolver\thook %s\thook %s\tspread\n",
+	_, _ = fmt.Fprintf(out, "scene\tbodies\t%s ms\t%s ms\ttotal\tsolver\thook %s\thook %s\tspread\n",
 		base.Arm, cand.Arm, base.Arm, cand.Arm)
 
 	// Ratios compose by multiplication, so they average geometrically. An
@@ -141,11 +141,11 @@ func main() {
 			solverRatio = c.StepSumMS / b.StepSumMS
 			logSolverSum += math.Log(solverRatio)
 		}
-		fmt.Fprintf(out, "%s\t%d\t%.1f\t%.1f\t%.2fx\t%.2fx\t%.1f\t%.1f\t%.1f%%%s\n",
+		_, _ = fmt.Fprintf(out, "%s\t%d\t%.1f\t%.1f\t%.2fx\t%.2fx\t%.1f\t%.1f\t%.1f%%%s\n",
 			b.Name, b.Bodies, b.TotalMS, c.TotalMS, ratio, solverRatio,
 			b.HookMS, c.HookMS, 100*spread, note)
 	}
-	out.Flush()
+	_ = out.Flush()
 
 	if ratioCount > 0 {
 		n := float64(ratioCount)

@@ -23,7 +23,7 @@ var (
 
 func benchQueryPerformanceFrequency() int64 {
 	var hz int64
-	benchQueryFreq.Call(uintptr(unsafe.Pointer(&hz)))
+	_, _, _ = benchQueryFreq.Call(uintptr(unsafe.Pointer(&hz)))
 	if hz == 0 {
 		return 1
 	}
@@ -33,7 +33,7 @@ func benchQueryPerformanceFrequency() int64 {
 // benchTicks reads the performance counter.
 func benchTicks() int64 {
 	var ticks int64
-	benchQueryCount.Call(uintptr(unsafe.Pointer(&ticks)))
+	_, _, _ = benchQueryCount.Call(uintptr(unsafe.Pointer(&ticks)))
 	return ticks
 }
 
