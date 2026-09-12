@@ -10,6 +10,7 @@ import (
 	"math"
 
 	"github.com/dhannyell/dbox2d"
+	"github.com/dhannyell/dbox2d/internal/shared"
 )
 
 func init() {
@@ -1858,7 +1859,7 @@ type Ragdoll struct {
 	jointHertzFloat          float64
 	jointDampingRatio        dbox2d.Q
 	jointDampingRatioFloat   float64
-	human                    human
+	human                    shared.Human
 }
 
 // NewRagdoll builds the ragdoll scene.
@@ -1891,7 +1892,7 @@ func NewRagdoll(ctx *SampleContext) Sample {
 }
 
 func (s *Ragdoll) Spawn() {
-	s.human = createHuman(
+	s.human = shared.CreateHuman(
 		s.WorldId,
 		dbox2d.Vec2{Y: dbox2d.QFromInt(25)},
 		dbox2d.QOne(),
@@ -1912,18 +1913,18 @@ func (s *Ragdoll) UpdateGui() {
 
 	if gui.SliderFloat("Friction", &s.jointFrictionTorqueFloat, 0, 1) {
 		s.jointFrictionTorque = FromFloat64(s.jointFrictionTorqueFloat)
-		s.human.setJointFrictionTorque(s.jointFrictionTorque)
+		s.human.SetJointFrictionTorque(s.jointFrictionTorque)
 	}
 	if gui.SliderFloat("Hertz", &s.jointHertzFloat, 0, 10) {
 		s.jointHertz = FromFloat64(s.jointHertzFloat)
-		s.human.setJointSpringHertz(s.jointHertz)
+		s.human.SetJointSpringHertz(s.jointHertz)
 	}
 	if gui.SliderFloat("Damping", &s.jointDampingRatioFloat, 0, 4) {
 		s.jointDampingRatio = FromFloat64(s.jointDampingRatioFloat)
-		s.human.setJointDampingRatio(s.jointDampingRatio)
+		s.human.SetJointDampingRatio(s.jointDampingRatio)
 	}
 	if gui.Button("Respawn") {
-		s.human.destroy()
+		s.human.Destroy()
 		s.Spawn()
 	}
 
@@ -1935,7 +1936,7 @@ type ScaleRagdoll struct {
 	Base
 	scale      dbox2d.Q
 	scaleFloat float64
-	human      human
+	human      shared.Human
 }
 
 // NewScaleRagdoll builds the scalable ragdoll scene.
@@ -1967,7 +1968,7 @@ func (s *ScaleRagdoll) Spawn() {
 	jointFrictionTorque := dbox2d.QMustParse("0.03")
 	jointHertz := dbox2d.QOne()
 	jointDampingRatio := dbox2d.QHalf()
-	s.human = createHuman(
+	s.human = shared.CreateHuman(
 		s.WorldId,
 		dbox2d.Vec2{Y: dbox2d.QFromInt(5)},
 		s.scale,
@@ -1978,7 +1979,7 @@ func (s *ScaleRagdoll) Spawn() {
 		nil,
 		false,
 	)
-	s.human.applyRandomAngularImpulse(dbox2d.QFromInt(10))
+	s.human.ApplyRandomAngularImpulse(dbox2d.QFromInt(10))
 }
 
 // UpdateGui exposes the ragdoll scale control.
@@ -1989,7 +1990,7 @@ func (s *ScaleRagdoll) UpdateGui() {
 
 	if gui.SliderFloat("Scale", &s.scaleFloat, 0.1, 10) {
 		s.scale = FromFloat64(s.scaleFloat)
-		s.human.setScale(s.scale)
+		s.human.SetScale(s.scale)
 	}
 
 	gui.End()
@@ -2618,9 +2619,9 @@ func NewGearLift(ctx *SampleContext) Sample {
 		for range 10 {
 			bodyDef.Position = dbox2d.Vec2{X: x, Y: y}
 			bodyId := dbox2d.CreateBody(g.WorldId, &bodyDef)
-			poly := randomPolygon(dbox2d.QMustParse("0.1"))
-			poly.Radius = randomFloatRange(dbox2d.QMustParse("0.01"), dbox2d.QMustParse("0.02"))
-			shapeDef.Material.CustomColor = colors[randomIntRange(0, 4)]
+			poly := shared.RandomPolygon(dbox2d.QMustParse("0.1"))
+			poly.Radius = shared.RandomFloatRange(dbox2d.QMustParse("0.01"), dbox2d.QMustParse("0.02"))
+			shapeDef.Material.CustomColor = colors[shared.RandomIntRange(0, 4)]
 			dbox2d.CreatePolygonShape(bodyId, &shapeDef, &poly)
 			x = x.Add(dbox2d.QMustParse("0.2"))
 		}

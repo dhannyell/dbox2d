@@ -2,7 +2,6 @@ package dbox2d
 
 import "testing"
 
-// TestBodyAccessorsRoundTrip verifies scalar, data, and boolean accessors.
 func TestBodyAccessorsRoundTrip(t *testing.T) {
 	worldId := createTestWorld(t)
 	bodyDef := DefaultBodyDef()

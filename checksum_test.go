@@ -312,6 +312,9 @@ func TestStepIsWorkerCountIndependent(t *testing.T) {
 // the pyramid whose trees grew by insertion, because the pair order does
 // not depend on the tree.
 func TestChecksumIgnoresTheTreeTopology(t *testing.T) {
+	if upstreamPairOrder {
+		t.Skip("D-013: the dbox2d_upstream_pairs build keeps the pair order of the reference")
+	}
 	run := func(rebuild bool) uint64 {
 		worldId := createTestWorld(t)
 		w := getWorldFromId(worldId)

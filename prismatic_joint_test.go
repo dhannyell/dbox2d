@@ -46,7 +46,7 @@ func TestPrismaticBlockHoldsTheLine(t *testing.T) {
 	box, j := slidingBox(t, worldId, v2(0, 0), &def)
 	state := getBodyState(w, box)
 	state.linearVelocity = Vec2{Y: QOne()}
-	state.angularVelocity = QOne().Div(tau)
+	state.angularVelocity = QOne()
 
 	context := jointContext(w)
 	prepareJointsTask(0, len(context.joints), context)
@@ -338,7 +338,7 @@ func TestSolvePrismaticJointTracksTheFloat64Mirror(t *testing.T) {
 		anchorB:            vecToF64(p.anchorB),
 		axisA:              vecToF64(p.axisA),
 		deltaCenter:        vecToF64(p.deltaCenter),
-		deltaAngle:         qToF64(p.deltaAngle) * 2 * math.Pi,
+		deltaAngle:         radiansF64(p.deltaAngle),
 		axialMass:          qToF64(p.axialMass),
 		enableSpring:       true,
 		enableLimit:        true,
@@ -354,10 +354,10 @@ func TestSolvePrismaticJointTracksTheFloat64Mirror(t *testing.T) {
 	const limit = 1e-5
 	checkMirror(t, "vA.x", stateA.linearVelocity.X, fA.v.x, limit)
 	checkMirror(t, "vA.y", stateA.linearVelocity.Y, fA.v.y, limit)
-	checkMirror(t, "wA", stateA.angularVelocity.Mul(tau), fA.w, limit)
+	checkMirror(t, "wA", stateA.angularVelocity, fA.w, limit)
 	checkMirror(t, "vB.x", stateB.linearVelocity.X, fB.v.x, limit)
 	checkMirror(t, "vB.y", stateB.linearVelocity.Y, fB.v.y, limit)
-	checkMirror(t, "wB", stateB.angularVelocity.Mul(tau), fB.w, limit)
+	checkMirror(t, "wB", stateB.angularVelocity, fB.w, limit)
 	checkMirror(t, "springImpulse", p.springImpulse, mirror.springImpulse, limit)
 	checkMirror(t, "motorImpulse", p.motorImpulse, mirror.motorImpulse, limit)
 	checkMirror(t, "lowerImpulse", p.lowerImpulse, mirror.lowerImpulse, limit)

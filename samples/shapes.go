@@ -9,6 +9,7 @@ import (
 	"math"
 
 	"github.com/dhannyell/dbox2d"
+	"github.com/dhannyell/dbox2d/internal/shared"
 )
 
 func init() {
@@ -1223,8 +1224,8 @@ func NewRoundedShapes(ctx *SampleContext) Sample {
 			bodyDef.Position = dbox2d.Vec2{X: x, Y: y}
 			bodyId := dbox2d.CreateBody(s.WorldId, &bodyDef)
 
-			poly := randomPolygon(dbox2d.QHalf())
-			poly.Radius = randomFloatRange(qs("0.05"), qs("0.25"))
+			poly := shared.RandomPolygon(dbox2d.QHalf())
+			poly.Radius = shared.RandomFloatRange(qs("0.05"), qs("0.25"))
 			dbox2d.CreatePolygonShape(bodyId, &shapeDef, &poly)
 
 			x = x.Add(dbox2d.QOne())

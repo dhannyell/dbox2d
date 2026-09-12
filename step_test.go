@@ -78,9 +78,9 @@ func TestStepAppliesGravityExactly(t *testing.T) {
 	}
 }
 
-// TestStepAppliesDampingByDivision covers the fixed-point form of the Pade
-// damping factor. Multiplying by a rounded reciprocal would lose more bits.
-func TestStepAppliesDampingByDivision(t *testing.T) {
+// TestStepAppliesDampingByTheReciprocal covers the Pade damping factor: fixed
+// mode divides by the denominator and float mode multiplies by its reciprocal.
+func TestStepAppliesDampingByTheReciprocal(t *testing.T) {
 	def := DefaultWorldDef()
 	def.Gravity = Vec2Zero()
 	worldId := CreateWorld(&def)
@@ -104,13 +104,13 @@ func TestStepAppliesDampingByDivision(t *testing.T) {
 	worldId.Step(dt, 1)
 
 	state := getBodyState(w, b)
-	linearDenominator := QOne().Add(dt.Mul(bodyDef.LinearDamping))
-	angularDenominator := QOne().Add(dt.Mul(bodyDef.AngularDamping))
+	linearDamping := makeRecip(QOne().Add(dt.Mul(bodyDef.LinearDamping)))
+	angularDamping := makeRecip(QOne().Add(dt.Mul(bodyDef.AngularDamping)))
 	wantLinear := Vec2{
-		X: initialState.linearVelocity.X.Div(linearDenominator),
-		Y: initialState.linearVelocity.Y.Div(linearDenominator),
+		X: linearDamping.scale(initialState.linearVelocity.X),
+		Y: linearDamping.scale(initialState.linearVelocity.Y),
 	}
-	wantAngular := initialState.angularVelocity.Div(angularDenominator)
+	wantAngular := angularDamping.scale(initialState.angularVelocity)
 	if state.linearVelocity != wantLinear {
 		t.Errorf("linear velocity = %v, want %v", state.linearVelocity, wantLinear)
 	}
@@ -119,9 +119,9 @@ func TestStepAppliesDampingByDivision(t *testing.T) {
 	}
 }
 
-// TestStepConvertsTorqueAndArcSpeedToTurns covers both solver sites where an
-// angular velocity changes units between radians and turns.
-func TestStepConvertsTorqueAndArcSpeedToTurns(t *testing.T) {
+// TestStepAppliesTorqueAndArcSpeedInRadians pins the unit of the state: the
+// torque delta and the arc speed of the sleep test use radians per second.
+func TestStepAppliesTorqueAndArcSpeedInRadians(t *testing.T) {
 	def := DefaultWorldDef()
 	def.Gravity = Vec2Zero()
 	worldId := CreateWorld(&def)
@@ -143,7 +143,7 @@ func TestStepConvertsTorqueAndArcSpeedToTurns(t *testing.T) {
 	b.sleepTime = QOne()
 
 	dt := stepDt()
-	wantAngular := bodyDef.AngularVelocity.Add(dt.Mul(sim.invInertia).Mul(sim.torque).Div(tau))
+	wantAngular := bodyDef.AngularVelocity.Mul(tau).Add(dt.Mul(sim.invInertia).Mul(sim.torque))
 	worldId.Step(dt, 1)
 
 	state := getBodyState(w, b)

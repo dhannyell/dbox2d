@@ -28,3 +28,12 @@ func runGraphContactFamilyBlock(stage *solverStage, context *stepContext, startI
 func (*wideScratch) allocateContactConstraints(w *world, context *stepContext, colors *[graphColorCount]graphColor, overflowIndex, activeContactCount int) {
 	allocateContactConstraintsScalar(w, context, colors, overflowIndex, activeContactCount)
 }
+
+// LanePath reports the contact-solver lane path of this build. It is
+// "scalar" whenever the wide family is absent, so a caller can record the
+// path it actually got rather than the path its build tags asked for.
+func LanePath() string { return "scalar" }
+
+// LaneWidth reports the number of contacts one solver unit carries. The
+// scalar family carries one.
+func LaneWidth() int { return 1 }

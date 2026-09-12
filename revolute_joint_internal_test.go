@@ -189,7 +189,7 @@ func vecToF64(v Vec2) f64Vec { return f64Vec{qToF64(v.X), qToF64(v.Y)} }
 func stateToF64(s *bodyState) f64State {
 	return f64State{
 		v:   vecToF64(s.linearVelocity),
-		w:   qToF64(s.angularVelocity) * 2 * math.Pi,
+		w:   qToF64(s.angularVelocity),
 		dp:  vecToF64(s.deltaPosition),
 		dqc: qToF64(s.deltaRotation.Cos),
 		dqs: qToF64(s.deltaRotation.Sin),
@@ -268,16 +268,16 @@ func makeRevoluteMirrorCase(tb testing.TB) revoluteMirrorCase {
 		constraintSoftness: makeSoftF64(math.Min(qToF64(js.constraintHertz), 0.25*invH), qToF64(js.constraintDampingRatio), h),
 		hertz:              qToF64(r.hertz),
 		dampingRatio:       qToF64(r.dampingRatio),
-		targetAngle:        qToF64(r.targetAngle) * 2 * math.Pi,
+		targetAngle:        radiansF64(r.targetAngle),
 		maxMotorTorque:     qToF64(r.maxMotorTorque),
-		motorSpeed:         qToF64(r.motorSpeed) * 2 * math.Pi,
-		referenceAngle:     qToF64(r.referenceAngle) * 2 * math.Pi,
-		lowerAngle:         qToF64(r.lowerAngle) * 2 * math.Pi,
-		upperAngle:         qToF64(r.upperAngle) * 2 * math.Pi,
+		motorSpeed:         radiansF64(r.motorSpeed),
+		referenceAngle:     radiansF64(r.referenceAngle),
+		lowerAngle:         radiansF64(r.lowerAngle),
+		upperAngle:         radiansF64(r.upperAngle),
 		anchorA:            vecToF64(r.anchorA),
 		anchorB:            vecToF64(r.anchorB),
 		deltaCenter:        vecToF64(r.deltaCenter),
-		deltaAngle:         qToF64(r.deltaAngle) * 2 * math.Pi,
+		deltaAngle:         radiansF64(r.deltaAngle),
 		enableSpring:       true,
 		enableMotor:        true,
 		enableLimit:        true,
@@ -310,10 +310,10 @@ func TestSolveRevoluteJointTracksTheFloat64Mirror(t *testing.T) {
 	}
 	check("vA.x", stateA.linearVelocity.X, fA.v.x)
 	check("vA.y", stateA.linearVelocity.Y, fA.v.y)
-	check("wA", stateA.angularVelocity.Mul(tau), fA.w)
+	check("wA", stateA.angularVelocity, fA.w)
 	check("vB.x", stateB.linearVelocity.X, fB.v.x)
 	check("vB.y", stateB.linearVelocity.Y, fB.v.y)
-	check("wB", stateB.angularVelocity.Mul(tau), fB.w)
+	check("wB", stateB.angularVelocity, fB.w)
 	check("springImpulse", r.springImpulse, mirror.springImpulse)
 	check("motorImpulse", r.motorImpulse, mirror.motorImpulse)
 	check("lowerImpulse", r.lowerImpulse, mirror.lowerImpulse)

@@ -13,6 +13,26 @@ jobs:
       matrix:
         goarch: [amd64, arm64, "386", wasm]
         tags: ["", "dbox2d_fixed,fixed_satcounter", dbox2d_simd, "dbox2d_simd,dbox2d_fixed,fixed_satcounter"]
+        # This job pins no toolchain and sets no GOEXPERIMENT, so dbox2d_simd
+        # here selects the wide solver over the generic lanes, never the real
+        # ones: those need goexperiment.simd and Go 1.27, which the wide job
+        # supplies. Generic lanes are plain Go and identical on every target,
+        # so one architecture covers the wide solver and the rest is runner
+        # time. The scalar paths of arm64, 386 and wasm stay fully covered by
+        # their two remaining tag sets.
+        exclude:
+          - goarch: arm64
+            tags: dbox2d_simd
+          - goarch: arm64
+            tags: "dbox2d_simd,dbox2d_fixed,fixed_satcounter"
+          - goarch: "386"
+            tags: dbox2d_simd
+          - goarch: "386"
+            tags: "dbox2d_simd,dbox2d_fixed,fixed_satcounter"
+          - goarch: wasm
+            tags: dbox2d_simd
+          - goarch: wasm
+            tags: "dbox2d_simd,dbox2d_fixed,fixed_satcounter"
         include:
           - goarch: amd64
             goos: linux
@@ -75,6 +95,12 @@ jobs:
             echo "expected no fused multiply-add instructions, got $count"
             exit 1
           fi
+          # amd64 fuses as well from GOAMD64=v3 up, which is the setting the SIMD builds use.
+          count="$(GOAMD64=v3 go build -gcflags=-S . 2>&1 | grep -cE '\bVFN?M(ADD|SUB)[0-9]*(SS|SD|PS|PD)\b' || true)"
+          if [ "$count" != "0" ]; then
+            echo "expected no fused multiply-add instructions at GOAMD64=v3, got $count"
+            exit 1
+          fi
           inlined="$(go build -gcflags=-m=1 . 2>&1 | grep -cE 'can inline (QZero|QOne|QHalf|QFromInt|QFromRatio|QMustParse|QMaxValue|QMinValue|RotIdentity|atan2Turns)$' || true)"
           if [ "$inlined" != "10" ]; then
             echo "expected 10 inlinable float constructors, got $inlined"
@@ -95,7 +121,7 @@ jobs:
             echo "float64 conversion helpers leaked into production code"
             exit 1
           fi
-          if grep -rl 'go:build' --include=*.go . | grep -v '_test.go\|scalar_fixed.go\|scalar_float.go\|executor.go\|executor_wasm.go\|samples/\|simd_lane_\|simd_off.go\|contact_solver_simd.go\|contact_solver_q32.go\|internal/q32gen/\|spin_asm.go\|spin_stub.go\|validate_debug.go\|validate_release.go'; then
+          if grep -rl 'go:build' --include=*.go . | grep -v '_test.go\|scalar_fixed.go\|scalar_float.go\|executor.go\|executor_wasm.go\|samples/\|simd_lane_\|simd_off.go\|contact_solver_simd.go\|contact_solver_q32.go\|internal/q32gen/\|spin_asm.go\|spin_stub.go\|validate_debug.go\|validate_release.go\|pair_order_sorted.go\|pair_order_upstream.go'; then
             echo "unexpected build tags found"
             exit 1
           fi
@@ -121,16 +147,24 @@ jobs:
       - name: Configure Wasm runner
         if: matrix.goarch == 'wasm'
         run: echo "$(go env GOROOT)/lib/wasm" >> "$GITHUB_PATH"
-      # The generic wide paths run the conformance traces past the timeout:
-      # fixed on every target, float on wasm. The wide job runs them natively.
-      # The no-saturation checks read the fixed counter, which is off by default.
+      # Fixed mode runs the scene traces past the timeout where the target is
+      # slow: 386, wasm, and the generic wide lanes. -short drops the scene
+      # traces only, so the function traces still run, and fixed mode is
+      # bit-identical across these targets anyway. Float stays whole
+      # everywhere, wasm included; its scene traces fit and it is the job that
+      # sees the wasm heap bug.
       - name: Test
-        run: go test -timeout 600s -tags "${{ matrix.tags }}" -skip "${{ (matrix.tags == 'dbox2d_simd,dbox2d_fixed,fixed_satcounter' || (matrix.goarch == 'wasm' && contains(matrix.tags, 'dbox2d_simd'))) && 'TestConformance' || '^$' }}" ./...
+        run: go test -timeout 600s ${{ (contains(matrix.tags, 'dbox2d_fixed') && (matrix.goarch == '386' || matrix.goarch == 'wasm' || contains(matrix.tags, 'dbox2d_simd'))) && '-short' || '' }} -tags "${{ matrix.tags }}" ./...
       # The gated validation is off in every other job, so it needs one job
       # that actually runs it.
       - name: Test with the solver-set validation on
         if: matrix.goarch == 'amd64' && matrix.tags == ''
         run: go test -timeout 600s -tags dbox2d_validate ./...
+      # With the pair order of the reference (D-013), float mode must match
+      # every conformance scene bit for bit.
+      - name: Test with the upstream pair order
+        if: (matrix.goarch == 'amd64' || matrix.goarch == 'arm64') && (matrix.tags == '' || matrix.tags == 'dbox2d_simd')
+        run: go test -timeout 600s -tags "${{ matrix.tags }},dbox2d_upstream_pairs" ./...
 
   wide:
     name: wide (${{ matrix.path }}, ${{ matrix.mode }})
@@ -231,11 +265,20 @@ jobs:
         with:
           go-version: ${{ matrix.go }}
           go-version-file: ${{ !matrix.go && 'samples/go.mod' || '' }}
+      # The native host needs cgo and the GLFW system libraries, which this
+      # runner does not carry, so the portable packages are named one by one.
       - name: Vet
         run: go vet -tags "${{ matrix.tags }}" . ./internal/app ./internal/draw
-      # The app and the draw layer need no GPU host.
+      # cmd/web is the target pages.yml deploys, and it builds only on js/wasm.
+      - name: Vet the web build
+        run: go vet -tags "${{ matrix.tags }}" ./cmd/web
+        env:
+          GOOS: js
+          GOARCH: wasm
+          CGO_ENABLED: "0"
+      # The module carries no tests of its own yet; this runs them once it does.
       - name: Test
-        run: go test -timeout 600s -tags "${{ matrix.tags }}" ./internal/app ./internal/draw
+        run: go test -timeout 600s -tags "${{ matrix.tags }}" . ./internal/app ./internal/draw
 
   race:
     name: race (amd64)

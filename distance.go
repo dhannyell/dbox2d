@@ -248,8 +248,8 @@ func computeSimplexWitnessPoints(s *Simplex) (a, b Vec2) {
 // a2 = d12_2 / d12
 //
 // It returns a vector that points towards the origin. It corresponds to
-// b2SolveSimplex2 in src/distance.c; the reciprocal of d12 becomes two
-// divisions (D-006).
+// b2SolveSimplex2 in src/distance.c; the reciprocal of d12 is a division in
+// fixed mode (D-006).
 func solveSimplex2(s *Simplex) Vec2 {
 	zero := QZero()
 	one := QOne()
@@ -279,15 +279,16 @@ func solveSimplex2(s *Simplex) Vec2 {
 
 	// Must be in e12 region.
 	d12 := d12_1.Add(d12_2)
-	s.V1.A = d12_1.Div(d12)
-	s.V2.A = d12_2.Div(d12)
+	invD12 := makeRecip(d12)
+	s.V1.A = invD12.scale(d12_1)
+	s.V2.A = invD12.scale(d12_2)
 	s.Count = 2
 	return CrossSV(Cross(w1.Add(w2), e12), e12)
 }
 
 // solveSimplex3 solves a triangle with barycentric coordinates. It
-// corresponds to b2SolveSimplex3 in src/distance.c; each reciprocal
-// becomes divisions (D-006).
+// corresponds to b2SolveSimplex3 in src/distance.c; each reciprocal is a
+// division in fixed mode (D-006).
 func solveSimplex3(s *Simplex) Vec2 {
 	zero := QZero()
 	one := QOne()
@@ -343,8 +344,9 @@ func solveSimplex3(s *Simplex) Vec2 {
 	// e12
 	if zero.Less(d12_1) && zero.Less(d12_2) && !zero.Less(d123_3) {
 		d12 := d12_1.Add(d12_2)
-		s.V1.A = d12_1.Div(d12)
-		s.V2.A = d12_2.Div(d12)
+		invD12 := makeRecip(d12)
+		s.V1.A = invD12.scale(d12_1)
+		s.V2.A = invD12.scale(d12_2)
 		s.Count = 2
 		return CrossSV(Cross(w1.Add(w2), e12), e12)
 	}
@@ -352,8 +354,9 @@ func solveSimplex3(s *Simplex) Vec2 {
 	// e13
 	if zero.Less(d13_1) && zero.Less(d13_2) && !zero.Less(d123_2) {
 		d13 := d13_1.Add(d13_2)
-		s.V1.A = d13_1.Div(d13)
-		s.V3.A = d13_2.Div(d13)
+		invD13 := makeRecip(d13)
+		s.V1.A = invD13.scale(d13_1)
+		s.V3.A = invD13.scale(d13_2)
 		s.Count = 2
 		s.V2 = s.V3
 		return CrossSV(Cross(w1.Add(w3), e13), e13)
@@ -378,8 +381,9 @@ func solveSimplex3(s *Simplex) Vec2 {
 	// e23
 	if zero.Less(d23_1) && zero.Less(d23_2) && !zero.Less(d123_1) {
 		d23 := d23_1.Add(d23_2)
-		s.V2.A = d23_1.Div(d23)
-		s.V3.A = d23_2.Div(d23)
+		invD23 := makeRecip(d23)
+		s.V2.A = invD23.scale(d23_1)
+		s.V3.A = invD23.scale(d23_2)
 		s.Count = 2
 		s.V1 = s.V3
 		return CrossSV(Cross(w2.Add(w3), e23), e23)
@@ -387,9 +391,10 @@ func solveSimplex3(s *Simplex) Vec2 {
 
 	// Must be in triangle123
 	d123 := d123_1.Add(d123_2).Add(d123_3)
-	s.V1.A = d123_1.Div(d123)
-	s.V2.A = d123_2.Div(d123)
-	s.V3.A = d123_3.Div(d123)
+	invD123 := makeRecip(d123)
+	s.V1.A = invD123.scale(d123_1)
+	s.V2.A = invD123.scale(d123_2)
+	s.V3.A = invD123.scale(d123_3)
 	s.Count = 3
 
 	// No search direction
@@ -559,7 +564,7 @@ func ShapeDistance(input *DistanceInput, cache *SimplexCache, simplexes []Simple
 	makeSimplexCache(cache, &simplex)
 
 	// Apply radii if requested
-	if input.UseRadii && linearSlop.Div(QFromInt(10)).Less(output.Distance) {
+	if input.UseRadii && linearSlopTenth.Less(output.Distance) {
 		radiusA := input.ProxyA.Radius
 		radiusB := input.ProxyB.Radius
 		output.Distance = zero.Max(output.Distance.Sub(radiusA).Sub(radiusB))

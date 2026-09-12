@@ -456,7 +456,7 @@ func (jointId JointId) SetReferenceAngle(angle Q) {
 	j := getJointFullId(w, jointId)
 	js := getJointSim(w, j)
 	halfTurn := QHalf()
-	angle = angle.Clamp(halfTurn.Neg(), halfTurn)
+	angle = angleFromTurns(angle.Clamp(halfTurn.Neg(), halfTurn))
 
 	switch j.jointType {
 	case PrismaticJoint:
@@ -476,11 +476,11 @@ func (jointId JointId) GetReferenceAngle() Q {
 
 	switch j.jointType {
 	case PrismaticJoint:
-		return js.prismaticJoint.referenceAngle
+		return angleToTurns(js.prismaticJoint.referenceAngle)
 	case RevoluteJoint:
-		return js.revoluteJoint.referenceAngle
+		return angleToTurns(js.revoluteJoint.referenceAngle)
 	case WeldJoint:
-		return js.weldJoint.referenceAngle
+		return angleToTurns(js.weldJoint.referenceAngle)
 	default:
 		return QZero()
 	}
@@ -706,37 +706,37 @@ func (jointId JointId) GetLinearSeparation() Q {
 
 // GetAngularSeparation reports angular separation in turns (b2Joint_GetAngularSeparation).
 func (jointId JointId) GetAngularSeparation() Q {
-	// D-004: angles are turns here, not radians.
+	// D-004: the joint computes in its angle unit and reports turns.
 	w := getWorld(jointId.world0)
 	j := getJointFullId(w, jointId)
 	base := getJointSim(w, j)
 
 	xfA := getBodyTransform(w, j.edges[0].bodyId)
 	xfB := getBodyTransform(w, j.edges[1].bodyId)
-	relativeAngle := RelativeAngle(xfB.Q, xfA.Q)
+	relative := relativeAngle(xfB.Q, xfA.Q)
 	zero := QZero()
 
 	switch j.jointType {
 	case DistanceJoint, MotorJoint, MouseJoint, FilterJoint, WheelJoint:
 		return zero
 	case PrismaticJoint:
-		return UnwindAngle(relativeAngle.Sub(base.prismaticJoint.referenceAngle))
+		return angleToTurns(unwindAngle(relative.Sub(base.prismaticJoint.referenceAngle)))
 	case RevoluteJoint:
 		revolute := &base.revoluteJoint
 		if revolute.enableLimit {
-			angle := UnwindAngle(relativeAngle.Sub(revolute.referenceAngle))
+			angle := unwindAngle(relative.Sub(revolute.referenceAngle))
 			if angle.Less(revolute.lowerAngle) {
-				return revolute.lowerAngle.Sub(angle)
+				return angleToTurns(revolute.lowerAngle.Sub(angle))
 			}
 			if revolute.upperAngle.Less(angle) {
-				return angle.Sub(revolute.upperAngle)
+				return angleToTurns(angle.Sub(revolute.upperAngle))
 			}
 		}
 		return zero
 	case WeldJoint:
 		weld := &base.weldJoint
 		if weld.angularHertz.Eq(zero) {
-			return UnwindAngle(relativeAngle.Sub(weld.referenceAngle))
+			return angleToTurns(unwindAngle(relative.Sub(weld.referenceAngle)))
 		}
 		return zero
 	default:
@@ -1068,7 +1068,7 @@ func CreateMotorJoint(worldId WorldId, def *MotorJointDef) JointId {
 	js.localOriginAnchorB = Vec2Zero()
 	js.motorJoint = motorJoint{}
 	js.motorJoint.linearOffset = def.LinearOffset
-	js.motorJoint.angularOffset = def.AngularOffset
+	js.motorJoint.angularOffset = angleFromTurns(def.AngularOffset)
 	js.motorJoint.maxForce = def.MaxForce
 	js.motorJoint.maxTorque = def.MaxTorque
 	js.motorJoint.correctionFactor = def.CorrectionFactor.Clamp(QZero(), QOne())
@@ -1125,7 +1125,7 @@ func CreatePrismaticJoint(worldId WorldId, def *PrismaticJointDef) JointId {
 	js.prismaticJoint = prismaticJoint{}
 
 	js.prismaticJoint.localAxisA = def.LocalAxisA.Normalize()
-	js.prismaticJoint.referenceAngle = def.ReferenceAngle
+	js.prismaticJoint.referenceAngle = angleFromTurns(def.ReferenceAngle)
 	js.prismaticJoint.targetTranslation = def.TargetTranslation
 	js.prismaticJoint.hertz = def.Hertz
 	js.prismaticJoint.dampingRatio = def.DampingRatio
@@ -1173,14 +1173,14 @@ func CreateRevoluteJoint(worldId WorldId, def *RevoluteJointDef) JointId {
 	js.revoluteJoint = revoluteJoint{}
 
 	halfTurn := QHalf()
-	js.revoluteJoint.referenceAngle = def.ReferenceAngle.Clamp(halfTurn.Neg(), halfTurn)
-	js.revoluteJoint.targetAngle = def.TargetAngle.Clamp(halfTurn.Neg(), halfTurn)
+	js.revoluteJoint.referenceAngle = angleFromTurns(def.ReferenceAngle.Clamp(halfTurn.Neg(), halfTurn))
+	js.revoluteJoint.targetAngle = angleFromTurns(def.TargetAngle.Clamp(halfTurn.Neg(), halfTurn))
 	js.revoluteJoint.hertz = def.Hertz
 	js.revoluteJoint.dampingRatio = def.DampingRatio
-	js.revoluteJoint.lowerAngle = def.LowerAngle
-	js.revoluteJoint.upperAngle = def.UpperAngle
+	js.revoluteJoint.lowerAngle = angleFromTurns(def.LowerAngle)
+	js.revoluteJoint.upperAngle = angleFromTurns(def.UpperAngle)
 	js.revoluteJoint.maxMotorTorque = def.MaxMotorTorque
-	js.revoluteJoint.motorSpeed = def.MotorSpeed
+	js.revoluteJoint.motorSpeed = angleFromTurns(def.MotorSpeed)
 	js.revoluteJoint.enableSpring = def.EnableSpring
 	js.revoluteJoint.enableLimit = def.EnableLimit
 	js.revoluteJoint.enableMotor = def.EnableMotor
@@ -1207,7 +1207,7 @@ func CreateWeldJoint(worldId WorldId, def *WeldJointDef) JointId {
 	js.localOriginAnchorB = def.LocalAnchorB
 
 	js.weldJoint = weldJoint{}
-	js.weldJoint.referenceAngle = def.ReferenceAngle
+	js.weldJoint.referenceAngle = angleFromTurns(def.ReferenceAngle)
 	js.weldJoint.linearHertz = def.LinearHertz
 	js.weldJoint.linearDampingRatio = def.LinearDampingRatio
 	js.weldJoint.angularHertz = def.AngularHertz
@@ -1250,7 +1250,7 @@ func CreateWheelJoint(worldId WorldId, def *WheelJointDef) JointId {
 	js.wheelJoint.lowerTranslation = def.LowerTranslation
 	js.wheelJoint.upperTranslation = def.UpperTranslation
 	js.wheelJoint.maxMotorTorque = def.MaxMotorTorque
-	js.wheelJoint.motorSpeed = def.MotorSpeed
+	js.wheelJoint.motorSpeed = angleFromTurns(def.MotorSpeed)
 	js.wheelJoint.hertz = def.Hertz
 	js.wheelJoint.dampingRatio = def.DampingRatio
 	js.wheelJoint.enableSpring = def.EnableSpring

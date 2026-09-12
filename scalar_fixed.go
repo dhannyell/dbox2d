@@ -2,7 +2,11 @@
 
 package dbox2d
 
-import "github.com/dhannyell/fixed"
+import (
+	"math"
+
+	"github.com/dhannyell/fixed"
+)
 
 // The library has one scalar per build mode. This file is the fixed-point
 // mode: Q32.32 from github.com/dhannyell/fixed. Apart from the fixed SIMD
@@ -58,6 +62,22 @@ func MakeRot(t Q) Rot { return fixed.RotFromTurns(t) }
 // atan2Turns returns the angle of (x, y), in turns.
 func atan2Turns(y, x Q) Q { return fixed.Atan2Turns(y, x) }
 
+// A joint keeps its angles, its limits, its angular offset and its angular
+// motor speed in the angle unit of the mode (D-004). Fixed mode keeps turns:
+// one turn is one unit, so the unwind is exact, and angleRadians converts an
+// angle where it enters an error.
+func angleFromTurns(t Q) Q { return t }
+
+func angleToTurns(a Q) Q { return a }
+
+func angleRadians(a Q) Q { return a.Mul(tau) }
+
+// relativeAngle returns the angle of b relative to a, in the angle unit.
+func relativeAngle(b, a Rot) Q { return RelativeAngle(b, a) }
+
+// unwindAngle reduces an angle in the angle unit to half a turn.
+func unwindAngle(a Q) Q { return UnwindAngle(a) }
+
 var (
 	// The fixed mode uses zero as its rounding-noise threshold.
 	scalarEpsilon = QZero()
@@ -68,6 +88,17 @@ var (
 	// upstream 100.0f * FLT_EPSILON, about 1.2e-5. One raw unit is 2^-32.
 	normalizedTolerance = QFromRatio(1, 1<<16)
 )
+
+// recip scales by the reciprocal of a denominator. Fixed mode keeps the
+// denominator and divides at each use, because a Q32.32 reciprocal keeps
+// only the leading bits of a large value (D-006).
+type recip struct{ d Q }
+
+func makeRecip(d Q) recip { return recip{d: d} }
+
+func (r recip) scale(x Q) Q { return x.Div(r.d) }
+
+func (r recip) scaleVec(v Vec2) Vec2 { return v.Div(r.d) }
 
 // belowEpsilon reports whether a non-negative x is below the rounding noise
 // of the fixed-point format.
@@ -91,14 +122,29 @@ func IsValidQ(a Q) bool {
 // qBits returns the bits the checksum folds.
 func qBits(q Q) uint64 { return uint64(q.Raw()) }
 
-// QFromFloat64 converts a presentation value, such as a camera value, to a
-// scalar. It must never be used by simulation code.
+// QFromFloat64 returns f rounded to the nearest Q32.32 value, with exact
+// halves away from zero as QMustParse rounds them. It saturates outside the
+// Q32.32 range and panics on NaN. The scaling and the rounding are exact, so
+// a constant converts to the same scalar on every architecture. A float64
+// computed at run time is only as portable as its computation: Go fuses a
+// multiply and an add into one rounding on arm64, and on amd64 with
+// GOAMD64=v3.
 func QFromFloat64(f float64) Q {
-	return fixed.Q32FromRaw(int64(f * (1 << 32)))
+	if f != f {
+		panic("dbox2d: QFromFloat64 of NaN")
+	}
+	raw := math.Round(f * (1 << 32))
+	if raw >= 1<<63 {
+		return QMaxValue()
+	}
+	if raw < -(1 << 63) {
+		return QMinValue()
+	}
+	return fixed.Q32FromRaw(int64(raw))
 }
 
-// QToFloat64 converts a scalar to a presentation value, such as a camera
-// value. It must never be used by simulation code.
+// QToFloat64 returns q as a float64, rounded to nearest where q has more
+// than 53 significant bits.
 func QToFloat64(q Q) float64 { return float64(q.Raw()) / (1 << 32) }
 
 // The contact stages solve on a narrower grid than the rest of the solver:
@@ -270,13 +316,14 @@ func warmStartContacts32(startIndex, endIndex int, context *stepContext, colorIn
 }
 
 // solveContacts32 solves a range of the Q32 contacts of one color, with the
-// push-out speed of its family.
+// push-out speed and the normal impulse of its family.
 func solveContacts32(startIndex, endIndex int, context *stepContext, colorIndex int, useBias bool) {
 	pushout := context.world.contactSpeed
-	if colorIndex == overflowIndex {
+	colored := colorIndex != overflowIndex
+	if !colored {
 		pushout = context.world.maxContactPushSpeed
 	}
-	solveContactRange32(startIndex, endIndex, context, context.graph.colors[colorIndex].contactConstraints32, useBias, qcwFrom(pushout))
+	solveContactRange32(startIndex, endIndex, context, context.graph.colors[colorIndex].contactConstraints32, useBias, qcwFrom(pushout), colored)
 }
 
 // applyRestitution32 applies restitution to a range of the Q32 contacts of

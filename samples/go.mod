@@ -1,6 +1,6 @@
 module github.com/dhannyell/dbox2d/samples
 
-go 1.26.4
+go 1.26.8
 
 require github.com/dhannyell/dbox2d v0.4.0
 

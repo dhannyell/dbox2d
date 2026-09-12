@@ -111,6 +111,7 @@ const panStep = 0.5
 // variant is a no-op here as in the reference note).
 func (a *App) KeyDown(key samples.Key, mod samples.Modifier) {
 	a.held[key] = true
+	a.telemetry.key(key)
 	s := &a.ctx.Settings
 	entries := samples.Entries()
 

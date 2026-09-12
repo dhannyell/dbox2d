@@ -28,14 +28,14 @@ jobs:
           CGO_ENABLED: "0"
           GOOS: js
           GOARCH: wasm
-        run: go build -o web/app.wasm ./cmd/web
+        run: go build -pgo=cmd/web/default.pgo -o web/app.wasm ./cmd/web
       - name: Build the browser host, fixed mode
         working-directory: samples
         env:
           CGO_ENABLED: "0"
           GOOS: js
           GOARCH: wasm
-        run: go build -tags dbox2d_fixed -o web/app-fixed.wasm ./cmd/web
+        run: go build -pgo=cmd/web/default.pgo -tags dbox2d_fixed -o web/app-fixed.wasm ./cmd/web
       - name: Copy wasm_exec.js from the toolchain
         run: cp "$(go env GOROOT)/lib/wasm/wasm_exec.js" samples/web/wasm_exec.js
       - uses: actions/configure-pages@v5

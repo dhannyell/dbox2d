@@ -97,8 +97,12 @@ func RotIdentity() Rot { return Rot{Sin: QZero(), Cos: QOne()} }
 // MakeRot returns the rotation by the angle t, in turns.
 func MakeRot(t Q) Rot {
 	x := t.Sub(t.Round())
-	radians := x.Mul(floatTau)
+	return makeRotRadians(x.Mul(floatTau))
+}
 
+// makeRotRadians is b2ComputeCosSin after its unwind: the rotation by the
+// angle radians, in [-pi, pi].
+func makeRotRadians(radians Q) Rot {
 	pi2 := floatPi.Mul(floatPi)
 	var c Q
 	if radians.Less(QHalf().Neg().Mul(floatPi)) {
@@ -137,9 +141,10 @@ func MakeRot(t Q) Rot {
 }
 
 // atan2Turns returns the angle of (x, y), in turns.
-func atan2Turns(y, x Q) Q { return atan2TurnsBody(y, x).Div(floatTau) }
+func atan2Turns(y, x Q) Q { return atan2Radians(y, x).Div(floatTau) }
 
-func atan2TurnsBody(y, x Q) Q {
+// atan2Radians is b2Atan2: the angle of (x, y), in radians.
+func atan2Radians(y, x Q) Q {
 	if x.Eq(QZero()) && y.Eq(QZero()) {
 		return QZero()
 	}
@@ -168,6 +173,30 @@ func atan2TurnsBody(y, x Q) Q {
 		r = r.Neg()
 	}
 	return r
+}
+
+// A joint keeps its angles, its limits, its angular offset and its angular
+// motor speed in the angle unit of the mode (D-004). Float mode keeps
+// radians, the unit of the reference, so each joint computes its errors as
+// the reference does. The API converts from turns and back.
+func angleFromTurns(t Q) Q { return t.Mul(floatTau) }
+
+func angleToTurns(a Q) Q { return a.Div(floatTau) }
+
+func angleRadians(a Q) Q { return a }
+
+// relativeAngle is b2RelativeAngle: the angle of b relative to a, in
+// radians.
+func relativeAngle(b, a Rot) Q {
+	s := b.Sin.Mul(a.Cos).Sub(b.Cos.Mul(a.Sin))
+	c := b.Cos.Mul(a.Cos).Add(b.Sin.Mul(a.Sin))
+	return atan2Radians(s, c)
+}
+
+// unwindAngle is b2UnwindAngle, remainderf by two pi. The remainder of two
+// float32 values is exact, so the float64 remainder rounds to it unchanged.
+func unwindAngle(a Q) Q {
+	return Q{float32(math.Remainder(float64(a.v), float64(floatTau.v)))}
 }
 
 // Add returns q+o.
@@ -330,6 +359,16 @@ func (r Rot) Normalize() Rot {
 	return Rot{Sin: r.Sin.Mul(invMag), Cos: r.Cos.Mul(invMag)}
 }
 
+// recip scales by the reciprocal of a denominator. Float mode rounds the
+// reciprocal once and multiplies by it, as the reference does (D-006).
+type recip struct{ inv Q }
+
+func makeRecip(d Q) recip { return recip{inv: QOne().Div(d)} }
+
+func (r recip) scale(x Q) Q { return x.Mul(r.inv) }
+
+func (r recip) scaleVec(v Vec2) Vec2 { return v.Mul(r.inv) }
+
 // belowEpsilon reports whether a non-negative x is below the rounding noise
 // of the float32 format.
 func belowEpsilon(x Q) bool { return x.Less(scalarEpsilon) }
@@ -350,12 +389,16 @@ func IsValidQ(a Q) bool {
 // qBits returns the bits the checksum folds.
 func qBits(q Q) uint64 { return uint64(math.Float32bits(q.v)) }
 
-// QFromFloat64 converts a presentation value, such as a camera value, to a
-// scalar. It must never be used by simulation code.
+// QFromFloat64 returns f rounded to the nearest float32. The rounding is the
+// same on every architecture, so a constant converts to the same scalar
+// everywhere. A float64 computed at run time is only as portable as its
+// computation: Go fuses a multiply and an add into one rounding on arm64,
+// and on amd64 with GOAMD64=v3.
+// A decimal literal rounds to float64 first, so a long literal can differ
+// from QMustParse in the last bit.
 func QFromFloat64(f float64) Q { return Q{float32(f)} }
 
-// QToFloat64 converts a scalar to a presentation value, such as a camera
-// value. It must never be used by simulation code.
+// QToFloat64 returns q as a float64. The conversion is exact.
 func QToFloat64(q Q) float64 { return float64(q.v) }
 
 // The float mode solves contacts in its one scalar, so the contact types

@@ -5,6 +5,7 @@ package render
 
 import (
 	"fmt"
+	"math"
 	"unsafe"
 
 	"github.com/dhannyell/dbox2d/samples"
@@ -360,7 +361,7 @@ func (r *Renderer) Frame(camera *samples.Camera, batches *draw.Batches, ui []UIC
 
 	for _, kind := range draw.FlushOrder {
 		if kind == draw.KindText {
-			r.drawText(pass, width, height, batches.Text, ui)
+			r.drawText(pass, camera, width, height, batches.Text, ui)
 			continue
 		}
 		if err := r.drawKind(pass, camera, kind, batches); err != nil {
@@ -434,10 +435,16 @@ type textSegment struct {
 // text pipeline. Every vertex of the frame goes into one staging slice
 // that is written once: a queued write lands before any draw of the
 // frame executes, so a buffer must not be rewritten between two draws.
-func (r *Renderer) drawText(pass gpu.Pass, width, height int, items []draw.TextItem, commands []UICommand) {
+// Text and UI coordinates are logical pixels, the camera's size; width and
+// height are the frame's device pixels, which scissor rects are in.
+func (r *Renderer) drawText(pass gpu.Pass, camera *samples.Camera, width, height int, items []draw.TextItem, commands []UICommand) {
 	r.uiVertices = r.uiVertices[:0]
 	r.segments = r.segments[:0]
 
+	logicalW, logicalH := camera.Width, camera.Height
+	if logicalW <= 0 || logicalH <= 0 {
+		logicalW, logicalH = width, height
+	}
 	full := [4]int{0, 0, width, height}
 	for _, item := range items {
 		r.uiVertices = r.atlas.AppendQuads(r.uiVertices, item)
@@ -449,7 +456,7 @@ func (r *Renderer) drawText(pass gpu.Pass, width, height int, items []draw.TextI
 		switch cmd.Kind {
 		case UIClip:
 			r.cutSegment(scissor)
-			x, y, w, h := clampScissor(cmd.Rect, width, height)
+			x, y, w, h := clampScissor(toDevice(cmd.Rect, width, height, logicalW, logicalH), width, height)
 			scissor = [4]int{x, y, w, h}
 		case UIRect:
 			r.uiVertices = r.atlas.AppendRectQuad(r.uiVertices, float32(cmd.Rect[0]), float32(cmd.Rect[1]), float32(cmd.Rect[2]), float32(cmd.Rect[3]), cmd.Color)
@@ -465,7 +472,7 @@ func (r *Renderer) drawText(pass gpu.Pass, width, height int, items []draw.TextI
 	}
 
 	data := asBytes(r.uiVertices)
-	uniform := uniforms80{projection: pixelProjection(width, height)}
+	uniform := uniforms80{projection: pixelProjection(logicalW, logicalH)}
 	r.dev.WriteBuffer(r.text.uniform, 0, asBytes([]uniforms80{uniform}))
 	r.text.vertices, r.text.capacity = ensureCapacity(r.dev, "text", gpu.BufferUsageVertex, r.text.vertices, r.text.capacity, data)
 
@@ -510,6 +517,19 @@ func (r *Renderer) appendIcon(out []draw.TextVertex, cmd UICommand) []draw.TextV
 	x := cmd.Rect[0] + (cmd.Rect[2]-r.atlas.TextWidth(s))/2
 	y := cmd.Rect[1] + (cmd.Rect[3]-r.atlas.TextHeight())/2
 	return r.atlas.AppendQuads(out, draw.TextItem{X: float32(x), Y: float32(y), Text: s, Color: cmd.Color})
+}
+
+// toDevice scales a logical-pixel rect to a width x height device frame
+// whose logical size is logicalW x logicalH, rounding outward so the clip
+// never cuts a pixel the rect covers.
+func toDevice(rect [4]int, width, height, logicalW, logicalH int) [4]int {
+	sx := float64(width) / float64(logicalW)
+	sy := float64(height) / float64(logicalH)
+	x0 := int(math.Floor(float64(rect[0]) * sx))
+	y0 := int(math.Floor(float64(rect[1]) * sy))
+	x1 := int(math.Ceil(float64(rect[0]+rect[2]) * sx))
+	y1 := int(math.Ceil(float64(rect[1]+rect[3]) * sy))
+	return [4]int{x0, y0, x1 - x0, y1 - y0}
 }
 
 // clampScissor keeps microui's clip rect inside the frame. This avoids

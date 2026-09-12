@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/dhannyell/dbox2d"
+	"github.com/dhannyell/dbox2d/internal/shared"
 )
 
 func init() {
@@ -173,7 +174,7 @@ func (s *BounceHouse) Step() {
 type BounceHumans struct {
 	Base
 
-	humans     [5]human
+	humans     [5]shared.Human
 	humanCount int
 	countDown  dbox2d.Q
 	time       dbox2d.Q
@@ -205,7 +206,7 @@ func (s *BounceHumans) Step() {
 		jointHertz := dbox2d.QOne()
 		jointDampingRatio := qs("0.1")
 
-		s.humans[s.humanCount] = createHuman(s.WorldId, qv("0", "5"), dbox2d.QOne(), jointFrictionTorque, jointHertz,
+		s.humans[s.humanCount] = shared.CreateHuman(s.WorldId, qv("0", "5"), dbox2d.QOne(), jointFrictionTorque, jointHertz,
 			jointDampingRatio, 1, nil, true)
 
 		s.countDown = dbox2d.QFromInt(2)
@@ -452,7 +453,7 @@ func (s *SkinnyBox) launch() {
 	}
 
 	// The reference draws radians per second; the body takes turns.
-	s.angularVelocity = randomFloatRange(dbox2d.QFromInt(-50), dbox2d.QFromInt(50))
+	s.angularVelocity = shared.RandomFloatRange(dbox2d.QFromInt(-50), dbox2d.QFromInt(50))
 
 	bodyDef := dbox2d.DefaultBodyDef()
 	bodyDef.Type = dbox2d.DynamicBody
@@ -476,7 +477,7 @@ func (s *SkinnyBox) launch() {
 
 	if s.bullet {
 		polygon := dbox2d.MakeBox(qs("0.25"), qs("0.25"))
-		s.x = randomFloatRange(dbox2d.QFromInt(-1), dbox2d.QOne())
+		s.x = shared.RandomFloatRange(dbox2d.QFromInt(-1), dbox2d.QOne())
 		bodyDef.Position = dbox2d.Vec2{X: s.x, Y: dbox2d.QFromInt(10)}
 		bodyDef.LinearVelocity = qv("0", "-50")
 		s.bulletId = dbox2d.CreateBody(s.WorldId, &bodyDef)
@@ -957,7 +958,7 @@ type Drop struct {
 
 	groundIds   []dbox2d.BodyId
 	bodyIds     []dbox2d.BodyId
-	human       human
+	human       shared.Human
 	frameSkip   int
 	frameCount  int
 	continuous  bool
@@ -973,7 +974,7 @@ func NewDrop(ctx *SampleContext) Sample {
 		ctx.Settings.DrawJoints = false
 	}
 
-	s.human = human{}
+	s.human = shared.Human{}
 	s.frameSkip = 0
 	s.frameCount = 0
 	s.continuous = true
@@ -990,8 +991,8 @@ func (s *Drop) clear() {
 
 	s.bodyIds = s.bodyIds[:0]
 
-	if s.human.isSpawned {
-		s.human.destroy()
+	if s.human.IsSpawned {
+		s.human.Destroy()
 	}
 }
 
@@ -1104,7 +1105,7 @@ func (s *Drop) scene3() {
 	jointHertz := dbox2d.QOne()
 	jointDampingRatio := dbox2d.QHalf()
 
-	s.human = createHuman(s.WorldId, qv("0", "40"), dbox2d.QOne(), jointFrictionTorque, jointHertz, jointDampingRatio, 1, nil,
+	s.human = shared.CreateHuman(s.WorldId, qv("0", "40"), dbox2d.QOne(), jointFrictionTorque, jointHertz, jointDampingRatio, 1, nil,
 		true)
 
 	s.frameCount = 1

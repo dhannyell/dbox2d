@@ -82,7 +82,7 @@ func TestRevoluteHoldsTheAnchor(t *testing.T) {
 	if !withinQ(js.revoluteJoint.linearImpulse.X, QZero(), tolerance) || !withinQ(js.revoluteJoint.linearImpulse.Y, seventh, tolerance) {
 		t.Errorf("linearImpulse is %v, want (0, 1/7)", js.revoluteJoint.linearImpulse)
 	}
-	wB := state.angularVelocity.Mul(tau)
+	wB := state.angularVelocity
 	if !withinQ(wB, QFromRatio(-6, 7), tolerance) {
 		t.Errorf("wB is %v rad/s, want -6/7", wB)
 	}
@@ -114,7 +114,7 @@ func TestRevoluteLimitStopsTheSpin(t *testing.T) {
 	def.EnableLimit = true
 	box, j := pinnedBox(t, worldId, v2(0, 0), &def)
 	state := getBodyState(w, box)
-	state.angularVelocity = QOne().Div(tau)
+	state.angularVelocity = QOne()
 
 	context := jointContext(w)
 	prepareJointsTask(0, len(context.joints), context)
@@ -156,7 +156,7 @@ func TestRevoluteMotorSaturatesAtTheTorque(t *testing.T) {
 	if !withinQ(js.revoluteJoint.motorImpulse, QFromRatio(5, 12), tolerance) {
 		t.Errorf("motorImpulse is %v, want 5/12", js.revoluteJoint.motorImpulse)
 	}
-	wB := state.angularVelocity.Mul(tau)
+	wB := state.angularVelocity
 	if !withinQ(wB, QFromRatio(5, 2), tolerance) {
 		t.Errorf("wB is %v rad/s, want 2.5", wB)
 	}
@@ -170,7 +170,7 @@ func TestRevoluteMotorSaturatesAtTheTorque(t *testing.T) {
 	// The warm start applies the stored impulse again on a fresh state.
 	state.angularVelocity = QZero()
 	warmStartJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex)
-	wB = state.angularVelocity.Mul(tau)
+	wB = state.angularVelocity
 	if !withinQ(wB, QFromRatio(5, 2), tolerance) {
 		t.Errorf("the warm start gives wB %v rad/s, want 2.5", wB)
 	}

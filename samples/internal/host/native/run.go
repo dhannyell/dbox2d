@@ -60,28 +60,36 @@ func Run() error {
 	fbDirty := false
 	dev.OnSurfaceOutdated = func() { fbDirty = true }
 
-	// The atlas is rasterized once at a fixed pixel size; it is not scaled
-	// by the window's content scale.
-	atlas, err := draw.NewAtlas(14)
+	contentScale, _ := window.GetContentScale()
+	if contentScale <= 0 {
+		contentScale = 1
+	}
+	logical := func(w, h int) (int, int) {
+		return int(float32(w) / contentScale), int(float32(h) / contentScale)
+	}
+
+	atlas, err := draw.NewAtlasScaled(draw.RegularFontSize, float64(contentScale))
 	if err != nil {
 		return fmt.Errorf("native: build atlas: %w", err)
 	}
 
 	a := app.New(atlas)
-	a.Resize(fbW, fbH)
+	a.Resize(logical(fbW, fbH))
 
 	renderer, err := render.New(dev, atlas)
 	if err != nil {
 		return fmt.Errorf("native: build renderer: %w", err)
 	}
 
+	// scale maps window coordinates to the app's logical pixels.
 	scale := func() (float64, float64) {
 		winW, winH := window.GetSize()
 		fbW, fbH := window.GetFramebufferSize()
 		if winW == 0 || winH == 0 {
 			return 1, 1
 		}
-		return float64(fbW) / float64(winW), float64(fbH) / float64(winH)
+		cs := float64(contentScale)
+		return float64(fbW) / float64(winW) / cs, float64(fbH) / float64(winH) / cs
 	}
 	registerCallbacks(window, a, &fbDirty, scale)
 
@@ -101,7 +109,7 @@ func Run() error {
 			fbW, fbH := window.GetFramebufferSize()
 			if gpuSt.configure(fbW, fbH) {
 				dev.Resize(fbW, fbH)
-				a.Resize(fbW, fbH)
+				a.Resize(logical(fbW, fbH))
 			}
 		}
 

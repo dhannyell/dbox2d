@@ -58,7 +58,8 @@ type body struct {
 }
 
 // bodyState is the solver view of a body. Only awake dynamic and kinematic
-// bodies have one. The angular velocity is in turns per second.
+// bodies have one. The angular velocity is in radians per second, the unit
+// of the reference; the accessors convert it to turns (D-004).
 type bodyState struct {
 	linearVelocity  Vec2
 	angularVelocity Q
@@ -261,7 +262,7 @@ func CreateBody(worldId WorldId, def *BodyDef) BodyId {
 	if setId == awakeSet {
 		state := identityBodyState()
 		state.linearVelocity = def.LinearVelocity
-		state.angularVelocity = def.AngularVelocity
+		state.angularVelocity = def.AngularVelocity.Mul(tau)
 		set.bodyStates = append(set.bodyStates, state)
 	}
 
@@ -482,12 +483,10 @@ func updateBodyMassData(w *world, b *body) {
 	sim.center = TransformPoint(sim.transform, sim.localCenter)
 	sim.center0 = sim.center
 
-	// Update center of mass velocity. The state stores turns per second and
-	// the cross product needs radians per second, so the velocity scales by
-	// one turn.
+	// Update center of mass velocity.
 	state := getBodyState(w, b)
 	if state != nil {
-		deltaLinear := CrossSV(tau.Mul(state.angularVelocity), sim.center.Sub(oldCenter))
+		deltaLinear := CrossSV(state.angularVelocity, sim.center.Sub(oldCenter))
 		state.linearVelocity = state.linearVelocity.Add(deltaLinear)
 	}
 
@@ -751,12 +750,12 @@ func (bodyId BodyId) SetTargetTransform(target Transform, timeStep Q) {
 
 	angularVelocity := zero
 	if !b.fixedRotation {
-		deltaAngle := RelativeAngle(target.Q, sim.transform.Q)
-		// D-004: RelativeAngle already returns turns.
-		angularVelocity = deltaAngle.Mul(invTimeStep)
+		// D-004: the state stores radians.
+		deltaAngle := relativeAngle(target.Q, sim.transform.Q)
+		angularVelocity = angleRadians(deltaAngle).Mul(invTimeStep)
 	}
 
-	maxVelocity := linearVelocity.Len().Add(tau.Mul(angularVelocity.Abs()).Mul(sim.maxExtent))
+	maxVelocity := linearVelocity.Len().Add(angularVelocity.Abs().Mul(sim.maxExtent))
 	if maxVelocity.Less(b.sleepThreshold) {
 		return
 	}
@@ -822,8 +821,8 @@ func (bodyId BodyId) GetAngularVelocity() Q {
 	b := getBodyFullId(w, bodyId)
 	state := getBodyState(w, b)
 	if state != nil {
-		// D-004: body angular velocity is stored in turns per second.
-		return state.angularVelocity
+		// D-004: the state stores radians per second and the API reports turns.
+		return state.angularVelocity.Div(tau)
 	}
 	return QZero()
 }
@@ -861,8 +860,8 @@ func (bodyId BodyId) SetAngularVelocity(angularVelocity Q) {
 	if state == nil {
 		return
 	}
-	// D-004: body angular velocity is stored in turns per second.
-	state.angularVelocity = angularVelocity
+	// D-004: the API takes turns per second and the state stores radians.
+	state.angularVelocity = angularVelocity.Mul(tau)
 }
 
 // GetLocalPointVelocity returns the velocity at a local point. It corresponds
@@ -876,8 +875,7 @@ func (bodyId BodyId) GetLocalPointVelocity(localPoint Vec2) Vec2 {
 	}
 	sim := getBodySim(w, b)
 	r := RotateVector(sim.transform.Q, localPoint.Sub(sim.localCenter))
-	// D-004: convert stored turns per second to radians for the cross product.
-	return state.linearVelocity.Add(CrossSV(tau.Mul(state.angularVelocity), r))
+	return state.linearVelocity.Add(CrossSV(state.angularVelocity, r))
 }
 
 // GetWorldPointVelocity returns the velocity at a world point. It corresponds
@@ -890,8 +888,7 @@ func (bodyId BodyId) GetWorldPointVelocity(worldPoint Vec2) Vec2 {
 		return Vec2Zero()
 	}
 	sim := getBodySim(w, b)
-	// D-004: convert stored turns per second to radians for the cross product.
-	return state.linearVelocity.Add(CrossSV(tau.Mul(state.angularVelocity), worldPoint.Sub(sim.center)))
+	return state.linearVelocity.Add(CrossSV(state.angularVelocity, worldPoint.Sub(sim.center)))
 }
 
 // ApplyForce applies a force at a world point. It corresponds to
@@ -931,7 +928,6 @@ func (bodyId BodyId) ApplyTorque(torque Q, wake bool) {
 		wakeBody(w, b)
 	}
 	if b.setIndex == awakeSet {
-		// D-004: the solver converts the accumulated torque to turns.
 		getBodySim(w, b).torque = getBodySim(w, b).torque.Add(torque)
 	}
 }
@@ -948,8 +944,7 @@ func (bodyId BodyId) ApplyLinearImpulse(impulse, point Vec2, wake bool) {
 		state := getBodyState(w, b)
 		sim := getBodySim(w, b)
 		state.linearVelocity = MulAdd(state.linearVelocity, sim.invMass, impulse)
-		// D-004: convert the reference's radian angular impulse to turns.
-		state.angularVelocity = state.angularVelocity.Add(sim.invInertia.Mul(Cross(point.Sub(sim.center), impulse)).Div(tau))
+		state.angularVelocity = state.angularVelocity.Add(sim.invInertia.Mul(Cross(point.Sub(sim.center), impulse)))
 		limitVelocity(state, w.maxLinearSpeed)
 	}
 }
@@ -981,8 +976,7 @@ func (bodyId BodyId) ApplyAngularImpulse(impulse Q, wake bool) {
 	if b.setIndex == awakeSet {
 		state := getBodyState(w, b)
 		sim := getBodySim(w, b)
-		// D-004: convert the reference's radian result to turns per second.
-		state.angularVelocity = state.angularVelocity.Add(sim.invInertia.Mul(impulse).Div(tau))
+		state.angularVelocity = state.angularVelocity.Add(sim.invInertia.Mul(impulse))
 	}
 }
 

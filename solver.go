@@ -76,13 +76,13 @@ func makeSoft(hertz, zeta, h Q) softness {
 	// massScale = hw * (2 * z + hw) / (1 + hw * (2 * z + hw))
 	// impulseScale = 1 / (1 + hw * (2 * z + hw))
 	// In all cases: massScale + impulseScale == 1
-	// D-006: the reference multiplies by the reciprocal of (1 + a2). Each
-	// coefficient divides instead.
+	// D-006: a3 is the reciprocal of (1 + a2).
 	one := QOne()
+	a3 := makeRecip(one.Add(a2))
 	return softness{
 		biasRate:     omega.Div(a1),
-		massScale:    a2.Div(one.Add(a2)),
-		impulseScale: one.Div(one.Add(a2)),
+		massScale:    a3.scale(a2),
+		impulseScale: a3.scale(one),
 	}
 }
 
@@ -95,7 +95,8 @@ func integrateVelocitiesTask(startIndex, endIndex int, context *stepContext) {
 	gravity := context.world.gravity
 	h := context.h
 	maxLinearSpeed := context.maxLinearVelocity
-	maxAngularSpeed := maxRotation.Mul(context.invDt)
+	// D-004: MaxRotation is in turns; one turn scales it to radians exactly.
+	maxAngularSpeed := maxRotation.Mul(tau).Mul(context.invDt)
 	maxLinearSpeedSquared := maxLinearSpeed.Mul(maxLinearSpeed)
 	maxAngularSpeedSquared := maxAngularSpeed.Mul(maxAngularSpeed)
 
@@ -113,10 +114,9 @@ func integrateVelocitiesTask(startIndex, endIndex int, context *stepContext) {
 		// Solution: v(t) = v0 * exp(-c * t)
 		// Pade approximation:
 		// v2 = v1 * 1 / (1 + c * dt)
-		// D-006: the reference multiplies by the factor. Each use divides by
-		// the denominator instead.
-		linearDamping := one.Add(h.Mul(sim.linearDamping))
-		angularDamping := one.Add(h.Mul(sim.angularDamping))
+		// D-006: each factor is the reciprocal of its denominator.
+		linearDamping := makeRecip(one.Add(h.Mul(sim.linearDamping)))
+		angularDamping := makeRecip(one.Add(h.Mul(sim.angularDamping)))
 
 		// Gravity scale will be zero for kinematic bodies
 		gravityScale := zero
@@ -126,15 +126,13 @@ func integrateVelocitiesTask(startIndex, endIndex int, context *stepContext) {
 
 		// lvd = h * im * f + h * g
 		linearVelocityDelta := sim.force.Mul(h.Mul(sim.invMass)).Add(gravity.Mul(h.Mul(gravityScale)))
-		// The state stores turns per second and the torque produces radians
-		// per second, so the delta divides by one turn.
-		angularVelocityDelta := h.Mul(sim.invInertia).Mul(sim.torque).Div(tau)
+		angularVelocityDelta := h.Mul(sim.invInertia).Mul(sim.torque)
 
 		v = Vec2{
-			X: linearVelocityDelta.X.Add(v.X.Div(linearDamping)),
-			Y: linearVelocityDelta.Y.Add(v.Y.Div(linearDamping)),
+			X: linearVelocityDelta.X.Add(linearDamping.scale(v.X)),
+			Y: linearVelocityDelta.Y.Add(linearDamping.scale(v.Y)),
 		}
-		omega = angularVelocityDelta.Add(omega.Div(angularDamping))
+		omega = angularVelocityDelta.Add(angularDamping.scale(omega))
 
 		// Clamp to max linear speed
 		if maxLinearSpeedSquared.Less(v.Dot(v)) {
@@ -168,7 +166,7 @@ func integratePositionsTask(startIndex, endIndex int, context *stepContext) {
 
 	for i := startIndex; i < endIndex; i++ {
 		state := &states[i]
-		state.deltaRotation = IntegrateRotation(state.deltaRotation, h.Mul(state.angularVelocity))
+		state.deltaRotation = integrateRotation(state.deltaRotation, h.Mul(state.angularVelocity))
 		state.deltaPosition = MulAdd(state.deltaPosition, h, state.linearVelocity)
 	}
 }
@@ -768,9 +766,8 @@ func finalizeBodiesTask(startIndex, endIndex, workerIndex int, context *stepCont
 		sim.transform.Q = NormalizeRot(MulRot(state.deltaRotation, sim.transform.Q))
 
 		// Use the velocity of the farthest point on the body to account for
-		// rotation. The angular velocity is in turns per second and the arc
-		// speed needs radians per second, so it scales by one turn.
-		maxVelocity := v.Len().Add(tau.Mul(omega.Abs()).Mul(sim.maxExtent))
+		// rotation.
+		maxVelocity := v.Len().Add(omega.Abs().Mul(sim.maxExtent))
 
 		// Sleep needs to observe position correction as well as true velocity.
 		maxDeltaPosition := state.deltaPosition.Len().Add(state.deltaRotation.Sin.Abs().Mul(sim.maxExtent))

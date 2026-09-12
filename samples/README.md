@@ -1,35 +1,37 @@
 # samples
 
-[![Tumbler in the browser host](web/tumbler.png)](https://dhannyell.github.io/dbox2d/)
+The `dbox2d` sample gallery: the Box2D v3.1.1 scenes running in a native
+window or in the browser through WebGPU.
 
-**Live demo: [float mode](https://dhannyell.github.io/dbox2d/) · [fixed mode](https://dhannyell.github.io/dbox2d/?mode=fixed)** — the browser host on GitHub Pages, built from `main` by `pages.yml`. It needs a browser with WebGPU. `?mode=fixed` picks the fixed build; the tab title names the mode that runs.
+[![Open the live demo](web/tumbler.png)](https://dhannyell.github.io/dbox2d/)
 
-The sample scenes of Box2D v3.1.1, ported to `dbox2d`. A scene builds a
-world, steps it and asks the world to draw itself. A host renders the
-draw commands with WebGPU and feeds the mouse and the keyboard back. Two
-hosts share the same app: a native window and a browser page.
+[Live demo: float mode](https://dhannyell.github.io/dbox2d/) · [fixed mode](https://dhannyell.github.io/dbox2d/?mode=fixed)
 
-This is its own Go module. It depends on `dbox2d` through a `replace` to
-the parent directory, so a change in the solver shows up here at once.
+The default browser build uses `float32`; `?mode=fixed` loads Q32.32 fixed
+point. The browser host runs on one worker because of Go WebAssembly limits.
+The native host can use multiple workers.
 
-## Run the native host
+This directory is a separate Go module and uses a local `replace` to test the
+parent module while developing it.
 
-The native host needs cgo, a C toolchain and a GPU driver with Vulkan,
-Metal or D3D12.
+## Run locally
+
+The native host needs cgo, a C toolchain, and a GPU driver with Vulkan, Metal,
+or D3D12.
 
 ```bash
 cd samples && go run ./cmd/native
 cd samples && go run -tags dbox2d_fixed ./cmd/native
 ```
 
-## Test
+Use `-tags dbox2d_fixed` to run the fixed-point build:
 
 ```bash
 cd samples && go test ./...
 cd samples && go test -tags dbox2d_fixed ./...
 ```
 
-## Run the browser host
+## Browser host
 
 The browser host needs a browser with WebGPU. Build the wasm binary into
 `web/` and serve that directory. `cmd/serve` is a static file server that
@@ -46,8 +48,53 @@ The page loads `app.wasm` by default and `app-fixed.wasm` with `?mode=fixed`.
 cd samples && go run ./cmd/serve
 ```
 
-Then open `http://localhost:8080`. The saturation counter of `fixed` is off by
-default, so the scalar methods inline on WebAssembly.
+Then open `http://localhost:8080`. The published page uses the same two
+artifacts.
+
+## Headless WebAssembly probe
+
+`cmd/probe` measures only `World.Step` on the Tumbler scene. It does not import
+WebGPU, so it can run under the standard Go compiler or TinyGo. It warms up
+for 120 steps, measures 600 steps, and prints average nanoseconds per step
+plus a final checksum.
+
+From this directory, build the standard Go binaries:
+
+```powershell
+$env:CGO_ENABLED = "0"
+$env:GOOS = "js"
+$env:GOARCH = "wasm"
+go build -trimpath -ldflags='-s -w -X main.compiler=go' -o web/probe-go-fixed.wasm ./cmd/probe
+go build -trimpath -tags dbox2d_float -ldflags='-s -w -X main.compiler=go' -o web/probe-go-float.wasm ./cmd/probe
+Copy-Item "$(go env GOROOT)\lib\wasm\wasm_exec.js" web\wasm_exec-go.js
+```
+
+Build the TinyGo binaries with a TinyGo version compatible with the installed
+Go toolchain:
+
+```powershell
+$env:CGO_ENABLED = "0"
+$env:GOOS = "js"
+$env:GOARCH = "wasm"
+tinygo build -target=wasm -scheduler=asyncify -opt=2 -no-debug -tags fixed_nosatcounter -ldflags='-X main.compiler=tinygo' -o web/probe-tinygo-fixed.wasm ./cmd/probe
+tinygo build -target=wasm -scheduler=asyncify -opt=2 -no-debug -tags dbox2d_float -ldflags='-X main.compiler=tinygo' -o web/probe-tinygo-float.wasm ./cmd/probe
+$tinyRoot = tinygo env TINYGOROOT
+Copy-Item "$tinyRoot\targets\wasm_exec.js" web\wasm_exec-tinygo.js
+```
+
+Serve the directory and open one of these URLs. The result is printed in the
+browser console:
+
+```text
+http://localhost:8080/probe.html?compiler=go&mode=fixed
+http://localhost:8080/probe.html?compiler=go&mode=float
+http://localhost:8080/probe.html?compiler=tinygo&mode=fixed
+http://localhost:8080/probe.html?compiler=tinygo&mode=float
+```
+
+Compare `ns_per_step` only between equal modes. Fixed checksums should match
+between Go and TinyGo; float checksums are diagnostic because compilers can
+evaluate floating-point expressions differently.
 
 ## Keys
 
@@ -104,46 +151,9 @@ turn, not a radian: `π/2` is `1/4`; a motor speed in rad/s goes through
 
 ## Scenes
 
-**Stacking** (10): Single Box, Tilted Stack, Vertical Stack, Circle Stack,
-Capsule Stack, Cliff, Arch, Double Domino, Confined, Card House.
-
-**Benchmark** (16): Barrel, Tumbler, Many Tumblers, Large Pyramid, Many
-Pyramids, CreateDestroy, Sleep, Joint Grid, Smash, Compound, Kinematic,
-Cast, Spinner, Rain, Shape Distance, Sensor.
-
-**Joints** (21): Distance Joint, Motor Joint, Filter Joint, Revolute,
-Prismatic, Wheel, Bridge, Ball & Chain, Cantilever, Fixed Rotation,
-Breakable, Separation, User Constraint, Driving, Ragdoll, Soft Body,
-Doohickey, Scissor Lift, Gear Lift, Door, Scale Ragdoll.
-
-**Bodies** (6): Body Type, Weeble, Sleep, Bad, Pivot, Kinematic.
-
-**Character** (1): Mover.
-
-**Collision** (9): Shape Distance, Dynamic Tree, Ray Cast, Cast World,
-Overlap World, Manifold, Smooth Manifold, Shape Cast, Time of Impact.
-
-**Continuous** (15): Bounce House, Bounce Humans, Chain Drop, Chain Slide,
-Segment Slide, Skinny Box, Ghost Bumps, Speculative Fallback, Speculative
-Sliver, Speculative Ghost, Pixel Imperfect, Restitution Threshold, Drop,
-Pinball, Wedge.
-
-**Determinism** (1): Falling Hinges.
-
-**Events** (7): Sensor Funnel, Sensor Bookend, Foot Sensor, Contact, Platformer,
-Body Move, Sensor Types.
-
-**Geometry** (1): Convex Hull.
-
-**Robustness** (6): HighMassRatio1, HighMassRatio2, HighMassRatio3, Overlap
-Recovery, Tiny Pyramid, Cart.
-
-**Shapes** (16): Chain Shape, Compound Shapes, Filter, Custom Filter,
-Restitution, Friction, Rolling Resistance, Conveyor Belt, Tangent Speed,
-Modify Geometry, Chain Link, Rounded, Ellipse, Offset, Explosion, Recreate
-Static.
-
-**World** (1): Large World.
+Every scene of the reference is ported, under the same category and name.
+Barrel adds a Gopher shape that is not in the reference; it is the default
+shape, and Barrel is the scene the app opens on.
 
 The scenes produce the same bits with any worker count.
 

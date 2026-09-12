@@ -33,6 +33,8 @@ const (
 	glyphCount     = lastGlyphRune - firstGlyphRune + 1
 
 	atlasWidth = 512
+
+	RegularFontSize = 18
 )
 
 // TextVertex is one vertex of the text pipeline's per-vertex buffer.
@@ -49,25 +51,39 @@ type glyph struct {
 }
 
 // Atlas is the rasterized font: one alpha texture and the glyph table.
+// Glyphs are rasterized at density device pixels per logical pixel; the
+// measuring and quad methods work in logical pixels.
 type Atlas struct {
-	Width, Height      int
-	Pixels             []uint8 // r8unorm, row-major
+	Width, Height int
+	Pixels        []uint8 // r8unorm, row-major
+	// Ascent and LineHeight are in device pixels.
 	Ascent, LineHeight int
 	// WhiteU, WhiteV address the opaque texel block reserved at the atlas
 	// origin, so UI rects sample it and share the text pipeline.
 	WhiteU, WhiteV float32
+	density        float32
 	glyphs         [glyphCount]glyph
 }
 
-// NewAtlas rasterizes droid_sans.ttf at the given pixel size (the
-// reference uses 14 for the regular font).
+// NewAtlas rasterizes droid_sans.ttf at the given pixel size, one device
+// pixel per logical pixel.
 func NewAtlas(pixelSize int) (*Atlas, error) {
+	return NewAtlasScaled(pixelSize, 1)
+}
+
+// NewAtlasScaled rasterizes droid_sans.ttf at pixelSize logical pixels on
+// a display with density device pixels per logical pixel, so text stays
+// sharp on high-DPI displays.
+func NewAtlasScaled(pixelSize int, density float64) (*Atlas, error) {
+	if density <= 0 {
+		density = 1
+	}
 	f, err := opentype.Parse(droidSansTTF)
 	if err != nil {
 		return nil, err
 	}
 	face, err := opentype.NewFace(f, &opentype.FaceOptions{
-		Size:    float64(pixelSize),
+		Size:    float64(pixelSize) * density,
 		DPI:     72,
 		Hinting: font.HintingFull,
 	})
@@ -148,6 +164,7 @@ func NewAtlas(pixelSize int) (*Atlas, error) {
 		LineHeight: metrics.Height.Round(),
 		WhiteU:     (float32(whiteX) + 0.5*whiteBlockSize) / float32(atlasWidth),
 		WhiteV:     (float32(whiteY) + 0.5*whiteBlockSize) / float32(height),
+		density:    float32(density),
 		glyphs:     glyphs,
 	}, nil
 }
@@ -168,18 +185,18 @@ func (a *Atlas) glyphFor(r rune) glyph {
 	return a.glyphs[r-firstGlyphRune]
 }
 
-// TextWidth sums the glyph advances of s, in pixels; the microui layer
-// calls it to lay out controls.
+// TextWidth sums the glyph advances of s, in logical pixels; the microui
+// layer calls it to lay out controls.
 func (a *Atlas) TextWidth(s string) int {
 	width := 0
 	for _, r := range s {
 		width += a.glyphFor(r).Advance
 	}
-	return width
+	return int(float32(width)/a.density + 0.5)
 }
 
-// TextHeight returns the line height, in pixels.
-func (a *Atlas) TextHeight() int { return a.LineHeight }
+// TextHeight returns the line height, in logical pixels.
+func (a *Atlas) TextHeight() int { return int(float32(a.LineHeight)/a.density + 0.5) }
 
 // AppendRectQuad appends one solid-colour quad sampling the atlas's white
 // texel, for the text pipeline to also draw UI rects.
@@ -197,16 +214,21 @@ func (a *Atlas) AppendRectQuad(out []TextVertex, x, y, w, h float32, c RGBA8) []
 }
 
 // AppendQuads appends six TextVertex per glyph of item to out, positioned
-// in pixels with y down and item.Y at the text's top.
+// in logical pixels with y down and item.Y at the text's top.
 func (a *Atlas) AppendQuads(out []TextVertex, item TextItem) []TextVertex {
+	s := item.Scale
+	if s == 0 {
+		s = 1
+	}
+	s /= a.density
 	penX := item.X
-	baseline := item.Y + float32(a.Ascent)
+	baseline := item.Y + s*float32(a.Ascent)
 	for _, r := range item.Text {
 		g := a.glyphFor(r)
-		x0 := penX + float32(g.BearingX)
-		y0 := baseline + float32(g.BearingY)
-		x1 := x0 + float32(g.W)
-		y1 := y0 + float32(g.H)
+		x0 := penX + s*float32(g.BearingX)
+		y0 := baseline + s*float32(g.BearingY)
+		x1 := x0 + s*float32(g.W)
+		y1 := y0 + s*float32(g.H)
 
 		out = append(out,
 			TextVertex{X: x0, Y: y0, U: g.U0, V: g.V0, Color: item.Color},
@@ -216,7 +238,7 @@ func (a *Atlas) AppendQuads(out []TextVertex, item TextItem) []TextVertex {
 			TextVertex{X: x1, Y: y1, U: g.U1, V: g.V1, Color: item.Color},
 			TextVertex{X: x0, Y: y1, U: g.U0, V: g.V1, Color: item.Color},
 		)
-		penX += float32(g.Advance)
+		penX += s * float32(g.Advance)
 	}
 	return out
 }

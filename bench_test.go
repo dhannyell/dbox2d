@@ -97,10 +97,11 @@ type f64Shape struct {
 }
 
 // integrateVelocitiesF64 mirrors integrateVelocitiesTask line by line over
-// float64, with the same division-based damping and the same turn unit.
+// float64, with the division-based damping of fixed mode and the angular
+// velocity in radians per second.
 func integrateVelocitiesF64(sims []f64BodySim, states []f64BodyState, gravityX, gravityY, h, invDt, maxLinearSpeed float64) {
 	const tauF64 = 2 * math.Pi
-	maxAngularSpeed := 0.125 * invDt
+	maxAngularSpeed := 0.125 * tauF64 * invDt
 	maxLinearSpeedSquared := maxLinearSpeed * maxLinearSpeed
 	maxAngularSpeedSquared := maxAngularSpeed * maxAngularSpeed
 
@@ -121,7 +122,7 @@ func integrateVelocitiesF64(sims []f64BodySim, states []f64BodyState, gravityX, 
 
 		deltaX := sim.forceX*(h*sim.invMass) + gravityX*(h*gravityScale)
 		deltaY := sim.forceY*(h*sim.invMass) + gravityY*(h*gravityScale)
-		deltaW := h * sim.invInertia * sim.torque / tauF64
+		deltaW := h * sim.invInertia * sim.torque
 
 		vx = deltaX + vx/linearDamping
 		vy = deltaY + vy/linearDamping
@@ -170,13 +171,12 @@ func BenchmarkIntegrateF64(b *testing.B) {
 }
 
 // integratePositionsF64 mirrors integratePositionsTask line by line: the
-// rotation integration converts turns to radians and normalizes.
+// rotation integration advances by radians and normalizes.
 func integratePositionsF64(states []f64BodyState, h float64) {
-	const tauF64 = 2 * math.Pi
 	for i := range states {
 		state := &states[i]
 
-		deltaAngle := h * state.w * tauF64
+		deltaAngle := h * state.w
 		c := state.dqc - deltaAngle*state.dqs
 		s := state.dqs + deltaAngle*state.dqc
 		mag := math.Sqrt(c*c + s*s)
@@ -194,7 +194,6 @@ func integratePositionsF64(states []f64BodyState, h float64) {
 // finalizeF64 mirrors finalizeBodiesTask line by line: the transform update,
 // the sleep arithmetic and the bounds refresh.
 func finalizeF64(sims []f64BodySim, states []f64BodyState, shapes []f64Shape, dt, invDt float64) {
-	const tauF64 = 2 * math.Pi
 	const speculative = 4 * 0.005
 	const margin = 0.05
 
@@ -214,7 +213,7 @@ func finalizeF64(sims []f64BodySim, states []f64BodyState, shapes []f64Shape, dt
 		}
 		sim.qc, sim.qs = c*invMag, s*invMag
 
-		maxVelocity := math.Sqrt(state.vx*state.vx+state.vy*state.vy) + tauF64*math.Abs(state.w)*sim.maxExtent
+		maxVelocity := math.Sqrt(state.vx*state.vx+state.vy*state.vy) + math.Abs(state.w)*sim.maxExtent
 		maxDeltaPosition := math.Sqrt(state.dpx*state.dpx+state.dpy*state.dpy) + math.Abs(state.dqs)*sim.maxExtent
 		sleepVelocity := math.Max(maxVelocity, 0.5*invDt*maxDeltaPosition)
 
@@ -1027,7 +1026,6 @@ func (p *f64Pyramid) stateOf(index int) *f64BodyState {
 // prepareContactsF64 mirrors prepareContacts over the touching contacts and
 // returns the constraint count.
 func (p *f64Pyramid) prepareContactsF64(contactSoftness, staticSoftness f64Softness) int {
-	const tauF64 = 2 * math.Pi
 	n := 0
 	for i := range p.contacts {
 		cs := &p.contacts[i]
@@ -1052,7 +1050,7 @@ func (p *f64Pyramid) prepareContactsF64(contactSoftness, staticSoftness f64Softn
 		if cs.indexA >= 0 {
 			stateA := &p.states[cs.indexA]
 			vAx, vAy = stateA.vx, stateA.vy
-			wA = stateA.w * tauF64
+			wA = stateA.w
 			mA, iA = p.sims[cs.indexA].invMass, p.sims[cs.indexA].invInertia
 		}
 		vBx, vBy, wB := 0.0, 0.0, 0.0
@@ -1060,7 +1058,7 @@ func (p *f64Pyramid) prepareContactsF64(contactSoftness, staticSoftness f64Softn
 		if cs.indexB >= 0 {
 			stateB := &p.states[cs.indexB]
 			vBx, vBy = stateB.vx, stateB.vy
-			wB = stateB.w * tauF64
+			wB = stateB.w
 			mB, iB = p.sims[cs.indexB].invMass, p.sims[cs.indexB].invInertia
 		}
 
@@ -1121,16 +1119,15 @@ func (p *f64Pyramid) prepareContactsF64(contactSoftness, staticSoftness f64Softn
 
 // warmStartContactsF64 mirrors warmStartContacts.
 func (p *f64Pyramid) warmStartContactsF64(count int) {
-	const tauF64 = 2 * math.Pi
 	for i := range count {
 		constraint := &p.constraints[i]
 		stateA := p.stateOf(constraint.indexA)
 		stateB := p.stateOf(constraint.indexB)
 
 		vAx, vAy := stateA.vx, stateA.vy
-		wA := stateA.w * tauF64
+		wA := stateA.w
 		vBx, vBy := stateB.vx, stateB.vy
-		wB := stateB.w * tauF64
+		wB := stateB.w
 
 		mA, iA := constraint.invMassA, constraint.invIA
 		mB, iB := constraint.invMassB, constraint.invIB
@@ -1155,15 +1152,14 @@ func (p *f64Pyramid) warmStartContactsF64(count int) {
 		wB += iB * constraint.rollingImpulse
 
 		stateA.vx, stateA.vy = vAx, vAy
-		stateA.w = wA / tauF64
+		stateA.w = wA
 		stateB.vx, stateB.vy = vBx, vBy
-		stateB.w = wB / tauF64
+		stateB.w = wB
 	}
 }
 
 // solveContactsF64 mirrors solveContacts.
 func (p *f64Pyramid) solveContactsF64(count int, invH, pushout float64, useBias bool) {
-	const tauF64 = 2 * math.Pi
 	for i := range count {
 		constraint := &p.constraints[i]
 		mA, iA := constraint.invMassA, constraint.invIA
@@ -1172,11 +1168,11 @@ func (p *f64Pyramid) solveContactsF64(count int, invH, pushout float64, useBias 
 		stateA := p.stateOf(constraint.indexA)
 		stateB := p.stateOf(constraint.indexB)
 		vAx, vAy := stateA.vx, stateA.vy
-		wA := stateA.w * tauF64
+		wA := stateA.w
 		dqAc, dqAs := stateA.dqc, stateA.dqs
 
 		vBx, vBy := stateB.vx, stateB.vy
-		wB := stateB.w * tauF64
+		wB := stateB.w
 		dqBc, dqBs := stateB.dqc, stateB.dqs
 
 		dpx, dpy := stateB.dpx-stateA.dpx, stateB.dpy-stateA.dpy
@@ -1267,16 +1263,15 @@ func (p *f64Pyramid) solveContactsF64(count int, invH, pushout float64, useBias 
 		}
 
 		stateA.vx, stateA.vy = vAx, vAy
-		stateA.w = wA / tauF64
+		stateA.w = wA
 		stateB.vx, stateB.vy = vBx, vBy
-		stateB.w = wB / tauF64
+		stateB.w = wB
 	}
 }
 
 // applyRestitutionF64 mirrors applyRestitution. The pyramid has no
 // restitution, so the stage returns at the first test as the Q stage does.
 func (p *f64Pyramid) applyRestitutionF64(count int, threshold float64) {
-	const tauF64 = 2 * math.Pi
 	for i := range count {
 		constraint := &p.constraints[i]
 		restitution := constraint.restitution
@@ -1290,9 +1285,9 @@ func (p *f64Pyramid) applyRestitutionF64(count int, threshold float64) {
 		stateA := p.stateOf(constraint.indexA)
 		stateB := p.stateOf(constraint.indexB)
 		vAx, vAy := stateA.vx, stateA.vy
-		wA := stateA.w * tauF64
+		wA := stateA.w
 		vBx, vBy := stateB.vx, stateB.vy
-		wB := stateB.w * tauF64
+		wB := stateB.w
 
 		nx, ny := constraint.nx, constraint.ny
 
@@ -1323,9 +1318,9 @@ func (p *f64Pyramid) applyRestitutionF64(count int, threshold float64) {
 		}
 
 		stateA.vx, stateA.vy = vAx, vAy
-		stateA.w = wA / tauF64
+		stateA.w = wA
 		stateB.vx, stateB.vy = vBx, vBy
-		stateB.w = wB / tauF64
+		stateB.w = wB
 	}
 }
 

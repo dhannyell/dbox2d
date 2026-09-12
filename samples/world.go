@@ -9,6 +9,7 @@ import (
 	"math"
 
 	"github.com/dhannyell/dbox2d"
+	"github.com/dhannyell/dbox2d/internal/shared"
 )
 
 func init() {
@@ -126,7 +127,7 @@ func NewLargeWorld(ctx *SampleContext) Sample {
 		} else if remainder == 1 {
 			position := dbox2d.Vec2{X: xbase.Sub(dbox2d.QFromInt(2)), Y: dbox2d.QFromInt(10)}
 			for range 5 {
-				createHuman(s.WorldId, position, qs("1.5"), qs("0.05"), dbox2d.QZero(), dbox2d.QZero(), humanIndex+1, nil, false)
+				shared.CreateHuman(s.WorldId, position, qs("1.5"), qs("0.05"), dbox2d.QZero(), dbox2d.QZero(), humanIndex+1, nil, false)
 				humanIndex += 1
 				position.X = position.X.Add(dbox2d.QOne())
 			}

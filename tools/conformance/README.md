@@ -1,18 +1,28 @@
-# Conformance trace generator
+# Conformance traces
 
-This program generates version 1 collision-function and simulation-scene traces. It links to the frozen Box2D v3.1.1 source tree. The generated files are deterministic inputs for the Go conformance tests.
+This tool generates the frozen inputs used to compare `dbox2d` with the
+Box2D v3.1.1 reference. It covers collision functions and simulation scenes;
+the Go tests consume the generated files in `testdata/conformance/`.
 
-## Build
+Regenerate traces only when the reference source or the trace format changes.
+The reference checkout, compiler, flags, and exact commands are recorded in
+[`testdata/conformance/SOURCE.md`](../../testdata/conformance/SOURCE.md).
 
-The commands, compiler and flags that regenerate the traces are in `testdata/conformance/SOURCE.md`.
+## Build and regenerate
 
-The simulation uses one worker and no task callbacks. Each world starts from `b2DefaultWorldDef()`. The benchmark setup functions retain their own sleeping choices. The step size is `1.0f / 60.0f`, with four substeps.
+The generator creates `functions/` and `scenes/` below the output directory.
+Each function and scene starts with the same `RAND_SEED`. Scenes use one
+worker, no task callbacks, a `1.0f / 60.0f` step, and four substeps.
 
-## Regenerate
+Follow `SOURCE.md` for the reproducible build. In brief:
 
-The program creates `functions` and `scenes` below the output directory. It resets `g_randomSeed` to `RAND_SEED` before every function and scene.
+```sh
+cmake -S tools/conformance -B build/conformance -G Ninja -DCMAKE_BUILD_TYPE=Release -DBOX2D_SOURCE_DIR=D:/Workspace/dbox2d-ref
+cmake --build build/conformance
+./build/conformance/conformance.exe --out testdata/conformance
+```
 
-## Common format
+## Trace format
 
 Every file starts with this line:
 
@@ -20,7 +30,9 @@ Every file starts with this line:
 # dbox2d conformance trace v1 kind=<function|scene> name=<name> ref=0aa402e cc=<compiler> flags=<comma-separated-flags>
 ```
 
-Tokens use one ASCII space as the separator. Lines end with LF, including on Windows. Integers are decimal. Booleans are `0` or `1`. A float is the exact IEEE-754 binary32 bit pattern written as eight lowercase hexadecimal digits. The generator obtains the bits with `memcpy`.
+Tokens use one ASCII space as the separator. Lines end with LF, including on
+Windows. Integers are decimal, booleans are `0` or `1`, and floats are exact
+IEEE-754 binary32 bit patterns written as eight lowercase hexadecimal digits.
 
 ## Function traces
 

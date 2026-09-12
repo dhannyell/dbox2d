@@ -86,7 +86,7 @@ func prepareContactsTaskWide(startIndex, endIndex int, context *stepContext) {
 			if indexA != nullIndex {
 				stateA := &awakeStates[indexA]
 				vA = stateA.linearVelocity
-				wA = stateA.angularVelocity.Mul(tau)
+				wA = stateA.angularVelocity
 			}
 
 			vB := Vec2Zero()
@@ -96,7 +96,7 @@ func prepareContactsTaskWide(startIndex, endIndex int, context *stepContext) {
 			if indexB != nullIndex {
 				stateB := &awakeStates[indexB]
 				vB = stateB.linearVelocity
-				wB = stateB.angularVelocity.Mul(tau)
+				wB = stateB.angularVelocity
 			}
 
 			soft := contactSoftness
@@ -211,13 +211,11 @@ func prepareContactsTaskWide(startIndex, endIndex int, context *stepContext) {
 func warmStartContactsTaskWide(startIndex, endIndex int, context *stepContext, colorIndex int) {
 	states := context.states
 	constraints := context.graph.colors[colorIndex].contactConstraintsWide
-	tauW := laneSplat(tau)
-
 	for i := startIndex; i < endIndex; i++ {
 		constraint := &constraints[i]
 		var bodyA, bodyB bodyStateW
-		gatherBodyW(states, &constraint.indexA, tauW, &bodyA)
-		gatherBodyW(states, &constraint.indexB, tauW, &bodyB)
+		gatherBodyW(states, &constraint.indexA, &bodyA)
+		gatherBodyW(states, &constraint.indexB, &bodyB)
 		tangentX := constraint.normal.y
 		tangentY := constraint.normal.x.Neg()
 
@@ -255,8 +253,8 @@ func warmStartContactsTaskWide(startIndex, endIndex int, context *stepContext, c
 			bodyA.w = bodyA.w.SubBounded(constraint.invIA.Mul(constraint.rollingImpulse).toAcc())
 			bodyB.w = bodyB.w.AddBounded(constraint.invIB.Mul(constraint.rollingImpulse).toAcc())
 		}
-		scatterBodyW(states, &constraint.indexA, tauW, &bodyA)
-		scatterBodyW(states, &constraint.indexB, tauW, &bodyB)
+		scatterBodyW(states, &constraint.indexA, &bodyA)
+		scatterBodyW(states, &constraint.indexB, &bodyB)
 	}
 }
 
@@ -269,13 +267,11 @@ func solveContactsTaskWide(startIndex, endIndex int, context *stepContext, color
 	minBiasVelocity := laneSplat(context.world.contactSpeed).Neg()
 	zero := laneZero()
 	one := laneSplat(QOne())
-	tauW := laneSplat(tau)
-
 	for i := startIndex; i < endIndex; i++ {
 		constraint := &constraints[i]
 		var bodyA, bodyB bodyStateW
-		gatherBodyW(states, &constraint.indexA, tauW, &bodyA)
-		gatherBodyW(states, &constraint.indexB, tauW, &bodyB)
+		gatherBodyW(states, &constraint.indexA, &bodyA)
+		gatherBodyW(states, &constraint.indexB, &bodyB)
 
 		biasRate := zero
 		massScale := one
@@ -318,9 +314,9 @@ func solveContactsTaskWide(startIndex, endIndex int, context *stepContext, color
 			}
 			vn := dotW(vec2W{x: vrB.x.Sub(vrA.x), y: vrB.y.Sub(vrA.y)}, normal)
 
-			impulse := constraint.normalMass1.Neg().Mul(pointMassScale).Mul(vn.Add(velocityBias)).Sub(pointImpulseScale.Mul(constraint.normalImpulse1))
-			newImpulse := constraint.normalImpulse1.Add(impulse).Max(zero)
-			impulse = newImpulse.Sub(constraint.normalImpulse1)
+			negImpulse := constraint.normalMass1.Mul(pointMassScale.Mul(vn.Add(velocityBias))).Add(pointImpulseScale.Mul(constraint.normalImpulse1))
+			newImpulse := constraint.normalImpulse1.Sub(negImpulse).Max(zero)
+			impulse := newImpulse.Sub(constraint.normalImpulse1)
 			constraint.normalImpulse1 = newImpulse
 			constraint.totalNormalImpulse1 = constraint.totalNormalImpulse1.AddBounded(newImpulse.toAcc())
 			totalNormalImpulse = totalNormalImpulse.AddBounded(newImpulse.toAcc())
@@ -361,9 +357,9 @@ func solveContactsTaskWide(startIndex, endIndex int, context *stepContext, color
 			}
 			vn := dotW(vec2W{x: vrB.x.Sub(vrA.x), y: vrB.y.Sub(vrA.y)}, normal)
 
-			impulse := constraint.normalMass2.Neg().Mul(pointMassScale).Mul(vn.Add(velocityBias)).Sub(pointImpulseScale.Mul(constraint.normalImpulse2))
-			newImpulse := constraint.normalImpulse2.Add(impulse).Max(zero)
-			impulse = newImpulse.Sub(constraint.normalImpulse2)
+			negImpulse := constraint.normalMass2.Mul(pointMassScale.Mul(vn.Add(velocityBias))).Add(pointImpulseScale.Mul(constraint.normalImpulse2))
+			newImpulse := constraint.normalImpulse2.Sub(negImpulse).Max(zero)
+			impulse := newImpulse.Sub(constraint.normalImpulse2)
 			constraint.normalImpulse2 = newImpulse
 			constraint.totalNormalImpulse2 = constraint.totalNormalImpulse2.AddBounded(newImpulse.toAcc())
 			totalNormalImpulse = totalNormalImpulse.AddBounded(newImpulse.toAcc())
@@ -451,8 +447,8 @@ func solveContactsTaskWide(startIndex, endIndex int, context *stepContext, color
 			bodyB.w = bodyB.w.AddBounded(constraint.invIB.Mul(appliedLambda).toAcc())
 		}
 
-		scatterBodyW(states, &constraint.indexA, tauW, &bodyA)
-		scatterBodyW(states, &constraint.indexB, tauW, &bodyB)
+		scatterBodyW(states, &constraint.indexA, &bodyA)
+		scatterBodyW(states, &constraint.indexB, &bodyB)
 	}
 }
 
@@ -464,8 +460,6 @@ func applyRestitutionTaskWide(startIndex, endIndex int, context *stepContext, co
 	threshold := laneSplat(context.world.restitutionThreshold)
 	zero := laneZero()
 	one := laneSplat(QOne())
-	tauW := laneSplat(tau)
-
 	for i := startIndex; i < endIndex; i++ {
 		constraint := &constraints[i]
 		restitutionMask := constraint.restitution.Equals(zero)
@@ -488,8 +482,8 @@ func applyRestitutionTaskWide(startIndex, endIndex int, context *stepContext, co
 		}
 
 		var bodyA, bodyB bodyStateW
-		gatherBodyW(states, &constraint.indexA, tauW, &bodyA)
-		gatherBodyW(states, &constraint.indexB, tauW, &bodyB)
+		gatherBodyW(states, &constraint.indexA, &bodyA)
+		gatherBodyW(states, &constraint.indexB, &bodyB)
 		normal := constraint.normal
 
 		{
@@ -562,8 +556,8 @@ func applyRestitutionTaskWide(startIndex, endIndex int, context *stepContext, co
 			bodyB.w = bodyB.w.AddBounded(constraint.invIB.Mul(crossW(rB, p)).toAcc())
 		}
 
-		scatterBodyW(states, &indexA, tauW, &bodyA)
-		scatterBodyW(states, &indexB, tauW, &bodyB)
+		scatterBodyW(states, &indexA, &bodyA)
+		scatterBodyW(states, &indexB, &bodyB)
 	}
 }
 
@@ -662,6 +656,25 @@ type bodyStateW struct {
 
 // wideEnabled gates the whole wide contact family behind one switch.
 var wideEnabled = wideAvailable()
+
+// LanePath reports the contact-solver lane path of this build. The wide
+// family falls back to the scalar family on a CPU without the required
+// feature, so this reports the path the process actually runs, not the path
+// its build tags asked for.
+func LanePath() string {
+	if !wideEnabled {
+		return "scalar"
+	}
+	return widePath()
+}
+
+// LaneWidth reports the number of contacts one solver unit carries.
+func LaneWidth() int {
+	if !wideEnabled {
+		return 1
+	}
+	return wideWidth
+}
 
 // wideContactAllocations records steps that built non-empty wide scratch.
 var wideContactAllocations atomic.Uint64

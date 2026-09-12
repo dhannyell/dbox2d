@@ -18,7 +18,7 @@ func computePolygonCentroid(vertices []Vec2) Vec2 {
 	origin := vertices[0]
 
 	half := QHalf()
-	three := QFromInt(3)
+	third := makeRecip(QFromInt(3))
 
 	for i := 1; i < len(vertices)-1; i++ {
 		// Triangle edges
@@ -27,14 +27,14 @@ func computePolygonCentroid(vertices []Vec2) Vec2 {
 		a := half.Mul(Cross(e1, e2))
 
 		// Area weighted centroid
-		center = MulAdd(center, a.Div(three), e1.Add(e2))
+		center = MulAdd(center, third.scale(a), e1.Add(e2))
 		area = area.Add(a)
 	}
 
 	if !scalarEpsilon.Less(area) {
 		panic("dbox2d: a polygon centroid needs a positive area")
 	}
-	center = center.Div(area)
+	center = makeRecip(area).scaleVec(center)
 
 	// Restore offset
 	center = origin.Add(center)
@@ -295,7 +295,7 @@ func ComputePolygonMass(shape *Polygon, density Q) MassData {
 	zero := QZero()
 	half := QHalf()
 	quarter := QMustParse("0.25")
-	three := QFromInt(3)
+	third := makeRecip(QFromInt(3))
 
 	var vertices [MaxPolygonVertices]Vec2
 	count := shape.Count
@@ -340,7 +340,7 @@ func ComputePolygonMass(shape *Polygon, density Q) MassData {
 		area = area.Add(triangleArea)
 
 		// Area weighted centroid, r at origin
-		center = MulAdd(center, triangleArea.Div(three), e1.Add(e2))
+		center = MulAdd(center, third.scale(triangleArea), e1.Add(e2))
 
 		ex1, ey1 := e1.X, e1.Y
 		ex2, ey2 := e2.X, e2.Y
@@ -348,7 +348,7 @@ func ComputePolygonMass(shape *Polygon, density Q) MassData {
 		intx2 := ex1.Mul(ex1).Add(ex2.Mul(ex1)).Add(ex2.Mul(ex2))
 		inty2 := ey1.Mul(ey1).Add(ey2.Mul(ey1)).Add(ey2.Mul(ey2))
 
-		rotationalInertia = rotationalInertia.Add(quarter.Mul(d).Div(three).Mul(intx2.Add(inty2)))
+		rotationalInertia = rotationalInertia.Add(third.scale(quarter.Mul(d)).Mul(intx2.Add(inty2)))
 	}
 
 	massData := MassData{}
@@ -360,7 +360,7 @@ func ComputePolygonMass(shape *Polygon, density Q) MassData {
 	if !scalarEpsilon.Less(area) {
 		panic("dbox2d: ComputePolygonMass needs a positive area")
 	}
-	center = center.Div(area)
+	center = makeRecip(area).scaleVec(center)
 	massData.Center = r.Add(center)
 
 	// Inertia tensor relative to the local origin.
@@ -608,15 +608,16 @@ func RayCastCapsule(input *RayCastInput, shape *Capsule) CastOutput {
 		// Ray is parallel to capsule and outside infinite length capsule
 		return output
 	}
+	invDen := makeRecip(den)
 
 	b1 := MulSub(q, radius, n)
 	b2 := MulAdd(q, radius, n)
 
 	// Cramer's rule [a b1]
-	s21 := a.X.Mul(b1.Y).Sub(b1.X.Mul(a.Y)).Div(den)
+	s21 := invDen.scale(a.X.Mul(b1.Y).Sub(b1.X.Mul(a.Y)))
 
 	// Cramer's rule [a b2]
-	s22 := a.X.Mul(b2.Y).Sub(b2.X.Mul(a.Y)).Div(den)
+	s22 := invDen.scale(a.X.Mul(b2.Y).Sub(b2.X.Mul(a.Y)))
 
 	var s2 Q
 	var b Vec2
@@ -634,7 +635,7 @@ func RayCastCapsule(input *RayCastInput, shape *Capsule) CastOutput {
 	}
 
 	// Cramer's rule [b -u]
-	s1 := b.X.Neg().Mul(u.Y).Add(u.X.Mul(b.Y)).Div(den)
+	s1 := invDen.scale(b.X.Neg().Mul(u.Y).Add(u.X.Mul(b.Y)))
 
 	if s1.Less(zero) {
 		// ray passes behind capsule segment

@@ -107,8 +107,7 @@ func warmStartMouseJoint(base *jointSim, context *stepContext) {
 
 	stateB := &context.states[joint.indexB]
 	vB := stateB.linearVelocity
-	// D-004: the angular velocity of the state is turns per second.
-	wB := stateB.angularVelocity.Mul(tau)
+	wB := stateB.angularVelocity
 
 	dqB := stateB.deltaRotation
 	rB := RotateVector(dqB, joint.anchorB)
@@ -117,7 +116,7 @@ func warmStartMouseJoint(base *jointSim, context *stepContext) {
 	wB = wB.Add(iB.Mul(Cross(rB, joint.linearImpulse).Add(joint.angularImpulse)))
 
 	stateB.linearVelocity = vB
-	stateB.angularVelocity = wB.Div(tau)
+	stateB.angularVelocity = wB
 }
 
 // solveMouseJoint corresponds to b2SolveMouseJoint in src/mouse_joint.c.
@@ -130,7 +129,7 @@ func solveMouseJoint(base *jointSim, context *stepContext) {
 	stateB := &context.states[joint.indexB]
 
 	vB := stateB.linearVelocity
-	wB := stateB.angularVelocity.Mul(tau)
+	wB := stateB.angularVelocity
 
 	zero := QZero()
 
@@ -185,5 +184,5 @@ func solveMouseJoint(base *jointSim, context *stepContext) {
 	}
 
 	stateB.linearVelocity = vB
-	stateB.angularVelocity = wB.Div(tau)
+	stateB.angularVelocity = wB
 }

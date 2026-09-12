@@ -1,8 +1,6 @@
 // SPDX-FileCopyrightText: 2023 Erin Catto
 // SPDX-License-Identifier: MIT
-// Ported from samples/main.cpp (UpdateUI) of Box2D v3.1.1. microui has no
-// tabs, so the reference's "Controls" and "Samples" tabs become two
-// collapsible headers in the same window.
+// Ported from samples/main.cpp (UpdateUI) of Box2D v3.1.1.
 
 package app
 
@@ -48,13 +46,20 @@ func (a *App) checkboxes() []checkbox {
 }
 
 func (a *App) buildToolsWindow(entries []samples.Entry) {
+	// The reference sets the window's position and size every frame and
+	// passes NoMove, so it stays on the right edge through resizes. Setting
+	// the container's rect each frame does the same: a title-bar drag only
+	// lasts until the next frame.
 	rect := microui.NewRect(a.ctx.Camera.Width-toolsWidth-10, 10, toolsWidth, a.ctx.Camera.Height-20)
+	if cnt := a.mu.GetContainer("Tools"); cnt != nil {
+		cnt.Rect = rect
+	}
 	if a.mu.BeginWindowEx("Tools", rect, microui.MU_OPT_NORESIZE|microui.MU_OPT_NOCLOSE) == 0 {
 		return
 	}
 	defer a.mu.EndWindow()
 
-	if a.mu.Header("Controls") {
+	if a.mu.HeaderEx("Controls", microui.MU_OPT_EXPANDED) != 0 {
 		a.buildControls()
 	}
 	if a.mu.Header("Samples") {
@@ -66,13 +71,13 @@ func (a *App) buildControls() {
 	s := &a.ctx.Settings
 
 	subSteps := float32(s.SubStepCount)
-	a.mu.LayoutRow(2, []int{80, -1}, 0)
+	a.mu.LayoutRow(2, []int{labelWidth, -1}, 0)
 	a.mu.Label("Sub-steps")
 	a.mu.SliderEx(&subSteps, 1, 32, 1, "%.0f", microui.MU_OPT_ALIGNCENTER)
 	s.SubStepCount = int(subSteps + 0.5)
 
 	hertz := float32(s.Hertz)
-	a.mu.LayoutRow(2, []int{80, -1}, 0)
+	a.mu.LayoutRow(2, []int{labelWidth, -1}, 0)
 	a.mu.Label("Hertz")
 	a.mu.SliderEx(&hertz, 5, 240, 1, "%.0f hz", microui.MU_OPT_ALIGNCENTER)
 	s.Hertz = float64(hertz)
@@ -83,7 +88,7 @@ func (a *App) buildControls() {
 		a.mu.Label("Workers: 1 (wasm)")
 	} else {
 		workers := float32(s.WorkerCount)
-		a.mu.LayoutRow(2, []int{80, -1}, 0)
+		a.mu.LayoutRow(2, []int{labelWidth, -1}, 0)
 		a.mu.Label("Workers")
 		if a.mu.SliderEx(&workers, 1, float32(runtime.GOMAXPROCS(0)), 1, "%.0f", microui.MU_OPT_ALIGNCENTER) != 0 {
 			s.WorkerCount = int(workers)
