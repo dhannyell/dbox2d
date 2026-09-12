@@ -31,9 +31,6 @@ type Options struct {
 	Rotation func(radians float32) Rot
 }
 
-// floatMode reports whether this build is the float scalar mode.
-func floatMode() bool { return ScalarMode == "float" }
-
 // StepFn is the per-step hook of a scene, run before the world step with
 // the index of that step. Only rain and spinner have one.
 type StepFn func(step int)

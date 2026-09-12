@@ -265,11 +265,11 @@ jobs:
         with:
           go-version: ${{ matrix.go }}
           go-version-file: ${{ !matrix.go && 'samples/go.mod' || '' }}
-      # Vetting the whole module typechecks the command packages too, which
-      # the three named ones left out. cmd/web is js-only and cmd/native needs
-      # cgo, so each builds on the target that selects it.
+      # The native host needs cgo and the GLFW system libraries, which this
+      # runner does not carry, so the portable packages are named one by one.
       - name: Vet
-        run: go vet -tags "${{ matrix.tags }}" ./...
+        run: go vet -tags "${{ matrix.tags }}" . ./internal/app ./internal/draw
+      # cmd/web is the target pages.yml deploys, and it builds only on js/wasm.
       - name: Vet the web build
         run: go vet -tags "${{ matrix.tags }}" ./cmd/web
         env:
@@ -278,7 +278,7 @@ jobs:
           CGO_ENABLED: "0"
       # The module carries no tests of its own yet; this runs them once it does.
       - name: Test
-        run: go test -timeout 600s -tags "${{ matrix.tags }}" ./...
+        run: go test -timeout 600s -tags "${{ matrix.tags }}" . ./internal/app ./internal/draw
 
   race:
     name: race (amd64)

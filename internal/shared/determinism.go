@@ -62,8 +62,11 @@ func CreateFallingHinges(worldId WorldId, opts Options) []BodyId {
 			bodyDef := DefaultBodyDef()
 			bodyDef.Type = DynamicBody
 			bodyDef.Position = Vec2{X: x.Add(offset.Mul(QFromInt(i))), Y: half.Add(QFromInt(2).Mul(half).Mul(QFromInt(i)))}
-			// this tests the deterministic cosine and sine functions
-			bodyDef.Rotation = opts.Rotation(float32(0.1*float32(i) - 1))
+			// this tests the deterministic cosine and sine functions.
+			// The product is rounded on its own: arm64 fuses a multiply
+			// with the subtraction that follows, and the traces record
+			// the two roundings of the reference (D-019).
+			bodyDef.Rotation = opts.Rotation(float32(0.1*float32(i)) - 1)
 			bodyId := CreateBody(worldId, &bodyDef)
 			if i&1 == 0 {
 				previous = bodyId
