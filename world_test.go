@@ -464,7 +464,7 @@ func TestBodyMassComesFromItsShapes(t *testing.T) {
 		t.Fatalf("the welded capsule has type %d, want CircleShape", welded.shapeType)
 	}
 
-	wantCircle := ComputeCircleMass(&welded.circle, shapeDef.Density)
+	wantCircle := ComputeCircleMass(welded.circle(), shapeDef.Density)
 	wantTotal := wantBox.Mass.Add(wantCircle.Mass)
 	if !bodyId.GetMass().Eq(wantTotal) {
 		t.Errorf("mass with two shapes = %v, want %v", bodyId.GetMass(), wantTotal)

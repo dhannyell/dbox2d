@@ -1,5 +1,7 @@
 package dbox2d
 
+import "unsafe"
+
 // shape is the internal record of a shape on a body.
 type shape struct {
 	id          int
@@ -26,13 +28,10 @@ type shape struct {
 	userData    any
 	customColor uint32
 
-	// The reference overlays the five geometries in a union. Go has no
-	// union, so the shape carries all five; shapeType selects the live one.
-	capsule      Capsule
-	circle       Circle
-	polygon      Polygon
-	segment      Segment
-	chainSegment ChainSegment
+	// The reference overlays the five geometries in a union; shapeType
+	// selects the live one. The geometries share this storage through the
+	// typed accessors below, so a shape does not carry the four dead ones.
+	geometry shapeGeometry
 
 	// generation advances on each allocation of this slot, so a stale
 	// ShapeId fails validation.
@@ -44,6 +43,23 @@ type shape struct {
 	enablePreSolveEvents bool
 	enlargedAABB         bool
 }
+
+// shapeGeometry is the storage of the geometry union: the largest of the
+// five geometries, in 8-byte words so every field is aligned. None of the
+// geometries holds a pointer, so the garbage collector never looks inside.
+type shapeGeometry [(max(
+	unsafe.Sizeof(Capsule{}),
+	unsafe.Sizeof(Circle{}),
+	unsafe.Sizeof(Polygon{}),
+	unsafe.Sizeof(Segment{}),
+	unsafe.Sizeof(ChainSegment{}),
+) + 7) / 8]uint64
+
+func (s *shape) capsule() *Capsule           { return (*Capsule)(unsafe.Pointer(&s.geometry)) }
+func (s *shape) circle() *Circle             { return (*Circle)(unsafe.Pointer(&s.geometry)) }
+func (s *shape) polygon() *Polygon           { return (*Polygon)(unsafe.Pointer(&s.geometry)) }
+func (s *shape) segment() *Segment           { return (*Segment)(unsafe.Pointer(&s.geometry)) }
+func (s *shape) chainSegment() *ChainSegment { return (*ChainSegment)(unsafe.Pointer(&s.geometry)) }
 
 type chainShape struct {
 	id           int
@@ -105,15 +121,15 @@ func createShapeInternal(w *world, b *body, transform Transform, def *ShapeDef, 
 
 	switch shapeType {
 	case CapsuleShape:
-		s.capsule = *geometry.(*Capsule)
+		*s.capsule() = *geometry.(*Capsule)
 	case CircleShape:
-		s.circle = *geometry.(*Circle)
+		*s.circle() = *geometry.(*Circle)
 	case PolygonShape:
-		s.polygon = *geometry.(*Polygon)
+		*s.polygon() = *geometry.(*Polygon)
 	case SegmentShape:
-		s.segment = *geometry.(*Segment)
+		*s.segment() = *geometry.(*Segment)
 	case ChainSegmentShape:
-		s.chainSegment = *geometry.(*ChainSegment)
+		*s.chainSegment() = *geometry.(*ChainSegment)
 	default:
 		panic("dbox2d: unknown shape type")
 	}
@@ -512,15 +528,15 @@ func destroyShapeProxy(s *shape, bp *broadPhase) {
 func computeShapeAABB(s *shape, xf Transform) AABB {
 	switch s.shapeType {
 	case CapsuleShape:
-		return ComputeCapsuleAABB(&s.capsule, xf)
+		return ComputeCapsuleAABB(s.capsule(), xf)
 	case CircleShape:
-		return ComputeCircleAABB(&s.circle, xf)
+		return ComputeCircleAABB(s.circle(), xf)
 	case PolygonShape:
-		return ComputePolygonAABB(&s.polygon, xf)
+		return ComputePolygonAABB(s.polygon(), xf)
 	case SegmentShape:
-		return ComputeSegmentAABB(&s.segment, xf)
+		return ComputeSegmentAABB(s.segment(), xf)
 	case ChainSegmentShape:
-		return ComputeSegmentAABB(&s.chainSegment.Segment, xf)
+		return ComputeSegmentAABB(&s.chainSegment().Segment, xf)
 	default:
 		panic("dbox2d: unknown shape type")
 	}
@@ -530,15 +546,15 @@ func computeShapeAABB(s *shape, xf Transform) AABB {
 func getShapeCentroid(s *shape) Vec2 {
 	switch s.shapeType {
 	case CapsuleShape:
-		return Lerp(s.capsule.Center1, s.capsule.Center2, QHalf())
+		return Lerp(s.capsule().Center1, s.capsule().Center2, QHalf())
 	case CircleShape:
-		return s.circle.Center
+		return s.circle().Center
 	case PolygonShape:
-		return s.polygon.Centroid
+		return s.polygon().Centroid
 	case SegmentShape:
-		return Lerp(s.segment.Point1, s.segment.Point2, QHalf())
+		return Lerp(s.segment().Point1, s.segment().Point2, QHalf())
 	case ChainSegmentShape:
-		return Lerp(s.chainSegment.Segment.Point1, s.chainSegment.Segment.Point2, QHalf())
+		return Lerp(s.chainSegment().Segment.Point1, s.chainSegment().Segment.Point2, QHalf())
 	default:
 		return Vec2Zero()
 	}
@@ -549,11 +565,11 @@ func getShapeCentroid(s *shape) Vec2 {
 func getShapeRadius(s *shape) Q {
 	switch s.shapeType {
 	case CapsuleShape:
-		return s.capsule.Radius
+		return s.capsule().Radius
 	case CircleShape:
-		return s.circle.Radius
+		return s.circle().Radius
 	case PolygonShape:
-		return s.polygon.Radius
+		return s.polygon().Radius
 	default:
 		return QZero()
 	}
@@ -564,11 +580,11 @@ func getShapeRadius(s *shape) Q {
 func computeShapeMass(s *shape) MassData {
 	switch s.shapeType {
 	case CapsuleShape:
-		return ComputeCapsuleMass(&s.capsule, s.density)
+		return ComputeCapsuleMass(s.capsule(), s.density)
 	case CircleShape:
-		return ComputeCircleMass(&s.circle, s.density)
+		return ComputeCircleMass(s.circle(), s.density)
 	case PolygonShape:
-		return ComputePolygonMass(&s.polygon, s.density)
+		return ComputePolygonMass(s.polygon(), s.density)
 	default:
 		return MassData{}
 	}
@@ -581,19 +597,19 @@ func computeShapeExtent(s *shape, localCenter Vec2) shapeExtent {
 
 	switch s.shapeType {
 	case CapsuleShape:
-		radius := s.capsule.Radius
+		radius := s.capsule().Radius
 		extent.minExtent = radius
-		c1 := s.capsule.Center1.Sub(localCenter)
-		c2 := s.capsule.Center2.Sub(localCenter)
+		c1 := s.capsule().Center1.Sub(localCenter)
+		c2 := s.capsule().Center2.Sub(localCenter)
 		extent.maxExtent = c1.LenSq().Max(c2.LenSq()).Sqrt().Add(radius)
 
 	case CircleShape:
-		radius := s.circle.Radius
+		radius := s.circle().Radius
 		extent.minExtent = radius
-		extent.maxExtent = s.circle.Center.Sub(localCenter).Len().Add(radius)
+		extent.maxExtent = s.circle().Center.Sub(localCenter).Len().Add(radius)
 
 	case PolygonShape:
-		poly := &s.polygon
+		poly := s.polygon()
 		minExtent := Huge
 		maxExtentSqr := QZero()
 		for i := range poly.Count {
@@ -610,14 +626,14 @@ func computeShapeExtent(s *shape, localCenter Vec2) shapeExtent {
 
 	case SegmentShape:
 		extent.minExtent = QZero()
-		c1 := s.segment.Point1.Sub(localCenter)
-		c2 := s.segment.Point2.Sub(localCenter)
+		c1 := s.segment().Point1.Sub(localCenter)
+		c2 := s.segment().Point2.Sub(localCenter)
 		extent.maxExtent = c1.LenSq().Max(c2.LenSq()).Sqrt()
 
 	case ChainSegmentShape:
 		extent.minExtent = QZero()
-		c1 := s.chainSegment.Segment.Point1.Sub(localCenter)
-		c2 := s.chainSegment.Segment.Point2.Sub(localCenter)
+		c1 := s.chainSegment().Segment.Point1.Sub(localCenter)
+		c2 := s.chainSegment().Segment.Point2.Sub(localCenter)
 		extent.maxExtent = c1.LenSq().Max(c2.LenSq()).Sqrt()
 	}
 
@@ -629,15 +645,15 @@ func computeShapeExtent(s *shape, localCenter Vec2) shapeExtent {
 func getShapeProjectedPerimeter(s *shape, line Vec2) Q {
 	switch s.shapeType {
 	case CapsuleShape:
-		axis := s.capsule.Center2.Sub(s.capsule.Center1)
+		axis := s.capsule().Center2.Sub(s.capsule().Center1)
 		projectedLength := axis.Dot(line).Abs()
-		return projectedLength.Add(s.capsule.Radius.Add(s.capsule.Radius))
+		return projectedLength.Add(s.capsule().Radius.Add(s.capsule().Radius))
 
 	case CircleShape:
-		return s.circle.Radius.Add(s.circle.Radius)
+		return s.circle().Radius.Add(s.circle().Radius)
 
 	case PolygonShape:
-		poly := &s.polygon
+		poly := s.polygon()
 		value := poly.Vertices[0].Dot(line)
 		lower := value
 		upper := value
@@ -649,13 +665,13 @@ func getShapeProjectedPerimeter(s *shape, line Vec2) Q {
 		return upper.Sub(lower).Add(poly.Radius.Add(poly.Radius))
 
 	case SegmentShape:
-		value1 := s.segment.Point1.Dot(line)
-		value2 := s.segment.Point2.Dot(line)
+		value1 := s.segment().Point1.Dot(line)
+		value2 := s.segment().Point2.Dot(line)
 		return value2.Sub(value1).Abs()
 
 	case ChainSegmentShape:
-		value1 := s.chainSegment.Segment.Point1.Dot(line)
-		value2 := s.chainSegment.Segment.Point2.Dot(line)
+		value1 := s.chainSegment().Segment.Point1.Dot(line)
+		value2 := s.chainSegment().Segment.Point2.Dot(line)
 		return value2.Sub(value1).Abs()
 
 	default:
@@ -695,15 +711,15 @@ func rayCastShape(input *RayCastInput, s *shape, transform Transform) CastOutput
 	var output CastOutput
 	switch s.shapeType {
 	case CapsuleShape:
-		output = RayCastCapsule(&localInput, &s.capsule)
+		output = RayCastCapsule(&localInput, s.capsule())
 	case CircleShape:
-		output = RayCastCircle(&localInput, &s.circle)
+		output = RayCastCircle(&localInput, s.circle())
 	case PolygonShape:
-		output = RayCastPolygon(&localInput, &s.polygon)
+		output = RayCastPolygon(&localInput, s.polygon())
 	case SegmentShape:
-		output = RayCastSegment(&localInput, &s.segment, false)
+		output = RayCastSegment(&localInput, s.segment(), false)
 	case ChainSegmentShape:
-		output = RayCastSegment(&localInput, &s.chainSegment.Segment, true)
+		output = RayCastSegment(&localInput, &s.chainSegment().Segment, true)
 	default:
 		return output
 	}
@@ -727,15 +743,15 @@ func shapeCastShape(input *ShapeCastInput, s *shape, transform Transform) CastOu
 	var output CastOutput
 	switch s.shapeType {
 	case CapsuleShape:
-		output = ShapeCastCapsule(&localInput, &s.capsule)
+		output = ShapeCastCapsule(&localInput, s.capsule())
 	case CircleShape:
-		output = ShapeCastCircle(&localInput, &s.circle)
+		output = ShapeCastCircle(&localInput, s.circle())
 	case PolygonShape:
-		output = ShapeCastPolygon(&localInput, &s.polygon)
+		output = ShapeCastPolygon(&localInput, s.polygon())
 	case SegmentShape:
-		output = ShapeCastSegment(&localInput, &s.segment)
+		output = ShapeCastSegment(&localInput, s.segment())
 	case ChainSegmentShape:
-		output = ShapeCastSegment(&localInput, &s.chainSegment.Segment)
+		output = ShapeCastSegment(&localInput, &s.chainSegment().Segment)
 	default:
 		return output
 	}
@@ -758,15 +774,15 @@ func collideMover(mover *Capsule, s *shape, transform Transform) PlaneResult {
 	var result PlaneResult
 	switch s.shapeType {
 	case CapsuleShape:
-		result = CollideMoverAndCapsule(&localMover, &s.capsule)
+		result = CollideMoverAndCapsule(&localMover, s.capsule())
 	case CircleShape:
-		result = CollideMoverAndCircle(&localMover, &s.circle)
+		result = CollideMoverAndCircle(&localMover, s.circle())
 	case PolygonShape:
-		result = CollideMoverAndPolygon(&localMover, &s.polygon)
+		result = CollideMoverAndPolygon(&localMover, s.polygon())
 	case SegmentShape:
-		result = CollideMoverAndSegment(&localMover, &s.segment)
+		result = CollideMoverAndSegment(&localMover, s.segment())
 	case ChainSegmentShape:
-		result = CollideMoverAndSegment(&localMover, &s.chainSegment.Segment)
+		result = CollideMoverAndSegment(&localMover, &s.chainSegment().Segment)
 	default:
 		return result
 	}
@@ -785,15 +801,15 @@ func collideMover(mover *Capsule, s *shape, transform Transform) PlaneResult {
 func makeShapeDistanceProxy(s *shape) ShapeProxy {
 	switch s.shapeType {
 	case CapsuleShape:
-		return MakeProxy([]Vec2{s.capsule.Center1, s.capsule.Center2}, s.capsule.Radius)
+		return MakeProxy([]Vec2{s.capsule().Center1, s.capsule().Center2}, s.capsule().Radius)
 	case CircleShape:
-		return MakeProxy([]Vec2{s.circle.Center}, s.circle.Radius)
+		return MakeProxy([]Vec2{s.circle().Center}, s.circle().Radius)
 	case PolygonShape:
-		return MakeProxy(s.polygon.Vertices[:s.polygon.Count], s.polygon.Radius)
+		return MakeProxy(s.polygon().Vertices[:s.polygon().Count], s.polygon().Radius)
 	case SegmentShape:
-		return MakeProxy([]Vec2{s.segment.Point1, s.segment.Point2}, QZero())
+		return MakeProxy([]Vec2{s.segment().Point1, s.segment().Point2}, QZero())
 	case ChainSegmentShape:
-		return MakeProxy([]Vec2{s.chainSegment.Segment.Point1, s.chainSegment.Segment.Point2}, QZero())
+		return MakeProxy([]Vec2{s.chainSegment().Segment.Point1, s.chainSegment().Segment.Point2}, QZero())
 	default:
 		panic("dbox2d: unknown shape type")
 	}
@@ -1026,13 +1042,13 @@ func (shapeId ShapeId) TestPoint(point Vec2) bool {
 
 	switch s.shapeType {
 	case CapsuleShape:
-		return PointInCapsule(localPoint, &s.capsule)
+		return PointInCapsule(localPoint, s.capsule())
 	case CircleShape:
-		return PointInCircle(localPoint, &s.circle)
+		return PointInCircle(localPoint, s.circle())
 	case PolygonShape:
 		zero := QZero()
 		input := DistanceInput{
-			ProxyA:     MakeProxy(s.polygon.Vertices[:s.polygon.Count], zero),
+			ProxyA:     MakeProxy(s.polygon().Vertices[:s.polygon().Count], zero),
 			ProxyB:     MakeProxy([]Vec2{localPoint}, zero),
 			TransformA: TransformIdentity(),
 			TransformB: TransformIdentity(),
@@ -1040,7 +1056,7 @@ func (shapeId ShapeId) TestPoint(point Vec2) bool {
 		}
 		cache := SimplexCache{}
 		output := ShapeDistance(&input, &cache, nil)
-		return !s.polygon.Radius.Less(output.Distance)
+		return !s.polygon().Radius.Less(output.Distance)
 	default:
 		return false
 	}
@@ -1291,7 +1307,7 @@ func (shapeId ShapeId) GetCircle() Circle {
 	if s.shapeType != CircleShape {
 		panic("dbox2d: shape is not a circle")
 	}
-	return s.circle
+	return *s.circle()
 }
 
 // GetSegment returns the segment geometry. It corresponds to
@@ -1302,7 +1318,7 @@ func (shapeId ShapeId) GetSegment() Segment {
 	if s.shapeType != SegmentShape {
 		panic("dbox2d: shape is not a segment")
 	}
-	return s.segment
+	return *s.segment()
 }
 
 // GetChainSegment returns the chain segment geometry. It corresponds to
@@ -1313,7 +1329,7 @@ func (shapeId ShapeId) GetChainSegment() ChainSegment {
 	if s.shapeType != ChainSegmentShape {
 		panic("dbox2d: shape is not a chain segment")
 	}
-	return s.chainSegment
+	return *s.chainSegment()
 }
 
 // GetCapsule returns the capsule geometry. It corresponds to
@@ -1324,7 +1340,7 @@ func (shapeId ShapeId) GetCapsule() Capsule {
 	if s.shapeType != CapsuleShape {
 		panic("dbox2d: shape is not a capsule")
 	}
-	return s.capsule
+	return *s.capsule()
 }
 
 // GetPolygon returns the polygon geometry. It corresponds to
@@ -1335,7 +1351,7 @@ func (shapeId ShapeId) GetPolygon() Polygon {
 	if s.shapeType != PolygonShape {
 		panic("dbox2d: shape is not a polygon")
 	}
-	return s.polygon
+	return *s.polygon()
 }
 
 // SetCircle replaces the shape geometry with a circle. It corresponds to
@@ -1343,7 +1359,7 @@ func (shapeId ShapeId) GetPolygon() Polygon {
 func (shapeId ShapeId) SetCircle(circle *Circle) {
 	w := getWorldLocked(shapeId.world0)
 	s := getShape(w, shapeId)
-	s.circle = *circle
+	*s.circle() = *circle
 	s.shapeType = CircleShape
 	resetProxy(w, s, true, true)
 }
@@ -1353,7 +1369,7 @@ func (shapeId ShapeId) SetCircle(circle *Circle) {
 func (shapeId ShapeId) SetCapsule(capsule *Capsule) {
 	w := getWorldLocked(shapeId.world0)
 	s := getShape(w, shapeId)
-	s.capsule = *capsule
+	*s.capsule() = *capsule
 	s.shapeType = CapsuleShape
 	resetProxy(w, s, true, true)
 }
@@ -1363,7 +1379,7 @@ func (shapeId ShapeId) SetCapsule(capsule *Capsule) {
 func (shapeId ShapeId) SetSegment(segment *Segment) {
 	w := getWorldLocked(shapeId.world0)
 	s := getShape(w, shapeId)
-	s.segment = *segment
+	*s.segment() = *segment
 	s.shapeType = SegmentShape
 	resetProxy(w, s, true, true)
 }
@@ -1373,7 +1389,7 @@ func (shapeId ShapeId) SetSegment(segment *Segment) {
 func (shapeId ShapeId) SetPolygon(polygon *Polygon) {
 	w := getWorldLocked(shapeId.world0)
 	s := getShape(w, shapeId)
-	s.polygon = *polygon
+	*s.polygon() = *polygon
 	s.shapeType = PolygonShape
 	resetProxy(w, s, true, true)
 }

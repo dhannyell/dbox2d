@@ -50,28 +50,28 @@ func checksumAABB(h uint64, value AABB) uint64 {
 func checksumShapeGeometry(h uint64, s *shape) uint64 {
 	switch s.shapeType {
 	case CapsuleShape:
-		h = checksumVec2(h, s.capsule.Center1)
-		h = checksumVec2(h, s.capsule.Center2)
-		return checksumQ(h, s.capsule.Radius)
+		h = checksumVec2(h, s.capsule().Center1)
+		h = checksumVec2(h, s.capsule().Center2)
+		return checksumQ(h, s.capsule().Radius)
 	case CircleShape:
-		h = checksumVec2(h, s.circle.Center)
-		return checksumQ(h, s.circle.Radius)
+		h = checksumVec2(h, s.circle().Center)
+		return checksumQ(h, s.circle().Radius)
 	case PolygonShape:
-		h = fnvFold(h, uint64(s.polygon.Count))
-		for i := range s.polygon.Count {
-			h = checksumVec2(h, s.polygon.Vertices[i])
-			h = checksumVec2(h, s.polygon.Normals[i])
+		h = fnvFold(h, uint64(s.polygon().Count))
+		for i := range s.polygon().Count {
+			h = checksumVec2(h, s.polygon().Vertices[i])
+			h = checksumVec2(h, s.polygon().Normals[i])
 		}
-		h = checksumVec2(h, s.polygon.Centroid)
-		return checksumQ(h, s.polygon.Radius)
+		h = checksumVec2(h, s.polygon().Centroid)
+		return checksumQ(h, s.polygon().Radius)
 	case SegmentShape:
-		h = checksumVec2(h, s.segment.Point1)
-		return checksumVec2(h, s.segment.Point2)
+		h = checksumVec2(h, s.segment().Point1)
+		return checksumVec2(h, s.segment().Point2)
 	case ChainSegmentShape:
-		h = checksumVec2(h, s.chainSegment.Ghost1)
-		h = checksumVec2(h, s.chainSegment.Segment.Point1)
-		h = checksumVec2(h, s.chainSegment.Segment.Point2)
-		return checksumVec2(h, s.chainSegment.Ghost2)
+		h = checksumVec2(h, s.chainSegment().Ghost1)
+		h = checksumVec2(h, s.chainSegment().Segment.Point1)
+		h = checksumVec2(h, s.chainSegment().Segment.Point2)
+		return checksumVec2(h, s.chainSegment().Ghost2)
 	default:
 		panic("dbox2d: unknown shape type")
 	}

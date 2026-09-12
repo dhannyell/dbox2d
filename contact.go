@@ -126,53 +126,53 @@ type contactRegister struct {
 var contactRegisters [ShapeTypeCount][ShapeTypeCount]contactRegister
 
 func circleManifold(manifold *Manifold, shapeA *shape, xfA Transform, shapeB *shape, xfB Transform, _ *SimplexCache) {
-	*manifold = CollideCircles(&shapeA.circle, xfA, &shapeB.circle, xfB)
+	*manifold = CollideCircles(shapeA.circle(), xfA, shapeB.circle(), xfB)
 }
 
 func capsuleAndCircleManifold(manifold *Manifold, shapeA *shape, xfA Transform, shapeB *shape, xfB Transform, _ *SimplexCache) {
-	*manifold = CollideCapsuleAndCircle(&shapeA.capsule, xfA, &shapeB.circle, xfB)
+	*manifold = CollideCapsuleAndCircle(shapeA.capsule(), xfA, shapeB.circle(), xfB)
 }
 
 func capsuleManifold(manifold *Manifold, shapeA *shape, xfA Transform, shapeB *shape, xfB Transform, _ *SimplexCache) {
-	*manifold = CollideCapsules(&shapeA.capsule, xfA, &shapeB.capsule, xfB)
+	*manifold = CollideCapsules(shapeA.capsule(), xfA, shapeB.capsule(), xfB)
 }
 
 func polygonAndCircleManifold(manifold *Manifold, shapeA *shape, xfA Transform, shapeB *shape, xfB Transform, _ *SimplexCache) {
-	*manifold = CollidePolygonAndCircle(&shapeA.polygon, xfA, &shapeB.circle, xfB)
+	*manifold = CollidePolygonAndCircle(shapeA.polygon(), xfA, shapeB.circle(), xfB)
 }
 
 func polygonAndCapsuleManifold(manifold *Manifold, shapeA *shape, xfA Transform, shapeB *shape, xfB Transform, _ *SimplexCache) {
-	polyB := makeCapsule(shapeB.capsule.Center1, shapeB.capsule.Center2, shapeB.capsule.Radius)
-	collidePolygonsInto(manifold, &shapeA.polygon, xfA, &polyB, xfB)
+	polyB := makeCapsule(shapeB.capsule().Center1, shapeB.capsule().Center2, shapeB.capsule().Radius)
+	collidePolygonsInto(manifold, shapeA.polygon(), xfA, &polyB, xfB)
 }
 
 func polygonManifold(manifold *Manifold, shapeA *shape, xfA Transform, shapeB *shape, xfB Transform, _ *SimplexCache) {
-	collidePolygonsInto(manifold, &shapeA.polygon, xfA, &shapeB.polygon, xfB)
+	collidePolygonsInto(manifold, shapeA.polygon(), xfA, shapeB.polygon(), xfB)
 }
 
 func segmentAndCircleManifold(manifold *Manifold, shapeA *shape, xfA Transform, shapeB *shape, xfB Transform, _ *SimplexCache) {
-	*manifold = CollideSegmentAndCircle(&shapeA.segment, xfA, &shapeB.circle, xfB)
+	*manifold = CollideSegmentAndCircle(shapeA.segment(), xfA, shapeB.circle(), xfB)
 }
 
 func segmentAndCapsuleManifold(manifold *Manifold, shapeA *shape, xfA Transform, shapeB *shape, xfB Transform, _ *SimplexCache) {
-	*manifold = CollideSegmentAndCapsule(&shapeA.segment, xfA, &shapeB.capsule, xfB)
+	*manifold = CollideSegmentAndCapsule(shapeA.segment(), xfA, shapeB.capsule(), xfB)
 }
 
 func segmentAndPolygonManifold(manifold *Manifold, shapeA *shape, xfA Transform, shapeB *shape, xfB Transform, _ *SimplexCache) {
-	polygonA := makeCapsule(shapeA.segment.Point1, shapeA.segment.Point2, QZero())
-	collidePolygonsInto(manifold, &polygonA, xfA, &shapeB.polygon, xfB)
+	polygonA := makeCapsule(shapeA.segment().Point1, shapeA.segment().Point2, QZero())
+	collidePolygonsInto(manifold, &polygonA, xfA, shapeB.polygon(), xfB)
 }
 
 func chainSegmentAndCircleManifold(manifold *Manifold, shapeA *shape, xfA Transform, shapeB *shape, xfB Transform, _ *SimplexCache) {
-	*manifold = CollideChainSegmentAndCircle(&shapeA.chainSegment, xfA, &shapeB.circle, xfB)
+	*manifold = CollideChainSegmentAndCircle(shapeA.chainSegment(), xfA, shapeB.circle(), xfB)
 }
 
 func chainSegmentAndCapsuleManifold(manifold *Manifold, shapeA *shape, xfA Transform, shapeB *shape, xfB Transform, cache *SimplexCache) {
-	*manifold = CollideChainSegmentAndCapsule(&shapeA.chainSegment, xfA, &shapeB.capsule, xfB, cache)
+	*manifold = CollideChainSegmentAndCapsule(shapeA.chainSegment(), xfA, shapeB.capsule(), xfB, cache)
 }
 
 func chainSegmentAndPolygonManifold(manifold *Manifold, shapeA *shape, xfA Transform, shapeB *shape, xfB Transform, cache *SimplexCache) {
-	*manifold = CollideChainSegmentAndPolygon(&shapeA.chainSegment, xfA, &shapeB.polygon, xfB, cache)
+	*manifold = CollideChainSegmentAndPolygon(shapeA.chainSegment(), xfA, shapeB.polygon(), xfB, cache)
 }
 
 // addType registers a collide function for a type pair, in both orders.

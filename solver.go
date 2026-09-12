@@ -517,8 +517,8 @@ func (ctx *continuousContext) queryCallback(_ int, userData uint64) bool {
 	// Prevent pausing on chain segment junctions
 	if s.shapeType == ChainSegmentShape {
 		transform := sim.transform
-		p1 := TransformPoint(transform, s.chainSegment.Segment.Point1)
-		p2 := TransformPoint(transform, s.chainSegment.Segment.Point2)
+		p1 := TransformPoint(transform, s.chainSegment().Segment.Point1)
+		p2 := TransformPoint(transform, s.chainSegment().Segment.Point2)
 		e := p2.Sub(p1)
 		var length Q
 		length, e = GetLengthAndNormalize(e)

@@ -1699,16 +1699,16 @@ func (worldId WorldId) Explode(def *ExplosionDef) {
 func drawShape(draw *DebugDraw, shape *shape, transform Transform, color HexColor) {
 	switch shape.shapeType {
 	case CapsuleShape:
-		draw.DrawSolidCapsule(TransformPoint(transform, shape.capsule.Center1), TransformPoint(transform, shape.capsule.Center2), shape.capsule.Radius, color)
+		draw.DrawSolidCapsule(TransformPoint(transform, shape.capsule().Center1), TransformPoint(transform, shape.capsule().Center2), shape.capsule().Radius, color)
 	case CircleShape:
-		transform.P = TransformPoint(transform, shape.circle.Center)
-		draw.DrawSolidCircle(transform, shape.circle.Radius, color)
+		transform.P = TransformPoint(transform, shape.circle().Center)
+		draw.DrawSolidCircle(transform, shape.circle().Radius, color)
 	case PolygonShape:
-		draw.DrawSolidPolygon(transform, shape.polygon.Vertices[:shape.polygon.Count], shape.polygon.Radius, color)
+		draw.DrawSolidPolygon(transform, shape.polygon().Vertices[:shape.polygon().Count], shape.polygon().Radius, color)
 	case SegmentShape:
-		draw.DrawSegment(TransformPoint(transform, shape.segment.Point1), TransformPoint(transform, shape.segment.Point2), color)
+		draw.DrawSegment(TransformPoint(transform, shape.segment().Point1), TransformPoint(transform, shape.segment().Point2), color)
 	case ChainSegmentShape:
-		segment := shape.chainSegment.Segment
+		segment := shape.chainSegment().Segment
 		p1 := TransformPoint(transform, segment.Point1)
 		p2 := TransformPoint(transform, segment.Point2)
 		draw.DrawSegment(p1, p2, color)
