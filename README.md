@@ -250,15 +250,15 @@ minima, and each figure is a geometric mean over the seven scenes.
 
 | Workers | Port over reference | With PGO | Reference speedup | Port speedup | Reference efficiency | Port efficiency |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1 | 1.39x | 1.34x | 1.00x | 1.00x | 100% | 100% |
-| 2 | 1.34x | 1.27x | 1.74x | 1.82x | 87% | 91% |
-| 4 | 1.29x | 1.23x | 2.80x | 3.03x | 70% | 76% |
-| 8 | 1.35x | 1.36x | 4.00x | 4.13x | 50% | 52% |
+| 1 | 1.35x | 1.30x | 1.00x | 1.00x | 100% | 100% |
+| 2 | 1.29x | 1.26x | 1.73x | 1.82x | 87% | 91% |
+| 4 | 1.24x | 1.20x | 2.78x | 3.03x | 70% | 76% |
+| 8 | 1.29x | 1.24x | 3.99x | 4.18x | 50% | 52% |
 
 The port scales slightly better than the reference at every worker count,
 so the gap is single-thread work rather than the executor. The per-scene
-ratios at one worker run 1.36x to 1.44x; at eight they run 1.30x to 1.55x,
-with `many_pyramids` the outlier inside a noisy band.
+ratios at one worker run 1.21x to 1.44x; at eight they run 1.19x to 1.39x,
+with `many_pyramids` the slowest scene on both counts.
 
 The port also lands on the same result bits at every worker count, in all
 seven scenes. The reference does so in six; its `rain` hash changes with the

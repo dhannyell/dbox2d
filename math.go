@@ -265,7 +265,12 @@ func RotGetYAxis(q Rot) Vec2 {
 //	s(q + r) = qs * rc + qc * rs
 //	c(q + r) = qc * rc - qs * rs
 func MulRot(q, r Rot) Rot {
-	return q.Mul(r)
+	// Written out rather than delegated to Rot.Mul: the extra call keeps
+	// it just over the inlining budget.
+	return Rot{
+		Sin: q.Sin.Mul(r.Cos).Add(q.Cos.Mul(r.Sin)),
+		Cos: q.Cos.Mul(r.Cos).Sub(q.Sin.Mul(r.Sin)),
+	}
 }
 
 // InvMulRot returns the rotation transpose(q) * r.
@@ -298,7 +303,13 @@ func UnwindAngle(t Q) Q {
 
 // RotateVector rotates v by q.
 func RotateVector(q Rot, v Vec2) Vec2 {
-	return q.Apply(v)
+	// Written out rather than delegated to Rot.Apply: the extra call keeps
+	// it just over the inlining budget, and this is the hottest helper of
+	// the joint solver.
+	return Vec2{
+		X: q.Cos.Mul(v.X).Sub(q.Sin.Mul(v.Y)),
+		Y: q.Sin.Mul(v.X).Add(q.Cos.Mul(v.Y)),
+	}
 }
 
 // InvRotateVector rotates v by the inverse of q.
