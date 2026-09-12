@@ -3,6 +3,7 @@ package dbox2d
 import (
 	"flag"
 	"runtime"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -388,5 +389,62 @@ func TestParallelForDoesNotAllocate(t *testing.T) {
 		e.runContextWithSide(noopExecutorWorker, noopExecutorSide, nil)
 	}); got != 0 {
 		t.Fatalf("runContextWithSide allocated %f times per run", got)
+	}
+}
+
+func TestWorkerPanicReachesTheCaller(t *testing.T) {
+	stepInParallel(t)
+	def := DefaultWorldDef()
+	def.WorkerCount = 4
+	def.EnableSleep = false
+	worldId := CreateWorld(&def)
+	defer DestroyWorld(worldId)
+	buildPyramid(worldId, 20)
+
+	w := getWorldFromId(worldId)
+	for i := range w.shapes {
+		w.shapes[i].enablePreSolveEvents = true
+	}
+	dt := QOne().Div(QFromInt(60))
+	worldId.Step(dt, 4)
+
+	var panicked atomic.Int32
+	worldId.SetPreSolveCallback(func(shapeIdA, shapeIdB ShapeId, manifold *Manifold) bool {
+		panicked.Add(1)
+		panic("boom in PreSolve")
+	})
+
+	caught := func() (value any) {
+		defer func() { value = recover() }()
+		worldId.Step(dt, 4)
+		return nil
+	}()
+	if panicked.Load() == 0 {
+		t.Fatal("the callback never ran")
+	}
+	if caught == nil {
+		t.Fatal("Step did not panic")
+	}
+	wp, ok := caught.(*WorkerPanic)
+	if !ok {
+		t.Fatalf("caught %T %v, want *WorkerPanic", caught, caught)
+	}
+	if wp.Value != "boom in PreSolve" || len(wp.Stack) == 0 {
+		t.Fatalf("WorkerPanic = %d %v stack=%d", wp.WorkerIndex, wp.Value, len(wp.Stack))
+	}
+	if !strings.Contains(wp.Error(), "boom in PreSolve") {
+		t.Fatalf("Error() = %q", wp.Error())
+	}
+	if pending := w.executor.pending.Load(); pending != 0 {
+		t.Fatalf("pending = %d after the panic", pending)
+	}
+
+	next := func() (value any) {
+		defer func() { value = recover() }()
+		worldId.Step(dt, 4)
+		return nil
+	}()
+	if s, _ := next.(string); s != "dbox2d: the world is locked" {
+		t.Fatalf("second Step: got %v, want the locked panic", next)
 	}
 }

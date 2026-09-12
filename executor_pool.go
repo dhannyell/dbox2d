@@ -1,7 +1,9 @@
 package dbox2d
 
 import (
+	"fmt"
 	"runtime"
+	"runtime/debug"
 	"sync"
 	"sync/atomic"
 )
@@ -72,6 +74,27 @@ type executor struct {
 	wake [maxWorkers]chan struct{}
 
 	workers sync.WaitGroup
+
+	// failure holds the first panic of a parallel command. A world
+	// whose step failed stays locked, which rejects the next Step.
+	failure atomic.Pointer[WorkerPanic]
+}
+
+// WorkerIndex 0 is the goroutine that called Step.
+// A serial step panics with the original value instead.
+type WorkerPanic struct {
+	WorkerIndex int
+	Value       any
+	Stack       []byte
+}
+
+func (p *WorkerPanic) Error() string {
+	return fmt.Sprintf("dbox2d: worker %d panicked: %v\n%s", p.WorkerIndex, p.Value, p.Stack)
+}
+
+func (p *WorkerPanic) Unwrap() error {
+	err, _ := p.Value.(error)
+	return err
 }
 
 // effectiveWorkerCount resolves the WorkerCount of a WorldDef: 0 is the
@@ -138,11 +161,50 @@ func (e *executor) publish() {
 }
 
 // await spins until every worker finished the command, yielding only after
-// a bounded spin so a late worker can get a core.
+// a bounded spin so a late worker can get a core. A panic caught on a
+// worker is raised here, on the caller.
 func (e *executor) await() {
 	var s spinner
 	for e.pending.Load() != 0 {
 		s.spin()
+	}
+	if failure := e.failure.Load(); failure != nil {
+		panic(failure)
+	}
+}
+
+// runCaller runs the share of worker 0 and catches its panic, so the
+// caller still waits for the other workers before it raises.
+func (e *executor) runCaller(fn func()) {
+	defer func() {
+		if value := recover(); value != nil {
+			e.failure.CompareAndSwap(nil, &WorkerPanic{WorkerIndex: 0, Value: value, Stack: debug.Stack()})
+		}
+	}()
+	fn()
+}
+
+// runCommand runs the share of one worker and catches its panic, so the
+// worker can still report the command as finished and the pool stays
+// consistent for stop. The first failure wins.
+func (e *executor) runCommand(workerIndex int, command *executorCommand) {
+	defer func() {
+		if value := recover(); value != nil {
+			e.failure.CompareAndSwap(nil, &WorkerPanic{WorkerIndex: workerIndex, Value: value, Stack: debug.Stack()})
+		}
+	}()
+	switch {
+	case command.fn != nil:
+		if workerIndex < command.rangeCount {
+			startIndex := workerIndex * command.rangeSize
+			endIndex := min(startIndex+command.rangeSize, command.itemCount)
+			command.fn(startIndex, endIndex, workerIndex, command.context)
+		}
+	case command.runContextFn != nil:
+		if command.sideFn != nil && workerIndex == e.workerCount-1 {
+			command.sideFn(command.context)
+		}
+		command.runContextFn(workerIndex, command.context)
 	}
 }
 
@@ -161,21 +223,10 @@ func (e *executor) worker(workerIndex int, seen uint32) {
 		seen = e.generation.Load()
 
 		command := &e.command
-		switch {
-		case command.fn != nil:
-			if workerIndex < command.rangeCount {
-				startIndex := workerIndex * command.rangeSize
-				endIndex := min(startIndex+command.rangeSize, command.itemCount)
-				command.fn(startIndex, endIndex, workerIndex, command.context)
-			}
-		case command.runContextFn != nil:
-			if command.sideFn != nil && workerIndex == e.workerCount-1 {
-				command.sideFn(command.context)
-			}
-			command.runContextFn(workerIndex, command.context)
-		default:
+		if command.fn == nil && command.runContextFn == nil {
 			return
 		}
+		e.runCommand(workerIndex, command)
 		e.pending.Add(-1)
 	}
 }
@@ -200,7 +251,7 @@ func (e *executor) parallelFor(itemCount, minRange int, fn taskFunc, context *st
 	e.command = executorCommand{fn: fn, context: context, rangeCount: rangeCount, rangeSize: rangeSize, itemCount: itemCount}
 	e.publish()
 
-	fn(0, min(rangeSize, itemCount), 0, context)
+	e.runCaller(func() { fn(0, min(rangeSize, itemCount), 0, context) })
 	e.await()
 }
 
@@ -225,6 +276,6 @@ func (e *executor) runContextWithSide(fn func(workerIndex int, context *stepCont
 	e.command = executorCommand{runContextFn: fn, sideFn: sideFn, context: context}
 	e.publish()
 
-	fn(0, context)
+	e.runCaller(func() { fn(0, context) })
 	e.await()
 }
