@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/dhannyell/dbox2d"
+	"github.com/dhannyell/dbox2d/internal/shared"
 )
 
 func init() {
@@ -44,7 +45,7 @@ const (
 type SensorFunnel struct {
 	Base
 
-	humans      [funnelCount]human
+	humans      [funnelCount]shared.Human
 	donuts      [funnelCount]donut
 	isSpawned   [funnelCount]bool
 	elementType int
@@ -158,8 +159,8 @@ func (s *SensorFunnel) createElement() {
 		jointHertz := dbox2d.QFromInt(6)
 		jointDamping := dbox2d.QHalf()
 		colorize := true
-		*h = createHuman(s.WorldId, center, scale, jointFriction, jointHertz, jointDamping, index+1, h, colorize)
-		h.enableSensorEvents(true)
+		*h = shared.CreateHuman(s.WorldId, center, scale, jointFriction, jointHertz, jointDamping, index+1, h, colorize)
+		h.EnableSensorEvents(true)
 	}
 
 	s.isSpawned[index] = true
@@ -170,7 +171,7 @@ func (s *SensorFunnel) destroyElement(index int) {
 	if s.elementType == funnelDonut {
 		s.donuts[index].destroy()
 	} else {
-		s.humans[index].destroy()
+		s.humans[index].Destroy()
 	}
 
 	s.isSpawned[index] = false
@@ -182,7 +183,7 @@ func (s *SensorFunnel) clear() {
 			if s.elementType == funnelDonut {
 				s.donuts[i].destroy()
 			} else {
-				s.humans[i].destroy()
+				s.humans[i].Destroy()
 			}
 
 			s.isSpawned[i] = false
@@ -230,7 +231,7 @@ func (s *SensorFunnel) Step() {
 				sampleAssert(0 <= index && index < funnelCount, "sensor funnel donut is not in the pool")
 			}
 		} else {
-			if h, ok := bodyId.GetUserData().(*human); ok && h != nil {
+			if h, ok := bodyId.GetUserData().(*shared.Human); ok && h != nil {
 				for i := range s.humans {
 					if h == &s.humans[i] {
 						index = i
@@ -679,16 +680,16 @@ func (s *ContactEvent) spawnDebris() {
 	bodyDef := dbox2d.DefaultBodyDef()
 	bodyDef.Type = dbox2d.DynamicBody
 	bodyDef.Position = dbox2d.Vec2{
-		X: randomFloatRange(qs("-38"), qs("38")),
-		Y: randomFloatRange(qs("-38"), qs("38")),
+		X: shared.RandomFloatRange(qs("-38"), qs("38")),
+		Y: shared.RandomFloatRange(qs("-38"), qs("38")),
 	}
 	// Turns; the reference range is -pi to pi radians.
-	bodyDef.Rotation = dbox2d.MakeRot(randomFloatRange(dbox2d.QHalf().Neg(), dbox2d.QHalf()))
+	bodyDef.Rotation = dbox2d.MakeRot(shared.RandomFloatRange(dbox2d.QHalf().Neg(), dbox2d.QHalf()))
 	bodyDef.LinearVelocity = dbox2d.Vec2{
-		X: randomFloatRange(qs("-5"), qs("5")),
-		Y: randomFloatRange(qs("-5"), qs("5")),
+		X: shared.RandomFloatRange(qs("-5"), qs("5")),
+		Y: shared.RandomFloatRange(qs("-5"), qs("5")),
 	}
-	bodyDef.AngularVelocity = radiansQToTurns(randomFloatRange(qs("-1"), qs("1")))
+	bodyDef.AngularVelocity = radiansQToTurns(shared.RandomFloatRange(qs("-1"), qs("1")))
 	bodyDef.GravityScale = dbox2d.QZero()
 	bodyDef.UserData = &s.bodyUserData[index]
 	s.debrisIds[index] = dbox2d.CreateBody(s.WorldId, &bodyDef)
@@ -1197,7 +1198,7 @@ func (s *BodyMove) createBodies() {
 		} else if remainder == 2 {
 			dbox2d.CreatePolygonShape(s.bodyIds[s.count], &shapeDef, &square)
 		} else {
-			poly := randomPolygon(qs("0.75"))
+			poly := shared.RandomPolygon(qs("0.75"))
 			poly.Radius = qs("0.1")
 			dbox2d.CreatePolygonShape(s.bodyIds[s.count], &shapeDef, &poly)
 		}

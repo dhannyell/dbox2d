@@ -298,7 +298,6 @@ func TestRevoluteRejectsAFullTurnLimit(t *testing.T) {
 	CreateRevoluteJoint(worldId, &def)
 }
 
-// TestJointAccessorsRoundTrip checks mutable revolute-joint state through its accessors.
 func TestJointAccessorsRoundTrip(t *testing.T) {
 	worldId := createTestWorld(t)
 	idA := addDynamicCircle(t, worldId, v2(0, 0))

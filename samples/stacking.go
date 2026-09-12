@@ -6,6 +6,7 @@ package samples
 
 import (
 	"github.com/dhannyell/dbox2d"
+	"github.com/dhannyell/dbox2d/internal/shared"
 )
 
 func init() {
@@ -289,7 +290,7 @@ func (s *VerticalStack) fireBullets() {
 			Y: dbox2d.QFromInt(6),
 		}
 		// Bullet speed is linear velocity, so it is not converted to turns.
-		speed := randomFloatRange(dbox2d.QFromInt(200), dbox2d.QFromInt(300))
+		speed := shared.RandomFloatRange(dbox2d.QFromInt(200), dbox2d.QFromInt(300))
 		bodyDef.LinearVelocity = dbox2d.Vec2{X: speed}
 		bodyDef.IsBullet = true
 

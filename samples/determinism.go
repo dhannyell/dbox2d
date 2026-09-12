@@ -1,11 +1,13 @@
 // SPDX-FileCopyrightText: 2022 Erin Catto
 // SPDX-License-Identifier: MIT
-// Ported from samples/sample_determinism.cpp and shared/determinism.c of Box2D v3.1.1
+// Ported from samples/sample_determinism.cpp of Box2D v3.1.1. The scene itself
+// is shared/determinism.c, in internal/shared.
 
 package samples
 
 import (
 	"github.com/dhannyell/dbox2d"
+	"github.com/dhannyell/dbox2d/internal/shared"
 )
 
 func init() {
@@ -49,93 +51,15 @@ func NewFallingHinges(ctx *SampleContext) Sample {
 		ctx.Camera.Zoom = 10
 	}
 
-	s.createFallingHinges()
-	s.done = false
-	return s
-}
-
-func (s *FallingHinges) createFallingHinges() {
-	{
-		bodyDef := dbox2d.DefaultBodyDef()
-		bodyDef.Position = qv("0", "-1")
-		groundId := dbox2d.CreateBody(s.WorldId, &bodyDef)
-
-		box := dbox2d.MakeBox(dbox2d.QFromInt(20), dbox2d.QOne())
-		shapeDef := dbox2d.DefaultShapeDef()
-		dbox2d.CreatePolygonShape(groundId, &shapeDef, &box)
-	}
-
-	columnCount := 4
-	rowCount := 30
-	bodyCount := rowCount * columnCount
-
-	s.bodyIds = make([]dbox2d.BodyId, bodyCount)
-
-	h := qs("0.25")
-	r := qs("0.1").Mul(h)
-	box := dbox2d.MakeRoundedBox(h.Sub(r), h.Sub(r), r)
-
-	shapeDef := dbox2d.DefaultShapeDef()
-	shapeDef.Material.Friction = qs("0.3")
-
-	offset := qs("0.4").Mul(h)
-	dx := dbox2d.QFromInt(10).Mul(h)
-	xroot := dbox2d.QHalf().Neg().Mul(dx).Mul(dbox2d.QFromInt(columnCount - 1))
-
-	jointDef := dbox2d.DefaultRevoluteJointDef()
-	jointDef.EnableLimit = true
-	// Turns; the reference limits are -0.1 pi and 0.2 pi.
-	jointDef.LowerAngle = dbox2d.QFromRatio(-1, 20)
-	jointDef.UpperAngle = dbox2d.QFromRatio(1, 10)
-	jointDef.EnableSpring = true
-	jointDef.Hertz = dbox2d.QHalf()
-	jointDef.DampingRatio = dbox2d.QHalf()
-	jointDef.LocalAnchorA = dbox2d.Vec2{X: h, Y: h}
-	jointDef.LocalAnchorB = dbox2d.Vec2{X: offset, Y: h.Neg()}
-	jointDef.DrawSize = qs("0.1")
-
-	bodyIndex := 0
-
-	for j := range columnCount {
-		x := xroot.Add(dbox2d.QFromInt(j).Mul(dx))
-
-		prevBodyId := dbox2d.BodyId{}
-
-		for i := range rowCount {
-			bodyDef := dbox2d.DefaultBodyDef()
-			bodyDef.Type = dbox2d.DynamicBody
-
-			bodyDef.Position.X = x.Add(offset.Mul(dbox2d.QFromInt(i)))
-			bodyDef.Position.Y = h.Add(dbox2d.QFromInt(2).Mul(h).Mul(dbox2d.QFromInt(i)))
-
-			// this tests the deterministic cosine and sine functions
-			// The angle is the float32 radians of the reference, rounded
-			// after each operation, then converted to turns.
-			radians := float32(float32(0.1)*float32(i)) - 1
-			bodyDef.Rotation = dbox2d.MakeRot(radiansToTurns(float64(radians)))
-
-			bodyId := dbox2d.CreateBody(s.WorldId, &bodyDef)
-
-			if i&1 == 0 {
-				prevBodyId = bodyId
-			} else {
-				jointDef.BodyIdA = prevBodyId
-				jointDef.BodyIdB = bodyId
-				dbox2d.CreateRevoluteJoint(s.WorldId, &jointDef)
-				prevBodyId = dbox2d.BodyId{}
-			}
-
-			dbox2d.CreatePolygonShape(bodyId, &shapeDef, &box)
-
-			s.bodyIds[bodyIndex] = bodyId
-
-			bodyIndex += 1
-		}
-	}
-
+	// b2MakeRot through the public API: the angle is the float32 radian value
+	// of the reference, rounded after each operation, then converted to turns.
+	rotation := func(radians float32) dbox2d.Rot { return rotFromRadians(float64(radians)) }
+	s.bodyIds = shared.CreateFallingHinges(s.WorldId, shared.Options{Rotation: rotation})
 	s.stepCount = 0
 	s.sleepStep = -1
 	s.hash = 0
+	s.done = false
+	return s
 }
 
 // updateFallingHinges is UpdateFallingHinges. It reports true once every

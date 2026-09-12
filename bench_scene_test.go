@@ -18,7 +18,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/dhannyell/dbox2d/internal/scenes"
+	"github.com/dhannyell/dbox2d/internal/shared"
 
 	. "github.com/dhannyell/dbox2d"
 )
@@ -160,7 +160,7 @@ func benchEnv() map[string]string {
 }
 
 func runBenchScene(t *testing.T, name string) benchSceneResult {
-	spec, ok := scenes.Specs[name]
+	spec, ok := shared.Specs[name]
 	if !ok {
 		t.Fatalf("scene %s is not in the benchmark scene table", name)
 	}

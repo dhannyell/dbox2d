@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/dhannyell/dbox2d"
+	"github.com/dhannyell/dbox2d/internal/shared"
 )
 
 func init() {
@@ -46,15 +47,15 @@ func NewConvexHull(ctx *SampleContext) Sample {
 // point sets behind #if 0.
 func (s *ConvexHull) generate() {
 	// Turns; the reference angle is pi times a random float.
-	angle := dbox2d.QHalf().Mul(randomFloat())
+	angle := dbox2d.QHalf().Mul(shared.RandomFloat())
 	r := dbox2d.MakeRot(angle)
 
 	lowerBound := qv("-4", "-4")
 	upperBound := qv("4", "4")
 
 	for i := range convexHullCount {
-		x := dbox2d.QFromInt(10).Mul(randomFloat())
-		y := dbox2d.QFromInt(10).Mul(randomFloat())
+		x := dbox2d.QFromInt(10).Mul(shared.RandomFloat())
+		y := dbox2d.QFromInt(10).Mul(shared.RandomFloat())
 
 		// Clamp onto a square to help create collinearities.
 		// This will stress the convex hull algorithm.

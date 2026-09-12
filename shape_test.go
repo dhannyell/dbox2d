@@ -2,7 +2,6 @@ package dbox2d
 
 import "testing"
 
-// TestShapeAccessorsRoundTrip verifies shape data and event flag accessors.
 func TestShapeAccessorsRoundTrip(t *testing.T) {
 	worldId := createTestWorld(t)
 	bodyDef := DefaultBodyDef()

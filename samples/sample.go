@@ -9,6 +9,7 @@ import (
 	"math"
 
 	"github.com/dhannyell/dbox2d"
+	"github.com/dhannyell/dbox2d/internal/shared"
 )
 
 // SampleContext is the shared state a host hands to every sample.
@@ -69,7 +70,7 @@ type Base struct {
 // every scene starts from the same sequence. Worker count does not change the
 // resulting bits.
 func NewBase(ctx *SampleContext) Base {
-	randomSeed = randSeed
+	shared.RandomSeed = shared.RandSeed
 	b := Base{
 		Context:       ctx,
 		textLine:      30,

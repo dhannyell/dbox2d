@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/dhannyell/dbox2d"
+	"github.com/dhannyell/dbox2d/internal/shared"
 )
 
 func init() {
@@ -462,14 +463,14 @@ func (s *DynamicTree) buildTree() {
 		x := dbox2d.QFromInt(-40)
 
 		for j := 0; j < s.columnCount; j++ {
-			fillTest := randomFloatRange(dbox2d.QZero(), dbox2d.QOne())
+			fillTest := shared.RandomFloatRange(dbox2d.QZero(), dbox2d.QOne())
 			if !fillTest.Greater(fill) {
 				var p treeProxy
 				p.position = dbox2d.Vec2{X: x, Y: y}
 
-				ratio := randomFloatRange(dbox2d.QOne(), maxRatio)
-				width := randomFloatRange(dbox2d.QFromRatio(1, 10), dbox2d.QHalf())
-				if randomFloat().Greater(dbox2d.QZero()) {
+				ratio := shared.RandomFloatRange(dbox2d.QOne(), maxRatio)
+				width := shared.RandomFloatRange(dbox2d.QFromRatio(1, 10), dbox2d.QHalf())
+				if shared.RandomFloat().Greater(dbox2d.QZero()) {
 					p.width.X = ratio.Mul(width)
 					p.width.Y = width
 				} else {
@@ -634,10 +635,10 @@ func (s *DynamicTree) Step() {
 			s.drawAABB(p.box, c)
 		}
 
-		moveTest := randomFloatRange(dbox2d.QZero(), dbox2d.QOne())
+		moveTest := shared.RandomFloatRange(dbox2d.QZero(), dbox2d.QOne())
 		if moveFraction.Greater(moveTest) {
-			dx := moveDelta.Mul(randomFloat())
-			dy := moveDelta.Mul(randomFloat())
+			dx := moveDelta.Mul(shared.RandomFloat())
+			dy := moveDelta.Mul(shared.RandomFloat())
 
 			p.position.X = p.position.X.Add(dx)
 			p.position.Y = p.position.Y.Add(dy)
@@ -1215,12 +1216,12 @@ func (s *CastWorld) create(index int) {
 		s.bodyIds[s.bodyIndex] = dbox2d.BodyId{}
 	}
 
-	x := randomFloatRange(dbox2d.QFromInt(-20), dbox2d.QFromInt(20))
-	y := randomFloatRange(dbox2d.QZero(), dbox2d.QFromInt(20))
+	x := shared.RandomFloatRange(dbox2d.QFromInt(-20), dbox2d.QFromInt(20))
+	y := shared.RandomFloatRange(dbox2d.QZero(), dbox2d.QFromInt(20))
 
 	bodyDef := dbox2d.DefaultBodyDef()
 	bodyDef.Position = dbox2d.Vec2{X: x, Y: y}
-	bodyDef.Rotation = dbox2d.MakeRot(randomFloatRange(dbox2d.QHalf().Neg(), dbox2d.QHalf()))
+	bodyDef.Rotation = dbox2d.MakeRot(shared.RandomFloatRange(dbox2d.QHalf().Neg(), dbox2d.QHalf()))
 
 	mod := s.bodyIndex % 3
 	if mod == 0 {
@@ -1536,12 +1537,12 @@ func (s *OverlapWorld) create(index int) {
 		s.bodyIds[s.bodyIndex] = dbox2d.BodyId{}
 	}
 
-	x := randomFloatRange(dbox2d.QFromInt(-20), dbox2d.QFromInt(20))
-	y := randomFloatRange(dbox2d.QZero(), dbox2d.QFromInt(20))
+	x := shared.RandomFloatRange(dbox2d.QFromInt(-20), dbox2d.QFromInt(20))
+	y := shared.RandomFloatRange(dbox2d.QZero(), dbox2d.QFromInt(20))
 
 	bodyDef := dbox2d.DefaultBodyDef()
 	bodyDef.Position = dbox2d.Vec2{X: x, Y: y}
-	bodyDef.Rotation = dbox2d.MakeRot(randomFloatRange(dbox2d.QHalf().Neg(), dbox2d.QHalf()))
+	bodyDef.Rotation = dbox2d.MakeRot(shared.RandomFloatRange(dbox2d.QHalf().Neg(), dbox2d.QHalf()))
 
 	s.bodyIds[s.bodyIndex] = dbox2d.CreateBody(s.WorldId, &bodyDef)
 

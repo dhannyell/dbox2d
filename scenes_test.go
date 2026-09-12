@@ -1,100 +1,55 @@
 package dbox2d_test
 
-// The seven benchmark scenes of the reference live in internal/scenes, which
+// The seven benchmark scenes of the reference live in internal/shared, which
 // this suite shares with the scene benchmark in bench_scene_test.go. Two
 // things stay here instead.
 //
-// falling_hinges is the first: it is a conformance scene rather than a
-// benchmark one, absent from benchmark/main.c and from the scene table of
-// shared/benchmarks.c, and its body rotations come from a radian angle that
-// only the library's internal constructor can express.
+// falling_hinges is the first: shared/determinism.c builds it, but it is a
+// conformance scene rather than a benchmark one, absent from benchmark/main.c
+// and from the scene table of shared/benchmarks.c, so it joins the table here.
 //
-// The tumbler motor is the second, through scenes.Options.
+// The two reference values the public API cannot express are the second, both
+// through shared.Options: the tumbler motor speed and the radian rotations of
+// falling_hinges.
 
 import (
-	"github.com/dhannyell/dbox2d/internal/scenes"
+	"github.com/dhannyell/dbox2d/internal/shared"
 
 	. "github.com/dhannyell/dbox2d"
 )
 
 // conformanceSpecs is the benchmark scene table plus the conformance scenes
 // that are not in it.
-var conformanceSpecs = func() map[string]scenes.Spec {
-	all := make(map[string]scenes.Spec, len(scenes.Specs)+1)
-	for name, spec := range scenes.Specs {
+var conformanceSpecs = func() map[string]shared.Spec {
+	all := make(map[string]shared.Spec, len(shared.Specs)+1)
+	for name, spec := range shared.Specs {
 		all[name] = spec
 	}
-	all["falling_hinges"] = scenes.Spec{Build: buildFallingHinges}
+	all["falling_hinges"] = shared.Spec{Build: shared.BuildFallingHinges}
 	return all
 }()
 
-// conformanceSceneOptions carries the one value a scene cannot build for
-// itself. The reference sets the tumbler motor to (B2_PI / 180.0f) * 25.0f
-// radians per second, and in float mode a joint keeps radians (D-004); no
-// binary32 turn rate times floatTau rounds back to that number. Fixed mode
-// keeps turns, where QFromRatio(25, 360) is already the value the reference
-// means, so the hook does nothing there.
-func conformanceSceneOptions(worldId WorldId) scenes.Options {
+// conformanceSceneOptions carries the reference values a scene cannot build
+// for itself.
+//
+// Rotation is b2MakeRot on the radian angle, which is what the frozen traces
+// of both modes record.
+//
+// The tumbler motor is (B2_PI / 180.0f) * 25.0f radians per second, and in
+// float mode a joint keeps radians (D-004); no binary32 turn rate times
+// floatTau rounds back to that number. Fixed mode keeps turns, where
+// QFromRatio(25, 360) is already the value the reference means, so the hook
+// would only add a rounding and stays nil.
+func conformanceSceneOptions(worldId WorldId) shared.Options {
+	opts := shared.Options{Rotation: RotFromRadians}
 	if ScalarMode != "float" {
-		return scenes.Options{}
+		return opts
 	}
-	return scenes.Options{MotorJoint: func(jointId JointId) {
+	opts.MotorJoint = func(jointId JointId) {
 		pi := float32(3.14159265359)
 		speed := pi / 180
 		speed *= 25
 		SetRevoluteMotorSpeedRadians(worldId, jointId, QFromFloat64(float64(speed)))
-	}}
-}
-
-func buildFallingHinges(worldId WorldId, _ scenes.Options) scenes.StepFn {
-	groundDef := DefaultBodyDef()
-	groundDef.Position = Vec2{Y: QFromInt(-1)}
-	groundId := CreateBody(worldId, &groundDef)
-	ground := MakeBox(QFromInt(20), QOne())
-	shapeDef := DefaultShapeDef()
-	CreatePolygonShape(groundId, &shapeDef, &ground)
-
-	const columnCount = 4
-	const rowCount = 30
-	half := QMustParse("0.25")
-	radius := QMustParse("0.025")
-	box := MakeRoundedBox(half.Sub(radius), half.Sub(radius), radius)
-	shapeDef = DefaultShapeDef()
-	shapeDef.Material.Friction = QMustParse("0.3")
-	offset := QMustParse("0.1")
-	dx := QFromInt(10).Mul(half)
-	xroot := QHalf().Neg().Mul(dx).Mul(QFromInt(columnCount - 1))
-	jointDef := DefaultRevoluteJointDef()
-	jointDef.EnableLimit = true
-	jointDef.LowerAngle = QFromRatio(-1, 20)
-	jointDef.UpperAngle = QFromRatio(1, 10)
-	jointDef.EnableSpring = true
-	jointDef.Hertz = QHalf()
-	jointDef.DampingRatio = QHalf()
-	jointDef.LocalAnchorA = Vec2{X: half, Y: half}
-	jointDef.LocalAnchorB = Vec2{X: offset, Y: half.Neg()}
-	jointDef.DrawSize = QMustParse("0.1")
-
-	for j := range columnCount {
-		x := xroot.Add(QFromInt(j).Mul(dx))
-		var previous BodyId
-		for i := range rowCount {
-			bodyDef := DefaultBodyDef()
-			bodyDef.Type = DynamicBody
-			bodyDef.Position = Vec2{X: x.Add(offset.Mul(QFromInt(i))), Y: half.Add(QFromInt(2).Mul(half).Mul(QFromInt(i)))}
-			radians := float32(0.1*float32(i) - 1)
-			bodyDef.Rotation = RotFromRadians(radians)
-			bodyId := CreateBody(worldId, &bodyDef)
-			if i&1 == 0 {
-				previous = bodyId
-			} else {
-				jointDef.BodyIdA = previous
-				jointDef.BodyIdB = bodyId
-				CreateRevoluteJoint(worldId, &jointDef)
-				previous = BodyId{}
-			}
-			CreatePolygonShape(bodyId, &shapeDef, &box)
-		}
 	}
-	return nil
+	return opts
 }

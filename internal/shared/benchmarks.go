@@ -3,40 +3,32 @@
 // Ported from shared/benchmarks.c of Box2D v3.1.1. Debug-only sizes use the
 // release values.
 
-// Package scenes builds the benchmark scenes of the reference. It mirrors
-// shared/benchmarks.c, which Box2D links into both benchmark/main.c and its
-// sample app, and it serves two consumers here: the conformance suite, which
-// replays a scene against its frozen trace, and the scene benchmark, which
-// times it against tools/cbench. The samples module still carries its own
-// copy.
-//
-// One source matters more here than it does upstream. A scene is only a
-// valid benchmark against the C side, and only a valid conformance subject,
-// if it is the same scene; a second copy that drifts produces a wrong number
-// with no test to catch it.
-//
-// The package is written against the public API alone, dot-imported so the
-// builders read as they do in the reference. The one value the public API
-// cannot express is in Options.
-package scenes
+// Package shared is the shared/ directory of the reference: the benchmark
+// scenes of benchmarks.c, the ragdoll of human.c and the deterministic
+// generator of random.h. Upstream links all three into both benchmark/main.c
+// and its sample app; here they serve the conformance suite, the scene
+// benchmark and the samples module. Keeping one source is what keeps a
+// benchmark honest: a second copy that drifts still reports a number, and no
+// test catches it. The builders use only the public API. Options carries the
+// one reference value that public API cannot express.
+package shared
 
 import . "github.com/dhannyell/dbox2d"
 
-// Options carries what a scene cannot build for itself.
+// Options carries values that scenes cannot express through the public API.
 type Options struct {
-	// MotorJoint receives the motor joint of a scene that has exactly one,
-	// which today is the tumbler alone.
-	//
-	// It exists for one value. The reference sets the tumbler motor to
-	// (B2_PI / 180.0f) * 25.0f radians per second, and in float mode a joint
-	// keeps its speed in radians (D-004). No binary32 turn rate times
-	// floatTau rounds back to that number, so a caller that needs the bits
-	// of the reference has to store the radians directly, and only a caller
-	// inside the library package can. The conformance suite and the scene
-	// benchmark both do; the samples module leaves this nil and gets
-	// QFromRatio(25, 360), which is the same motor to the eye and not to the
-	// last bit.
+	// MotorJoint receives the tumbler's motor joint. Float conformance uses it
+	// to set the reference radian speed directly; the public turn-based API
+	// cannot reproduce the same float32 value, so samples leave it nil.
 	MotorJoint func(JointId)
+
+	// Rotation builds a body rotation from a radian angle, as b2MakeRot does.
+	// CreateFallingHinges requires it; no other scene reads it. The public API
+	// of this port takes turns (D-004), so a radian angle has no single
+	// spelling here and the consumer has to name the one it means: conformance
+	// passes the radian constructor of the library, which is what the frozen
+	// traces record, and samples convert to turns.
+	Rotation func(radians float32) Rot
 }
 
 // floatMode reports whether this build is the float scalar mode.
@@ -353,130 +345,6 @@ func BuildTumbler(worldId WorldId, opts Options) StepFn {
 }
 
 const (
-	boneHip = iota
-	boneTorso
-	boneHead
-	boneUpperLeftLeg
-	boneLowerLeftLeg
-	boneUpperRightLeg
-	boneLowerRightLeg
-	boneUpperLeftArm
-	boneLowerLeftArm
-	boneUpperRightArm
-	boneLowerRightArm
-	boneCount
-)
-
-// Bone is one limb of a ragdoll: its body and the joint to its parent.
-type Bone struct {
-	bodyId  BodyId
-	jointId JointId
-}
-
-// Human is the ragdoll of shared/human.c, which rain spawns by the group.
-type Human struct {
-	bones [boneCount]Bone
-}
-
-func (human *Human) destroy() {
-	for i := range human.bones {
-		if !human.bones[i].jointId.IsNull() {
-			DestroyJoint(human.bones[i].jointId)
-			human.bones[i].jointId = JointId{}
-		}
-	}
-	for i := range human.bones {
-		if !human.bones[i].bodyId.IsNull() {
-			DestroyBody(human.bones[i].bodyId)
-			human.bones[i].bodyId = BodyId{}
-		}
-	}
-}
-
-// CreateHuman is CreateHuman of shared/human.c, building the eleven bones
-// and the revolute joints between them.
-func CreateHuman(worldId WorldId, position Vec2, scale, frictionTorque, hertz, dampingRatio Q, groupIndex int) Human {
-	human := Human{}
-	bodyDef := DefaultBodyDef()
-	bodyDef.Type = DynamicBody
-	bodyDef.SleepThreshold = QMustParse("0.1")
-	shapeDef := DefaultShapeDef()
-	shapeDef.Material.Friction = QMustParse("0.2")
-	shapeDef.Filter.GroupIndex = -groupIndex
-	shapeDef.Filter.CategoryBits = 2
-	shapeDef.Filter.MaskBits = 1 | 2
-	footShapeDef := shapeDef
-	footShapeDef.Material.Friction = QMustParse("0.05")
-	footShapeDef.Filter.MaskBits = 1
-
-	makeBone := func(y, center1, center2, radius, damping Q) BodyId {
-		bodyDef.Position = Vec2{Y: y.Mul(scale)}.Add(position)
-		bodyDef.LinearDamping = damping
-		bodyId := CreateBody(worldId, &bodyDef)
-		capsule := Capsule{
-			Center1: Vec2{Y: center1.Mul(scale)},
-			Center2: Vec2{Y: center2.Mul(scale)},
-			Radius:  radius.Mul(scale),
-		}
-		CreateCapsuleShape(bodyId, &shapeDef, &capsule)
-		return bodyId
-	}
-	maxTorque := frictionTorque.Mul(scale)
-	addJoint := func(parent, child BodyId, pivotY, lower, upper, reference, frictionScale Q) JointId {
-		pivot := Vec2{Y: pivotY.Mul(scale)}.Add(position)
-		jointDef := DefaultRevoluteJointDef()
-		jointDef.BodyIdA = parent
-		jointDef.BodyIdB = child
-		jointDef.LocalAnchorA = parent.GetLocalPoint(pivot)
-		jointDef.LocalAnchorB = child.GetLocalPoint(pivot)
-		jointDef.ReferenceAngle = reference
-		jointDef.EnableLimit = true
-		jointDef.LowerAngle = lower
-		jointDef.UpperAngle = upper
-		jointDef.EnableMotor = true
-		jointDef.MaxMotorTorque = frictionScale.Mul(maxTorque)
-		jointDef.EnableSpring = hertz.Greater(QZero())
-		jointDef.Hertz = hertz
-		jointDef.DampingRatio = dampingRatio
-		jointDef.DrawSize = QMustParse("0.05")
-		return CreateRevoluteJoint(worldId, &jointDef)
-	}
-
-	human.bones[boneHip].bodyId = makeBone(QMustParse("0.95"), QMustParse("-0.02"), QMustParse("0.02"), QMustParse("0.095"), QZero())
-	human.bones[boneTorso].bodyId = makeBone(QMustParse("1.2"), QMustParse("-0.135"), QMustParse("0.135"), QMustParse("0.09"), QZero())
-	human.bones[boneTorso].jointId = addJoint(human.bones[boneHip].bodyId, human.bones[boneTorso].bodyId, QOne(), QFromRatio(-1, 8), QZero(), QZero(), QHalf())
-	human.bones[boneHead].bodyId = makeBone(QMustParse("1.475"), QMustParse("-0.038"), QMustParse("0.039"), QMustParse("0.075"), QMustParse("0.1"))
-	human.bones[boneHead].jointId = addJoint(human.bones[boneTorso].bodyId, human.bones[boneHead].bodyId, QMustParse("1.4"), QFromRatio(-3, 20), QFromRatio(1, 20), QZero(), QFromRatio(1, 4))
-	human.bones[boneUpperLeftLeg].bodyId = makeBone(QMustParse("0.775"), QMustParse("-0.125"), QMustParse("0.125"), QMustParse("0.06"), QZero())
-	human.bones[boneUpperLeftLeg].jointId = addJoint(human.bones[boneHip].bodyId, human.bones[boneUpperLeftLeg].bodyId, QMustParse("0.9"), QFromRatio(-1, 40), QFromRatio(1, 5), QZero(), QOne())
-
-	footHull := ComputeHull([]Vec2{
-		{X: QMustParse("-0.03").Mul(scale), Y: QMustParse("-0.185").Mul(scale)},
-		{X: QMustParse("0.11").Mul(scale), Y: QMustParse("-0.185").Mul(scale)},
-		{X: QMustParse("0.11").Mul(scale), Y: QMustParse("-0.16").Mul(scale)},
-		{X: QMustParse("-0.03").Mul(scale), Y: QMustParse("-0.14").Mul(scale)},
-	})
-	footPolygon := MakePolygon(&footHull, QMustParse("0.015").Mul(scale))
-	human.bones[boneLowerLeftLeg].bodyId = makeBone(QMustParse("0.475"), QMustParse("-0.155"), QMustParse("0.125"), QMustParse("0.045"), QZero())
-	CreatePolygonShape(human.bones[boneLowerLeftLeg].bodyId, &footShapeDef, &footPolygon)
-	human.bones[boneLowerLeftLeg].jointId = addJoint(human.bones[boneUpperLeftLeg].bodyId, human.bones[boneLowerLeftLeg].bodyId, QMustParse("0.625"), QFromRatio(-1, 4), QFromRatio(-1, 100), QZero(), QHalf())
-	human.bones[boneUpperRightLeg].bodyId = makeBone(QMustParse("0.775"), QMustParse("-0.125"), QMustParse("0.125"), QMustParse("0.06"), QZero())
-	human.bones[boneUpperRightLeg].jointId = addJoint(human.bones[boneHip].bodyId, human.bones[boneUpperRightLeg].bodyId, QMustParse("0.9"), QFromRatio(-1, 40), QFromRatio(1, 5), QZero(), QOne())
-	human.bones[boneLowerRightLeg].bodyId = makeBone(QMustParse("0.475"), QMustParse("-0.155"), QMustParse("0.125"), QMustParse("0.045"), QZero())
-	CreatePolygonShape(human.bones[boneLowerRightLeg].bodyId, &footShapeDef, &footPolygon)
-	human.bones[boneLowerRightLeg].jointId = addJoint(human.bones[boneUpperRightLeg].bodyId, human.bones[boneLowerRightLeg].bodyId, QMustParse("0.625"), QFromRatio(-1, 4), QFromRatio(-1, 100), QZero(), QHalf())
-	human.bones[boneUpperLeftArm].bodyId = makeBone(QMustParse("1.225"), QMustParse("-0.125"), QMustParse("0.125"), QMustParse("0.035"), QZero())
-	human.bones[boneUpperLeftArm].jointId = addJoint(human.bones[boneTorso].bodyId, human.bones[boneUpperLeftArm].bodyId, QMustParse("1.35"), QFromRatio(-1, 20), QFromRatio(2, 5), QZero(), QHalf())
-	human.bones[boneLowerLeftArm].bodyId = makeBone(QMustParse("0.975"), QMustParse("-0.125"), QMustParse("0.125"), QMustParse("0.03"), QMustParse("0.1"))
-	human.bones[boneLowerLeftArm].jointId = addJoint(human.bones[boneUpperLeftArm].bodyId, human.bones[boneLowerLeftArm].bodyId, QMustParse("1.1"), QFromRatio(-1, 10), QFromRatio(3, 20), QFromRatio(1, 8), QMustParse("0.1"))
-	human.bones[boneUpperRightArm].bodyId = makeBone(QMustParse("1.225"), QMustParse("-0.125"), QMustParse("0.125"), QMustParse("0.035"), QZero())
-	human.bones[boneUpperRightArm].jointId = addJoint(human.bones[boneTorso].bodyId, human.bones[boneUpperRightArm].bodyId, QMustParse("1.35"), QFromRatio(-1, 20), QFromRatio(2, 5), QZero(), QHalf())
-	human.bones[boneLowerRightArm].bodyId = makeBone(QMustParse("0.975"), QMustParse("-0.125"), QMustParse("0.125"), QMustParse("0.03"), QMustParse("0.1"))
-	human.bones[boneLowerRightArm].jointId = addJoint(human.bones[boneUpperRightArm].bodyId, human.bones[boneLowerRightArm].bodyId, QMustParse("1.1"), QFromRatio(-1, 10), QFromRatio(3, 20), QFromRatio(1, 8), QMustParse("0.1"))
-	return human
-}
-
-const (
 	rainRowCount    = 5
 	rainColumnCount = 40
 	rainGroupSize   = 5
@@ -503,7 +371,7 @@ func (data *rainData) createGroup(worldId WorldId, rowIndex, columnIndex int) {
 		Y: QFromInt(40).Add(QFromInt(45).Mul(QFromInt(rowIndex))),
 	}
 	for i := range rainGroupSize {
-		data.groups[groupIndex].humans[i] = CreateHuman(worldId, position, QOne(), QMustParse("0.05"), QFromInt(5), QHalf(), i+1)
+		data.groups[groupIndex].humans[i] = CreateHuman(worldId, position, QOne(), QMustParse("0.05"), QFromInt(5), QHalf(), i+1, nil, false)
 		position.X = position.X.Add(QHalf())
 	}
 }
@@ -511,7 +379,7 @@ func (data *rainData) createGroup(worldId WorldId, rowIndex, columnIndex int) {
 func (data *rainData) destroyGroup(rowIndex, columnIndex int) {
 	groupIndex := rowIndex*rainColumnCount + columnIndex
 	for i := range rainGroupSize {
-		data.groups[groupIndex].humans[i].destroy()
+		data.groups[groupIndex].humans[i].Destroy()
 	}
 }
 
