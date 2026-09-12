@@ -31,7 +31,7 @@ The browser demo requires WebGPU and run on a single thread due to limitations i
 
 ## Install
 
-Requires Go 1.26.4 or newer.
+Requires Go 1.26.8 or newer.
 
 ```sh
 go get github.com/dhannyell/dbox2d
