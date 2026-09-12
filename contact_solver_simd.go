@@ -657,6 +657,25 @@ type bodyStateW struct {
 // wideEnabled gates the whole wide contact family behind one switch.
 var wideEnabled = wideAvailable()
 
+// LanePath reports the contact-solver lane path of this build. The wide
+// family falls back to the scalar family on a CPU without the required
+// feature, so this reports the path the process actually runs, not the path
+// its build tags asked for.
+func LanePath() string {
+	if !wideEnabled {
+		return "scalar"
+	}
+	return widePath()
+}
+
+// LaneWidth reports the number of contacts one solver unit carries.
+func LaneWidth() int {
+	if !wideEnabled {
+		return 1
+	}
+	return wideWidth
+}
+
 // wideContactAllocations records steps that built non-empty wide scratch.
 var wideContactAllocations atomic.Uint64
 

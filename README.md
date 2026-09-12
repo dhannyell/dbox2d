@@ -251,8 +251,42 @@ seven scenes. The reference does so in six; its `rain` hash changes with the
 worker count, reproducibly.
 
 Measured on an AMD Ryzen 7 5800X3D, Windows/amd64, sixteen logical cores,
-GCC 13.2.0, Go 1.27.0, three repeats. The harness, the protocol and the
-per-scene tables are in `tools/cbench`.
+GCC 13.2.0, Go 1.27.0, three repeats.
+
+### Running the comparison
+
+The harness is in the tree, so the numbers above can be checked rather than
+taken. The reference is not vendored: clone Box2D v3.1.1 beside this
+repository, or pass `-DBOX2D_SOURCE_DIR=<path>`.
+
+```sh
+git clone --branch v3.1.1 --depth 1 https://github.com/erincatto/box2d ../box2d
+cmake -S tools/cbench -B build/cbench -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build/cbench
+```
+
+Run one arm at a time and write a JSON file per worker count:
+
+```sh
+mkdir -p testdata/bench
+./build/cbench/cbench --want-lane=avx2 --repeats=3 --workers=8 --arm=c-avx2 --out=testdata/bench/c-avx2-w8.json
+GOTOOLCHAIN=go1.27.0 GOEXPERIMENT=simd go test -tags dbox2d_simd -run TestSceneBench -timeout 7200s . -bench.arm=go-avx2 -bench.want-lane=avx2 -bench.repeats=3 -bench.workers=8 -bench.out=testdata/bench/go-avx2-w8.json
+```
+
+`benchcmp` compares one worker count and `benchscale` a whole sweep. Both
+refuse to compare runs that did not share a lane path, a lane width, a clock
+or an observed worker count, so a mismatched pair is an error rather than a
+misleading ratio:
+
+```sh
+go run ./tools/benchcmp testdata/bench/c-avx2-w8.json testdata/bench/go-avx2-w8.json
+go run ./tools/benchscale -base=c-avx2 testdata/bench/c-avx2-w*.json testdata/bench/go-avx2-w*.json
+```
+
+The protocol, the worker-pool contract, the lane and clock guards, and the
+per-scene tables are documented in
+[tools/cbench/README.md](tools/cbench/README.md). Results are not tracked in
+the repository: one is a single machine on a single day.
 
 ### Profile-guided optimization
 
