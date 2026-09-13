@@ -37,7 +37,7 @@ func hashBytes(hash uint32, data []byte) uint32 {
 type FallingHinges struct {
 	Base
 
-	bodyIds   []dbox2d.BodyId
+	bodyIds   []b2.BodyId
 	stepCount int
 	sleepStep int
 	hash      uint32
@@ -53,7 +53,7 @@ func NewFallingHinges(ctx *SampleContext) Sample {
 
 	// b2MakeRot through the public API: the angle is the float32 radian value
 	// of the reference, rounded after each operation, then converted to turns.
-	rotation := func(radians float32) dbox2d.Rot { return rotFromRadians(float64(radians)) }
+	rotation := func(radians float32) b2.Rot { return rotFromRadians(float64(radians)) }
 	s.bodyIds = shared.CreateFallingHinges(s.WorldId, shared.Options{Rotation: rotation})
 	s.stepCount = 0
 	s.sleepStep = -1

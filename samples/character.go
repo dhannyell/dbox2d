@@ -17,7 +17,7 @@ func init() {
 
 // moverShapeUserData tunes how a shape pushes the mover.
 type moverShapeUserData struct {
-	maxPush      dbox2d.Q
+	maxPush      b2.Q
 	clipVelocity bool
 }
 
@@ -39,17 +39,17 @@ const (
 )
 
 type moverCastResult struct {
-	point    dbox2d.Vec2
-	normal   dbox2d.Vec2
-	bodyId   dbox2d.BodyId
-	fraction dbox2d.Q
+	point    b2.Vec2
+	normal   b2.Vec2
+	bodyId   b2.BodyId
+	fraction b2.Q
 	hit      bool
 }
 
 const moverPlaneCapacity = 8
 
 var (
-	moverElevatorBase      = dbox2d.V2(112, 10)
+	moverElevatorBase      = b2.V2(112, 10)
 	moverElevatorAmplitude = 4.0
 )
 
@@ -70,17 +70,17 @@ type Mover struct {
 	pogoDampingRatio float64
 
 	pogoShape       int
-	transform       dbox2d.Transform
-	velocity        dbox2d.Vec2
-	capsule         dbox2d.Capsule
-	elevatorId      dbox2d.BodyId
-	ballId          dbox2d.ShapeId
+	transform       b2.Transform
+	velocity        b2.Vec2
+	capsule         b2.Capsule
+	elevatorId      b2.BodyId
+	ballId          b2.ShapeId
 	friendlyShape   moverShapeUserData
 	elevatorShape   moverShapeUserData
-	planes          [moverPlaneCapacity]dbox2d.CollisionPlane
+	planes          [moverPlaneCapacity]b2.CollisionPlane
 	planeCount      int
 	totalIterations int
-	pogoVelocity    dbox2d.Q
+	pogoVelocity    b2.Q
 	time            float64
 	onGround        bool
 	jumpReleased    bool
@@ -110,18 +110,18 @@ func NewMover(ctx *SampleContext) Sample {
 	}
 
 	ctx.Settings.DrawJoints = false
-	s.transform = dbox2d.Transform{P: dbox2d.V2(2, 8), Q: dbox2d.RotIdentity()}
-	s.velocity = dbox2d.Vec2{}
-	s.capsule = dbox2d.Capsule{
-		Center1: dbox2d.Vec2{Y: dbox2d.QHalf().Neg()},
-		Center2: dbox2d.Vec2{Y: dbox2d.QHalf()},
-		Radius:  dbox2d.F(0.3),
+	s.transform = b2.Transform{P: b2.V2(2, 8), Q: b2.RotIdentity()}
+	s.velocity = b2.Vec2{}
+	s.capsule = b2.Capsule{
+		Center1: b2.Vec2{Y: b2.QHalf().Neg()},
+		Center2: b2.Vec2{Y: b2.QHalf()},
+		Radius:  b2.F(0.3),
 	}
 
-	var groundId1 dbox2d.BodyId
+	var groundId1 b2.BodyId
 	{
-		bodyDef := dbox2d.DefaultBodyDef()
-		groundId1 = dbox2d.CreateBody(s.WorldId, &bodyDef)
+		bodyDef := b2.DefaultBodyDef()
+		groundId1 = b2.CreateBody(s.WorldId, &bodyDef)
 
 		path := "M 2.6458333,201.08333 H 293.68751 v -47.625 h -2.64584 l -10.58333,7.9375 -13.22916,7.9375 -13.24648,5.29167 " +
 			"-31.73269,7.9375 -21.16667,2.64583 -23.8125,10.58333 H 142.875 v -5.29167 h -5.29166 v 5.29167 H 119.0625 v " +
@@ -129,20 +129,20 @@ func NewMover(ctx *SampleContext) Sample {
 			"-2.64584 h -5.291667 v -2.64583 H 68.791668 V 174.625 h -5.291666 v -2.64584 H 52.916669 L 39.6875,177.27083 H " +
 			"34.395833 L 23.8125,185.20833 H 15.875 L 5.2916669,187.85416 V 153.45833 H 2.6458333 v 47.625"
 
-		offset := dbox2d.V2(-50, -200)
-		points := parsePath(path, offset, 64, dbox2d.QFromRatio(1, 5))
+		offset := b2.V2(-50, -200)
+		points := parsePath(path, offset, 64, b2.QFromRatio(1, 5))
 
-		chainDef := dbox2d.DefaultChainDef()
+		chainDef := b2.DefaultChainDef()
 		chainDef.Points = points
 		chainDef.IsLoop = true
-		dbox2d.CreateChain(groundId1, &chainDef)
+		b2.CreateChain(groundId1, &chainDef)
 	}
 
-	var groundId2 dbox2d.BodyId
+	var groundId2 b2.BodyId
 	{
-		bodyDef := dbox2d.DefaultBodyDef()
-		bodyDef.Position = dbox2d.V2(98, 0)
-		groundId2 = dbox2d.CreateBody(s.WorldId, &bodyDef)
+		bodyDef := b2.DefaultBodyDef()
+		bodyDef.Position = b2.V2(98, 0)
+		groundId2 = b2.CreateBody(s.WorldId, &bodyDef)
 
 		path := "M 2.6458333,201.08333 H 293.68751 l 0,-23.8125 h -23.8125 l 21.16667,21.16667 h -23.8125 l -39.68751,-13.22917 " +
 			"-26.45833,7.9375 -23.8125,2.64583 h -13.22917 l -0.0575,2.64584 h -5.29166 v -2.64583 l -7.86855,-1e-5 " +
@@ -152,109 +152,109 @@ func NewMover(ctx *SampleContext) Sample {
 			"-7.9375,-2.64584 -7.9375,-2.64583 -5.291667,-5.29167 H 21.166667 L 13.229167,158.75 5.2916668,153.45833 H " +
 			"2.6458334 l -10e-8,47.625"
 
-		offset := dbox2d.V2(0, -200)
-		points := parsePath(path, offset, 64, dbox2d.QFromRatio(1, 5))
+		offset := b2.V2(0, -200)
+		points := parsePath(path, offset, 64, b2.QFromRatio(1, 5))
 
-		chainDef := dbox2d.DefaultChainDef()
+		chainDef := b2.DefaultChainDef()
 		chainDef.Points = points
 		chainDef.IsLoop = true
-		dbox2d.CreateChain(groundId2, &chainDef)
+		b2.CreateChain(groundId2, &chainDef)
 	}
 
 	{
-		box := dbox2d.MakeBox(dbox2d.QHalf(), dbox2d.QFromRatio(1, 8))
+		box := b2.MakeBox(b2.QHalf(), b2.QFromRatio(1, 8))
 
-		shapeDef := dbox2d.DefaultShapeDef()
+		shapeDef := b2.DefaultShapeDef()
 
-		jointDef := dbox2d.DefaultRevoluteJointDef()
-		jointDef.MaxMotorTorque = dbox2d.F(10)
+		jointDef := b2.DefaultRevoluteJointDef()
+		jointDef.MaxMotorTorque = b2.F(10)
 		jointDef.EnableMotor = true
-		jointDef.Hertz = dbox2d.F(3)
-		jointDef.DampingRatio = dbox2d.F(0.8)
+		jointDef.Hertz = b2.F(3)
+		jointDef.DampingRatio = b2.F(0.8)
 		jointDef.EnableSpring = true
 
-		xBase := dbox2d.F(48.7)
-		yBase := dbox2d.F(9.2)
+		xBase := b2.F(48.7)
+		yBase := b2.F(9.2)
 		count := 50
 		prevBodyId := groundId1
 		for i := range count {
-			bodyDef := dbox2d.DefaultBodyDef()
-			bodyDef.Type = dbox2d.DynamicBody
-			bodyDef.Position = dbox2d.Vec2{X: xBase.Add(dbox2d.QHalf()).Add(dbox2d.F(i)), Y: yBase}
-			bodyDef.AngularDamping = dbox2d.F(0.2)
-			bodyId := dbox2d.CreateBody(s.WorldId, &bodyDef)
-			dbox2d.CreatePolygonShape(bodyId, &shapeDef, &box)
+			bodyDef := b2.DefaultBodyDef()
+			bodyDef.Type = b2.DynamicBody
+			bodyDef.Position = b2.Vec2{X: xBase.Add(b2.QHalf()).Add(b2.F(i)), Y: yBase}
+			bodyDef.AngularDamping = b2.F(0.2)
+			bodyId := b2.CreateBody(s.WorldId, &bodyDef)
+			b2.CreatePolygonShape(bodyId, &shapeDef, &box)
 
-			pivot := dbox2d.Vec2{X: xBase.Add(dbox2d.F(i)), Y: yBase}
+			pivot := b2.Vec2{X: xBase.Add(b2.F(i)), Y: yBase}
 			jointDef.BodyIdA = prevBodyId
 			jointDef.BodyIdB = bodyId
 			jointDef.LocalAnchorA = jointDef.BodyIdA.GetLocalPoint(pivot)
 			jointDef.LocalAnchorB = jointDef.BodyIdB.GetLocalPoint(pivot)
-			dbox2d.CreateRevoluteJoint(s.WorldId, &jointDef)
+			b2.CreateRevoluteJoint(s.WorldId, &jointDef)
 
 			prevBodyId = bodyId
 		}
 
-		pivot := dbox2d.Vec2{X: xBase.Add(dbox2d.F(count)), Y: yBase}
+		pivot := b2.Vec2{X: xBase.Add(b2.F(count)), Y: yBase}
 		jointDef.BodyIdA = prevBodyId
 		jointDef.BodyIdB = groundId2
 		jointDef.LocalAnchorA = jointDef.BodyIdA.GetLocalPoint(pivot)
 		jointDef.LocalAnchorB = jointDef.BodyIdB.GetLocalPoint(pivot)
-		dbox2d.CreateRevoluteJoint(s.WorldId, &jointDef)
+		b2.CreateRevoluteJoint(s.WorldId, &jointDef)
 	}
 
 	{
-		bodyDef := dbox2d.DefaultBodyDef()
-		bodyDef.Position = dbox2d.V2(32.0, 4.5)
+		bodyDef := b2.DefaultBodyDef()
+		bodyDef.Position = b2.V2(32.0, 4.5)
 
-		shapeDef := dbox2d.DefaultShapeDef()
-		s.friendlyShape.maxPush = dbox2d.F(0.025)
+		shapeDef := b2.DefaultShapeDef()
+		s.friendlyShape.maxPush = b2.F(0.025)
 		s.friendlyShape.clipVelocity = false
 
-		shapeDef.Filter = dbox2d.Filter{CategoryBits: moverMoverBit, MaskBits: moverAllBits}
+		shapeDef.Filter = b2.Filter{CategoryBits: moverMoverBit, MaskBits: moverAllBits}
 		shapeDef.UserData = &s.friendlyShape
-		bodyId := dbox2d.CreateBody(s.WorldId, &bodyDef)
-		dbox2d.CreateCapsuleShape(bodyId, &shapeDef, &s.capsule)
+		bodyId := b2.CreateBody(s.WorldId, &bodyDef)
+		b2.CreateCapsuleShape(bodyId, &shapeDef, &s.capsule)
 	}
 
 	{
-		bodyDef := dbox2d.DefaultBodyDef()
-		bodyDef.Type = dbox2d.DynamicBody
-		bodyDef.Position = dbox2d.V2(7, 7)
-		bodyId := dbox2d.CreateBody(s.WorldId, &bodyDef)
+		bodyDef := b2.DefaultBodyDef()
+		bodyDef.Type = b2.DynamicBody
+		bodyDef.Position = b2.V2(7, 7)
+		bodyId := b2.CreateBody(s.WorldId, &bodyDef)
 
-		shapeDef := dbox2d.DefaultShapeDef()
-		shapeDef.Filter = dbox2d.Filter{CategoryBits: moverDebrisBit, MaskBits: moverAllBits}
-		shapeDef.Material.Restitution = dbox2d.F(0.7)
-		shapeDef.Material.RollingResistance = dbox2d.F(0.2)
+		shapeDef := b2.DefaultShapeDef()
+		shapeDef.Filter = b2.Filter{CategoryBits: moverDebrisBit, MaskBits: moverAllBits}
+		shapeDef.Material.Restitution = b2.F(0.7)
+		shapeDef.Material.RollingResistance = b2.F(0.2)
 
-		circle := dbox2d.Circle{Radius: dbox2d.F(0.3)}
-		s.ballId = dbox2d.CreateCircleShape(bodyId, &shapeDef, &circle)
+		circle := b2.Circle{Radius: b2.F(0.3)}
+		s.ballId = b2.CreateCircleShape(bodyId, &shapeDef, &circle)
 	}
 
 	{
-		bodyDef := dbox2d.DefaultBodyDef()
-		bodyDef.Type = dbox2d.KinematicBody
-		bodyDef.Position = dbox2d.Vec2{
+		bodyDef := b2.DefaultBodyDef()
+		bodyDef.Type = b2.KinematicBody
+		bodyDef.Position = b2.Vec2{
 			X: moverElevatorBase.X,
 			Y: moverElevatorBase.Y.Sub(FromFloat64(moverElevatorAmplitude)),
 		}
-		s.elevatorId = dbox2d.CreateBody(s.WorldId, &bodyDef)
+		s.elevatorId = b2.CreateBody(s.WorldId, &bodyDef)
 
 		s.elevatorShape = moverShapeUserData{
-			maxPush:      dbox2d.QFromRatio(1, 10),
+			maxPush:      b2.QFromRatio(1, 10),
 			clipVelocity: true,
 		}
-		shapeDef := dbox2d.DefaultShapeDef()
-		shapeDef.Filter = dbox2d.Filter{CategoryBits: moverDynamicBit, MaskBits: moverAllBits}
+		shapeDef := b2.DefaultShapeDef()
+		shapeDef.Filter = b2.Filter{CategoryBits: moverDynamicBit, MaskBits: moverAllBits}
 		shapeDef.UserData = &s.elevatorShape
 
-		box := dbox2d.MakeBox(dbox2d.F(2), dbox2d.QFromRatio(1, 10))
-		dbox2d.CreatePolygonShape(s.elevatorId, &shapeDef, &box)
+		box := b2.MakeBox(b2.F(2), b2.QFromRatio(1, 10))
+		b2.CreatePolygonShape(s.elevatorId, &shapeDef, &box)
 	}
 
 	s.totalIterations = 0
-	s.pogoVelocity = dbox2d.QZero()
+	s.pogoVelocity = b2.QZero()
 	s.onGround = false
 	s.jumpReleased = true
 	s.lockCamera = true
@@ -266,16 +266,16 @@ func NewMover(ctx *SampleContext) Sample {
 
 // solveMove moves the capsule for one step.
 // https://github.com/id-Software/Quake/blob/master/QW/client/pmove.c#L390
-func (s *Mover) solveMove(timeStep, throttle dbox2d.Q) {
-	zero := dbox2d.QZero()
-	one := dbox2d.QOne()
+func (s *Mover) solveMove(timeStep, throttle b2.Q) {
+	zero := b2.QZero()
+	one := b2.QOne()
 	minSpeed := FromFloat64(s.minSpeed)
 	maxSpeed := FromFloat64(s.maxSpeed)
 	stopSpeed := FromFloat64(s.stopSpeed)
 	draw := &s.Context.Draw
 
 	// Friction
-	speed, _ := dbox2d.GetLengthAndNormalize(s.velocity)
+	speed, _ := b2.GetLengthAndNormalize(s.velocity)
 	if speed.Less(minSpeed) {
 		s.velocity.X = zero
 		s.velocity.Y = zero
@@ -295,8 +295,8 @@ func (s *Mover) solveMove(timeStep, throttle dbox2d.Q) {
 		s.velocity = s.velocity.Mul(newSpeed.Div(speed))
 	}
 
-	desiredVelocity := dbox2d.Vec2{X: maxSpeed.Mul(throttle)}
-	desiredSpeed, desiredDirection := dbox2d.GetLengthAndNormalize(desiredVelocity)
+	desiredVelocity := b2.Vec2{X: maxSpeed.Mul(throttle)}
+	desiredSpeed, desiredDirection := b2.GetLengthAndNormalize(desiredVelocity)
 
 	if desiredSpeed.Greater(maxSpeed) {
 		desiredSpeed = maxSpeed
@@ -319,40 +319,40 @@ func (s *Mover) solveMove(timeStep, throttle dbox2d.Q) {
 			accelSpeed = addSpeed
 		}
 
-		s.velocity = dbox2d.MulAdd(s.velocity, accelSpeed, desiredDirection)
+		s.velocity = b2.MulAdd(s.velocity, accelSpeed, desiredDirection)
 	}
 
 	s.velocity.Y = s.velocity.Y.Sub(FromFloat64(s.gravity).Mul(timeStep))
 
 	radius := s.capsule.Radius
-	pogoRestLength := dbox2d.F(3).Mul(radius)
+	pogoRestLength := b2.F(3).Mul(radius)
 	rayLength := pogoRestLength.Add(radius)
-	origin := dbox2d.TransformPoint(s.transform, s.capsule.Center1)
-	circle := dbox2d.Circle{Center: origin, Radius: dbox2d.QHalf().Mul(radius)}
-	segmentOffset := dbox2d.Vec2{X: dbox2d.QFromRatio(3, 4).Mul(radius)}
-	segment := dbox2d.Segment{
+	origin := b2.TransformPoint(s.transform, s.capsule.Center1)
+	circle := b2.Circle{Center: origin, Radius: b2.QHalf().Mul(radius)}
+	segmentOffset := b2.Vec2{X: b2.QFromRatio(3, 4).Mul(radius)}
+	segment := b2.Segment{
 		Point1: origin.Sub(segmentOffset),
 		Point2: origin.Add(segmentOffset),
 	}
 
-	var proxy dbox2d.ShapeProxy
-	var translation dbox2d.Vec2
-	pogoFilter := dbox2d.QueryFilter{CategoryBits: moverMoverBit, MaskBits: moverStaticBit | moverDynamicBit}
+	var proxy b2.ShapeProxy
+	var translation b2.Vec2
+	pogoFilter := b2.QueryFilter{CategoryBits: moverMoverBit, MaskBits: moverStaticBit | moverDynamicBit}
 	var castResult moverCastResult
 
 	switch s.pogoShape {
 	case pogoPoint:
-		proxy = dbox2d.MakeProxy([]dbox2d.Vec2{origin}, zero)
-		translation = dbox2d.Vec2{Y: rayLength.Neg()}
+		proxy = b2.MakeProxy([]b2.Vec2{origin}, zero)
+		translation = b2.Vec2{Y: rayLength.Neg()}
 	case pogoCircle:
-		proxy = dbox2d.MakeProxy([]dbox2d.Vec2{origin}, circle.Radius)
-		translation = dbox2d.Vec2{Y: rayLength.Neg().Add(circle.Radius)}
+		proxy = b2.MakeProxy([]b2.Vec2{origin}, circle.Radius)
+		translation = b2.Vec2{Y: rayLength.Neg().Add(circle.Radius)}
 	default:
-		proxy = dbox2d.MakeProxy([]dbox2d.Vec2{segment.Point1, segment.Point2}, zero)
-		translation = dbox2d.Vec2{Y: rayLength.Neg()}
+		proxy = b2.MakeProxy([]b2.Vec2{segment.Point1, segment.Point2}, zero)
+		translation = b2.Vec2{Y: rayLength.Neg()}
 	}
 
-	s.WorldId.CastShape(&proxy, translation, pogoFilter, func(shapeId dbox2d.ShapeId, point, normal dbox2d.Vec2, fraction dbox2d.Q) dbox2d.Q {
+	s.WorldId.CastShape(&proxy, translation, pogoFilter, func(shapeId b2.ShapeId, point, normal b2.Vec2, fraction b2.Q) b2.Q {
 		castResult.point = point
 		castResult.normal = normal
 		castResult.bodyId = shapeId.GetBody()
@@ -363,7 +363,7 @@ func (s *Mover) solveMove(timeStep, throttle dbox2d.Q) {
 
 	// Avoid snapping to ground if still going up
 	if !s.onGround {
-		s.onGround = castResult.hit && !s.velocity.Y.Greater(dbox2d.QFromRatio(1, 100))
+		s.onGround = castResult.hit && !s.velocity.Y.Greater(b2.QFromRatio(1, 100))
 	} else {
 		s.onGround = castResult.hit
 	}
@@ -372,59 +372,59 @@ func (s *Mover) solveMove(timeStep, throttle dbox2d.Q) {
 		s.pogoVelocity = zero
 
 		delta := translation
-		draw.DrawSegment(origin, origin.Add(delta), dbox2d.ColorGray)
+		draw.DrawSegment(origin, origin.Add(delta), b2.ColorGray)
 
 		switch s.pogoShape {
 		case pogoPoint:
-			draw.DrawPoint(origin.Add(delta), dbox2d.F(10), dbox2d.ColorGray)
+			draw.DrawPoint(origin.Add(delta), b2.F(10), b2.ColorGray)
 		case pogoCircle:
-			draw.DrawCircle(origin.Add(delta), circle.Radius, dbox2d.ColorGray)
+			draw.DrawCircle(origin.Add(delta), circle.Radius, b2.ColorGray)
 		default:
-			draw.DrawSegment(segment.Point1.Add(delta), segment.Point2.Add(delta), dbox2d.ColorGray)
+			draw.DrawSegment(segment.Point1.Add(delta), segment.Point2.Add(delta), b2.ColorGray)
 		}
 	} else {
 		pogoCurrentLength := castResult.fraction.Mul(rayLength)
 
 		offset := pogoCurrentLength.Sub(pogoRestLength)
-		s.pogoVelocity = dbox2d.SpringDamper(FromFloat64(s.pogoHertz), FromFloat64(s.pogoDampingRatio), offset, s.pogoVelocity, timeStep)
+		s.pogoVelocity = b2.SpringDamper(FromFloat64(s.pogoHertz), FromFloat64(s.pogoDampingRatio), offset, s.pogoVelocity, timeStep)
 
 		delta := translation.Mul(castResult.fraction)
-		draw.DrawSegment(origin, origin.Add(delta), dbox2d.ColorGray)
+		draw.DrawSegment(origin, origin.Add(delta), b2.ColorGray)
 
 		switch s.pogoShape {
 		case pogoPoint:
-			draw.DrawPoint(origin.Add(delta), dbox2d.F(10), dbox2d.ColorPlum)
+			draw.DrawPoint(origin.Add(delta), b2.F(10), b2.ColorPlum)
 		case pogoCircle:
-			draw.DrawCircle(origin.Add(delta), circle.Radius, dbox2d.ColorPlum)
+			draw.DrawCircle(origin.Add(delta), circle.Radius, b2.ColorPlum)
 		default:
-			draw.DrawSegment(segment.Point1.Add(delta), segment.Point2.Add(delta), dbox2d.ColorPlum)
+			draw.DrawSegment(segment.Point1.Add(delta), segment.Point2.Add(delta), b2.ColorPlum)
 		}
 
-		castResult.bodyId.ApplyForce(dbox2d.V2(0, -50), castResult.point, true)
+		castResult.bodyId.ApplyForce(b2.V2(0, -50), castResult.point, true)
 	}
 
-	target := s.transform.P.Add(s.velocity.Mul(timeStep)).Add(dbox2d.Vec2{Y: timeStep.Mul(s.pogoVelocity)})
+	target := s.transform.P.Add(s.velocity.Mul(timeStep)).Add(b2.Vec2{Y: timeStep.Mul(s.pogoVelocity)})
 
 	// Mover overlap filter
-	collideFilter := dbox2d.QueryFilter{CategoryBits: moverMoverBit, MaskBits: moverStaticBit | moverDynamicBit | moverMoverBit}
+	collideFilter := b2.QueryFilter{CategoryBits: moverMoverBit, MaskBits: moverStaticBit | moverDynamicBit | moverMoverBit}
 
 	// Movers don't sweep against other movers, allows for soft collision
-	castFilter := dbox2d.QueryFilter{CategoryBits: moverMoverBit, MaskBits: moverStaticBit | moverDynamicBit}
+	castFilter := b2.QueryFilter{CategoryBits: moverMoverBit, MaskBits: moverStaticBit | moverDynamicBit}
 
 	s.totalIterations = 0
-	tolerance := dbox2d.QFromRatio(1, 100)
+	tolerance := b2.QFromRatio(1, 100)
 
 	for range 5 {
 		s.planeCount = 0
 
-		mover := dbox2d.Capsule{
-			Center1: dbox2d.TransformPoint(s.transform, s.capsule.Center1),
-			Center2: dbox2d.TransformPoint(s.transform, s.capsule.Center2),
+		mover := b2.Capsule{
+			Center1: b2.TransformPoint(s.transform, s.capsule.Center1),
+			Center2: b2.TransformPoint(s.transform, s.capsule.Center2),
 			Radius:  s.capsule.Radius,
 		}
 
 		s.WorldId.CollideMover(&mover, collideFilter, s.planeResult)
-		result := dbox2d.SolvePlanes(target.Sub(s.transform.P), s.planes[:s.planeCount])
+		result := b2.SolvePlanes(target.Sub(s.transform.P), s.planes[:s.planeCount])
 
 		s.totalIterations += result.IterationCount
 
@@ -438,7 +438,7 @@ func (s *Mover) solveMove(timeStep, throttle dbox2d.Q) {
 		}
 	}
 
-	s.velocity = dbox2d.ClipVector(s.velocity, s.planes[:s.planeCount])
+	s.velocity = b2.ClipVector(s.velocity, s.planes[:s.planeCount])
 }
 
 // UpdateGui provides the movement tuning and the pogo shape.
@@ -476,8 +476,8 @@ func (s *Mover) UpdateGui() {
 
 // planeResult collects the collision planes of the mover, with the push
 // tuning of the shape it hits.
-func (s *Mover) planeResult(shapeId dbox2d.ShapeId, planeResult *dbox2d.PlaneResult) bool {
-	maxPush := dbox2d.Huge
+func (s *Mover) planeResult(shapeId b2.ShapeId, planeResult *b2.PlaneResult) bool {
+	maxPush := b2.Huge
 	clipVelocity := true
 	if userData, ok := shapeId.GetUserData().(*moverShapeUserData); ok && userData != nil {
 		maxPush = userData.maxPush
@@ -485,10 +485,10 @@ func (s *Mover) planeResult(shapeId dbox2d.ShapeId, planeResult *dbox2d.PlaneRes
 	}
 
 	if s.planeCount < moverPlaneCapacity {
-		s.planes[s.planeCount] = dbox2d.CollisionPlane{
+		s.planes[s.planeCount] = b2.CollisionPlane{
 			Plane:        planeResult.Plane,
 			PushLimit:    maxPush,
-			Push:         dbox2d.QZero(),
+			Push:         b2.QZero(),
 			ClipVelocity: clipVelocity,
 		}
 		s.planeCount++
@@ -498,15 +498,15 @@ func (s *Mover) planeResult(shapeId dbox2d.ShapeId, planeResult *dbox2d.PlaneRes
 }
 
 // kick pushes a dynamic body away from the mover and up.
-func (s *Mover) kick(shapeId dbox2d.ShapeId) bool {
+func (s *Mover) kick(shapeId b2.ShapeId) bool {
 	bodyId := shapeId.GetBody()
-	if bodyId.GetType() != dbox2d.DynamicBody {
+	if bodyId.GetType() != b2.DynamicBody {
 		return true
 	}
 
 	center := bodyId.GetWorldCenterOfMass()
-	_, direction := dbox2d.GetLengthAndNormalize(center.Sub(s.transform.P))
-	impulse := dbox2d.Vec2{X: dbox2d.F(2).Mul(direction.X), Y: dbox2d.F(2)}
+	_, direction := b2.GetLengthAndNormalize(center.Sub(s.transform.P))
+	impulse := b2.Vec2{X: b2.F(2).Mul(direction.X), Y: b2.F(2)}
 	bodyId.ApplyLinearImpulseToCenter(impulse, true)
 
 	return true
@@ -515,12 +515,12 @@ func (s *Mover) kick(shapeId dbox2d.ShapeId) bool {
 // Keyboard kicks the debris near the mover's feet with K.
 func (s *Mover) Keyboard(key Key) {
 	if key == KeyK {
-		point := dbox2d.TransformPoint(s.transform, dbox2d.Vec2{Y: s.capsule.Center1.Y.Sub(dbox2d.F(3).Mul(s.capsule.Radius))})
-		circle := dbox2d.Circle{Center: point, Radius: dbox2d.QHalf()}
-		proxy := dbox2d.MakeProxy([]dbox2d.Vec2{circle.Center}, circle.Radius)
-		filter := dbox2d.QueryFilter{CategoryBits: moverMoverBit, MaskBits: moverDebrisBit}
+		point := b2.TransformPoint(s.transform, b2.Vec2{Y: s.capsule.Center1.Y.Sub(b2.F(3).Mul(s.capsule.Radius))})
+		circle := b2.Circle{Center: point, Radius: b2.QHalf()}
+		proxy := b2.MakeProxy([]b2.Vec2{circle.Center}, circle.Radius)
+		filter := b2.QueryFilter{CategoryBits: moverMoverBit, MaskBits: moverDebrisBit}
 		s.WorldId.OverlapShape(&proxy, filter, s.kick)
-		s.Context.Draw.DrawCircle(circle.Center, circle.Radius, dbox2d.ColorGoldenRod)
+		s.Context.Draw.DrawCircle(circle.Center, circle.Radius, b2.ColorGoldenRod)
 	}
 
 	s.Base.Keyboard(key)
@@ -543,12 +543,12 @@ func (s *Mover) Step() {
 	}
 
 	if timeStep > 0.0 {
-		point := dbox2d.Vec2{
+		point := b2.Vec2{
 			X: moverElevatorBase.X,
 			Y: FromFloat64(moverElevatorAmplitude * math.Cos(1.0*s.time+math.Pi)).Add(moverElevatorBase.Y),
 		}
 
-		s.elevatorId.SetTargetTransform(dbox2d.Transform{P: point, Q: dbox2d.RotIdentity()}, FromFloat64(timeStep))
+		s.elevatorId.SetTargetTransform(b2.Transform{P: point, Q: b2.RotIdentity()}, FromFloat64(timeStep))
 	}
 
 	s.time += timeStep
@@ -556,14 +556,14 @@ func (s *Mover) Step() {
 	s.Base.Step()
 
 	if !pause {
-		throttle := dbox2d.QZero()
+		throttle := b2.QZero()
 
 		if s.keyDown(KeyA) {
-			throttle = throttle.Sub(dbox2d.QOne())
+			throttle = throttle.Sub(b2.QOne())
 		}
 
 		if s.keyDown(KeyD) {
-			throttle = throttle.Add(dbox2d.QOne())
+			throttle = throttle.Add(b2.QOne())
 		}
 
 		if s.keyDown(KeySpace) {
@@ -583,21 +583,21 @@ func (s *Mover) Step() {
 	radius := s.capsule.Radius
 	for i := range s.planeCount {
 		plane := s.planes[i].Plane
-		p1 := dbox2d.MulAdd(s.transform.P, plane.Offset.Sub(radius), plane.Normal)
-		p2 := dbox2d.MulAdd(p1, dbox2d.QFromRatio(1, 10), plane.Normal)
-		draw.DrawPoint(p1, dbox2d.F(5), dbox2d.ColorYellow)
-		draw.DrawSegment(p1, p2, dbox2d.ColorYellow)
+		p1 := b2.MulAdd(s.transform.P, plane.Offset.Sub(radius), plane.Normal)
+		p2 := b2.MulAdd(p1, b2.QFromRatio(1, 10), plane.Normal)
+		draw.DrawPoint(p1, b2.F(5), b2.ColorYellow)
+		draw.DrawSegment(p1, p2, b2.ColorYellow)
 	}
 
-	p1 := dbox2d.TransformPoint(s.transform, s.capsule.Center1)
-	p2 := dbox2d.TransformPoint(s.transform, s.capsule.Center2)
+	p1 := b2.TransformPoint(s.transform, s.capsule.Center1)
+	p2 := b2.TransformPoint(s.transform, s.capsule.Center2)
 
-	color := dbox2d.ColorAquamarine
+	color := b2.ColorAquamarine
 	if s.onGround {
-		color = dbox2d.ColorOrange
+		color = b2.ColorOrange
 	}
 	draw.DrawSolidCapsule(p1, p2, radius, color)
-	draw.DrawSegment(s.transform.P, s.transform.P.Add(s.velocity), dbox2d.ColorPurple)
+	draw.DrawSegment(s.transform.P, s.transform.P.Add(s.velocity), b2.ColorPurple)
 
 	p := s.transform.P
 	s.DrawTextLine("position %.2f %.2f", ToFloat64(p.X), ToFloat64(p.Y))

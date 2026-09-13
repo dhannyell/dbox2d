@@ -31,9 +31,9 @@ func muButton(b samples.MouseButton) int {
 	}
 }
 
-func (a *App) worldPoint(x, y float64) dbox2d.Vec2 {
+func (a *App) worldPoint(x, y float64) b2.Vec2 {
 	pw := a.ctx.Camera.ConvertScreenToWorld(samples.Vec2f{X: x, Y: y})
-	return dbox2d.Vec2{X: samples.FromFloat64(pw.X), Y: samples.FromFloat64(pw.Y)}
+	return b2.Vec2{X: samples.FromFloat64(pw.X), Y: samples.FromFloat64(pw.Y)}
 }
 
 // MouseMove forwards a pointer move to microui and to the sample, always:
@@ -43,7 +43,7 @@ func (a *App) MouseMove(x, y float64) {
 	a.mu.InputMouseMove(int(x), int(y))
 
 	pw := a.ctx.Camera.ConvertScreenToWorld(samples.Vec2f{X: x, Y: y})
-	a.sample.MouseMove(dbox2d.Vec2{X: samples.FromFloat64(pw.X), Y: samples.FromFloat64(pw.Y)})
+	a.sample.MouseMove(b2.Vec2{X: samples.FromFloat64(pw.X), Y: samples.FromFloat64(pw.Y)})
 
 	if a.rightMouseDown {
 		a.ctx.Camera.Center.X -= pw.X - a.rightMouseAt.X

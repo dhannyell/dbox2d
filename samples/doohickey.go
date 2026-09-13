@@ -7,91 +7,91 @@ import (
 )
 
 type doohickey struct {
-	wheelId1, wheelId2 dbox2d.BodyId
-	barId1, barId2     dbox2d.BodyId
-	axleId1, axleId2   dbox2d.JointId
-	sliderId           dbox2d.JointId
+	wheelId1, wheelId2 b2.BodyId
+	barId1, barId2     b2.BodyId
+	axleId1, axleId2   b2.JointId
+	sliderId           b2.JointId
 	isSpawned          bool
 }
 
-func (d *doohickey) spawn(worldId dbox2d.WorldId, position dbox2d.Vec2, scale dbox2d.Q) {
+func (d *doohickey) spawn(worldId b2.WorldId, position b2.Vec2, scale b2.Q) {
 	if d.isSpawned {
 		panic("samples: doohickey is already spawned")
 	}
 
-	bodyDef := dbox2d.DefaultBodyDef()
-	bodyDef.Type = dbox2d.DynamicBody
+	bodyDef := b2.DefaultBodyDef()
+	bodyDef.Type = b2.DynamicBody
 
-	shapeDef := dbox2d.DefaultShapeDef()
-	shapeDef.Material.RollingResistance = dbox2d.F(0.1)
+	shapeDef := b2.DefaultShapeDef()
+	shapeDef.Material.RollingResistance = b2.F(0.1)
 
-	circle := dbox2d.Circle{Radius: scale}
-	capsule := dbox2d.Capsule{
-		Center1: dbox2d.Vec2{X: dbox2d.QFromRatio(-7, 2).Mul(scale)},
-		Center2: dbox2d.Vec2{X: dbox2d.QFromRatio(7, 2).Mul(scale)},
-		Radius:  dbox2d.F(0.15).Mul(scale),
+	circle := b2.Circle{Radius: scale}
+	capsule := b2.Capsule{
+		Center1: b2.Vec2{X: b2.QFromRatio(-7, 2).Mul(scale)},
+		Center2: b2.Vec2{X: b2.QFromRatio(7, 2).Mul(scale)},
+		Radius:  b2.F(0.15).Mul(scale),
 	}
 
-	bodyDef.Position = dbox2d.MulAdd(position, scale, dbox2d.Vec2{
-		X: dbox2d.F(-5),
-		Y: dbox2d.F(3),
+	bodyDef.Position = b2.MulAdd(position, scale, b2.Vec2{
+		X: b2.F(-5),
+		Y: b2.F(3),
 	})
-	d.wheelId1 = dbox2d.CreateBody(worldId, &bodyDef)
-	dbox2d.CreateCircleShape(d.wheelId1, &shapeDef, &circle)
+	d.wheelId1 = b2.CreateBody(worldId, &bodyDef)
+	b2.CreateCircleShape(d.wheelId1, &shapeDef, &circle)
 
-	bodyDef.Position = dbox2d.MulAdd(position, scale, dbox2d.Vec2{
-		X: dbox2d.F(5),
-		Y: dbox2d.F(3),
+	bodyDef.Position = b2.MulAdd(position, scale, b2.Vec2{
+		X: b2.F(5),
+		Y: b2.F(3),
 	})
-	d.wheelId2 = dbox2d.CreateBody(worldId, &bodyDef)
-	dbox2d.CreateCircleShape(d.wheelId2, &shapeDef, &circle)
+	d.wheelId2 = b2.CreateBody(worldId, &bodyDef)
+	b2.CreateCircleShape(d.wheelId2, &shapeDef, &circle)
 
-	bodyDef.Position = dbox2d.MulAdd(position, scale, dbox2d.Vec2{
-		X: dbox2d.F(-1.5),
-		Y: dbox2d.F(3),
+	bodyDef.Position = b2.MulAdd(position, scale, b2.Vec2{
+		X: b2.F(-1.5),
+		Y: b2.F(3),
 	})
-	d.barId1 = dbox2d.CreateBody(worldId, &bodyDef)
-	dbox2d.CreateCapsuleShape(d.barId1, &shapeDef, &capsule)
+	d.barId1 = b2.CreateBody(worldId, &bodyDef)
+	b2.CreateCapsuleShape(d.barId1, &shapeDef, &capsule)
 
-	bodyDef.Position = dbox2d.MulAdd(position, scale, dbox2d.Vec2{
-		X: dbox2d.F(1.5),
-		Y: dbox2d.F(3),
+	bodyDef.Position = b2.MulAdd(position, scale, b2.Vec2{
+		X: b2.F(1.5),
+		Y: b2.F(3),
 	})
-	d.barId2 = dbox2d.CreateBody(worldId, &bodyDef)
-	dbox2d.CreateCapsuleShape(d.barId2, &shapeDef, &capsule)
+	d.barId2 = b2.CreateBody(worldId, &bodyDef)
+	b2.CreateCapsuleShape(d.barId2, &shapeDef, &capsule)
 
-	revoluteDef := dbox2d.DefaultRevoluteJointDef()
+	revoluteDef := b2.DefaultRevoluteJointDef()
 	revoluteDef.BodyIdA = d.wheelId1
 	revoluteDef.BodyIdB = d.barId1
-	revoluteDef.LocalAnchorA = dbox2d.Vec2{}
-	revoluteDef.LocalAnchorB = dbox2d.Vec2{X: dbox2d.F(-3.5).Mul(scale)}
+	revoluteDef.LocalAnchorA = b2.Vec2{}
+	revoluteDef.LocalAnchorB = b2.Vec2{X: b2.F(-3.5).Mul(scale)}
 	revoluteDef.EnableMotor = true
-	revoluteDef.MaxMotorTorque = dbox2d.F(2).Mul(scale)
-	d.axleId1 = dbox2d.CreateRevoluteJoint(worldId, &revoluteDef)
+	revoluteDef.MaxMotorTorque = b2.F(2).Mul(scale)
+	d.axleId1 = b2.CreateRevoluteJoint(worldId, &revoluteDef)
 
 	revoluteDef.BodyIdA = d.wheelId2
 	revoluteDef.BodyIdB = d.barId2
-	revoluteDef.LocalAnchorA = dbox2d.Vec2{}
-	revoluteDef.LocalAnchorB = dbox2d.Vec2{X: dbox2d.F(3.5).Mul(scale)}
+	revoluteDef.LocalAnchorA = b2.Vec2{}
+	revoluteDef.LocalAnchorB = b2.Vec2{X: b2.F(3.5).Mul(scale)}
 	revoluteDef.EnableMotor = true
-	revoluteDef.MaxMotorTorque = dbox2d.F(2).Mul(scale)
-	d.axleId2 = dbox2d.CreateRevoluteJoint(worldId, &revoluteDef)
+	revoluteDef.MaxMotorTorque = b2.F(2).Mul(scale)
+	d.axleId2 = b2.CreateRevoluteJoint(worldId, &revoluteDef)
 
-	prismaticDef := dbox2d.DefaultPrismaticJointDef()
+	prismaticDef := b2.DefaultPrismaticJointDef()
 	prismaticDef.BodyIdA = d.barId1
 	prismaticDef.BodyIdB = d.barId2
-	prismaticDef.LocalAxisA = dbox2d.Vec2{X: dbox2d.QOne()}
-	prismaticDef.LocalAnchorA = dbox2d.Vec2{X: dbox2d.F(2).Mul(scale)}
-	prismaticDef.LocalAnchorB = dbox2d.Vec2{X: dbox2d.F(-2).Mul(scale)}
-	prismaticDef.LowerTranslation = dbox2d.F(-2).Mul(scale)
-	prismaticDef.UpperTranslation = dbox2d.F(2).Mul(scale)
+	prismaticDef.LocalAxisA = b2.Vec2{X: b2.QOne()}
+	prismaticDef.LocalAnchorA = b2.Vec2{X: b2.F(2).Mul(scale)}
+	prismaticDef.LocalAnchorB = b2.Vec2{X: b2.F(-2).Mul(scale)}
+	prismaticDef.LowerTranslation = b2.F(-2).Mul(scale)
+	prismaticDef.UpperTranslation = b2.F(2).Mul(scale)
 	prismaticDef.EnableLimit = true
 	prismaticDef.EnableMotor = true
-	prismaticDef.MaxMotorForce = dbox2d.F(2).Mul(scale)
+	prismaticDef.MaxMotorForce = b2.F(2).Mul(scale)
 	prismaticDef.EnableSpring = true
-	prismaticDef.Hertz = dbox2d.QOne()
-	prismaticDef.DampingRatio = dbox2d.QHalf()
-	d.sliderId = dbox2d.CreatePrismaticJoint(worldId, &prismaticDef)
+	prismaticDef.Hertz = b2.QOne()
+	prismaticDef.DampingRatio = b2.QHalf()
+	d.sliderId = b2.CreatePrismaticJoint(worldId, &prismaticDef)
 
 	d.isSpawned = true
 }
@@ -101,12 +101,12 @@ func (d *doohickey) despawn() {
 		panic("samples: doohickey is not spawned")
 	}
 
-	dbox2d.DestroyJoint(d.axleId1)
-	dbox2d.DestroyJoint(d.axleId2)
-	dbox2d.DestroyJoint(d.sliderId)
-	dbox2d.DestroyBody(d.wheelId1)
-	dbox2d.DestroyBody(d.wheelId2)
-	dbox2d.DestroyBody(d.barId1)
-	dbox2d.DestroyBody(d.barId2)
+	b2.DestroyJoint(d.axleId1)
+	b2.DestroyJoint(d.axleId2)
+	b2.DestroyJoint(d.sliderId)
+	b2.DestroyBody(d.wheelId1)
+	b2.DestroyBody(d.wheelId2)
+	b2.DestroyBody(d.barId1)
+	b2.DestroyBody(d.barId2)
 	d.isSpawned = false
 }

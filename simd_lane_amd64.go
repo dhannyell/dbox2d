@@ -1,6 +1,6 @@
 //go:build dbox2d_simd && !dbox2d_fixed && goexperiment.simd && go1.27 && amd64
 
-package dbox2d
+package b2
 
 import (
 	"simd/archsimd"

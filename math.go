@@ -1,4 +1,4 @@
-package dbox2d
+package b2
 
 // The scalar, the vector and the rotation come from the scalar layer
 // (scalar_fixed.go). This file adds the shapes and the operations that

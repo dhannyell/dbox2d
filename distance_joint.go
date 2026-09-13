@@ -1,4 +1,4 @@
-package dbox2d
+package b2
 
 // This file corresponds to src/distance_joint.c of the reference.
 

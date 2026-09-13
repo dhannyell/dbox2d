@@ -41,9 +41,9 @@ func init() {
 type DistanceJoint struct {
 	Base
 
-	groundId  dbox2d.BodyId
-	bodyIds   [10]dbox2d.BodyId
-	jointIds  [10]dbox2d.JointId
+	groundId  b2.BodyId
+	bodyIds   [10]b2.BodyId
+	jointIds  [10]b2.JointId
 	count     int
 	hertz     float64
 	damping   float64
@@ -63,8 +63,8 @@ func NewDistanceJoint(ctx *SampleContext) Sample {
 		ctx.Camera.Zoom = 25.0 * 0.35
 	}
 
-	bodyDef := dbox2d.DefaultBodyDef()
-	s.groundId = dbox2d.CreateBody(s.WorldId, &bodyDef)
+	bodyDef := b2.DefaultBodyDef()
+	s.groundId = b2.CreateBody(s.WorldId, &bodyDef)
 
 	s.count = 0
 	s.hertz = 2.0
@@ -76,8 +76,8 @@ func NewDistanceJoint(ctx *SampleContext) Sample {
 	s.limit = false
 
 	for i := range s.bodyIds {
-		s.bodyIds[i] = dbox2d.BodyId{}
-		s.jointIds[i] = dbox2d.JointId{}
+		s.bodyIds[i] = b2.BodyId{}
+		s.jointIds[i] = b2.JointId{}
 	}
 
 	s.createScene(1)
@@ -87,23 +87,23 @@ func NewDistanceJoint(ctx *SampleContext) Sample {
 func (s *DistanceJoint) createScene(newCount int) {
 	// Joints must be destroyed before their attached bodies.
 	for i := 0; i < s.count; i++ {
-		dbox2d.DestroyJoint(s.jointIds[i])
-		s.jointIds[i] = dbox2d.JointId{}
+		b2.DestroyJoint(s.jointIds[i])
+		s.jointIds[i] = b2.JointId{}
 	}
 
 	for i := 0; i < s.count; i++ {
-		dbox2d.DestroyBody(s.bodyIds[i])
-		s.bodyIds[i] = dbox2d.BodyId{}
+		b2.DestroyBody(s.bodyIds[i])
+		s.bodyIds[i] = b2.BodyId{}
 	}
 
 	s.count = newCount
 
-	circle := dbox2d.Circle{Radius: dbox2d.QFromRatio(1, 4)}
-	shapeDef := dbox2d.DefaultShapeDef()
-	shapeDef.Density = dbox2d.F(20)
-	yOffset := dbox2d.F(20)
+	circle := b2.Circle{Radius: b2.QFromRatio(1, 4)}
+	shapeDef := b2.DefaultShapeDef()
+	shapeDef.Density = b2.F(20)
+	yOffset := b2.F(20)
 
-	jointDef := dbox2d.DefaultDistanceJointDef()
+	jointDef := b2.DefaultDistanceJointDef()
 	jointDef.Hertz = FromFloat64(s.hertz)
 	jointDef.DampingRatio = FromFloat64(s.damping)
 	jointDef.Length = FromFloat64(s.length)
@@ -114,23 +114,23 @@ func (s *DistanceJoint) createScene(newCount int) {
 
 	prevBodyId := s.groundId
 	for i := 0; i < s.count; i++ {
-		bodyDef := dbox2d.DefaultBodyDef()
-		bodyDef.Type = dbox2d.DynamicBody
-		bodyDef.AngularDamping = dbox2d.F(0.1)
-		bodyDef.Position = dbox2d.Vec2{
+		bodyDef := b2.DefaultBodyDef()
+		bodyDef.Type = b2.DynamicBody
+		bodyDef.AngularDamping = b2.F(0.1)
+		bodyDef.Position = b2.Vec2{
 			X: FromFloat64(s.length * float64(i+1)),
 			Y: yOffset,
 		}
-		s.bodyIds[i] = dbox2d.CreateBody(s.WorldId, &bodyDef)
-		dbox2d.CreateCircleShape(s.bodyIds[i], &shapeDef, &circle)
+		s.bodyIds[i] = b2.CreateBody(s.WorldId, &bodyDef)
+		b2.CreateCircleShape(s.bodyIds[i], &shapeDef, &circle)
 
-		pivotA := dbox2d.Vec2{X: FromFloat64(s.length * float64(i)), Y: yOffset}
-		pivotB := dbox2d.Vec2{X: FromFloat64(s.length * float64(i+1)), Y: yOffset}
+		pivotA := b2.Vec2{X: FromFloat64(s.length * float64(i)), Y: yOffset}
+		pivotB := b2.Vec2{X: FromFloat64(s.length * float64(i+1)), Y: yOffset}
 		jointDef.BodyIdA = prevBodyId
 		jointDef.BodyIdB = s.bodyIds[i]
 		jointDef.LocalAnchorA = prevBodyId.GetLocalPoint(pivotA)
 		jointDef.LocalAnchorB = s.bodyIds[i].GetLocalPoint(pivotB)
-		s.jointIds[i] = dbox2d.CreateDistanceJoint(s.WorldId, &jointDef)
+		s.jointIds[i] = b2.CreateDistanceJoint(s.WorldId, &jointDef)
 
 		prevBodyId = s.bodyIds[i]
 	}
@@ -207,8 +207,8 @@ func (s *DistanceJoint) UpdateGui() {
 type MotorJoint struct {
 	Base
 
-	bodyId           dbox2d.BodyId
-	jointId          dbox2d.JointId
+	bodyId           b2.BodyId
+	jointId          b2.JointId
 	time             float64
 	maxForce         float64
 	maxTorque        float64
@@ -225,35 +225,35 @@ func NewMotorJoint(ctx *SampleContext) Sample {
 		ctx.Camera.Zoom = 25.0 * 0.4
 	}
 
-	groundBodyDef := dbox2d.DefaultBodyDef()
-	groundId := dbox2d.CreateBody(s.WorldId, &groundBodyDef)
-	groundShapeDef := dbox2d.DefaultShapeDef()
-	groundSegment := dbox2d.Segment{
-		Point1: dbox2d.Vec2{X: FromFloat64(-20.0), Y: FromFloat64(0.0)},
-		Point2: dbox2d.Vec2{X: FromFloat64(20.0), Y: FromFloat64(0.0)},
+	groundBodyDef := b2.DefaultBodyDef()
+	groundId := b2.CreateBody(s.WorldId, &groundBodyDef)
+	groundShapeDef := b2.DefaultShapeDef()
+	groundSegment := b2.Segment{
+		Point1: b2.Vec2{X: FromFloat64(-20.0), Y: FromFloat64(0.0)},
+		Point2: b2.Vec2{X: FromFloat64(20.0), Y: FromFloat64(0.0)},
 	}
-	dbox2d.CreateSegmentShape(groundId, &groundShapeDef, &groundSegment)
+	b2.CreateSegmentShape(groundId, &groundShapeDef, &groundSegment)
 
-	bodyDef := dbox2d.DefaultBodyDef()
-	bodyDef.Type = dbox2d.DynamicBody
-	bodyDef.Position = dbox2d.Vec2{X: FromFloat64(0.0), Y: FromFloat64(8.0)}
-	s.bodyId = dbox2d.CreateBody(s.WorldId, &bodyDef)
+	bodyDef := b2.DefaultBodyDef()
+	bodyDef.Type = b2.DynamicBody
+	bodyDef.Position = b2.Vec2{X: FromFloat64(0.0), Y: FromFloat64(8.0)}
+	s.bodyId = b2.CreateBody(s.WorldId, &bodyDef)
 
-	box := dbox2d.MakeBox(FromFloat64(2.0), FromFloat64(0.5))
-	shapeDef := dbox2d.DefaultShapeDef()
+	box := b2.MakeBox(FromFloat64(2.0), FromFloat64(0.5))
+	shapeDef := b2.DefaultShapeDef()
 	shapeDef.Density = FromFloat64(1.0)
-	dbox2d.CreatePolygonShape(s.bodyId, &shapeDef, &box)
+	b2.CreatePolygonShape(s.bodyId, &shapeDef, &box)
 
 	s.maxForce = 500.0
 	s.maxTorque = 500.0
 	s.correctionFactor = 0.3
-	jointDef := dbox2d.DefaultMotorJointDef()
+	jointDef := b2.DefaultMotorJointDef()
 	jointDef.BodyIdA = groundId
 	jointDef.BodyIdB = s.bodyId
 	jointDef.MaxForce = FromFloat64(s.maxForce)
 	jointDef.MaxTorque = FromFloat64(s.maxTorque)
 	jointDef.CorrectionFactor = FromFloat64(s.correctionFactor)
-	s.jointId = dbox2d.CreateMotorJoint(s.WorldId, &jointDef)
+	s.jointId = b2.CreateMotorJoint(s.WorldId, &jointDef)
 
 	s.goEnabled = true
 	s.time = 0.0
@@ -276,7 +276,7 @@ func (s *MotorJoint) UpdateGui() {
 		s.jointId.SetCorrectionFactor(FromFloat64(s.correctionFactor))
 	}
 	if gui.Button("Apply Impulse") {
-		s.bodyId.ApplyLinearImpulseToCenter(dbox2d.Vec2{X: FromFloat64(100.0), Y: FromFloat64(0.0)}, true)
+		s.bodyId.ApplyLinearImpulseToCenter(b2.Vec2{X: FromFloat64(100.0), Y: FromFloat64(0.0)}, true)
 	}
 
 	gui.End()
@@ -287,7 +287,7 @@ func (s *MotorJoint) Step() {
 		s.time += 1.0 / s.Context.Settings.Hertz
 	}
 
-	linearOffset := dbox2d.Vec2{
+	linearOffset := b2.Vec2{
 		X: FromFloat64(6.0 * math.Sin(2.0*s.time)),
 		Y: FromFloat64(8.0 + 4.0*math.Sin(1.0*s.time)),
 	}
@@ -296,7 +296,7 @@ func (s *MotorJoint) Step() {
 
 	s.jointId.SetLinearOffset(linearOffset)
 	s.jointId.SetAngularOffset(angularOffsetTurns)
-	s.Context.Draw.DrawTransform(dbox2d.Transform{P: linearOffset, Q: dbox2d.MakeRot(angularOffsetTurns)})
+	s.Context.Draw.DrawTransform(b2.Transform{P: linearOffset, Q: b2.MakeRot(angularOffsetTurns)})
 
 	s.Base.Step()
 
@@ -319,31 +319,31 @@ func NewFilterJoint(ctx *SampleContext) Sample {
 		ctx.Camera.Zoom = 25.0 * 0.4
 	}
 
-	groundBodyDef := dbox2d.DefaultBodyDef()
-	groundId := dbox2d.CreateBody(s.WorldId, &groundBodyDef)
-	groundShapeDef := dbox2d.DefaultShapeDef()
-	groundSegment := dbox2d.Segment{
-		Point1: dbox2d.Vec2{X: FromFloat64(-20.0), Y: FromFloat64(0.0)},
-		Point2: dbox2d.Vec2{X: FromFloat64(20.0), Y: FromFloat64(0.0)},
+	groundBodyDef := b2.DefaultBodyDef()
+	groundId := b2.CreateBody(s.WorldId, &groundBodyDef)
+	groundShapeDef := b2.DefaultShapeDef()
+	groundSegment := b2.Segment{
+		Point1: b2.Vec2{X: FromFloat64(-20.0), Y: FromFloat64(0.0)},
+		Point2: b2.Vec2{X: FromFloat64(20.0), Y: FromFloat64(0.0)},
 	}
-	dbox2d.CreateSegmentShape(groundId, &groundShapeDef, &groundSegment)
+	b2.CreateSegmentShape(groundId, &groundShapeDef, &groundSegment)
 
-	bodyDef := dbox2d.DefaultBodyDef()
-	bodyDef.Type = dbox2d.DynamicBody
-	bodyDef.Position = dbox2d.Vec2{X: FromFloat64(-4.0), Y: FromFloat64(2.0)}
-	body1 := dbox2d.CreateBody(s.WorldId, &bodyDef)
-	box := dbox2d.MakeSquare(FromFloat64(2.0))
-	shapeDef := dbox2d.DefaultShapeDef()
-	dbox2d.CreatePolygonShape(body1, &shapeDef, &box)
+	bodyDef := b2.DefaultBodyDef()
+	bodyDef.Type = b2.DynamicBody
+	bodyDef.Position = b2.Vec2{X: FromFloat64(-4.0), Y: FromFloat64(2.0)}
+	body1 := b2.CreateBody(s.WorldId, &bodyDef)
+	box := b2.MakeSquare(FromFloat64(2.0))
+	shapeDef := b2.DefaultShapeDef()
+	b2.CreatePolygonShape(body1, &shapeDef, &box)
 
-	bodyDef.Position = dbox2d.Vec2{X: FromFloat64(4.0), Y: FromFloat64(2.0)}
-	body2 := dbox2d.CreateBody(s.WorldId, &bodyDef)
-	dbox2d.CreatePolygonShape(body2, &shapeDef, &box)
+	bodyDef.Position = b2.Vec2{X: FromFloat64(4.0), Y: FromFloat64(2.0)}
+	body2 := b2.CreateBody(s.WorldId, &bodyDef)
+	b2.CreatePolygonShape(body2, &shapeDef, &box)
 
-	jointDef := dbox2d.DefaultFilterJointDef()
+	jointDef := b2.DefaultFilterJointDef()
 	jointDef.BodyIdA = body1
 	jointDef.BodyIdB = body2
-	dbox2d.CreateFilterJoint(s.WorldId, &jointDef)
+	b2.CreateFilterJoint(s.WorldId, &jointDef)
 
 	return s
 }
@@ -352,9 +352,9 @@ func NewFilterJoint(ctx *SampleContext) Sample {
 type RevoluteJoint struct {
 	Base
 
-	ball          dbox2d.BodyId
-	jointId1      dbox2d.JointId
-	jointId2      dbox2d.JointId
+	ball          b2.BodyId
+	jointId1      b2.JointId
+	jointId2      b2.JointId
 	motorSpeed    float64
 	motorTorque   float64
 	hertz         float64
@@ -374,15 +374,15 @@ func NewRevoluteJoint(ctx *SampleContext) Sample {
 		ctx.Camera.Zoom = 25 * 0.7
 	}
 
-	var groundID dbox2d.BodyId
+	var groundID b2.BodyId
 	{
-		bodyDef := dbox2d.DefaultBodyDef()
-		bodyDef.Position = dbox2d.V2(0, -1)
-		groundID = dbox2d.CreateBody(s.WorldId, &bodyDef)
+		bodyDef := b2.DefaultBodyDef()
+		bodyDef.Position = b2.V2(0, -1)
+		groundID = b2.CreateBody(s.WorldId, &bodyDef)
 
-		box := dbox2d.MakeBox(dbox2d.F(40), dbox2d.F(1))
-		shapeDef := dbox2d.DefaultShapeDef()
-		dbox2d.CreatePolygonShape(groundID, &shapeDef, &box)
+		box := b2.MakeBox(b2.F(40), b2.F(1))
+		shapeDef := b2.DefaultShapeDef()
+		b2.CreatePolygonShape(groundID, &shapeDef, &box)
 	}
 
 	s.enableSpring = false
@@ -395,28 +395,28 @@ func NewRevoluteJoint(ctx *SampleContext) Sample {
 	s.motorTorque = 1000
 
 	{
-		bodyDef := dbox2d.DefaultBodyDef()
-		bodyDef.Type = dbox2d.DynamicBody
-		bodyDef.Position = dbox2d.V2(-10, 20)
-		bodyID := dbox2d.CreateBody(s.WorldId, &bodyDef)
+		bodyDef := b2.DefaultBodyDef()
+		bodyDef.Type = b2.DynamicBody
+		bodyDef.Position = b2.V2(-10, 20)
+		bodyID := b2.CreateBody(s.WorldId, &bodyDef)
 
-		shapeDef := dbox2d.DefaultShapeDef()
-		shapeDef.Density = dbox2d.QOne()
-		capsule := dbox2d.Capsule{
-			Center1: dbox2d.V2(0, -1),
-			Center2: dbox2d.V2(0, 6),
-			Radius:  dbox2d.QHalf(),
+		shapeDef := b2.DefaultShapeDef()
+		shapeDef.Density = b2.QOne()
+		capsule := b2.Capsule{
+			Center1: b2.V2(0, -1),
+			Center2: b2.V2(0, 6),
+			Radius:  b2.QHalf(),
 		}
-		dbox2d.CreateCapsuleShape(bodyID, &shapeDef, &capsule)
+		b2.CreateCapsuleShape(bodyID, &shapeDef, &capsule)
 
-		pivot := dbox2d.V2(-10.0, 20.5)
-		jointDef := dbox2d.DefaultRevoluteJointDef()
+		pivot := b2.V2(-10.0, 20.5)
+		jointDef := b2.DefaultRevoluteJointDef()
 		jointDef.BodyIdA = groundID
 		jointDef.BodyIdB = bodyID
 		jointDef.LocalAnchorA = groundID.GetLocalPoint(pivot)
 		jointDef.LocalAnchorB = bodyID.GetLocalPoint(pivot)
 		// Convert the GUI's degrees to the public API's turns.
-		jointDef.TargetAngle = FromFloat64(s.targetDegrees).Div(dbox2d.F(360))
+		jointDef.TargetAngle = FromFloat64(s.targetDegrees).Div(b2.F(360))
 		jointDef.EnableSpring = s.enableSpring
 		jointDef.Hertz = FromFloat64(s.hertz)
 		jointDef.DampingRatio = FromFloat64(s.dampingRatio)
@@ -424,54 +424,54 @@ func NewRevoluteJoint(ctx *SampleContext) Sample {
 		jointDef.MaxMotorTorque = FromFloat64(s.motorTorque)
 		jointDef.EnableMotor = s.enableMotor
 		// 0.5*PI radians is 1/4 turn.
-		jointDef.ReferenceAngle = dbox2d.QFromRatio(1, 4)
-		jointDef.LowerAngle = dbox2d.QFromRatio(-1, 4)
-		jointDef.UpperAngle = dbox2d.QFromRatio(3, 8)
+		jointDef.ReferenceAngle = b2.QFromRatio(1, 4)
+		jointDef.LowerAngle = b2.QFromRatio(-1, 4)
+		jointDef.UpperAngle = b2.QFromRatio(3, 8)
 		jointDef.EnableLimit = s.enableLimit
 
-		s.jointId1 = dbox2d.CreateRevoluteJoint(s.WorldId, &jointDef)
+		s.jointId1 = b2.CreateRevoluteJoint(s.WorldId, &jointDef)
 	}
 
 	{
-		circle := dbox2d.Circle{Radius: dbox2d.F(2)}
-		bodyDef := dbox2d.DefaultBodyDef()
-		bodyDef.Type = dbox2d.DynamicBody
-		bodyDef.Position = dbox2d.V2(5, 30)
-		s.ball = dbox2d.CreateBody(s.WorldId, &bodyDef)
+		circle := b2.Circle{Radius: b2.F(2)}
+		bodyDef := b2.DefaultBodyDef()
+		bodyDef.Type = b2.DynamicBody
+		bodyDef.Position = b2.V2(5, 30)
+		s.ball = b2.CreateBody(s.WorldId, &bodyDef)
 
-		shapeDef := dbox2d.DefaultShapeDef()
-		shapeDef.Density = dbox2d.QOne()
-		dbox2d.CreateCircleShape(s.ball, &shapeDef, &circle)
+		shapeDef := b2.DefaultShapeDef()
+		shapeDef.Density = b2.QOne()
+		b2.CreateCircleShape(s.ball, &shapeDef, &circle)
 	}
 
 	{
-		bodyDef := dbox2d.DefaultBodyDef()
-		bodyDef.Position = dbox2d.V2(20, 10)
-		bodyDef.Type = dbox2d.DynamicBody
-		bodyID := dbox2d.CreateBody(s.WorldId, &bodyDef)
+		bodyDef := b2.DefaultBodyDef()
+		bodyDef.Position = b2.V2(20, 10)
+		bodyDef.Type = b2.DynamicBody
+		bodyID := b2.CreateBody(s.WorldId, &bodyDef)
 
-		box := dbox2d.MakeOffsetBox(
-			dbox2d.F(10), dbox2d.F(0.5),
-			dbox2d.V2(-10, 0), dbox2d.RotIdentity(),
+		box := b2.MakeOffsetBox(
+			b2.F(10), b2.F(0.5),
+			b2.V2(-10, 0), b2.RotIdentity(),
 		)
-		shapeDef := dbox2d.DefaultShapeDef()
-		shapeDef.Density = dbox2d.QOne()
-		dbox2d.CreatePolygonShape(bodyID, &shapeDef, &box)
+		shapeDef := b2.DefaultShapeDef()
+		shapeDef.Density = b2.QOne()
+		b2.CreatePolygonShape(bodyID, &shapeDef, &box)
 
-		pivot := dbox2d.V2(19, 10)
-		jointDef := dbox2d.DefaultRevoluteJointDef()
+		pivot := b2.V2(19, 10)
+		jointDef := b2.DefaultRevoluteJointDef()
 		jointDef.BodyIdA = groundID
 		jointDef.BodyIdB = bodyID
 		jointDef.LocalAnchorA = groundID.GetLocalPoint(pivot)
 		jointDef.LocalAnchorB = bodyID.GetLocalPoint(pivot)
-		jointDef.LowerAngle = dbox2d.QFromRatio(-1, 8)
-		jointDef.UpperAngle = dbox2d.QFromRatio(1, 20)
+		jointDef.LowerAngle = b2.QFromRatio(-1, 8)
+		jointDef.UpperAngle = b2.QFromRatio(1, 20)
 		jointDef.EnableLimit = true
 		jointDef.EnableMotor = true
-		jointDef.MotorSpeed = dbox2d.QZero()
+		jointDef.MotorSpeed = b2.QZero()
 		jointDef.MaxMotorTorque = FromFloat64(s.motorTorque)
 
-		s.jointId2 = dbox2d.CreateRevoluteJoint(s.WorldId, &jointDef)
+		s.jointId2 = b2.CreateRevoluteJoint(s.WorldId, &jointDef)
 	}
 
 	return s
@@ -523,7 +523,7 @@ func (s *RevoluteJoint) UpdateGui() {
 
 		if gui.SliderFloat("Degrees", &s.targetDegrees, -180, 180) {
 			// Convert the GUI's degrees to the public API's turns.
-			targetAngle := FromFloat64(s.targetDegrees).Div(dbox2d.F(360))
+			targetAngle := FromFloat64(s.targetDegrees).Div(b2.F(360))
 			s.jointId1.SetTargetAngle(targetAngle)
 			s.jointId1.WakeBodies()
 		}
@@ -550,7 +550,7 @@ func (s *RevoluteJoint) Step() {
 type PrismaticJoint struct {
 	Base
 
-	jointId      dbox2d.JointId
+	jointId      b2.JointId
 	motorSpeed   float64
 	motorForce   float64
 	hertz        float64
@@ -570,10 +570,10 @@ func NewPrismaticJoint(ctx *SampleContext) Sample {
 		ctx.Camera.Zoom = 25 * 0.5
 	}
 
-	var groundID dbox2d.BodyId
+	var groundID b2.BodyId
 	{
-		bodyDef := dbox2d.DefaultBodyDef()
-		groundID = dbox2d.CreateBody(s.WorldId, &bodyDef)
+		bodyDef := b2.DefaultBodyDef()
+		groundID = b2.CreateBody(s.WorldId, &bodyDef)
 	}
 
 	s.enableSpring = false
@@ -586,18 +586,18 @@ func NewPrismaticJoint(ctx *SampleContext) Sample {
 	s.translation = 0
 
 	{
-		bodyDef := dbox2d.DefaultBodyDef()
-		bodyDef.Position = dbox2d.V2(0, 10)
-		bodyDef.Type = dbox2d.DynamicBody
-		bodyID := dbox2d.CreateBody(s.WorldId, &bodyDef)
+		bodyDef := b2.DefaultBodyDef()
+		bodyDef.Position = b2.V2(0, 10)
+		bodyDef.Type = b2.DynamicBody
+		bodyID := b2.CreateBody(s.WorldId, &bodyDef)
 
-		shapeDef := dbox2d.DefaultShapeDef()
-		box := dbox2d.MakeBox(dbox2d.F(0.5), dbox2d.F(2))
-		dbox2d.CreatePolygonShape(bodyID, &shapeDef, &box)
+		shapeDef := b2.DefaultShapeDef()
+		box := b2.MakeBox(b2.F(0.5), b2.F(2))
+		b2.CreatePolygonShape(bodyID, &shapeDef, &box)
 
-		pivot := dbox2d.V2(0, 9)
-		axis := (dbox2d.Vec2{X: dbox2d.QOne(), Y: dbox2d.QOne()}).Normalize()
-		jointDef := dbox2d.DefaultPrismaticJointDef()
+		pivot := b2.V2(0, 9)
+		axis := (b2.Vec2{X: b2.QOne(), Y: b2.QOne()}).Normalize()
+		jointDef := b2.DefaultPrismaticJointDef()
 		jointDef.BodyIdA = groundID
 		jointDef.BodyIdB = bodyID
 		jointDef.LocalAxisA = groundID.GetLocalVector(axis)
@@ -606,14 +606,14 @@ func NewPrismaticJoint(ctx *SampleContext) Sample {
 		jointDef.MotorSpeed = FromFloat64(s.motorSpeed)
 		jointDef.MaxMotorForce = FromFloat64(s.motorForce)
 		jointDef.EnableMotor = s.enableMotor
-		jointDef.LowerTranslation = dbox2d.F(-10)
-		jointDef.UpperTranslation = dbox2d.F(10)
+		jointDef.LowerTranslation = b2.F(-10)
+		jointDef.UpperTranslation = b2.F(10)
 		jointDef.EnableLimit = s.enableLimit
 		jointDef.EnableSpring = s.enableSpring
 		jointDef.Hertz = FromFloat64(s.hertz)
 		jointDef.DampingRatio = FromFloat64(s.dampingRatio)
 
-		s.jointId = dbox2d.CreatePrismaticJoint(s.WorldId, &jointDef)
+		s.jointId = b2.CreatePrismaticJoint(s.WorldId, &jointDef)
 	}
 
 	return s
@@ -690,7 +690,7 @@ func (s *PrismaticJoint) Step() {
 type WheelJoint struct {
 	Base
 
-	jointID      dbox2d.JointId
+	jointID      b2.JointId
 	hertz        float64
 	dampingRatio float64
 	motorSpeed   float64
@@ -711,8 +711,8 @@ func NewWheelJoint(ctx *SampleContext) Sample {
 		ctx.Camera.Zoom = 25.0 * 0.15
 	}
 
-	groundDef := dbox2d.DefaultBodyDef()
-	groundID := dbox2d.CreateBody(s.WorldId, &groundDef)
+	groundDef := b2.DefaultBodyDef()
+	groundID := b2.CreateBody(s.WorldId, &groundDef)
 
 	s.enableSpring = true
 	s.enableLimit = true
@@ -722,22 +722,22 @@ func NewWheelJoint(ctx *SampleContext) Sample {
 	s.hertz = 1.0
 	s.dampingRatio = 0.7
 
-	bodyDef := dbox2d.DefaultBodyDef()
-	bodyDef.Position = dbox2d.V2(0.0, 10.25)
-	bodyDef.Type = dbox2d.DynamicBody
-	bodyID := dbox2d.CreateBody(s.WorldId, &bodyDef)
+	bodyDef := b2.DefaultBodyDef()
+	bodyDef.Position = b2.V2(0.0, 10.25)
+	bodyDef.Type = b2.DynamicBody
+	bodyID := b2.CreateBody(s.WorldId, &bodyDef)
 
-	shapeDef := dbox2d.DefaultShapeDef()
-	capsule := dbox2d.Capsule{
-		Center1: dbox2d.Vec2{Y: dbox2d.QHalf().Neg()},
-		Center2: dbox2d.Vec2{Y: dbox2d.QHalf()},
-		Radius:  dbox2d.QHalf(),
+	shapeDef := b2.DefaultShapeDef()
+	capsule := b2.Capsule{
+		Center1: b2.Vec2{Y: b2.QHalf().Neg()},
+		Center2: b2.Vec2{Y: b2.QHalf()},
+		Radius:  b2.QHalf(),
 	}
-	dbox2d.CreateCapsuleShape(bodyID, &shapeDef, &capsule)
+	b2.CreateCapsuleShape(bodyID, &shapeDef, &capsule)
 
-	pivot := dbox2d.V2(0, 10)
-	axis := dbox2d.Vec2{X: dbox2d.QOne(), Y: dbox2d.QOne()}.Normalize()
-	jointDef := dbox2d.DefaultWheelJointDef()
+	pivot := b2.V2(0, 10)
+	axis := b2.Vec2{X: b2.QOne(), Y: b2.QOne()}.Normalize()
+	jointDef := b2.DefaultWheelJointDef()
 	jointDef.BodyIdA = groundID
 	jointDef.BodyIdB = bodyID
 	jointDef.LocalAxisA = groundID.GetLocalVector(axis)
@@ -746,13 +746,13 @@ func NewWheelJoint(ctx *SampleContext) Sample {
 	jointDef.MotorSpeed = radiansToTurns(s.motorSpeed)
 	jointDef.MaxMotorTorque = FromFloat64(s.motorTorque)
 	jointDef.EnableMotor = s.enableMotor
-	jointDef.LowerTranslation = dbox2d.F(-3)
-	jointDef.UpperTranslation = dbox2d.F(3)
+	jointDef.LowerTranslation = b2.F(-3)
+	jointDef.UpperTranslation = b2.F(3)
 	jointDef.EnableLimit = s.enableLimit
 	jointDef.Hertz = FromFloat64(s.hertz)
 	jointDef.DampingRatio = FromFloat64(s.dampingRatio)
 
-	s.jointID = dbox2d.CreateWheelJoint(s.WorldId, &jointDef)
+	s.jointID = b2.CreateWheelJoint(s.WorldId, &jointDef)
 
 	return s
 }
@@ -810,8 +810,8 @@ const bridgeCount = 160
 // Bridge demonstrates a suspension bridge made from revolute-jointed boxes.
 type Bridge struct {
 	Base
-	bodyIDs                [bridgeCount]dbox2d.BodyId
-	jointIDs               [bridgeCount + 1]dbox2d.JointId
+	bodyIDs                [bridgeCount]b2.BodyId
+	jointIDs               [bridgeCount + 1]b2.JointId
 	frictionTorque         float64
 	constraintHertz        float64
 	constraintDampingRatio float64
@@ -827,8 +827,8 @@ func NewBridge(ctx *SampleContext) Sample {
 		ctx.Camera.Zoom = 25.0 * 2.5
 	}
 
-	groundDef := dbox2d.DefaultBodyDef()
-	groundID := dbox2d.CreateBody(s.WorldId, &groundDef)
+	groundDef := b2.DefaultBodyDef()
+	groundID := b2.CreateBody(s.WorldId, &groundDef)
 
 	s.constraintHertz = 60.0
 	s.constraintDampingRatio = 0.0
@@ -836,11 +836,11 @@ func NewBridge(ctx *SampleContext) Sample {
 	s.springDampingRatio = 0.7
 	s.frictionTorque = 200.0
 
-	box := dbox2d.MakeBox(dbox2d.QHalf(), dbox2d.QFromRatio(1, 8))
-	shapeDef := dbox2d.DefaultShapeDef()
-	shapeDef.Density = dbox2d.F(20)
+	box := b2.MakeBox(b2.QHalf(), b2.QFromRatio(1, 8))
+	shapeDef := b2.DefaultShapeDef()
+	shapeDef.Density = b2.F(20)
 
-	jointDef := dbox2d.DefaultRevoluteJointDef()
+	jointDef := b2.DefaultRevoluteJointDef()
 	jointDef.EnableMotor = true
 	jointDef.MaxMotorTorque = FromFloat64(s.frictionTorque)
 	jointDef.EnableSpring = true
@@ -848,66 +848,66 @@ func NewBridge(ctx *SampleContext) Sample {
 	jointDef.DampingRatio = FromFloat64(s.springDampingRatio)
 
 	jointIndex := 0
-	xbase := dbox2d.F(-80)
+	xbase := b2.F(-80)
 	prevBodyID := groundID
 	for i := range bridgeCount {
-		bodyDef := dbox2d.DefaultBodyDef()
-		bodyDef.Type = dbox2d.DynamicBody
-		bodyDef.Position = dbox2d.Vec2{
-			X: xbase.Add(dbox2d.QHalf()).Add(dbox2d.F(i)),
-			Y: dbox2d.F(20),
+		bodyDef := b2.DefaultBodyDef()
+		bodyDef.Type = b2.DynamicBody
+		bodyDef.Position = b2.Vec2{
+			X: xbase.Add(b2.QHalf()).Add(b2.F(i)),
+			Y: b2.F(20),
 		}
-		bodyDef.LinearDamping = dbox2d.F(0.1)
-		bodyDef.AngularDamping = dbox2d.F(0.1)
+		bodyDef.LinearDamping = b2.F(0.1)
+		bodyDef.AngularDamping = b2.F(0.1)
 
-		s.bodyIDs[i] = dbox2d.CreateBody(s.WorldId, &bodyDef)
-		dbox2d.CreatePolygonShape(s.bodyIDs[i], &shapeDef, &box)
+		s.bodyIDs[i] = b2.CreateBody(s.WorldId, &bodyDef)
+		b2.CreatePolygonShape(s.bodyIDs[i], &shapeDef, &box)
 
-		pivot := dbox2d.Vec2{X: xbase.Add(dbox2d.F(i)), Y: dbox2d.F(20)}
+		pivot := b2.Vec2{X: xbase.Add(b2.F(i)), Y: b2.F(20)}
 		jointDef.BodyIdA = prevBodyID
 		jointDef.BodyIdB = s.bodyIDs[i]
 		jointDef.LocalAnchorA = jointDef.BodyIdA.GetLocalPoint(pivot)
 		jointDef.LocalAnchorB = jointDef.BodyIdB.GetLocalPoint(pivot)
-		s.jointIDs[jointIndex] = dbox2d.CreateRevoluteJoint(s.WorldId, &jointDef)
+		s.jointIDs[jointIndex] = b2.CreateRevoluteJoint(s.WorldId, &jointDef)
 
 		prevBodyID = s.bodyIDs[i]
 		jointIndex++
 	}
 
-	pivot := dbox2d.Vec2{X: xbase.Add(dbox2d.F(bridgeCount)), Y: dbox2d.F(20)}
+	pivot := b2.Vec2{X: xbase.Add(b2.F(bridgeCount)), Y: b2.F(20)}
 	jointDef.BodyIdA = prevBodyID
 	jointDef.BodyIdB = groundID
 	jointDef.LocalAnchorA = jointDef.BodyIdA.GetLocalPoint(pivot)
 	jointDef.LocalAnchorB = jointDef.BodyIdB.GetLocalPoint(pivot)
-	s.jointIDs[jointIndex] = dbox2d.CreateRevoluteJoint(s.WorldId, &jointDef)
+	s.jointIDs[jointIndex] = b2.CreateRevoluteJoint(s.WorldId, &jointDef)
 
 	for i := range 2 {
-		vertices := []dbox2d.Vec2{
-			{X: dbox2d.F(-0.5)},
-			{X: dbox2d.F(0.5)},
-			{Y: dbox2d.F(1.5)},
+		vertices := []b2.Vec2{
+			{X: b2.F(-0.5)},
+			{X: b2.F(0.5)},
+			{Y: b2.F(1.5)},
 		}
-		hull := dbox2d.ComputeHull(vertices)
-		triangle := dbox2d.MakePolygon(&hull, dbox2d.QZero())
+		hull := b2.ComputeHull(vertices)
+		triangle := b2.MakePolygon(&hull, b2.QZero())
 
-		shapeDef := dbox2d.DefaultShapeDef()
-		shapeDef.Density = dbox2d.F(20)
-		bodyDef := dbox2d.DefaultBodyDef()
-		bodyDef.Type = dbox2d.DynamicBody
-		bodyDef.Position = dbox2d.Vec2{X: dbox2d.F(-8 + 8*i), Y: dbox2d.F(22)}
-		bodyID := dbox2d.CreateBody(s.WorldId, &bodyDef)
-		dbox2d.CreatePolygonShape(bodyID, &shapeDef, &triangle)
+		shapeDef := b2.DefaultShapeDef()
+		shapeDef.Density = b2.F(20)
+		bodyDef := b2.DefaultBodyDef()
+		bodyDef.Type = b2.DynamicBody
+		bodyDef.Position = b2.Vec2{X: b2.F(-8 + 8*i), Y: b2.F(22)}
+		bodyID := b2.CreateBody(s.WorldId, &bodyDef)
+		b2.CreatePolygonShape(bodyID, &shapeDef, &triangle)
 	}
 
 	for i := range 3 {
-		circle := dbox2d.Circle{Radius: dbox2d.QHalf()}
-		shapeDef := dbox2d.DefaultShapeDef()
-		shapeDef.Density = dbox2d.F(20)
-		bodyDef := dbox2d.DefaultBodyDef()
-		bodyDef.Type = dbox2d.DynamicBody
-		bodyDef.Position = dbox2d.Vec2{X: dbox2d.F(-6 + 6*i), Y: dbox2d.F(25)}
-		bodyID := dbox2d.CreateBody(s.WorldId, &bodyDef)
-		dbox2d.CreateCircleShape(bodyID, &shapeDef, &circle)
+		circle := b2.Circle{Radius: b2.QHalf()}
+		shapeDef := b2.DefaultShapeDef()
+		shapeDef.Density = b2.F(20)
+		bodyDef := b2.DefaultBodyDef()
+		bodyDef.Type = b2.DynamicBody
+		bodyDef.Position = b2.Vec2{X: b2.F(-6 + 6*i), Y: b2.F(25)}
+		bodyID := b2.CreateBody(s.WorldId, &bodyDef)
+		b2.CreateCircleShape(bodyID, &shapeDef, &circle)
 	}
 
 	return s
@@ -950,7 +950,7 @@ const ballAndChainCount = 30
 // BallAndChain demonstrates a capsule chain ending in a large ball.
 type BallAndChain struct {
 	Base
-	jointIDs       [ballAndChainCount + 1]dbox2d.JointId
+	jointIDs       [ballAndChainCount + 1]b2.JointId
 	frictionTorque float64
 }
 
@@ -963,39 +963,39 @@ func NewBallAndChain(ctx *SampleContext) Sample {
 		ctx.Camera.Zoom = 27.5
 	}
 
-	groundDef := dbox2d.DefaultBodyDef()
-	groundID := dbox2d.CreateBody(s.WorldId, &groundDef)
+	groundDef := b2.DefaultBodyDef()
+	groundID := b2.CreateBody(s.WorldId, &groundDef)
 
 	s.frictionTorque = 100.0
 
-	hx := dbox2d.QHalf()
-	capsule := dbox2d.Capsule{
-		Center1: dbox2d.Vec2{X: hx.Neg()},
-		Center2: dbox2d.Vec2{X: hx},
-		Radius:  dbox2d.F(0.125),
+	hx := b2.QHalf()
+	capsule := b2.Capsule{
+		Center1: b2.Vec2{X: hx.Neg()},
+		Center2: b2.Vec2{X: hx},
+		Radius:  b2.F(0.125),
 	}
 
-	shapeDef := dbox2d.DefaultShapeDef()
-	shapeDef.Density = dbox2d.F(20)
+	shapeDef := b2.DefaultShapeDef()
+	shapeDef.Density = b2.F(20)
 	shapeDef.Filter.CategoryBits = 0x1
 	shapeDef.Filter.MaskBits = 0x2
-	jointDef := dbox2d.DefaultRevoluteJointDef()
+	jointDef := b2.DefaultRevoluteJointDef()
 
 	jointIndex := 0
 	prevBodyID := groundID
 	for i := range ballAndChainCount {
-		bodyDef := dbox2d.DefaultBodyDef()
-		bodyDef.Type = dbox2d.DynamicBody
-		bodyDef.Position = dbox2d.Vec2{
-			X: dbox2d.F(1 + 2*i).Mul(hx),
-			Y: dbox2d.F(ballAndChainCount).Mul(hx),
+		bodyDef := b2.DefaultBodyDef()
+		bodyDef.Type = b2.DynamicBody
+		bodyDef.Position = b2.Vec2{
+			X: b2.F(1 + 2*i).Mul(hx),
+			Y: b2.F(ballAndChainCount).Mul(hx),
 		}
-		bodyID := dbox2d.CreateBody(s.WorldId, &bodyDef)
-		dbox2d.CreateCapsuleShape(bodyID, &shapeDef, &capsule)
+		bodyID := b2.CreateBody(s.WorldId, &bodyDef)
+		b2.CreateCapsuleShape(bodyID, &shapeDef, &capsule)
 
-		pivot := dbox2d.Vec2{
-			X: dbox2d.F(2 * i).Mul(hx),
-			Y: dbox2d.F(ballAndChainCount).Mul(hx),
+		pivot := b2.Vec2{
+			X: b2.F(2 * i).Mul(hx),
+			Y: b2.F(ballAndChainCount).Mul(hx),
 		}
 		jointDef.BodyIdA = prevBodyID
 		jointDef.BodyIdB = bodyID
@@ -1004,29 +1004,29 @@ func NewBallAndChain(ctx *SampleContext) Sample {
 		jointDef.EnableMotor = true
 		jointDef.MaxMotorTorque = FromFloat64(s.frictionTorque)
 		jointDef.EnableSpring = i > 0
-		jointDef.Hertz = dbox2d.F(4)
-		s.jointIDs[jointIndex] = dbox2d.CreateRevoluteJoint(s.WorldId, &jointDef)
+		jointDef.Hertz = b2.F(4)
+		s.jointIDs[jointIndex] = b2.CreateRevoluteJoint(s.WorldId, &jointDef)
 		jointIndex++
 
 		prevBodyID = bodyID
 	}
 
-	circle := dbox2d.Circle{Radius: dbox2d.F(4)}
-	bodyDef := dbox2d.DefaultBodyDef()
-	bodyDef.Type = dbox2d.DynamicBody
-	bodyDef.Position = dbox2d.Vec2{
-		X: dbox2d.F(1 + 2*ballAndChainCount).Mul(hx).Add(circle.Radius).Sub(hx),
-		Y: dbox2d.F(ballAndChainCount).Mul(hx),
+	circle := b2.Circle{Radius: b2.F(4)}
+	bodyDef := b2.DefaultBodyDef()
+	bodyDef.Type = b2.DynamicBody
+	bodyDef.Position = b2.Vec2{
+		X: b2.F(1 + 2*ballAndChainCount).Mul(hx).Add(circle.Radius).Sub(hx),
+		Y: b2.F(ballAndChainCount).Mul(hx),
 	}
-	bodyID := dbox2d.CreateBody(s.WorldId, &bodyDef)
+	bodyID := b2.CreateBody(s.WorldId, &bodyDef)
 
 	shapeDef.Filter.CategoryBits = 0x2
 	shapeDef.Filter.MaskBits = 0x1
-	dbox2d.CreateCircleShape(bodyID, &shapeDef, &circle)
+	b2.CreateCircleShape(bodyID, &shapeDef, &circle)
 
-	pivot := dbox2d.Vec2{
-		X: dbox2d.F(2 * ballAndChainCount).Mul(hx),
-		Y: dbox2d.F(ballAndChainCount).Mul(hx),
+	pivot := b2.Vec2{
+		X: b2.F(2 * ballAndChainCount).Mul(hx),
+		Y: b2.F(ballAndChainCount).Mul(hx),
 	}
 	jointDef.BodyIdA = prevBodyID
 	jointDef.BodyIdB = bodyID
@@ -1035,8 +1035,8 @@ func NewBallAndChain(ctx *SampleContext) Sample {
 	jointDef.EnableMotor = true
 	jointDef.MaxMotorTorque = FromFloat64(s.frictionTorque)
 	jointDef.EnableSpring = true
-	jointDef.Hertz = dbox2d.F(4)
-	s.jointIDs[jointIndex] = dbox2d.CreateRevoluteJoint(s.WorldId, &jointDef)
+	jointDef.Hertz = b2.F(4)
+	s.jointIDs[jointIndex] = b2.CreateRevoluteJoint(s.WorldId, &jointDef)
 
 	return s
 }
@@ -1066,9 +1066,9 @@ type Cantilever struct {
 	gravityScale        float64
 	collideConnected    bool
 
-	tipID    dbox2d.BodyId
-	bodyIDs  [cantileverCount]dbox2d.BodyId
-	jointIDs [cantileverCount]dbox2d.JointId
+	tipID    b2.BodyId
+	bodyIDs  [cantileverCount]b2.BodyId
+	jointIDs [cantileverCount]b2.JointId
 }
 
 // NewCantilever builds the cantilever scene.
@@ -1087,32 +1087,32 @@ func NewCantilever(ctx *SampleContext) Sample {
 		ctx.Camera.Zoom = 25.0 * 0.35
 	}
 
-	groundDef := dbox2d.DefaultBodyDef()
-	groundID := dbox2d.CreateBody(s.WorldId, &groundDef)
+	groundDef := b2.DefaultBodyDef()
+	groundID := b2.CreateBody(s.WorldId, &groundDef)
 
-	hx := dbox2d.QHalf()
-	capsule := dbox2d.Capsule{
-		Center1: dbox2d.Vec2{X: hx.Neg()},
-		Center2: dbox2d.Vec2{X: hx},
-		Radius:  dbox2d.F(0.125),
+	hx := b2.QHalf()
+	capsule := b2.Capsule{
+		Center1: b2.Vec2{X: hx.Neg()},
+		Center2: b2.Vec2{X: hx},
+		Radius:  b2.F(0.125),
 	}
-	shapeDef := dbox2d.DefaultShapeDef()
-	shapeDef.Density = dbox2d.F(20)
+	shapeDef := b2.DefaultShapeDef()
+	shapeDef.Density = b2.F(20)
 
-	jointDef := dbox2d.DefaultWeldJointDef()
-	bodyDef := dbox2d.DefaultBodyDef()
-	bodyDef.Type = dbox2d.DynamicBody
+	jointDef := b2.DefaultWeldJointDef()
+	bodyDef := b2.DefaultBodyDef()
+	bodyDef.Type = b2.DynamicBody
 	bodyDef.IsAwake = false
 
 	previousID := groundID
 	for i := range cantileverCount {
-		bodyDef.Position = dbox2d.Vec2{
-			X: dbox2d.F(1 + 2*i).Mul(hx),
+		bodyDef.Position = b2.Vec2{
+			X: b2.F(1 + 2*i).Mul(hx),
 		}
-		s.bodyIDs[i] = dbox2d.CreateBody(s.WorldId, &bodyDef)
-		dbox2d.CreateCapsuleShape(s.bodyIDs[i], &shapeDef, &capsule)
+		s.bodyIDs[i] = b2.CreateBody(s.WorldId, &bodyDef)
+		b2.CreateCapsuleShape(s.bodyIDs[i], &shapeDef, &capsule)
 
-		pivot := dbox2d.Vec2{X: dbox2d.F(2 * i).Mul(hx)}
+		pivot := b2.Vec2{X: b2.F(2 * i).Mul(hx)}
 		jointDef.BodyIdA = previousID
 		jointDef.BodyIdB = s.bodyIDs[i]
 		jointDef.LocalAnchorA = previousID.GetLocalPoint(pivot)
@@ -1122,7 +1122,7 @@ func NewCantilever(ctx *SampleContext) Sample {
 		jointDef.AngularHertz = FromFloat64(s.angularHertz)
 		jointDef.AngularDampingRatio = FromFloat64(s.angularDampingRatio)
 		jointDef.CollideConnected = s.collideConnected
-		s.jointIDs[i] = dbox2d.CreateWeldJoint(s.WorldId, &jointDef)
+		s.jointIDs[i] = b2.CreateWeldJoint(s.WorldId, &jointDef)
 
 		previousID = s.bodyIDs[i]
 	}
@@ -1184,9 +1184,9 @@ const fixedRotationCount = 6
 type FixedRotation struct {
 	Base
 
-	groundID      dbox2d.BodyId
-	bodyIDs       [fixedRotationCount]dbox2d.BodyId
-	jointIDs      [fixedRotationCount]dbox2d.JointId
+	groundID      b2.BodyId
+	bodyIDs       [fixedRotationCount]b2.BodyId
+	jointIDs      [fixedRotationCount]b2.JointId
 	fixedRotation bool
 }
 
@@ -1202,8 +1202,8 @@ func NewFixedRotation(ctx *SampleContext) Sample {
 		ctx.Camera.Zoom = 25.0 * 0.7
 	}
 
-	groundDef := dbox2d.DefaultBodyDef()
-	s.groundID = dbox2d.CreateBody(s.WorldId, &groundDef)
+	groundDef := b2.DefaultBodyDef()
+	s.groundID = b2.CreateBody(s.WorldId, &groundDef)
 	s.CreateScene()
 
 	return s
@@ -1213,132 +1213,132 @@ func NewFixedRotation(ctx *SampleContext) Sample {
 func (s *FixedRotation) CreateScene() {
 	for i := range fixedRotationCount {
 		if !s.jointIDs[i].IsNull() {
-			dbox2d.DestroyJoint(s.jointIDs[i])
-			s.jointIDs[i] = dbox2d.JointId{}
+			b2.DestroyJoint(s.jointIDs[i])
+			s.jointIDs[i] = b2.JointId{}
 		}
 		if !s.bodyIDs[i].IsNull() {
-			dbox2d.DestroyBody(s.bodyIDs[i])
-			s.bodyIDs[i] = dbox2d.BodyId{}
+			b2.DestroyBody(s.bodyIDs[i])
+			s.bodyIDs[i] = b2.BodyId{}
 		}
 	}
 
-	position := dbox2d.Vec2{X: dbox2d.QFromRatio(-25, 2), Y: dbox2d.F(10)}
-	bodyDef := dbox2d.DefaultBodyDef()
-	bodyDef.Type = dbox2d.DynamicBody
+	position := b2.Vec2{X: b2.QFromRatio(-25, 2), Y: b2.F(10)}
+	bodyDef := b2.DefaultBodyDef()
+	bodyDef.Type = b2.DynamicBody
 	bodyDef.FixedRotation = s.fixedRotation
-	box := dbox2d.MakeBox(dbox2d.QOne(), dbox2d.QOne())
+	box := b2.MakeBox(b2.QOne(), b2.QOne())
 
 	index := 0
 
 	// Distance joint.
 	bodyDef.Position = position
-	s.bodyIDs[index] = dbox2d.CreateBody(s.WorldId, &bodyDef)
-	shapeDef := dbox2d.DefaultShapeDef()
-	dbox2d.CreatePolygonShape(s.bodyIDs[index], &shapeDef, &box)
-	length := dbox2d.F(2)
-	pivot1 := dbox2d.Vec2{X: position.X, Y: position.Y.Add(dbox2d.QOne()).Add(length)}
-	pivot2 := dbox2d.Vec2{X: position.X, Y: position.Y.Add(dbox2d.QOne())}
-	distanceDef := dbox2d.DefaultDistanceJointDef()
+	s.bodyIDs[index] = b2.CreateBody(s.WorldId, &bodyDef)
+	shapeDef := b2.DefaultShapeDef()
+	b2.CreatePolygonShape(s.bodyIDs[index], &shapeDef, &box)
+	length := b2.F(2)
+	pivot1 := b2.Vec2{X: position.X, Y: position.Y.Add(b2.QOne()).Add(length)}
+	pivot2 := b2.Vec2{X: position.X, Y: position.Y.Add(b2.QOne())}
+	distanceDef := b2.DefaultDistanceJointDef()
 	distanceDef.BodyIdA = s.groundID
 	distanceDef.BodyIdB = s.bodyIDs[index]
 	distanceDef.LocalAnchorA = s.groundID.GetLocalPoint(pivot1)
 	distanceDef.LocalAnchorB = s.bodyIDs[index].GetLocalPoint(pivot2)
 	distanceDef.Length = length
-	s.jointIDs[index] = dbox2d.CreateDistanceJoint(s.WorldId, &distanceDef)
+	s.jointIDs[index] = b2.CreateDistanceJoint(s.WorldId, &distanceDef)
 
-	position.X = position.X.Add(dbox2d.F(5))
+	position.X = position.X.Add(b2.F(5))
 	index++
 
 	// Motor joint.
 	bodyDef.Position = position
-	s.bodyIDs[index] = dbox2d.CreateBody(s.WorldId, &bodyDef)
-	shapeDef = dbox2d.DefaultShapeDef()
-	dbox2d.CreatePolygonShape(s.bodyIDs[index], &shapeDef, &box)
-	motorDef := dbox2d.DefaultMotorJointDef()
+	s.bodyIDs[index] = b2.CreateBody(s.WorldId, &bodyDef)
+	shapeDef = b2.DefaultShapeDef()
+	b2.CreatePolygonShape(s.bodyIDs[index], &shapeDef, &box)
+	motorDef := b2.DefaultMotorJointDef()
 	motorDef.BodyIdA = s.groundID
 	motorDef.BodyIdB = s.bodyIDs[index]
 	motorDef.LinearOffset = position
-	motorDef.MaxForce = dbox2d.F(200)
-	motorDef.MaxTorque = dbox2d.F(20)
-	s.jointIDs[index] = dbox2d.CreateMotorJoint(s.WorldId, &motorDef)
+	motorDef.MaxForce = b2.F(200)
+	motorDef.MaxTorque = b2.F(20)
+	s.jointIDs[index] = b2.CreateMotorJoint(s.WorldId, &motorDef)
 
-	position.X = position.X.Add(dbox2d.F(5))
+	position.X = position.X.Add(b2.F(5))
 	index++
 
 	// Prismatic joint.
 	bodyDef.Position = position
-	s.bodyIDs[index] = dbox2d.CreateBody(s.WorldId, &bodyDef)
-	shapeDef = dbox2d.DefaultShapeDef()
-	dbox2d.CreatePolygonShape(s.bodyIDs[index], &shapeDef, &box)
-	pivot := dbox2d.Vec2{X: position.X.Sub(dbox2d.QOne()), Y: position.Y}
-	prismaticDef := dbox2d.DefaultPrismaticJointDef()
+	s.bodyIDs[index] = b2.CreateBody(s.WorldId, &bodyDef)
+	shapeDef = b2.DefaultShapeDef()
+	b2.CreatePolygonShape(s.bodyIDs[index], &shapeDef, &box)
+	pivot := b2.Vec2{X: position.X.Sub(b2.QOne()), Y: position.Y}
+	prismaticDef := b2.DefaultPrismaticJointDef()
 	prismaticDef.BodyIdA = s.groundID
 	prismaticDef.BodyIdB = s.bodyIDs[index]
 	prismaticDef.LocalAnchorA = s.groundID.GetLocalPoint(pivot)
 	prismaticDef.LocalAnchorB = s.bodyIDs[index].GetLocalPoint(pivot)
-	prismaticDef.LocalAxisA = s.groundID.GetLocalVector(dbox2d.Vec2{X: dbox2d.QOne()})
-	s.jointIDs[index] = dbox2d.CreatePrismaticJoint(s.WorldId, &prismaticDef)
+	prismaticDef.LocalAxisA = s.groundID.GetLocalVector(b2.Vec2{X: b2.QOne()})
+	s.jointIDs[index] = b2.CreatePrismaticJoint(s.WorldId, &prismaticDef)
 
-	position.X = position.X.Add(dbox2d.F(5))
+	position.X = position.X.Add(b2.F(5))
 	index++
 
 	// Revolute joint.
 	bodyDef.Position = position
-	s.bodyIDs[index] = dbox2d.CreateBody(s.WorldId, &bodyDef)
-	shapeDef = dbox2d.DefaultShapeDef()
-	dbox2d.CreatePolygonShape(s.bodyIDs[index], &shapeDef, &box)
-	pivot = dbox2d.Vec2{X: position.X.Sub(dbox2d.QOne()), Y: position.Y}
-	revoluteDef := dbox2d.DefaultRevoluteJointDef()
+	s.bodyIDs[index] = b2.CreateBody(s.WorldId, &bodyDef)
+	shapeDef = b2.DefaultShapeDef()
+	b2.CreatePolygonShape(s.bodyIDs[index], &shapeDef, &box)
+	pivot = b2.Vec2{X: position.X.Sub(b2.QOne()), Y: position.Y}
+	revoluteDef := b2.DefaultRevoluteJointDef()
 	revoluteDef.BodyIdA = s.groundID
 	revoluteDef.BodyIdB = s.bodyIDs[index]
 	revoluteDef.LocalAnchorA = s.groundID.GetLocalPoint(pivot)
 	revoluteDef.LocalAnchorB = s.bodyIDs[index].GetLocalPoint(pivot)
-	s.jointIDs[index] = dbox2d.CreateRevoluteJoint(s.WorldId, &revoluteDef)
+	s.jointIDs[index] = b2.CreateRevoluteJoint(s.WorldId, &revoluteDef)
 
-	position.X = position.X.Add(dbox2d.F(5))
+	position.X = position.X.Add(b2.F(5))
 	index++
 
 	// Weld joint.
 	bodyDef.Position = position
-	s.bodyIDs[index] = dbox2d.CreateBody(s.WorldId, &bodyDef)
-	shapeDef = dbox2d.DefaultShapeDef()
-	dbox2d.CreatePolygonShape(s.bodyIDs[index], &shapeDef, &box)
-	pivot = dbox2d.Vec2{X: position.X.Sub(dbox2d.QOne()), Y: position.Y}
-	weldDef := dbox2d.DefaultWeldJointDef()
+	s.bodyIDs[index] = b2.CreateBody(s.WorldId, &bodyDef)
+	shapeDef = b2.DefaultShapeDef()
+	b2.CreatePolygonShape(s.bodyIDs[index], &shapeDef, &box)
+	pivot = b2.Vec2{X: position.X.Sub(b2.QOne()), Y: position.Y}
+	weldDef := b2.DefaultWeldJointDef()
 	weldDef.BodyIdA = s.groundID
 	weldDef.BodyIdB = s.bodyIDs[index]
 	weldDef.LocalAnchorA = s.groundID.GetLocalPoint(pivot)
 	weldDef.LocalAnchorB = s.bodyIDs[index].GetLocalPoint(pivot)
-	weldDef.AngularHertz = dbox2d.QOne()
-	weldDef.AngularDampingRatio = dbox2d.QHalf()
-	weldDef.LinearHertz = dbox2d.QOne()
-	weldDef.LinearDampingRatio = dbox2d.QHalf()
-	s.jointIDs[index] = dbox2d.CreateWeldJoint(s.WorldId, &weldDef)
+	weldDef.AngularHertz = b2.QOne()
+	weldDef.AngularDampingRatio = b2.QHalf()
+	weldDef.LinearHertz = b2.QOne()
+	weldDef.LinearDampingRatio = b2.QHalf()
+	s.jointIDs[index] = b2.CreateWeldJoint(s.WorldId, &weldDef)
 
-	position.X = position.X.Add(dbox2d.F(5))
+	position.X = position.X.Add(b2.F(5))
 	index++
 
 	// Wheel joint.
 	bodyDef.Position = position
-	s.bodyIDs[index] = dbox2d.CreateBody(s.WorldId, &bodyDef)
-	shapeDef = dbox2d.DefaultShapeDef()
-	dbox2d.CreatePolygonShape(s.bodyIDs[index], &shapeDef, &box)
-	pivot = dbox2d.Vec2{X: position.X.Sub(dbox2d.QOne()), Y: position.Y}
-	wheelDef := dbox2d.DefaultWheelJointDef()
+	s.bodyIDs[index] = b2.CreateBody(s.WorldId, &bodyDef)
+	shapeDef = b2.DefaultShapeDef()
+	b2.CreatePolygonShape(s.bodyIDs[index], &shapeDef, &box)
+	pivot = b2.Vec2{X: position.X.Sub(b2.QOne()), Y: position.Y}
+	wheelDef := b2.DefaultWheelJointDef()
 	wheelDef.BodyIdA = s.groundID
 	wheelDef.BodyIdB = s.bodyIDs[index]
 	wheelDef.LocalAnchorA = s.groundID.GetLocalPoint(pivot)
 	wheelDef.LocalAnchorB = s.bodyIDs[index].GetLocalPoint(pivot)
-	wheelDef.LocalAxisA = s.groundID.GetLocalVector(dbox2d.Vec2{X: dbox2d.QOne()})
-	wheelDef.Hertz = dbox2d.QOne()
-	wheelDef.DampingRatio = dbox2d.QFromRatio(7, 10)
-	wheelDef.LowerTranslation = dbox2d.F(-1)
-	wheelDef.UpperTranslation = dbox2d.QOne()
+	wheelDef.LocalAxisA = s.groundID.GetLocalVector(b2.Vec2{X: b2.QOne()})
+	wheelDef.Hertz = b2.QOne()
+	wheelDef.DampingRatio = b2.QFromRatio(7, 10)
+	wheelDef.LowerTranslation = b2.F(-1)
+	wheelDef.UpperTranslation = b2.QOne()
 	wheelDef.EnableLimit = true
 	wheelDef.EnableMotor = true
-	wheelDef.MaxMotorTorque = dbox2d.F(10)
+	wheelDef.MaxMotorTorque = b2.F(10)
 	wheelDef.MotorSpeed = radiansToTurns(1)
-	s.jointIDs[index] = dbox2d.CreateWheelJoint(s.WorldId, &wheelDef)
+	s.jointIDs[index] = b2.CreateWheelJoint(s.WorldId, &wheelDef)
 }
 
 // UpdateGui toggles fixed rotation on all existing bodies without rebuilding.
@@ -1359,7 +1359,7 @@ const breakableJointCount = 6
 // BreakableJoint demonstrates breaking joints when their constraint force is exceeded.
 type BreakableJoint struct {
 	Base
-	jointIDs   [breakableJointCount]dbox2d.JointId
+	jointIDs   [breakableJointCount]b2.JointId
 	breakForce float64
 }
 
@@ -1371,85 +1371,85 @@ func NewBreakableJoint(ctx *SampleContext) Sample {
 		ctx.Camera.Zoom = 25 * 0.7
 	}
 
-	bodyDef := dbox2d.DefaultBodyDef()
-	groundID := dbox2d.CreateBody(s.WorldId, &bodyDef)
-	shapeDef := dbox2d.DefaultShapeDef()
-	segment := dbox2d.Segment{Point1: dbox2d.V2(-40, 0), Point2: dbox2d.V2(40, 0)}
-	dbox2d.CreateSegmentShape(groundID, &shapeDef, &segment)
+	bodyDef := b2.DefaultBodyDef()
+	groundID := b2.CreateBody(s.WorldId, &bodyDef)
+	shapeDef := b2.DefaultShapeDef()
+	segment := b2.Segment{Point1: b2.V2(-40, 0), Point2: b2.V2(40, 0)}
+	b2.CreateSegmentShape(groundID, &shapeDef, &segment)
 
-	box := dbox2d.MakeBox(dbox2d.QOne(), dbox2d.QOne())
-	bodyDef.Type = dbox2d.DynamicBody
+	box := b2.MakeBox(b2.QOne(), b2.QOne())
+	bodyDef.Type = b2.DynamicBody
 	bodyDef.EnableSleep = false
-	position := dbox2d.V2(-12.5, 10.0)
+	position := b2.V2(-12.5, 10.0)
 	index := 0
 
 	bodyDef.Position = position
-	bodyID := dbox2d.CreateBody(s.WorldId, &bodyDef)
-	dbox2d.CreatePolygonShape(bodyID, &shapeDef, &box)
-	length := dbox2d.F(2)
-	pivot1 := dbox2d.Vec2{X: position.X, Y: position.Y.Add(dbox2d.QOne()).Add(length)}
-	pivot2 := dbox2d.Vec2{X: position.X, Y: position.Y.Add(dbox2d.QOne())}
-	distanceDef := dbox2d.DefaultDistanceJointDef()
+	bodyID := b2.CreateBody(s.WorldId, &bodyDef)
+	b2.CreatePolygonShape(bodyID, &shapeDef, &box)
+	length := b2.F(2)
+	pivot1 := b2.Vec2{X: position.X, Y: position.Y.Add(b2.QOne()).Add(length)}
+	pivot2 := b2.Vec2{X: position.X, Y: position.Y.Add(b2.QOne())}
+	distanceDef := b2.DefaultDistanceJointDef()
 	distanceDef.BodyIdA, distanceDef.BodyIdB = groundID, bodyID
 	distanceDef.LocalAnchorA = groundID.GetLocalPoint(pivot1)
 	distanceDef.LocalAnchorB = bodyID.GetLocalPoint(pivot2)
 	distanceDef.Length = length
 	distanceDef.CollideConnected = true
-	s.jointIDs[index] = dbox2d.CreateDistanceJoint(s.WorldId, &distanceDef)
+	s.jointIDs[index] = b2.CreateDistanceJoint(s.WorldId, &distanceDef)
 
-	position.X = position.X.Add(dbox2d.F(5))
+	position.X = position.X.Add(b2.F(5))
 	index++
 	bodyDef.Position = position
-	bodyID = dbox2d.CreateBody(s.WorldId, &bodyDef)
-	dbox2d.CreatePolygonShape(bodyID, &shapeDef, &box)
-	motorDef := dbox2d.DefaultMotorJointDef()
+	bodyID = b2.CreateBody(s.WorldId, &bodyDef)
+	b2.CreatePolygonShape(bodyID, &shapeDef, &box)
+	motorDef := b2.DefaultMotorJointDef()
 	motorDef.BodyIdA, motorDef.BodyIdB = groundID, bodyID
 	motorDef.LinearOffset = position
-	motorDef.MaxForce = dbox2d.F(1000)
-	motorDef.MaxTorque = dbox2d.F(20)
+	motorDef.MaxForce = b2.F(1000)
+	motorDef.MaxTorque = b2.F(20)
 	motorDef.CollideConnected = true
-	s.jointIDs[index] = dbox2d.CreateMotorJoint(s.WorldId, &motorDef)
+	s.jointIDs[index] = b2.CreateMotorJoint(s.WorldId, &motorDef)
 
 	for kind := range 4 {
-		position.X = position.X.Add(dbox2d.F(5))
+		position.X = position.X.Add(b2.F(5))
 		index++
 		bodyDef.Position = position
-		bodyID = dbox2d.CreateBody(s.WorldId, &bodyDef)
-		dbox2d.CreatePolygonShape(bodyID, &shapeDef, &box)
-		pivot := dbox2d.Vec2{X: position.X.Sub(dbox2d.QOne()), Y: position.Y}
+		bodyID = b2.CreateBody(s.WorldId, &bodyDef)
+		b2.CreatePolygonShape(bodyID, &shapeDef, &box)
+		pivot := b2.Vec2{X: position.X.Sub(b2.QOne()), Y: position.Y}
 		switch kind {
 		case 0:
-			def := dbox2d.DefaultPrismaticJointDef()
+			def := b2.DefaultPrismaticJointDef()
 			def.BodyIdA, def.BodyIdB = groundID, bodyID
 			def.LocalAnchorA, def.LocalAnchorB = groundID.GetLocalPoint(pivot), bodyID.GetLocalPoint(pivot)
-			def.LocalAxisA = groundID.GetLocalVector(dbox2d.Vec2{X: dbox2d.QOne()})
+			def.LocalAxisA = groundID.GetLocalVector(b2.Vec2{X: b2.QOne()})
 			def.CollideConnected = true
-			s.jointIDs[index] = dbox2d.CreatePrismaticJoint(s.WorldId, &def)
+			s.jointIDs[index] = b2.CreatePrismaticJoint(s.WorldId, &def)
 		case 1:
-			def := dbox2d.DefaultRevoluteJointDef()
+			def := b2.DefaultRevoluteJointDef()
 			def.BodyIdA, def.BodyIdB = groundID, bodyID
 			def.LocalAnchorA, def.LocalAnchorB = groundID.GetLocalPoint(pivot), bodyID.GetLocalPoint(pivot)
 			def.CollideConnected = true
-			s.jointIDs[index] = dbox2d.CreateRevoluteJoint(s.WorldId, &def)
+			s.jointIDs[index] = b2.CreateRevoluteJoint(s.WorldId, &def)
 		case 2:
-			def := dbox2d.DefaultWeldJointDef()
+			def := b2.DefaultWeldJointDef()
 			def.BodyIdA, def.BodyIdB = groundID, bodyID
 			def.LocalAnchorA, def.LocalAnchorB = groundID.GetLocalPoint(pivot), bodyID.GetLocalPoint(pivot)
-			def.AngularHertz, def.AngularDampingRatio = dbox2d.F(2), dbox2d.QHalf()
-			def.LinearHertz, def.LinearDampingRatio = dbox2d.F(2), dbox2d.QHalf()
+			def.AngularHertz, def.AngularDampingRatio = b2.F(2), b2.QHalf()
+			def.LinearHertz, def.LinearDampingRatio = b2.F(2), b2.QHalf()
 			def.CollideConnected = true
-			s.jointIDs[index] = dbox2d.CreateWeldJoint(s.WorldId, &def)
+			s.jointIDs[index] = b2.CreateWeldJoint(s.WorldId, &def)
 		case 3:
-			def := dbox2d.DefaultWheelJointDef()
+			def := b2.DefaultWheelJointDef()
 			def.BodyIdA, def.BodyIdB = groundID, bodyID
 			def.LocalAnchorA, def.LocalAnchorB = groundID.GetLocalPoint(pivot), bodyID.GetLocalPoint(pivot)
-			def.LocalAxisA = groundID.GetLocalVector(dbox2d.Vec2{X: dbox2d.QOne()})
-			def.Hertz, def.DampingRatio = dbox2d.QOne(), dbox2d.F(0.7)
-			def.LowerTranslation, def.UpperTranslation = dbox2d.F(-1), dbox2d.QOne()
+			def.LocalAxisA = groundID.GetLocalVector(b2.Vec2{X: b2.QOne()})
+			def.Hertz, def.DampingRatio = b2.QOne(), b2.F(0.7)
+			def.LowerTranslation, def.UpperTranslation = b2.F(-1), b2.QOne()
 			def.EnableLimit, def.EnableMotor = true, true
-			def.MaxMotorTorque, def.MotorSpeed = dbox2d.F(10), radiansToTurns(1)
+			def.MaxMotorTorque, def.MotorSpeed = b2.F(10), radiansToTurns(1)
 			def.CollideConnected = true
-			s.jointIDs[index] = dbox2d.CreateWheelJoint(s.WorldId, &def)
+			s.jointIDs[index] = b2.CreateWheelJoint(s.WorldId, &def)
 		}
 	}
 	s.breakForce = 1000
@@ -1479,11 +1479,11 @@ func (s *BreakableJoint) Step() {
 		}
 		force := s.jointIDs[i].GetConstraintForce()
 		if force.LenSq().Greater(threshold) {
-			dbox2d.DestroyJoint(s.jointIDs[i])
-			s.jointIDs[i] = dbox2d.JointId{}
+			b2.DestroyJoint(s.jointIDs[i])
+			s.jointIDs[i] = b2.JointId{}
 		} else {
 			point := s.jointIDs[i].GetLocalAnchorA()
-			s.Context.Draw.DrawString(point, fmt.Sprintf("(%.1f, %.1f)", ToFloat64(force.X), ToFloat64(force.Y)), dbox2d.ColorWhite)
+			s.Context.Draw.DrawString(point, fmt.Sprintf("(%.1f, %.1f)", ToFloat64(force.X), ToFloat64(force.Y)), b2.ColorWhite)
 		}
 	}
 	s.Base.Step()
@@ -1494,8 +1494,8 @@ const jointSeparationCount = 5
 // JointSeparation displays unresolved constraint separation for several joint types.
 type JointSeparation struct {
 	Base
-	bodyIDs           [jointSeparationCount]dbox2d.BodyId
-	jointIDs          [jointSeparationCount]dbox2d.JointId
+	bodyIDs           [jointSeparationCount]b2.BodyId
+	jointIDs          [jointSeparationCount]b2.JointId
 	impulse           float64
 	jointHertz        float64
 	jointDampingRatio float64
@@ -1509,59 +1509,59 @@ func NewJointSeparation(ctx *SampleContext) Sample {
 		ctx.Camera.Zoom = 25
 	}
 
-	bodyDef := dbox2d.DefaultBodyDef()
-	groundID := dbox2d.CreateBody(s.WorldId, &bodyDef)
-	shapeDef := dbox2d.DefaultShapeDef()
-	segment := dbox2d.Segment{Point1: dbox2d.V2(-40, 0), Point2: dbox2d.V2(40, 0)}
-	dbox2d.CreateSegmentShape(groundID, &shapeDef, &segment)
-	bodyDef.Type = dbox2d.DynamicBody
+	bodyDef := b2.DefaultBodyDef()
+	groundID := b2.CreateBody(s.WorldId, &bodyDef)
+	shapeDef := b2.DefaultShapeDef()
+	segment := b2.Segment{Point1: b2.V2(-40, 0), Point2: b2.V2(40, 0)}
+	b2.CreateSegmentShape(groundID, &shapeDef, &segment)
+	bodyDef.Type = b2.DynamicBody
 	bodyDef.EnableSleep = false
-	box := dbox2d.MakeBox(dbox2d.QOne(), dbox2d.QOne())
-	position := dbox2d.V2(-20, 10)
+	box := b2.MakeBox(b2.QOne(), b2.QOne())
+	position := b2.V2(-20, 10)
 	for i := range s.bodyIDs {
 		bodyDef.Position = position
-		s.bodyIDs[i] = dbox2d.CreateBody(s.WorldId, &bodyDef)
-		dbox2d.CreatePolygonShape(s.bodyIDs[i], &shapeDef, &box)
-		pivot := dbox2d.Vec2{X: position.X.Sub(dbox2d.QOne()), Y: position.Y}
+		s.bodyIDs[i] = b2.CreateBody(s.WorldId, &bodyDef)
+		b2.CreatePolygonShape(s.bodyIDs[i], &shapeDef, &box)
+		pivot := b2.Vec2{X: position.X.Sub(b2.QOne()), Y: position.Y}
 		switch i {
 		case 0:
-			def := dbox2d.DefaultDistanceJointDef()
+			def := b2.DefaultDistanceJointDef()
 			def.BodyIdA, def.BodyIdB = groundID, s.bodyIDs[i]
-			def.LocalAnchorA = groundID.GetLocalPoint(dbox2d.Vec2{X: position.X, Y: position.Y.Add(dbox2d.QOne()).Add(dbox2d.F(2))})
-			def.LocalAnchorB = s.bodyIDs[i].GetLocalPoint(dbox2d.Vec2{X: position.X, Y: position.Y.Add(dbox2d.QOne())})
-			def.Length, def.CollideConnected = dbox2d.F(2), true
-			s.jointIDs[i] = dbox2d.CreateDistanceJoint(s.WorldId, &def)
+			def.LocalAnchorA = groundID.GetLocalPoint(b2.Vec2{X: position.X, Y: position.Y.Add(b2.QOne()).Add(b2.F(2))})
+			def.LocalAnchorB = s.bodyIDs[i].GetLocalPoint(b2.Vec2{X: position.X, Y: position.Y.Add(b2.QOne())})
+			def.Length, def.CollideConnected = b2.F(2), true
+			s.jointIDs[i] = b2.CreateDistanceJoint(s.WorldId, &def)
 		case 1:
-			def := dbox2d.DefaultPrismaticJointDef()
+			def := b2.DefaultPrismaticJointDef()
 			def.BodyIdA, def.BodyIdB = groundID, s.bodyIDs[i]
 			def.LocalAnchorA, def.LocalAnchorB = groundID.GetLocalPoint(pivot), s.bodyIDs[i].GetLocalPoint(pivot)
-			def.LocalAxisA, def.CollideConnected = groundID.GetLocalVector(dbox2d.Vec2{X: dbox2d.QOne()}), true
-			s.jointIDs[i] = dbox2d.CreatePrismaticJoint(s.WorldId, &def)
+			def.LocalAxisA, def.CollideConnected = groundID.GetLocalVector(b2.Vec2{X: b2.QOne()}), true
+			s.jointIDs[i] = b2.CreatePrismaticJoint(s.WorldId, &def)
 		case 2:
-			def := dbox2d.DefaultRevoluteJointDef()
+			def := b2.DefaultRevoluteJointDef()
 			def.BodyIdA, def.BodyIdB = groundID, s.bodyIDs[i]
 			def.LocalAnchorA, def.LocalAnchorB = groundID.GetLocalPoint(pivot), s.bodyIDs[i].GetLocalPoint(pivot)
 			def.CollideConnected = true
-			s.jointIDs[i] = dbox2d.CreateRevoluteJoint(s.WorldId, &def)
+			s.jointIDs[i] = b2.CreateRevoluteJoint(s.WorldId, &def)
 		case 3:
-			def := dbox2d.DefaultWeldJointDef()
+			def := b2.DefaultWeldJointDef()
 			def.BodyIdA, def.BodyIdB = groundID, s.bodyIDs[i]
 			def.LocalAnchorA, def.LocalAnchorB = groundID.GetLocalPoint(pivot), s.bodyIDs[i].GetLocalPoint(pivot)
 			def.CollideConnected = true
-			s.jointIDs[i] = dbox2d.CreateWeldJoint(s.WorldId, &def)
+			s.jointIDs[i] = b2.CreateWeldJoint(s.WorldId, &def)
 		case 4:
-			def := dbox2d.DefaultWheelJointDef()
+			def := b2.DefaultWheelJointDef()
 			def.BodyIdA, def.BodyIdB = groundID, s.bodyIDs[i]
 			def.LocalAnchorA, def.LocalAnchorB = groundID.GetLocalPoint(pivot), s.bodyIDs[i].GetLocalPoint(pivot)
-			def.LocalAxisA = groundID.GetLocalVector(dbox2d.Vec2{X: dbox2d.QOne()})
-			def.Hertz, def.DampingRatio = dbox2d.QOne(), dbox2d.F(0.7)
-			def.LowerTranslation, def.UpperTranslation = dbox2d.F(-1), dbox2d.QOne()
+			def.LocalAxisA = groundID.GetLocalVector(b2.Vec2{X: b2.QOne()})
+			def.Hertz, def.DampingRatio = b2.QOne(), b2.F(0.7)
+			def.LowerTranslation, def.UpperTranslation = b2.F(-1), b2.QOne()
 			def.EnableLimit, def.EnableMotor = true, true
-			def.MaxMotorTorque, def.MotorSpeed = dbox2d.F(10), radiansToTurns(1)
+			def.MaxMotorTorque, def.MotorSpeed = b2.F(10), radiansToTurns(1)
 			def.CollideConnected = true
-			s.jointIDs[i] = dbox2d.CreateWheelJoint(s.WorldId, &def)
+			s.jointIDs[i] = b2.CreateWheelJoint(s.WorldId, &def)
 		}
-		position.X = position.X.Add(dbox2d.F(10))
+		position.X = position.X.Add(b2.F(10))
 	}
 	s.impulse, s.jointHertz, s.jointDampingRatio = 500, 60, 2
 	return s
@@ -1580,8 +1580,8 @@ func (s *JointSeparation) UpdateGui() {
 	if gui.Button("impulse") {
 		impulse := FromFloat64(s.impulse)
 		for i := range s.bodyIDs {
-			point := s.bodyIDs[i].GetWorldPoint(dbox2d.Vec2{X: dbox2d.QOne(), Y: dbox2d.QOne()})
-			s.bodyIDs[i].ApplyLinearImpulse(dbox2d.Vec2{X: impulse, Y: impulse.Neg()}, point, true)
+			point := s.bodyIDs[i].GetWorldPoint(b2.Vec2{X: b2.QOne(), Y: b2.QOne()})
+			s.bodyIDs[i].ApplyLinearImpulse(b2.Vec2{X: impulse, Y: impulse.Neg()}, point, true)
 		}
 	}
 	gui.SliderFloat("magnitude", &s.impulse, 0, 1000)
@@ -1607,7 +1607,7 @@ func (s *JointSeparation) Step() {
 		angular := ToFloat64(s.jointIDs[i].GetAngularSeparation())
 		point := s.jointIDs[i].GetLocalAnchorA()
 		text := fmt.Sprintf("%.2f m, %.1f deg", linear, 360*angular)
-		s.Context.Draw.DrawString(point, text, dbox2d.ColorWhite)
+		s.Context.Draw.DrawString(point, text, b2.ColorWhite)
 	}
 	s.Base.Step()
 }
@@ -1615,8 +1615,8 @@ func (s *JointSeparation) Step() {
 // UserConstraint hand-solves two soft constraints from one body to a fixed anchor.
 type UserConstraint struct {
 	Base
-	bodyId   dbox2d.BodyId
-	impulses [2]dbox2d.Q
+	bodyId   b2.BodyId
+	impulses [2]b2.Q
 }
 
 // NewUserConstraint builds the hand-solved user-constraint scene.
@@ -1628,19 +1628,19 @@ func NewUserConstraint(ctx *SampleContext) Sample {
 		ctx.Camera.Zoom = 25 * 0.15
 	}
 
-	box := dbox2d.MakeBox(dbox2d.QOne(), dbox2d.QHalf())
-	shapeDef := dbox2d.DefaultShapeDef()
-	shapeDef.Density = dbox2d.F(20)
+	box := b2.MakeBox(b2.QOne(), b2.QHalf())
+	shapeDef := b2.DefaultShapeDef()
+	shapeDef.Density = b2.F(20)
 
-	bodyDef := dbox2d.DefaultBodyDef()
-	bodyDef.Type = dbox2d.DynamicBody
-	bodyDef.GravityScale = dbox2d.QOne()
-	bodyDef.AngularDamping = dbox2d.QHalf()
-	bodyDef.LinearDamping = dbox2d.F(0.2)
-	s.bodyId = dbox2d.CreateBody(s.WorldId, &bodyDef)
-	dbox2d.CreatePolygonShape(s.bodyId, &shapeDef, &box)
+	bodyDef := b2.DefaultBodyDef()
+	bodyDef.Type = b2.DynamicBody
+	bodyDef.GravityScale = b2.QOne()
+	bodyDef.AngularDamping = b2.QHalf()
+	bodyDef.LinearDamping = b2.F(0.2)
+	s.bodyId = b2.CreateBody(s.WorldId, &bodyDef)
+	b2.CreatePolygonShape(s.bodyId, &shapeDef, &box)
 
-	s.impulses = [2]dbox2d.Q{}
+	s.impulses = [2]b2.Q{}
 	return s
 }
 
@@ -1648,38 +1648,38 @@ func NewUserConstraint(ctx *SampleContext) Sample {
 func (s *UserConstraint) Step() {
 	s.Base.Step()
 
-	s.Context.Draw.DrawTransform(dbox2d.TransformIdentity())
+	s.Context.Draw.DrawTransform(b2.TransformIdentity())
 	if s.Context.Settings.Pause {
 		return
 	}
 
-	timeStep := dbox2d.QZero()
+	timeStep := b2.QZero()
 	if s.Context.Settings.Hertz > 0 {
 		timeStep = FromFloat64(1.0 / s.Context.Settings.Hertz)
 	}
-	if timeStep.Eq(dbox2d.QZero()) {
+	if timeStep.Eq(b2.QZero()) {
 		return
 	}
 
 	invTimeStep := FromFloat64(s.Context.Settings.Hertz)
-	constraintHertz := dbox2d.F(3)
-	dampingRatioZeta := dbox2d.F(0.7)
-	maxForce := dbox2d.F(1000)
-	one := dbox2d.QOne()
-	zero := dbox2d.QZero()
-	omega := dbox2d.Pi().Mul(dbox2d.F(2)).Mul(constraintHertz)
-	sigma := dbox2d.F(2).Mul(dampingRatioZeta).Add(timeStep.Mul(omega))
+	constraintHertz := b2.F(3)
+	dampingRatioZeta := b2.F(0.7)
+	maxForce := b2.F(1000)
+	one := b2.QOne()
+	zero := b2.QZero()
+	omega := b2.Pi().Mul(b2.F(2)).Mul(constraintHertz)
+	sigma := b2.F(2).Mul(dampingRatioZeta).Add(timeStep.Mul(omega))
 	softness := timeStep.Mul(omega).Mul(sigma)
 	impulseCoefficient := one.Div(one.Add(softness))
 	massCoefficient := softness.Mul(impulseCoefficient)
 	biasCoefficient := omega.Div(sigma)
 
-	localAnchors := [2]dbox2d.Vec2{
-		{X: one, Y: dbox2d.QHalf().Neg()},
-		{X: one, Y: dbox2d.QHalf()},
+	localAnchors := [2]b2.Vec2{
+		{X: one, Y: b2.QHalf().Neg()},
+		{X: one, Y: b2.QHalf()},
 	}
 	mass := s.bodyId.GetMass()
-	threshold := dbox2d.F(0.0001)
+	threshold := b2.F(0.0001)
 	invMass := zero
 	if !mass.Less(threshold) {
 		invMass = one.Div(mass)
@@ -1693,28 +1693,28 @@ func (s *UserConstraint) Step() {
 	vB := s.bodyId.GetLinearVelocity()
 	omegaB := s.bodyId.GetAngularVelocity()
 	// The angular velocity is turns/s; the cross terms need rad/s.
-	turnRadians := dbox2d.Pi().Mul(dbox2d.F(2))
+	turnRadians := b2.Pi().Mul(b2.F(2))
 	omegaRad := omegaB.Mul(turnRadians)
 	pB := s.bodyId.GetWorldCenterOfMass()
 
 	for i := range localAnchors {
-		anchorA := dbox2d.V2(3, 0)
+		anchorA := b2.V2(3, 0)
 		anchorB := s.bodyId.GetWorldPoint(localAnchors[i])
 		deltaAnchor := anchorB.Sub(anchorA)
 
 		slackLength := one
 		length := deltaAnchor.Len()
 		constraintError := length.Sub(slackLength)
-		if constraintError.Less(zero) || length.Less(dbox2d.F(0.001)) {
-			s.Context.Draw.DrawSegment(anchorA, anchorB, dbox2d.ColorLightCyan)
+		if constraintError.Less(zero) || length.Less(b2.F(0.001)) {
+			s.Context.Draw.DrawSegment(anchorA, anchorB, b2.ColorLightCyan)
 			s.impulses[i] = zero
 			continue
 		}
 
-		s.Context.Draw.DrawSegment(anchorA, anchorB, dbox2d.ColorViolet)
+		s.Context.Draw.DrawSegment(anchorA, anchorB, b2.ColorViolet)
 		axis := deltaAnchor.Normalize()
 		rB := anchorB.Sub(pB)
-		Jb := dbox2d.Cross(rB, axis)
+		Jb := b2.Cross(rB, axis)
 		K := invMass.Add(Jb.Mul(invI).Mul(Jb))
 		invK := zero
 		if !K.Less(threshold) {
@@ -1725,7 +1725,7 @@ func (s *UserConstraint) Step() {
 		impulse := massCoefficient.Mul(invK).Mul(Cdot.Add(biasCoefficient.Mul(constraintError))).Neg()
 		appliedImpulse := impulse.Clamp(maxForce.Mul(timeStep).Neg(), zero)
 
-		vB = dbox2d.MulAdd(vB, invMass.Mul(appliedImpulse), axis)
+		vB = b2.MulAdd(vB, invMass.Mul(appliedImpulse), axis)
 		omegaRad = omegaRad.Add(appliedImpulse.Mul(invI).Mul(Jb))
 		s.impulses[i] = appliedImpulse
 	}
@@ -1739,14 +1739,14 @@ func (s *UserConstraint) Step() {
 // Door demonstrates a revolute joint with a spring, limit, and impulse controls.
 type Door struct {
 	Base
-	doorId            dbox2d.BodyId
-	jointId           dbox2d.JointId
-	impulse           dbox2d.Q
+	doorId            b2.BodyId
+	jointId           b2.JointId
+	impulse           b2.Q
 	impulseFloat      float64
-	translationError  dbox2d.Q
-	jointHertz        dbox2d.Q
+	translationError  b2.Q
+	jointHertz        b2.Q
 	jointHertzFloat   float64
-	jointDampingRatio dbox2d.Q
+	jointDampingRatio b2.Q
 	dampingRatioFloat float64
 	enableLimit       bool
 }
@@ -1759,46 +1759,46 @@ func NewDoor(ctx *SampleContext) Sample {
 		ctx.Camera.Zoom = 4
 	}
 
-	groundDef := dbox2d.DefaultBodyDef()
-	groundId := dbox2d.CreateBody(s.WorldId, &groundDef)
+	groundDef := b2.DefaultBodyDef()
+	groundId := b2.CreateBody(s.WorldId, &groundDef)
 
 	s.enableLimit = true
-	s.impulse = dbox2d.F(50000)
+	s.impulse = b2.F(50000)
 	s.impulseFloat = 50000
-	s.translationError = dbox2d.QZero()
-	s.jointHertz = dbox2d.F(240)
+	s.translationError = b2.QZero()
+	s.jointHertz = b2.F(240)
 	s.jointHertzFloat = 240
-	s.jointDampingRatio = dbox2d.QOne()
+	s.jointDampingRatio = b2.QOne()
 	s.dampingRatioFloat = 1
 
-	bodyDef := dbox2d.DefaultBodyDef()
-	bodyDef.Type = dbox2d.DynamicBody
-	bodyDef.Position = dbox2d.V2(0.0, 1.5)
-	bodyDef.GravityScale = dbox2d.QZero()
-	s.doorId = dbox2d.CreateBody(s.WorldId, &bodyDef)
+	bodyDef := b2.DefaultBodyDef()
+	bodyDef.Type = b2.DynamicBody
+	bodyDef.Position = b2.V2(0.0, 1.5)
+	bodyDef.GravityScale = b2.QZero()
+	s.doorId = b2.CreateBody(s.WorldId, &bodyDef)
 
-	shapeDef := dbox2d.DefaultShapeDef()
-	shapeDef.Density = dbox2d.F(1000)
-	box := dbox2d.MakeBox(dbox2d.F(0.1), dbox2d.F(1.5))
-	dbox2d.CreatePolygonShape(s.doorId, &shapeDef, &box)
+	shapeDef := b2.DefaultShapeDef()
+	shapeDef.Density = b2.F(1000)
+	box := b2.MakeBox(b2.F(0.1), b2.F(1.5))
+	b2.CreatePolygonShape(s.doorId, &shapeDef, &box)
 
-	jointDef := dbox2d.DefaultRevoluteJointDef()
+	jointDef := b2.DefaultRevoluteJointDef()
 	jointDef.BodyIdA = groundId
 	jointDef.BodyIdB = s.doorId
-	jointDef.LocalAnchorA = dbox2d.Vec2{}
-	jointDef.LocalAnchorB = dbox2d.V2(0.0, -1.5)
-	jointDef.TargetAngle = dbox2d.QZero()
+	jointDef.LocalAnchorA = b2.Vec2{}
+	jointDef.LocalAnchorB = b2.V2(0.0, -1.5)
+	jointDef.TargetAngle = b2.QZero()
 	jointDef.EnableSpring = true
-	jointDef.Hertz = dbox2d.QOne()
-	jointDef.DampingRatio = dbox2d.QHalf()
-	jointDef.MotorSpeed = dbox2d.QZero()
-	jointDef.MaxMotorTorque = dbox2d.QZero()
+	jointDef.Hertz = b2.QOne()
+	jointDef.DampingRatio = b2.QHalf()
+	jointDef.MotorSpeed = b2.QZero()
+	jointDef.MaxMotorTorque = b2.QZero()
 	jointDef.EnableMotor = false
-	jointDef.ReferenceAngle = dbox2d.QZero()
-	jointDef.LowerAngle = dbox2d.QFromRatio(-1, 4)
-	jointDef.UpperAngle = dbox2d.QFromRatio(1, 4)
+	jointDef.ReferenceAngle = b2.QZero()
+	jointDef.LowerAngle = b2.QFromRatio(-1, 4)
+	jointDef.UpperAngle = b2.QFromRatio(1, 4)
 	jointDef.EnableLimit = s.enableLimit
-	s.jointId = dbox2d.CreateRevoluteJoint(s.WorldId, &jointDef)
+	s.jointId = b2.CreateRevoluteJoint(s.WorldId, &jointDef)
 	s.jointId.SetConstraintTuning(s.jointHertz, s.jointDampingRatio)
 
 	return s
@@ -1811,9 +1811,9 @@ func (s *Door) UpdateGui() {
 	gui.Begin("Door", 10, s.Context.Camera.Height-height-50, 240, height)
 
 	if gui.Button("impulse") {
-		point := s.doorId.GetWorldPoint(dbox2d.V2(0.0, 1.5))
-		s.doorId.ApplyLinearImpulse(dbox2d.Vec2{X: s.impulse}, point, true)
-		s.translationError = dbox2d.QZero()
+		point := s.doorId.GetWorldPoint(b2.V2(0.0, 1.5))
+		s.doorId.ApplyLinearImpulse(b2.Vec2{X: s.impulse}, point, true)
+		s.translationError = b2.QZero()
 	}
 
 	if gui.SliderFloat("magnitude", &s.impulseFloat, 1000, 100000) {
@@ -1841,9 +1841,9 @@ func (s *Door) UpdateGui() {
 func (s *Door) Step() {
 	s.Base.Step()
 
-	point := s.doorId.GetWorldPoint(dbox2d.V2(0.0, 1.5))
-	s.Context.Draw.DrawPoint(point, dbox2d.F(5), dbox2d.ColorDarkKhaki)
-	s.Context.Draw.DrawTransform(dbox2d.TransformIdentity())
+	point := s.doorId.GetWorldPoint(b2.V2(0.0, 1.5))
+	s.Context.Draw.DrawPoint(point, b2.F(5), b2.ColorDarkKhaki)
+	s.Context.Draw.DrawTransform(b2.TransformIdentity())
 
 	translationError := s.jointId.GetLinearSeparation()
 	s.translationError = s.translationError.Max(translationError)
@@ -1853,11 +1853,11 @@ func (s *Door) Step() {
 // Ragdoll exposes the human joint tuning controls.
 type Ragdoll struct {
 	Base
-	jointFrictionTorque      dbox2d.Q
+	jointFrictionTorque      b2.Q
 	jointFrictionTorqueFloat float64
-	jointHertz               dbox2d.Q
+	jointHertz               b2.Q
 	jointHertzFloat          float64
-	jointDampingRatio        dbox2d.Q
+	jointDampingRatio        b2.Q
 	jointDampingRatioFloat   float64
 	human                    shared.Human
 }
@@ -1870,32 +1870,32 @@ func NewRagdoll(ctx *SampleContext) Sample {
 		ctx.Camera.Zoom = 16
 	}
 
-	groundDef := dbox2d.DefaultBodyDef()
-	groundId := dbox2d.CreateBody(s.WorldId, &groundDef)
-	shapeDef := dbox2d.DefaultShapeDef()
-	segment := dbox2d.Segment{
-		Point1: dbox2d.V2(-20, 0),
-		Point2: dbox2d.V2(20, 0),
+	groundDef := b2.DefaultBodyDef()
+	groundId := b2.CreateBody(s.WorldId, &groundDef)
+	shapeDef := b2.DefaultShapeDef()
+	segment := b2.Segment{
+		Point1: b2.V2(-20, 0),
+		Point2: b2.V2(20, 0),
 	}
-	dbox2d.CreateSegmentShape(groundId, &shapeDef, &segment)
+	b2.CreateSegmentShape(groundId, &shapeDef, &segment)
 
-	s.jointFrictionTorque = dbox2d.F(0.03)
+	s.jointFrictionTorque = b2.F(0.03)
 	s.jointFrictionTorqueFloat = 0.03
-	s.jointHertz = dbox2d.F(5)
+	s.jointHertz = b2.F(5)
 	s.jointHertzFloat = 5
-	s.jointDampingRatio = dbox2d.QHalf()
+	s.jointDampingRatio = b2.QHalf()
 	s.jointDampingRatioFloat = 0.5
 
 	s.Spawn()
-	s.WorldId.SetContactTuning(dbox2d.F(240), dbox2d.QZero(), dbox2d.F(2))
+	s.WorldId.SetContactTuning(b2.F(240), b2.QZero(), b2.F(2))
 	return s
 }
 
 func (s *Ragdoll) Spawn() {
 	s.human = shared.CreateHuman(
 		s.WorldId,
-		dbox2d.V2(0, 25),
-		dbox2d.QOne(),
+		b2.V2(0, 25),
+		b2.QOne(),
 		s.jointFrictionTorque,
 		s.jointHertz,
 		s.jointDampingRatio,
@@ -1934,7 +1934,7 @@ func (s *Ragdoll) UpdateGui() {
 // ScaleRagdoll exposes the human scale control.
 type ScaleRagdoll struct {
 	Base
-	scale      dbox2d.Q
+	scale      b2.Q
 	scaleFloat float64
 	human      shared.Human
 }
@@ -1947,30 +1947,30 @@ func NewScaleRagdoll(ctx *SampleContext) Sample {
 		ctx.Camera.Zoom = 6
 	}
 
-	groundDef := dbox2d.DefaultBodyDef()
-	groundId := dbox2d.CreateBody(s.WorldId, &groundDef)
-	shapeDef := dbox2d.DefaultShapeDef()
-	box := dbox2d.MakeOffsetBox(
-		dbox2d.F(20),
-		dbox2d.QOne(),
-		dbox2d.V2(0, -1),
-		dbox2d.RotIdentity(),
+	groundDef := b2.DefaultBodyDef()
+	groundId := b2.CreateBody(s.WorldId, &groundDef)
+	shapeDef := b2.DefaultShapeDef()
+	box := b2.MakeOffsetBox(
+		b2.F(20),
+		b2.QOne(),
+		b2.V2(0, -1),
+		b2.RotIdentity(),
 	)
-	dbox2d.CreatePolygonShape(groundId, &shapeDef, &box)
+	b2.CreatePolygonShape(groundId, &shapeDef, &box)
 
-	s.scale = dbox2d.QOne()
+	s.scale = b2.QOne()
 	s.scaleFloat = 1
 	s.Spawn()
 	return s
 }
 
 func (s *ScaleRagdoll) Spawn() {
-	jointFrictionTorque := dbox2d.F(0.03)
-	jointHertz := dbox2d.QOne()
-	jointDampingRatio := dbox2d.QHalf()
+	jointFrictionTorque := b2.F(0.03)
+	jointHertz := b2.QOne()
+	jointDampingRatio := b2.QHalf()
 	s.human = shared.CreateHuman(
 		s.WorldId,
-		dbox2d.V2(0, 5),
+		b2.V2(0, 5),
 		s.scale,
 		jointFrictionTorque,
 		jointHertz,
@@ -1979,7 +1979,7 @@ func (s *ScaleRagdoll) Spawn() {
 		nil,
 		false,
 	)
-	s.human.ApplyRandomAngularImpulse(dbox2d.F(10))
+	s.human.ApplyRandomAngularImpulse(b2.F(10))
 }
 
 // UpdateGui exposes the ragdoll scale control.
@@ -2014,24 +2014,24 @@ func NewDriving(ctx *SampleContext) Sample {
 		ctx.Settings.DrawJoints = false
 	}
 
-	groundDef := dbox2d.DefaultBodyDef()
-	groundID := dbox2d.CreateBody(s.WorldId, &groundDef)
+	groundDef := b2.DefaultBodyDef()
+	groundID := b2.CreateBody(s.WorldId, &groundDef)
 	{
-		zero := dbox2d.QZero()
-		minusTwenty := dbox2d.F(-20)
-		twenty := dbox2d.F(20)
-		dx := dbox2d.F(5)
+		zero := b2.QZero()
+		minusTwenty := b2.F(-20)
+		twenty := b2.F(20)
+		dx := b2.F(5)
 		x := twenty
-		hs := []dbox2d.Q{
-			dbox2d.F(0.25), dbox2d.QOne(), dbox2d.F(4), zero, zero,
-			dbox2d.F(-1), dbox2d.F(-2), dbox2d.F(-2),
-			dbox2d.F(-1.25), zero,
+		hs := []b2.Q{
+			b2.F(0.25), b2.QOne(), b2.F(4), zero, zero,
+			b2.F(-1), b2.F(-2), b2.F(-2),
+			b2.F(-1.25), zero,
 		}
 		// Filled in reverse to match the line list convention, as the reference.
-		var points [25]dbox2d.Vec2
+		var points [25]b2.Vec2
 		count := 24
-		put := func(px, py dbox2d.Q) {
-			points[count] = dbox2d.Vec2{X: px, Y: py}
+		put := func(px, py b2.Q) {
+			points[count] = b2.Vec2{X: px, Y: py}
 			count--
 		}
 		put(minusTwenty, minusTwenty)
@@ -2043,118 +2043,118 @@ func NewDriving(ctx *SampleContext) Sample {
 				x = x.Add(dx)
 			}
 		}
-		put(x.Add(dbox2d.F(40)), zero)
-		put(x.Add(dbox2d.F(40)), minusTwenty)
+		put(x.Add(b2.F(40)), zero)
+		put(x.Add(b2.F(40)), minusTwenty)
 
-		chainDef := dbox2d.DefaultChainDef()
+		chainDef := b2.DefaultChainDef()
 		chainDef.Points = points[:]
 		chainDef.IsLoop = true
-		dbox2d.CreateChain(groundID, &chainDef)
+		b2.CreateChain(groundID, &chainDef)
 
-		x = x.Add(dbox2d.F(80))
-		shapeDef := dbox2d.DefaultShapeDef()
-		segment := dbox2d.Segment{
-			Point1: dbox2d.Vec2{X: x},
-			Point2: dbox2d.Vec2{X: x.Add(dbox2d.F(40))},
+		x = x.Add(b2.F(80))
+		shapeDef := b2.DefaultShapeDef()
+		segment := b2.Segment{
+			Point1: b2.Vec2{X: x},
+			Point2: b2.Vec2{X: x.Add(b2.F(40))},
 		}
-		dbox2d.CreateSegmentShape(groundID, &shapeDef, &segment)
+		b2.CreateSegmentShape(groundID, &shapeDef, &segment)
 
-		x = x.Add(dbox2d.F(40))
-		segment = dbox2d.Segment{
-			Point1: dbox2d.Vec2{X: x},
-			Point2: dbox2d.Vec2{X: x.Add(dbox2d.F(10)), Y: dbox2d.F(5)},
+		x = x.Add(b2.F(40))
+		segment = b2.Segment{
+			Point1: b2.Vec2{X: x},
+			Point2: b2.Vec2{X: x.Add(b2.F(10)), Y: b2.F(5)},
 		}
-		dbox2d.CreateSegmentShape(groundID, &shapeDef, &segment)
+		b2.CreateSegmentShape(groundID, &shapeDef, &segment)
 
-		x = x.Add(dbox2d.F(20))
-		segment = dbox2d.Segment{
-			Point1: dbox2d.Vec2{X: x},
-			Point2: dbox2d.Vec2{X: x.Add(dbox2d.F(40))},
+		x = x.Add(b2.F(20))
+		segment = b2.Segment{
+			Point1: b2.Vec2{X: x},
+			Point2: b2.Vec2{X: x.Add(b2.F(40))},
 		}
-		dbox2d.CreateSegmentShape(groundID, &shapeDef, &segment)
+		b2.CreateSegmentShape(groundID, &shapeDef, &segment)
 
-		x = x.Add(dbox2d.F(40))
-		segment = dbox2d.Segment{
-			Point1: dbox2d.Vec2{X: x},
-			Point2: dbox2d.Vec2{X: x, Y: dbox2d.F(20)},
+		x = x.Add(b2.F(40))
+		segment = b2.Segment{
+			Point1: b2.Vec2{X: x},
+			Point2: b2.Vec2{X: x, Y: b2.F(20)},
 		}
-		dbox2d.CreateSegmentShape(groundID, &shapeDef, &segment)
+		b2.CreateSegmentShape(groundID, &shapeDef, &segment)
 	}
 
 	{
-		bodyDef := dbox2d.DefaultBodyDef()
-		bodyDef.Position = dbox2d.Vec2{X: dbox2d.F(140), Y: dbox2d.QOne()}
+		bodyDef := b2.DefaultBodyDef()
+		bodyDef.Position = b2.Vec2{X: b2.F(140), Y: b2.QOne()}
 		bodyDef.AngularVelocity = radiansToTurns(1)
-		bodyDef.Type = dbox2d.DynamicBody
-		bodyID := dbox2d.CreateBody(s.WorldId, &bodyDef)
-		shapeDef := dbox2d.DefaultShapeDef()
-		box := dbox2d.MakeBox(dbox2d.F(10), dbox2d.F(0.25))
-		dbox2d.CreatePolygonShape(bodyID, &shapeDef, &box)
+		bodyDef.Type = b2.DynamicBody
+		bodyID := b2.CreateBody(s.WorldId, &bodyDef)
+		shapeDef := b2.DefaultShapeDef()
+		box := b2.MakeBox(b2.F(10), b2.F(0.25))
+		b2.CreatePolygonShape(bodyID, &shapeDef, &box)
 
-		jointDef := dbox2d.DefaultRevoluteJointDef()
+		jointDef := b2.DefaultRevoluteJointDef()
 		jointDef.BodyIdA = groundID
 		jointDef.BodyIdB = bodyID
 		jointDef.LocalAnchorA = groundID.GetLocalPoint(bodyDef.Position)
 		jointDef.LocalAnchorB = bodyID.GetLocalPoint(bodyDef.Position)
-		jointDef.LowerAngle = dbox2d.QFromRatio(-8, 360)
-		jointDef.UpperAngle = dbox2d.QFromRatio(8, 360)
+		jointDef.LowerAngle = b2.QFromRatio(-8, 360)
+		jointDef.UpperAngle = b2.QFromRatio(8, 360)
 		jointDef.EnableLimit = true
-		dbox2d.CreateRevoluteJoint(s.WorldId, &jointDef)
+		b2.CreateRevoluteJoint(s.WorldId, &jointDef)
 	}
 
 	{
-		shapeDef := dbox2d.DefaultShapeDef()
-		capsule := dbox2d.Capsule{
-			Center1: dbox2d.V2(-1, 0),
-			Center2: dbox2d.Vec2{X: dbox2d.QOne()},
-			Radius:  dbox2d.F(0.125),
+		shapeDef := b2.DefaultShapeDef()
+		capsule := b2.Capsule{
+			Center1: b2.V2(-1, 0),
+			Center2: b2.Vec2{X: b2.QOne()},
+			Radius:  b2.F(0.125),
 		}
-		jointDef := dbox2d.DefaultRevoluteJointDef()
+		jointDef := b2.DefaultRevoluteJointDef()
 		prevBodyID := groundID
 		for i := range 20 {
-			bodyDef := dbox2d.DefaultBodyDef()
-			bodyDef.Type = dbox2d.DynamicBody
-			bodyDef.Position = dbox2d.Vec2{
-				X: dbox2d.F(161).Add(dbox2d.F(2 * i)),
-				Y: dbox2d.F(-0.125),
+			bodyDef := b2.DefaultBodyDef()
+			bodyDef.Type = b2.DynamicBody
+			bodyDef.Position = b2.Vec2{
+				X: b2.F(161).Add(b2.F(2 * i)),
+				Y: b2.F(-0.125),
 			}
-			bodyID := dbox2d.CreateBody(s.WorldId, &bodyDef)
-			dbox2d.CreateCapsuleShape(bodyID, &shapeDef, &capsule)
+			bodyID := b2.CreateBody(s.WorldId, &bodyDef)
+			b2.CreateCapsuleShape(bodyID, &shapeDef, &capsule)
 
-			pivot := dbox2d.Vec2{
-				X: dbox2d.F(160).Add(dbox2d.F(2 * i)),
-				Y: dbox2d.F(-0.125),
+			pivot := b2.Vec2{
+				X: b2.F(160).Add(b2.F(2 * i)),
+				Y: b2.F(-0.125),
 			}
 			jointDef.BodyIdA = prevBodyID
 			jointDef.BodyIdB = bodyID
 			jointDef.LocalAnchorA = prevBodyID.GetLocalPoint(pivot)
 			jointDef.LocalAnchorB = bodyID.GetLocalPoint(pivot)
-			dbox2d.CreateRevoluteJoint(s.WorldId, &jointDef)
+			b2.CreateRevoluteJoint(s.WorldId, &jointDef)
 			prevBodyID = bodyID
 		}
 
-		pivot := dbox2d.V2(200.0, -0.125)
+		pivot := b2.V2(200.0, -0.125)
 		jointDef.BodyIdA = prevBodyID
 		jointDef.BodyIdB = groundID
 		jointDef.LocalAnchorA = prevBodyID.GetLocalPoint(pivot)
 		jointDef.LocalAnchorB = groundID.GetLocalPoint(pivot)
 		jointDef.EnableMotor = true
-		jointDef.MaxMotorTorque = dbox2d.F(50)
-		dbox2d.CreateRevoluteJoint(s.WorldId, &jointDef)
+		jointDef.MaxMotorTorque = b2.F(50)
+		b2.CreateRevoluteJoint(s.WorldId, &jointDef)
 	}
 
 	{
-		box := dbox2d.MakeBox(dbox2d.QHalf(), dbox2d.QHalf())
-		bodyDef := dbox2d.DefaultBodyDef()
-		bodyDef.Type = dbox2d.DynamicBody
-		shapeDef := dbox2d.DefaultShapeDef()
-		shapeDef.Material.Friction = dbox2d.F(0.25)
-		shapeDef.Material.Restitution = dbox2d.F(0.25)
-		shapeDef.Density = dbox2d.F(0.25)
+		box := b2.MakeBox(b2.QHalf(), b2.QHalf())
+		bodyDef := b2.DefaultBodyDef()
+		bodyDef.Type = b2.DynamicBody
+		shapeDef := b2.DefaultShapeDef()
+		shapeDef.Material.Friction = b2.F(0.25)
+		shapeDef.Material.Restitution = b2.F(0.25)
+		shapeDef.Density = b2.F(0.25)
 		for i := range 5 {
-			bodyDef.Position = dbox2d.Vec2{X: dbox2d.F(230), Y: dbox2d.F(i).Add(dbox2d.QHalf())}
-			bodyID := dbox2d.CreateBody(s.WorldId, &bodyDef)
-			dbox2d.CreatePolygonShape(bodyID, &shapeDef, &box)
+			bodyDef.Position = b2.Vec2{X: b2.F(230), Y: b2.F(i).Add(b2.QHalf())}
+			bodyID := b2.CreateBody(s.WorldId, &bodyDef)
+			b2.CreatePolygonShape(bodyID, &shapeDef, &box)
 		}
 	}
 
@@ -2163,7 +2163,7 @@ func NewDriving(ctx *SampleContext) Sample {
 	s.torque = 5
 	s.hertz = 5
 	s.dampingRatio = 0.7
-	s.car.spawn(s.WorldId, dbox2d.Vec2{}, dbox2d.QOne(), FromFloat64(s.hertz), FromFloat64(s.dampingRatio), FromFloat64(s.torque), nil)
+	s.car.spawn(s.WorldId, b2.Vec2{}, b2.QOne(), FromFloat64(s.hertz), FromFloat64(s.dampingRatio), FromFloat64(s.torque), nil)
 	return s
 }
 
@@ -2193,7 +2193,7 @@ func (s *Driving) Step() {
 	}
 	if s.keyDown(KeyS) {
 		s.throttle = 0
-		s.car.setSpeed(dbox2d.QZero())
+		s.car.setSpeed(b2.QZero())
 	}
 	if s.keyDown(KeyD) {
 		s.throttle = -1
@@ -2202,7 +2202,7 @@ func (s *Driving) Step() {
 
 	s.DrawTextLine("Keys: left = a, brake = s, right = d")
 	linearVelocity := s.car.chassisId.GetLinearVelocity()
-	kph := linearVelocity.X.Mul(dbox2d.F(3.6))
+	kph := linearVelocity.X.Mul(b2.F(3.6))
 	s.DrawTextLine("speed in kph: %.2g", ToFloat64(kph))
 	s.Context.Camera.Center.X = ToFloat64(s.car.chassisId.GetPosition().X)
 	s.Base.Step()
@@ -2220,19 +2220,19 @@ func NewSoftBody(ctx *SampleContext) Sample {
 		ctx.Camera.Zoom = 25 * 0.25
 	}
 
-	groundDef := dbox2d.DefaultBodyDef()
-	groundID := dbox2d.CreateBody(s.WorldId, &groundDef)
-	shapeDef := dbox2d.DefaultShapeDef()
-	segment := dbox2d.Segment{
-		Point1: dbox2d.V2(-20, 0),
-		Point2: dbox2d.V2(20, 0),
+	groundDef := b2.DefaultBodyDef()
+	groundID := b2.CreateBody(s.WorldId, &groundDef)
+	shapeDef := b2.DefaultShapeDef()
+	segment := b2.Segment{
+		Point1: b2.V2(-20, 0),
+		Point2: b2.V2(20, 0),
 	}
-	dbox2d.CreateSegmentShape(groundID, &shapeDef, &segment)
+	b2.CreateSegmentShape(groundID, &shapeDef, &segment)
 
 	s.donut.create(
 		s.WorldId,
-		dbox2d.V2(0, 10),
-		dbox2d.F(2),
+		b2.V2(0, 10),
+		b2.F(2),
 		0,
 		false,
 		nil,
@@ -2251,28 +2251,28 @@ func NewDoohickeyFarm(ctx *SampleContext) Sample {
 		ctx.Camera.Zoom = 25 * 0.35
 	}
 
-	groundDef := dbox2d.DefaultBodyDef()
-	groundID := dbox2d.CreateBody(s.WorldId, &groundDef)
-	shapeDef := dbox2d.DefaultShapeDef()
-	segment := dbox2d.Segment{
-		Point1: dbox2d.V2(-20, 0),
-		Point2: dbox2d.V2(20, 0),
+	groundDef := b2.DefaultBodyDef()
+	groundID := b2.CreateBody(s.WorldId, &groundDef)
+	shapeDef := b2.DefaultShapeDef()
+	segment := b2.Segment{
+		Point1: b2.V2(-20, 0),
+		Point2: b2.V2(20, 0),
 	}
-	dbox2d.CreateSegmentShape(groundID, &shapeDef, &segment)
+	b2.CreateSegmentShape(groundID, &shapeDef, &segment)
 
-	box := dbox2d.MakeOffsetBox(
-		dbox2d.QOne(),
-		dbox2d.QOne(),
-		dbox2d.Vec2{Y: dbox2d.QOne()},
-		dbox2d.RotIdentity(),
+	box := b2.MakeOffsetBox(
+		b2.QOne(),
+		b2.QOne(),
+		b2.Vec2{Y: b2.QOne()},
+		b2.RotIdentity(),
 	)
-	dbox2d.CreatePolygonShape(groundID, &shapeDef, &box)
+	b2.CreatePolygonShape(groundID, &shapeDef, &box)
 
-	y := dbox2d.F(4)
+	y := b2.F(4)
 	for range 4 {
 		d := doohickey{}
-		d.spawn(s.WorldId, dbox2d.Vec2{Y: y}, dbox2d.QHalf())
-		y = y.Add(dbox2d.F(2))
+		d.spawn(s.WorldId, b2.Vec2{Y: y}, b2.QHalf())
+		y = y.Add(b2.F(2))
 	}
 
 	return s
@@ -2282,7 +2282,7 @@ func NewDoohickeyFarm(ctx *SampleContext) Sample {
 type ScissorLift struct {
 	Base
 
-	liftJointID dbox2d.JointId
+	liftJointID b2.JointId
 	motorForce  float64
 	motorSpeed  float64
 	enableMotor bool
@@ -2299,132 +2299,132 @@ func NewScissorLift(ctx *SampleContext) Sample {
 	// Need 8 sub-steps for smoother operation.
 	ctx.Settings.SubStepCount = 8
 
-	groundDef := dbox2d.DefaultBodyDef()
-	groundID := dbox2d.CreateBody(s.WorldId, &groundDef)
-	shapeDef := dbox2d.DefaultShapeDef()
-	segment := dbox2d.Segment{
-		Point1: dbox2d.V2(-20, 0),
-		Point2: dbox2d.V2(20, 0),
+	groundDef := b2.DefaultBodyDef()
+	groundID := b2.CreateBody(s.WorldId, &groundDef)
+	shapeDef := b2.DefaultShapeDef()
+	segment := b2.Segment{
+		Point1: b2.V2(-20, 0),
+		Point2: b2.V2(20, 0),
 	}
-	dbox2d.CreateSegmentShape(groundID, &shapeDef, &segment)
+	b2.CreateSegmentShape(groundID, &shapeDef, &segment)
 
-	bodyDef := dbox2d.DefaultBodyDef()
-	bodyDef.Type = dbox2d.DynamicBody
-	bodyDef.SleepThreshold = dbox2d.F(0.01)
-	capsule := dbox2d.Capsule{
-		Center1: dbox2d.V2(-2.5, 0.0),
-		Center2: dbox2d.V2(2.5, 0.0),
-		Radius:  dbox2d.F(0.15),
+	bodyDef := b2.DefaultBodyDef()
+	bodyDef.Type = b2.DynamicBody
+	bodyDef.SleepThreshold = b2.F(0.01)
+	capsule := b2.Capsule{
+		Center1: b2.V2(-2.5, 0.0),
+		Center2: b2.V2(2.5, 0.0),
+		Radius:  b2.F(0.15),
 	}
 
 	baseID1 := groundID
 	baseID2 := groundID
-	baseAnchor1 := dbox2d.V2(-2.5, 0.2)
-	baseAnchor2 := dbox2d.V2(2.5, 0.2)
-	y := dbox2d.F(0.5)
-	var linkID1 dbox2d.BodyId
+	baseAnchor1 := b2.V2(-2.5, 0.2)
+	baseAnchor2 := b2.V2(2.5, 0.2)
+	y := b2.F(0.5)
+	var linkID1 b2.BodyId
 
 	for i := range 3 {
-		bodyDef.Position = dbox2d.Vec2{Y: y}
-		bodyDef.Rotation = dbox2d.MakeRot(radiansToTurns(0.15))
-		bodyID1 := dbox2d.CreateBody(s.WorldId, &bodyDef)
-		dbox2d.CreateCapsuleShape(bodyID1, &shapeDef, &capsule)
+		bodyDef.Position = b2.Vec2{Y: y}
+		bodyDef.Rotation = b2.MakeRot(radiansToTurns(0.15))
+		bodyID1 := b2.CreateBody(s.WorldId, &bodyDef)
+		b2.CreateCapsuleShape(bodyID1, &shapeDef, &capsule)
 
-		bodyDef.Position = dbox2d.Vec2{Y: y}
-		bodyDef.Rotation = dbox2d.MakeRot(radiansToTurns(0.15).Neg())
-		bodyID2 := dbox2d.CreateBody(s.WorldId, &bodyDef)
-		dbox2d.CreateCapsuleShape(bodyID2, &shapeDef, &capsule)
+		bodyDef.Position = b2.Vec2{Y: y}
+		bodyDef.Rotation = b2.MakeRot(radiansToTurns(0.15).Neg())
+		bodyID2 := b2.CreateBody(s.WorldId, &bodyDef)
+		b2.CreateCapsuleShape(bodyID2, &shapeDef, &capsule)
 
 		if i == 1 {
 			linkID1 = bodyID2
 		}
 
-		revoluteDef := dbox2d.DefaultRevoluteJointDef()
+		revoluteDef := b2.DefaultRevoluteJointDef()
 		revoluteDef.BodyIdA = baseID1
 		revoluteDef.BodyIdB = bodyID1
 		revoluteDef.LocalAnchorA = baseAnchor1
-		revoluteDef.LocalAnchorB = dbox2d.V2(-2.5, 0.0)
+		revoluteDef.LocalAnchorB = b2.V2(-2.5, 0.0)
 		revoluteDef.CollideConnected = i == 0
-		dbox2d.CreateRevoluteJoint(s.WorldId, &revoluteDef)
+		b2.CreateRevoluteJoint(s.WorldId, &revoluteDef)
 
 		if i == 0 {
-			wheelDef := dbox2d.DefaultWheelJointDef()
+			wheelDef := b2.DefaultWheelJointDef()
 			wheelDef.BodyIdA = baseID2
 			wheelDef.BodyIdB = bodyID2
-			wheelDef.LocalAxisA = dbox2d.Vec2{X: dbox2d.QOne()}
+			wheelDef.LocalAxisA = b2.Vec2{X: b2.QOne()}
 			wheelDef.LocalAnchorA = baseAnchor2
-			wheelDef.LocalAnchorB = dbox2d.V2(2.5, 0.0)
+			wheelDef.LocalAnchorB = b2.V2(2.5, 0.0)
 			wheelDef.EnableSpring = false
 			wheelDef.CollideConnected = true
-			dbox2d.CreateWheelJoint(s.WorldId, &wheelDef)
+			b2.CreateWheelJoint(s.WorldId, &wheelDef)
 		} else {
 			revoluteDef.BodyIdA = baseID2
 			revoluteDef.BodyIdB = bodyID2
 			revoluteDef.LocalAnchorA = baseAnchor2
-			revoluteDef.LocalAnchorB = dbox2d.V2(2.5, 0.0)
+			revoluteDef.LocalAnchorB = b2.V2(2.5, 0.0)
 			revoluteDef.CollideConnected = false
-			dbox2d.CreateRevoluteJoint(s.WorldId, &revoluteDef)
+			b2.CreateRevoluteJoint(s.WorldId, &revoluteDef)
 		}
 
 		revoluteDef.BodyIdA = bodyID1
 		revoluteDef.BodyIdB = bodyID2
-		revoluteDef.LocalAnchorA = dbox2d.Vec2{}
-		revoluteDef.LocalAnchorB = dbox2d.Vec2{}
+		revoluteDef.LocalAnchorA = b2.Vec2{}
+		revoluteDef.LocalAnchorB = b2.Vec2{}
 		revoluteDef.CollideConnected = false
-		dbox2d.CreateRevoluteJoint(s.WorldId, &revoluteDef)
+		b2.CreateRevoluteJoint(s.WorldId, &revoluteDef)
 
 		baseID1 = bodyID2
 		baseID2 = bodyID1
-		baseAnchor1 = dbox2d.V2(-2.5, 0.0)
-		baseAnchor2 = dbox2d.V2(2.5, 0.0)
-		y = y.Add(dbox2d.QOne())
+		baseAnchor1 = b2.V2(-2.5, 0.0)
+		baseAnchor2 = b2.V2(2.5, 0.0)
+		y = y.Add(b2.QOne())
 	}
 
-	bodyDef.Position = dbox2d.Vec2{Y: y}
-	bodyDef.Rotation = dbox2d.RotIdentity()
-	platformID := dbox2d.CreateBody(s.WorldId, &bodyDef)
-	box := dbox2d.MakeBox(dbox2d.F(3), dbox2d.F(0.2))
-	dbox2d.CreatePolygonShape(platformID, &shapeDef, &box)
+	bodyDef.Position = b2.Vec2{Y: y}
+	bodyDef.Rotation = b2.RotIdentity()
+	platformID := b2.CreateBody(s.WorldId, &bodyDef)
+	box := b2.MakeBox(b2.F(3), b2.F(0.2))
+	b2.CreatePolygonShape(platformID, &shapeDef, &box)
 
-	revoluteDef := dbox2d.DefaultRevoluteJointDef()
+	revoluteDef := b2.DefaultRevoluteJointDef()
 	revoluteDef.BodyIdA = platformID
 	revoluteDef.BodyIdB = baseID1
-	revoluteDef.LocalAnchorA = dbox2d.V2(-2.5, -0.4)
+	revoluteDef.LocalAnchorA = b2.V2(-2.5, -0.4)
 	revoluteDef.LocalAnchorB = baseAnchor1
 	revoluteDef.CollideConnected = true
-	dbox2d.CreateRevoluteJoint(s.WorldId, &revoluteDef)
+	b2.CreateRevoluteJoint(s.WorldId, &revoluteDef)
 
-	wheelDef := dbox2d.DefaultWheelJointDef()
+	wheelDef := b2.DefaultWheelJointDef()
 	wheelDef.BodyIdA = platformID
 	wheelDef.BodyIdB = baseID2
-	wheelDef.LocalAxisA = dbox2d.Vec2{X: dbox2d.QOne()}
-	wheelDef.LocalAnchorA = dbox2d.V2(2.5, -0.4)
+	wheelDef.LocalAxisA = b2.Vec2{X: b2.QOne()}
+	wheelDef.LocalAnchorA = b2.V2(2.5, -0.4)
 	wheelDef.LocalAnchorB = baseAnchor2
 	wheelDef.EnableSpring = false
 	wheelDef.CollideConnected = true
-	dbox2d.CreateWheelJoint(s.WorldId, &wheelDef)
+	b2.CreateWheelJoint(s.WorldId, &wheelDef)
 
 	s.enableMotor = false
 	s.motorSpeed = 0.25
 	s.motorForce = 2000
 
-	distanceDef := dbox2d.DefaultDistanceJointDef()
+	distanceDef := b2.DefaultDistanceJointDef()
 	distanceDef.BodyIdA = groundID
 	distanceDef.BodyIdB = linkID1
-	distanceDef.LocalAnchorA = dbox2d.V2(-2.5, 0.2)
-	distanceDef.LocalAnchorB = dbox2d.V2(0.5, 0.0)
+	distanceDef.LocalAnchorA = b2.V2(-2.5, 0.2)
+	distanceDef.LocalAnchorB = b2.V2(0.5, 0.0)
 	distanceDef.EnableSpring = true
-	distanceDef.MinLength = dbox2d.F(0.2)
-	distanceDef.MaxLength = dbox2d.F(5.5)
+	distanceDef.MinLength = b2.F(0.2)
+	distanceDef.MaxLength = b2.F(5.5)
 	distanceDef.EnableLimit = true
 	distanceDef.EnableMotor = s.enableMotor
 	distanceDef.MotorSpeed = FromFloat64(s.motorSpeed)
 	distanceDef.MaxMotorForce = FromFloat64(s.motorForce)
-	s.liftJointID = dbox2d.CreateDistanceJoint(s.WorldId, &distanceDef)
+	s.liftJointID = b2.CreateDistanceJoint(s.WorldId, &distanceDef)
 
 	var decoration car
-	decoration.spawn(s.WorldId, dbox2d.Vec2{X: dbox2d.QZero(), Y: y.Add(dbox2d.F(2))},
-		dbox2d.QOne(), dbox2d.F(3), dbox2d.F(0.7), dbox2d.QZero(), nil)
+	decoration.spawn(s.WorldId, b2.Vec2{X: b2.QZero(), Y: y.Add(b2.F(2))},
+		b2.QOne(), b2.F(3), b2.F(0.7), b2.QZero(), nil)
 	return s
 }
 
@@ -2452,7 +2452,7 @@ func (s *ScissorLift) UpdateGui() {
 type GearLift struct {
 	Base
 
-	driverId    dbox2d.JointId
+	driverId    b2.JointId
 	motorTorque float64
 	motorSpeed  float64
 	enableMotor bool
@@ -2466,166 +2466,166 @@ func NewGearLift(ctx *SampleContext) Sample {
 		ctx.Camera.Zoom = 7
 	}
 
-	groundDef := dbox2d.DefaultBodyDef()
-	groundId := dbox2d.CreateBody(g.WorldId, &groundDef)
-	material := dbox2d.DefaultSurfaceMaterial()
-	material.CustomColor = uint32(dbox2d.ColorDarkSeaGreen)
-	chainDef := dbox2d.DefaultChainDef()
+	groundDef := b2.DefaultBodyDef()
+	groundId := b2.CreateBody(g.WorldId, &groundDef)
+	material := b2.DefaultSurfaceMaterial()
+	material.CustomColor = uint32(b2.ColorDarkSeaGreen)
+	chainDef := b2.DefaultChainDef()
 	path := "m 63.500002,201.08333 103.187498,0 1e-5,-37.04166 h -2.64584 l 0,34.39583 h -42.33333 v -2.64583 l " +
 		"-2.64584,-1e-5 v -2.64583 h -2.64583 v -2.64584 h -2.64584 v -2.64583 H 111.125 v -2.64583 h -2.64583 v " +
 		"-2.64583 h -2.64583 v -2.64584 l -2.64584,1e-5 v -2.64583 l -2.64583,-1e-5 V 174.625 h -2.645834 v -2.64584 l " +
 		"-2.645833,1e-5 v -2.64584 H 92.60417 v -2.64583 h -2.645834 v -2.64583 l -26.458334,0 0,37.04166"
-	offset := dbox2d.V2(-120, -200)
-	chainDef.Points = parsePath(path, offset, 64, dbox2d.F(0.2))
+	offset := b2.V2(-120, -200)
+	chainDef.Points = parsePath(path, offset, 64, b2.F(0.2))
 	chainDef.IsLoop = true
-	chainDef.Materials = []dbox2d.SurfaceMaterial{material}
-	dbox2d.CreateChain(groundId, &chainDef)
+	chainDef.Materials = []b2.SurfaceMaterial{material}
+	b2.CreateChain(groundId, &chainDef)
 
-	gearRadius := dbox2d.F(1)
-	toothHalfWidth := dbox2d.F(0.09)
-	toothHalfHeight := dbox2d.F(0.06)
-	toothRadius := dbox2d.F(0.03)
-	linkHalfLength := dbox2d.F(0.07)
-	linkRadius := dbox2d.F(0.05)
-	doorHalfHeight := dbox2d.F(1.5)
-	gearPosition1 := dbox2d.V2(-4.25, 9.75)
-	gearPosition2 := gearPosition1.Add(dbox2d.V2(2, 1))
-	linkAttachPosition := gearPosition2.Add(dbox2d.Vec2{X: gearRadius.Add(toothHalfWidth.Mul(dbox2d.F(2))).Add(toothRadius)})
-	doorPosition := linkAttachPosition.Sub(dbox2d.Vec2{Y: linkHalfLength.Mul(dbox2d.F(2)).Mul(dbox2d.F(40)).Add(doorHalfHeight)})
+	gearRadius := b2.F(1)
+	toothHalfWidth := b2.F(0.09)
+	toothHalfHeight := b2.F(0.06)
+	toothRadius := b2.F(0.03)
+	linkHalfLength := b2.F(0.07)
+	linkRadius := b2.F(0.05)
+	doorHalfHeight := b2.F(1.5)
+	gearPosition1 := b2.V2(-4.25, 9.75)
+	gearPosition2 := gearPosition1.Add(b2.V2(2, 1))
+	linkAttachPosition := gearPosition2.Add(b2.Vec2{X: gearRadius.Add(toothHalfWidth.Mul(b2.F(2))).Add(toothRadius)})
+	doorPosition := linkAttachPosition.Sub(b2.Vec2{Y: linkHalfLength.Mul(b2.F(2)).Mul(b2.F(40)).Add(doorHalfHeight)})
 
-	bodyDef := dbox2d.DefaultBodyDef()
-	bodyDef.Type = dbox2d.DynamicBody
+	bodyDef := b2.DefaultBodyDef()
+	bodyDef.Type = b2.DynamicBody
 	bodyDef.Position = gearPosition1
-	driverBodyId := dbox2d.CreateBody(g.WorldId, &bodyDef)
-	shapeDef := dbox2d.DefaultShapeDef()
-	shapeDef.Material.Friction = dbox2d.F(0.1)
-	shapeDef.Material.CustomColor = uint32(dbox2d.ColorSaddleBrown)
-	circle := dbox2d.Circle{Center: dbox2d.Vec2{}, Radius: gearRadius}
-	dbox2d.CreateCircleShape(driverBodyId, &shapeDef, &circle)
-	dq := dbox2d.MakeRot(dbox2d.QFromRatio(1, 16))
-	center := dbox2d.Vec2{X: gearRadius.Add(toothHalfHeight)}
-	rotation := dbox2d.RotIdentity()
+	driverBodyId := b2.CreateBody(g.WorldId, &bodyDef)
+	shapeDef := b2.DefaultShapeDef()
+	shapeDef.Material.Friction = b2.F(0.1)
+	shapeDef.Material.CustomColor = uint32(b2.ColorSaddleBrown)
+	circle := b2.Circle{Center: b2.Vec2{}, Radius: gearRadius}
+	b2.CreateCircleShape(driverBodyId, &shapeDef, &circle)
+	dq := b2.MakeRot(b2.QFromRatio(1, 16))
+	center := b2.Vec2{X: gearRadius.Add(toothHalfHeight)}
+	rotation := b2.RotIdentity()
 	for range 16 {
-		tooth := dbox2d.MakeOffsetRoundedBox(toothHalfWidth, toothHalfHeight, center, rotation, toothRadius)
-		shapeDef.Material.CustomColor = uint32(dbox2d.ColorGray)
-		dbox2d.CreatePolygonShape(driverBodyId, &shapeDef, &tooth)
-		rotation = dbox2d.MulRot(dq, rotation)
-		center = dbox2d.RotateVector(rotation, dbox2d.Vec2{X: gearRadius.Add(toothHalfHeight)})
+		tooth := b2.MakeOffsetRoundedBox(toothHalfWidth, toothHalfHeight, center, rotation, toothRadius)
+		shapeDef.Material.CustomColor = uint32(b2.ColorGray)
+		b2.CreatePolygonShape(driverBodyId, &shapeDef, &tooth)
+		rotation = b2.MulRot(dq, rotation)
+		center = b2.RotateVector(rotation, b2.Vec2{X: gearRadius.Add(toothHalfHeight)})
 	}
-	revoluteDef := dbox2d.DefaultRevoluteJointDef()
+	revoluteDef := b2.DefaultRevoluteJointDef()
 	g.motorTorque = 80
 	g.motorSpeed = 0
 	g.enableMotor = true
 	revoluteDef.BodyIdA = groundId
 	revoluteDef.BodyIdB = driverBodyId
 	revoluteDef.LocalAnchorA = groundId.GetLocalPoint(gearPosition1)
-	revoluteDef.LocalAnchorB = dbox2d.Vec2{}
+	revoluteDef.LocalAnchorB = b2.Vec2{}
 	revoluteDef.EnableMotor = g.enableMotor
 	revoluteDef.MaxMotorTorque = FromFloat64(g.motorTorque)
 	revoluteDef.MotorSpeed = radiansToTurns(g.motorSpeed)
-	g.driverId = dbox2d.CreateRevoluteJoint(g.WorldId, &revoluteDef)
+	g.driverId = b2.CreateRevoluteJoint(g.WorldId, &revoluteDef)
 
 	bodyDef.Position = gearPosition2
-	followerId := dbox2d.CreateBody(g.WorldId, &bodyDef)
-	shapeDef.Material.Friction = dbox2d.F(0.1)
-	shapeDef.Material.CustomColor = uint32(dbox2d.ColorSaddleBrown)
-	dbox2d.CreateCircleShape(followerId, &shapeDef, &circle)
-	center = dbox2d.Vec2{X: gearRadius.Add(toothHalfWidth)}
-	rotation = dbox2d.RotIdentity()
+	followerId := b2.CreateBody(g.WorldId, &bodyDef)
+	shapeDef.Material.Friction = b2.F(0.1)
+	shapeDef.Material.CustomColor = uint32(b2.ColorSaddleBrown)
+	b2.CreateCircleShape(followerId, &shapeDef, &circle)
+	center = b2.Vec2{X: gearRadius.Add(toothHalfWidth)}
+	rotation = b2.RotIdentity()
 	for range 16 {
-		tooth := dbox2d.MakeOffsetRoundedBox(toothHalfWidth, toothHalfHeight, center, rotation, toothRadius)
-		shapeDef.Material.CustomColor = uint32(dbox2d.ColorGray)
-		dbox2d.CreatePolygonShape(followerId, &shapeDef, &tooth)
-		rotation = dbox2d.MulRot(dq, rotation)
-		center = dbox2d.RotateVector(rotation, dbox2d.Vec2{X: gearRadius.Add(toothHalfWidth)})
+		tooth := b2.MakeOffsetRoundedBox(toothHalfWidth, toothHalfHeight, center, rotation, toothRadius)
+		shapeDef.Material.CustomColor = uint32(b2.ColorGray)
+		b2.CreatePolygonShape(followerId, &shapeDef, &tooth)
+		rotation = b2.MulRot(dq, rotation)
+		center = b2.RotateVector(rotation, b2.Vec2{X: gearRadius.Add(toothHalfWidth)})
 	}
-	revoluteDef = dbox2d.DefaultRevoluteJointDef()
+	revoluteDef = b2.DefaultRevoluteJointDef()
 	revoluteDef.BodyIdA = groundId
 	revoluteDef.BodyIdB = followerId
 	revoluteDef.LocalAnchorA = groundId.GetLocalPoint(gearPosition2)
-	revoluteDef.LocalAnchorB = dbox2d.Vec2{}
+	revoluteDef.LocalAnchorB = b2.Vec2{}
 	revoluteDef.EnableMotor = true
-	revoluteDef.MaxMotorTorque = dbox2d.F(0.5)
-	revoluteDef.ReferenceAngle = dbox2d.QFromRatio(1, 8)
-	revoluteDef.LowerAngle = dbox2d.QFromRatio(-15, 100)
-	revoluteDef.UpperAngle = dbox2d.QFromRatio(4, 10)
+	revoluteDef.MaxMotorTorque = b2.F(0.5)
+	revoluteDef.ReferenceAngle = b2.QFromRatio(1, 8)
+	revoluteDef.LowerAngle = b2.QFromRatio(-15, 100)
+	revoluteDef.UpperAngle = b2.QFromRatio(4, 10)
 	revoluteDef.EnableLimit = true
-	dbox2d.CreateRevoluteJoint(g.WorldId, &revoluteDef)
+	b2.CreateRevoluteJoint(g.WorldId, &revoluteDef)
 
-	capsule := dbox2d.Capsule{Center1: dbox2d.Vec2{Y: linkHalfLength.Neg()}, Center2: dbox2d.Vec2{Y: linkHalfLength}, Radius: linkRadius}
-	shapeDef = dbox2d.DefaultShapeDef()
-	shapeDef.Density = dbox2d.F(2)
-	shapeDef.Material.CustomColor = uint32(dbox2d.ColorLightSteelBlue)
-	jointDef := dbox2d.DefaultRevoluteJointDef()
-	jointDef.MaxMotorTorque = dbox2d.F(0.05)
+	capsule := b2.Capsule{Center1: b2.Vec2{Y: linkHalfLength.Neg()}, Center2: b2.Vec2{Y: linkHalfLength}, Radius: linkRadius}
+	shapeDef = b2.DefaultShapeDef()
+	shapeDef.Density = b2.F(2)
+	shapeDef.Material.CustomColor = uint32(b2.ColorLightSteelBlue)
+	jointDef := b2.DefaultRevoluteJointDef()
+	jointDef.MaxMotorTorque = b2.F(0.05)
 	jointDef.EnableMotor = true
-	bodyDef = dbox2d.DefaultBodyDef()
-	bodyDef.Type = dbox2d.DynamicBody
-	position := linkAttachPosition.Add(dbox2d.Vec2{Y: linkHalfLength.Neg()})
+	bodyDef = b2.DefaultBodyDef()
+	bodyDef.Type = b2.DynamicBody
+	position := linkAttachPosition.Add(b2.Vec2{Y: linkHalfLength.Neg()})
 	prevBodyId := followerId
-	var lastLinkId dbox2d.BodyId
+	var lastLinkId b2.BodyId
 	for range 40 {
 		bodyDef.Position = position
-		bodyId := dbox2d.CreateBody(g.WorldId, &bodyDef)
-		dbox2d.CreateCapsuleShape(bodyId, &shapeDef, &capsule)
-		pivot := dbox2d.Vec2{X: position.X, Y: position.Y.Add(linkHalfLength)}
+		bodyId := b2.CreateBody(g.WorldId, &bodyDef)
+		b2.CreateCapsuleShape(bodyId, &shapeDef, &capsule)
+		pivot := b2.Vec2{X: position.X, Y: position.Y.Add(linkHalfLength)}
 		jointDef.BodyIdA = prevBodyId
 		jointDef.BodyIdB = bodyId
 		jointDef.LocalAnchorA = prevBodyId.GetLocalPoint(pivot)
 		jointDef.LocalAnchorB = bodyId.GetLocalPoint(pivot)
-		dbox2d.CreateRevoluteJoint(g.WorldId, &jointDef)
-		position.Y = position.Y.Sub(linkHalfLength.Mul(dbox2d.F(2)))
+		b2.CreateRevoluteJoint(g.WorldId, &jointDef)
+		position.Y = position.Y.Sub(linkHalfLength.Mul(b2.F(2)))
 		prevBodyId = bodyId
 		lastLinkId = bodyId
 	}
 
-	bodyDef = dbox2d.DefaultBodyDef()
-	bodyDef.Type = dbox2d.DynamicBody
+	bodyDef = b2.DefaultBodyDef()
+	bodyDef.Type = b2.DynamicBody
 	bodyDef.Position = doorPosition
-	doorBodyId := dbox2d.CreateBody(g.WorldId, &bodyDef)
-	box := dbox2d.MakeBox(dbox2d.F(0.15), doorHalfHeight)
-	shapeDef = dbox2d.DefaultShapeDef()
-	shapeDef.Material.Friction = dbox2d.F(0.1)
-	shapeDef.Material.CustomColor = uint32(dbox2d.ColorDarkCyan)
-	dbox2d.CreatePolygonShape(doorBodyId, &shapeDef, &box)
-	pivot := doorPosition.Add(dbox2d.Vec2{Y: doorHalfHeight})
-	revoluteDef = dbox2d.DefaultRevoluteJointDef()
+	doorBodyId := b2.CreateBody(g.WorldId, &bodyDef)
+	box := b2.MakeBox(b2.F(0.15), doorHalfHeight)
+	shapeDef = b2.DefaultShapeDef()
+	shapeDef.Material.Friction = b2.F(0.1)
+	shapeDef.Material.CustomColor = uint32(b2.ColorDarkCyan)
+	b2.CreatePolygonShape(doorBodyId, &shapeDef, &box)
+	pivot := doorPosition.Add(b2.Vec2{Y: doorHalfHeight})
+	revoluteDef = b2.DefaultRevoluteJointDef()
 	revoluteDef.BodyIdA = lastLinkId
 	revoluteDef.BodyIdB = doorBodyId
 	revoluteDef.LocalAnchorA = lastLinkId.GetLocalPoint(pivot)
-	revoluteDef.LocalAnchorB = dbox2d.Vec2{Y: doorHalfHeight}
+	revoluteDef.LocalAnchorB = b2.Vec2{Y: doorHalfHeight}
 	revoluteDef.EnableMotor = true
-	revoluteDef.MaxMotorTorque = dbox2d.F(0.05)
-	dbox2d.CreateRevoluteJoint(g.WorldId, &revoluteDef)
-	prismaticDef := dbox2d.DefaultPrismaticJointDef()
+	revoluteDef.MaxMotorTorque = b2.F(0.05)
+	b2.CreateRevoluteJoint(g.WorldId, &revoluteDef)
+	prismaticDef := b2.DefaultPrismaticJointDef()
 	prismaticDef.BodyIdA = groundId
 	prismaticDef.BodyIdB = doorBodyId
 	prismaticDef.LocalAnchorA = groundId.GetLocalPoint(doorPosition)
-	prismaticDef.LocalAnchorB = dbox2d.Vec2{}
-	prismaticDef.LocalAxisA = dbox2d.Vec2{Y: dbox2d.QOne()}
-	prismaticDef.MaxMotorForce = dbox2d.F(0.2)
+	prismaticDef.LocalAnchorB = b2.Vec2{}
+	prismaticDef.LocalAxisA = b2.Vec2{Y: b2.QOne()}
+	prismaticDef.MaxMotorForce = b2.F(0.2)
 	prismaticDef.EnableMotor = true
 	prismaticDef.CollideConnected = true
-	dbox2d.CreatePrismaticJoint(g.WorldId, &prismaticDef)
+	b2.CreatePrismaticJoint(g.WorldId, &prismaticDef)
 
-	bodyDef = dbox2d.DefaultBodyDef()
-	bodyDef.Type = dbox2d.DynamicBody
-	shapeDef = dbox2d.DefaultShapeDef()
-	shapeDef.Material.RollingResistance = dbox2d.F(0.3)
-	colors := [5]uint32{uint32(dbox2d.ColorGray), uint32(dbox2d.ColorGainsboro), uint32(dbox2d.ColorLightGray), uint32(dbox2d.ColorLightSlateGray), uint32(dbox2d.ColorDarkGray)}
-	y := dbox2d.F(4.25)
+	bodyDef = b2.DefaultBodyDef()
+	bodyDef.Type = b2.DynamicBody
+	shapeDef = b2.DefaultShapeDef()
+	shapeDef.Material.RollingResistance = b2.F(0.3)
+	colors := [5]uint32{uint32(b2.ColorGray), uint32(b2.ColorGainsboro), uint32(b2.ColorLightGray), uint32(b2.ColorLightSlateGray), uint32(b2.ColorDarkGray)}
+	y := b2.F(4.25)
 	for range 20 {
-		x := dbox2d.F(-3.15)
+		x := b2.F(-3.15)
 		for range 10 {
-			bodyDef.Position = dbox2d.Vec2{X: x, Y: y}
-			bodyId := dbox2d.CreateBody(g.WorldId, &bodyDef)
-			poly := shared.RandomPolygon(dbox2d.F(0.1))
-			poly.Radius = shared.RandomFloatRange(dbox2d.F(0.01), dbox2d.F(0.02))
+			bodyDef.Position = b2.Vec2{X: x, Y: y}
+			bodyId := b2.CreateBody(g.WorldId, &bodyDef)
+			poly := shared.RandomPolygon(b2.F(0.1))
+			poly.Radius = shared.RandomFloatRange(b2.F(0.01), b2.F(0.02))
 			shapeDef.Material.CustomColor = colors[shared.RandomIntRange(0, 4)]
-			dbox2d.CreatePolygonShape(bodyId, &shapeDef, &poly)
-			x = x.Add(dbox2d.F(0.2))
+			b2.CreatePolygonShape(bodyId, &shapeDef, &poly)
+			x = x.Add(b2.F(0.2))
 		}
-		y = y.Add(dbox2d.F(0.2))
+		y = y.Add(b2.F(0.2))
 	}
 
 	return g

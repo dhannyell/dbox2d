@@ -1,4 +1,4 @@
-package dbox2d
+package b2
 
 // Version reports a three-part release number.
 type Version struct {

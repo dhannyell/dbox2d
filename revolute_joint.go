@@ -1,4 +1,4 @@
-package dbox2d
+package b2
 
 // This file corresponds to src/revolute_joint.c of the reference. The API
 // takes angles in turns (D-004). The joint keeps them in the angle unit of

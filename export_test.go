@@ -1,4 +1,4 @@
-package dbox2d
+package b2
 
 // Internal tests reach unexported state directly. The external conformance
 // and benchmark tests use internal/shared, so these test-only bridges keep

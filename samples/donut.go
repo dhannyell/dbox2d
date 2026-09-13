@@ -9,12 +9,12 @@ import (
 const donutSideCount = 7
 
 type donut struct {
-	bodyIds   [donutSideCount]dbox2d.BodyId
-	jointIds  [donutSideCount]dbox2d.JointId
+	bodyIds   [donutSideCount]b2.BodyId
+	jointIds  [donutSideCount]b2.JointId
 	isSpawned bool
 }
 
-func (d *donut) create(worldId dbox2d.WorldId, position dbox2d.Vec2, scale dbox2d.Q, groupIndex int, enableSensorEvents bool, userData any) {
+func (d *donut) create(worldId b2.WorldId, position b2.Vec2, scale b2.Q, groupIndex int, enableSensorEvents bool, userData any) {
 	if d.isSpawned {
 		panic("samples: donut is already spawned")
 	}
@@ -25,46 +25,46 @@ func (d *donut) create(worldId dbox2d.WorldId, position dbox2d.Vec2, scale dbox2
 	}
 
 	radius := scale
-	length := dbox2d.Pi().Mul(dbox2d.F(2)).Mul(radius).Div(dbox2d.F(donutSideCount))
-	capsule := dbox2d.Capsule{
-		Center1: dbox2d.Vec2{Y: length.Mul(dbox2d.QHalf()).Neg()},
-		Center2: dbox2d.Vec2{Y: length.Mul(dbox2d.QHalf())},
-		Radius:  dbox2d.F(0.25).Mul(scale),
+	length := b2.Pi().Mul(b2.F(2)).Mul(radius).Div(b2.F(donutSideCount))
+	capsule := b2.Capsule{
+		Center1: b2.Vec2{Y: length.Mul(b2.QHalf()).Neg()},
+		Center2: b2.Vec2{Y: length.Mul(b2.QHalf())},
+		Radius:  b2.F(0.25).Mul(scale),
 	}
 
-	bodyDef := dbox2d.DefaultBodyDef()
-	bodyDef.Type = dbox2d.DynamicBody
+	bodyDef := b2.DefaultBodyDef()
+	bodyDef.Type = b2.DynamicBody
 	bodyDef.UserData = userData
 
-	shapeDef := dbox2d.DefaultShapeDef()
+	shapeDef := b2.DefaultShapeDef()
 	shapeDef.EnableSensorEvents = enableSensorEvents
 	shapeDef.Filter.GroupIndex = -groupIndex
-	shapeDef.Material.Friction = dbox2d.F(0.3)
+	shapeDef.Material.Friction = b2.F(0.3)
 
 	for i := range donutSideCount {
-		rot := dbox2d.MakeRot(dbox2d.QFromRatio(i, donutSideCount))
-		bodyDef.Position = dbox2d.Vec2{
+		rot := b2.MakeRot(b2.QFromRatio(i, donutSideCount))
+		bodyDef.Position = b2.Vec2{
 			X: radius.Mul(rot.Cos).Add(position.X),
 			Y: radius.Mul(rot.Sin).Add(position.Y),
 		}
 		bodyDef.Rotation = rot
-		d.bodyIds[i] = dbox2d.CreateBody(worldId, &bodyDef)
-		dbox2d.CreateCapsuleShape(d.bodyIds[i], &shapeDef, &capsule)
+		d.bodyIds[i] = b2.CreateBody(worldId, &bodyDef)
+		b2.CreateCapsuleShape(d.bodyIds[i], &shapeDef, &capsule)
 	}
 
-	weldDef := dbox2d.DefaultWeldJointDef()
-	weldDef.AngularHertz = dbox2d.F(5)
-	weldDef.AngularDampingRatio = dbox2d.QZero()
-	weldDef.LocalAnchorA = dbox2d.Vec2{Y: length.Mul(dbox2d.QHalf())}
-	weldDef.LocalAnchorB = dbox2d.Vec2{Y: length.Mul(dbox2d.QHalf()).Neg()}
+	weldDef := b2.DefaultWeldJointDef()
+	weldDef.AngularHertz = b2.F(5)
+	weldDef.AngularDampingRatio = b2.QZero()
+	weldDef.LocalAnchorA = b2.Vec2{Y: length.Mul(b2.QHalf())}
+	weldDef.LocalAnchorB = b2.Vec2{Y: length.Mul(b2.QHalf()).Neg()}
 	prevBodyId := d.bodyIds[donutSideCount-1]
 	for i := range donutSideCount {
 		weldDef.BodyIdA = prevBodyId
 		weldDef.BodyIdB = d.bodyIds[i]
 		rotA := prevBodyId.GetRotation()
 		rotB := d.bodyIds[i].GetRotation()
-		weldDef.ReferenceAngle = dbox2d.RelativeAngle(rotB, rotA)
-		d.jointIds[i] = dbox2d.CreateWeldJoint(worldId, &weldDef)
+		weldDef.ReferenceAngle = b2.RelativeAngle(rotB, rotA)
+		d.jointIds[i] = b2.CreateWeldJoint(worldId, &weldDef)
 		prevBodyId = weldDef.BodyIdB
 	}
 	d.isSpawned = true
@@ -75,9 +75,9 @@ func (d *donut) destroy() {
 		panic("samples: donut is not spawned")
 	}
 	for i := range donutSideCount {
-		dbox2d.DestroyBody(d.bodyIds[i])
-		d.bodyIds[i] = dbox2d.BodyId{}
-		d.jointIds[i] = dbox2d.JointId{}
+		b2.DestroyBody(d.bodyIds[i])
+		d.bodyIds[i] = b2.BodyId{}
+		d.jointIds[i] = b2.JointId{}
 	}
 	d.isSpawned = false
 }

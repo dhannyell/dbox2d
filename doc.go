@@ -1,4 +1,4 @@
-// Package dbox2d implements a deterministic 2D rigid body solver.
+// Package b2 implements a deterministic 2D rigid body solver.
 //
 // Equal inputs produce the same result bits on every supported architecture,
 // on every run. A world therefore survives a snapshot, a replay and a rollback
@@ -53,4 +53,4 @@
 // keeps a fixed accumulation order for that reason. The worker count never
 // changes that order: TestStepIsWorkerCountIndependent pins the same checksum
 // for one and for several workers.
-package dbox2d
+package b2

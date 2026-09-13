@@ -1,4 +1,4 @@
-package dbox2d
+package b2
 
 // graphColorCount is the number of constraint graph colors, including the
 // overflow color at the end. It corresponds to B2_GRAPH_COLOR_COUNT in

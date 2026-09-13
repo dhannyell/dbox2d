@@ -1,4 +1,4 @@
-package dbox2d_test
+package b2_test
 
 import (
 	"encoding/binary"
@@ -9,26 +9,26 @@ import (
 	"github.com/dhannyell/dbox2d"
 )
 
-func vec(x, y int) dbox2d.Vec2 {
-	return dbox2d.Vec2{X: dbox2d.QFromInt(x), Y: dbox2d.QFromInt(y)}
+func vec(x, y int) b2.Vec2 {
+	return b2.Vec2{X: b2.QFromInt(x), Y: b2.QFromInt(y)}
 }
 
 // segmentDistanceCase carries exact expected values from the reference
 // algorithm on integer inputs, where Q arithmetic has no rounding.
 type segmentDistanceCase struct {
 	name           string
-	p1, q1, p2, q2 dbox2d.Vec2
-	f1, f2         dbox2d.Q
-	distSq         dbox2d.Q
+	p1, q1, p2, q2 b2.Vec2
+	f1, f2         b2.Q
+	distSq         b2.Q
 }
 
 // TestSegmentDistanceMatchesTheReference walks the branches of the
 // closed-form algorithm: intersection, the do-over clamps of segment 2
 // and parallel segments.
 func TestSegmentDistanceMatchesTheReference(t *testing.T) {
-	half := dbox2d.QMustParse("0.5")
-	one := dbox2d.QOne()
-	zero := dbox2d.QZero()
+	half := b2.QMustParse("0.5")
+	one := b2.QOne()
+	zero := b2.QZero()
 
 	cases := []segmentDistanceCase{
 		{
@@ -49,7 +49,7 @@ func TestSegmentDistanceMatchesTheReference(t *testing.T) {
 			// segment 1 gets the do over.
 			name: "do over after f2 clamps high",
 			p1:   vec(0, 0), q1: vec(4, 0), p2: vec(5, -3), q2: vec(5, -1),
-			f1: one, f2: one, distSq: dbox2d.QFromInt(2),
+			f1: one, f2: one, distSq: b2.QFromInt(2),
 		},
 		{
 			// Parallel segments: the denominator is zero and f1 stays
@@ -62,7 +62,7 @@ func TestSegmentDistanceMatchesTheReference(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			result := dbox2d.SegmentDistance(c.p1, c.q1, c.p2, c.q2)
+			result := b2.SegmentDistance(c.p1, c.q1, c.p2, c.q2)
 			if !result.Fraction1.Eq(c.f1) || !result.Fraction2.Eq(c.f2) {
 				t.Fatalf("fractions (%v, %v), want (%v, %v)",
 					result.Fraction1, result.Fraction2, c.f1, c.f2)
@@ -78,25 +78,25 @@ func TestSegmentDistanceMatchesTheReference(t *testing.T) {
 // the FLT_EPSILON guard of the reference protected. In Q an exactly zero
 // squared length selects it. See D-012.
 func TestSegmentDistanceHandlesDegenerateSegments(t *testing.T) {
-	zero := dbox2d.QZero()
-	one := dbox2d.QOne()
+	zero := b2.QZero()
+	one := b2.QOne()
 
 	// Segment 2 is a point past the end of segment 1: f1 clamps to one.
 	point := vec(3, 4)
-	result := dbox2d.SegmentDistance(vec(0, 0), vec(2, 0), point, point)
+	result := b2.SegmentDistance(vec(0, 0), vec(2, 0), point, point)
 	if !result.Fraction1.Eq(one) || !result.Fraction2.Eq(zero) {
 		t.Fatalf("fractions (%v, %v), want (1, 0)", result.Fraction1, result.Fraction2)
 	}
-	if !result.DistanceSquared.Eq(dbox2d.QFromInt(17)) {
+	if !result.DistanceSquared.Eq(b2.QFromInt(17)) {
 		t.Fatalf("distanceSquared %v, want 17", result.DistanceSquared)
 	}
 
 	// Both segments are points: the distance is between the points.
-	result = dbox2d.SegmentDistance(vec(1, 2), vec(1, 2), vec(4, 6), vec(4, 6))
+	result = b2.SegmentDistance(vec(1, 2), vec(1, 2), vec(4, 6), vec(4, 6))
 	if !result.Fraction1.Eq(zero) || !result.Fraction2.Eq(zero) {
 		t.Fatalf("fractions (%v, %v), want (0, 0)", result.Fraction1, result.Fraction2)
 	}
-	if !result.DistanceSquared.Eq(dbox2d.QFromInt(25)) {
+	if !result.DistanceSquared.Eq(b2.QFromInt(25)) {
 		t.Fatalf("distanceSquared %v, want 25", result.DistanceSquared)
 	}
 }
@@ -104,36 +104,36 @@ func TestSegmentDistanceHandlesDegenerateSegments(t *testing.T) {
 // TestMakeProxyTruncatesToThePolygonLimit checks the only decision the
 // constructor makes: extra points do not enter.
 func TestMakeProxyTruncatesToThePolygonLimit(t *testing.T) {
-	points := make([]dbox2d.Vec2, dbox2d.MaxPolygonVertices+2)
+	points := make([]b2.Vec2, b2.MaxPolygonVertices+2)
 	for i := range points {
 		points[i] = vec(i, -i)
 	}
 
-	radius := dbox2d.QMustParse("0.25")
-	proxy := dbox2d.MakeProxy(points, radius)
-	if proxy.Count != dbox2d.MaxPolygonVertices {
-		t.Fatalf("count %d, want %d", proxy.Count, dbox2d.MaxPolygonVertices)
+	radius := b2.QMustParse("0.25")
+	proxy := b2.MakeProxy(points, radius)
+	if proxy.Count != b2.MaxPolygonVertices {
+		t.Fatalf("count %d, want %d", proxy.Count, b2.MaxPolygonVertices)
 	}
 	if !proxy.Radius.Eq(radius) {
 		t.Fatalf("radius %v, want %v", proxy.Radius, radius)
 	}
-	last := proxy.Points[dbox2d.MaxPolygonVertices-1]
-	if !last.X.Eq(dbox2d.QFromInt(dbox2d.MaxPolygonVertices - 1)) {
-		t.Fatalf("last point %v, want x=%d", last, dbox2d.MaxPolygonVertices-1)
+	last := proxy.Points[b2.MaxPolygonVertices-1]
+	if !last.X.Eq(b2.QFromInt(b2.MaxPolygonVertices - 1)) {
+		t.Fatalf("last point %v, want x=%d", last, b2.MaxPolygonVertices-1)
 	}
 }
 
-func boxProxy(halfWidth, halfHeight int, center dbox2d.Vec2) dbox2d.ShapeProxy {
-	box := dbox2d.MakeBox(dbox2d.QFromInt(halfWidth), dbox2d.QFromInt(halfHeight))
-	return dbox2d.MakeOffsetProxy(box.Vertices[:box.Count], dbox2d.QZero(), center, dbox2d.RotIdentity())
+func boxProxy(halfWidth, halfHeight int, center b2.Vec2) b2.ShapeProxy {
+	box := b2.MakeBox(b2.QFromInt(halfWidth), b2.QFromInt(halfHeight))
+	return b2.MakeOffsetProxy(box.Vertices[:box.Count], b2.QZero(), center, b2.RotIdentity())
 }
 
-func identityDistanceInput(a, b dbox2d.ShapeProxy, useRadii bool) dbox2d.DistanceInput {
-	return dbox2d.DistanceInput{
+func identityDistanceInput(a, b b2.ShapeProxy, useRadii bool) b2.DistanceInput {
+	return b2.DistanceInput{
 		ProxyA:     a,
 		ProxyB:     b,
-		TransformA: dbox2d.TransformIdentity(),
-		TransformB: dbox2d.TransformIdentity(),
+		TransformA: b2.TransformIdentity(),
+		TransformB: b2.TransformIdentity(),
 		UseRadii:   useRadii,
 	}
 }
@@ -142,15 +142,15 @@ func identityDistanceInput(a, b dbox2d.ShapeProxy, useRadii bool) dbox2d.Distanc
 // answer is exact: two boxes a unit apart, two circles as points with
 // radii, and a point against a segment.
 func TestShapeDistanceMatchesHandCases(t *testing.T) {
-	var cache dbox2d.SimplexCache
+	var cache b2.SimplexCache
 
 	t.Run("boxes", func(t *testing.T) {
 		input := identityDistanceInput(boxProxy(1, 1, vec(0, 0)), boxProxy(1, 1, vec(3, 0)), false)
-		out := dbox2d.ShapeDistance(&input, &cache, nil)
-		if !out.Distance.Eq(dbox2d.QOne()) || !out.Normal.X.Eq(dbox2d.QOne()) || !out.Normal.Y.Eq(dbox2d.QZero()) {
+		out := b2.ShapeDistance(&input, &cache, nil)
+		if !out.Distance.Eq(b2.QOne()) || !out.Normal.X.Eq(b2.QOne()) || !out.Normal.Y.Eq(b2.QZero()) {
 			t.Fatalf("distance %v normal %v, want 1 and (1, 0)", out.Distance, out.Normal)
 		}
-		if !out.PointA.X.Eq(dbox2d.QOne()) || !out.PointB.X.Eq(dbox2d.QFromInt(2)) {
+		if !out.PointA.X.Eq(b2.QOne()) || !out.PointB.X.Eq(b2.QFromInt(2)) {
 			t.Fatalf("points %v %v, want x = 1 and x = 2", out.PointA, out.PointB)
 		}
 		if out.Iterations == 0 || out.Iterations > 20 {
@@ -159,15 +159,15 @@ func TestShapeDistanceMatchesHandCases(t *testing.T) {
 	})
 
 	t.Run("circles with radii", func(t *testing.T) {
-		half := dbox2d.QHalf()
-		a := dbox2d.MakeProxy([]dbox2d.Vec2{vec(0, 0)}, half)
-		b := dbox2d.MakeProxy([]dbox2d.Vec2{vec(3, 0)}, half)
+		half := b2.QHalf()
+		a := b2.MakeProxy([]b2.Vec2{vec(0, 0)}, half)
+		b := b2.MakeProxy([]b2.Vec2{vec(3, 0)}, half)
 		input := identityDistanceInput(a, b, true)
-		out := dbox2d.ShapeDistance(&input, &cache, nil)
-		if !out.Distance.Eq(dbox2d.QFromInt(2)) {
+		out := b2.ShapeDistance(&input, &cache, nil)
+		if !out.Distance.Eq(b2.QFromInt(2)) {
 			t.Fatalf("distance %v, want 2", out.Distance)
 		}
-		if !out.PointA.X.Eq(half) || !out.PointB.X.Eq(dbox2d.QFromRatio(5, 2)) {
+		if !out.PointA.X.Eq(half) || !out.PointB.X.Eq(b2.QFromRatio(5, 2)) {
 			t.Fatalf("points %v %v, want x = 0.5 and x = 2.5", out.PointA, out.PointB)
 		}
 	})
@@ -175,12 +175,12 @@ func TestShapeDistanceMatchesHandCases(t *testing.T) {
 	t.Run("point and segment", func(t *testing.T) {
 		// The closest point of the segment from (1, -1) to (1, 1) to the
 		// origin is (1, 0), which the two-simplex reaches with a1 = a2 = 1/2.
-		a := dbox2d.MakeProxy([]dbox2d.Vec2{vec(0, 0)}, dbox2d.QZero())
-		b := dbox2d.MakeProxy([]dbox2d.Vec2{vec(1, -1), vec(1, 1)}, dbox2d.QZero())
+		a := b2.MakeProxy([]b2.Vec2{vec(0, 0)}, b2.QZero())
+		b := b2.MakeProxy([]b2.Vec2{vec(1, -1), vec(1, 1)}, b2.QZero())
 		input := identityDistanceInput(a, b, false)
-		var simplexes [4]dbox2d.Simplex
-		out := dbox2d.ShapeDistance(&input, &cache, simplexes[:])
-		if !out.Distance.Eq(dbox2d.QOne()) || !out.PointB.X.Eq(dbox2d.QOne()) || !out.PointB.Y.Eq(dbox2d.QZero()) {
+		var simplexes [4]b2.Simplex
+		out := b2.ShapeDistance(&input, &cache, simplexes[:])
+		if !out.Distance.Eq(b2.QOne()) || !out.PointB.X.Eq(b2.QOne()) || !out.PointB.Y.Eq(b2.QZero()) {
 			t.Fatalf("distance %v point B %v, want 1 and (1, 0)", out.Distance, out.PointB)
 		}
 		if out.SimplexCount < 2 || simplexes[out.SimplexCount-1].Count != 2 {
@@ -197,10 +197,10 @@ func TestShapeDistanceMatchesHandCases(t *testing.T) {
 // replaces the FLT_EPSILON test of the reference (D-012).
 func TestShapeDistanceReportsOverlap(t *testing.T) {
 	t.Run("triangle contains the origin", func(t *testing.T) {
-		var cache dbox2d.SimplexCache
+		var cache b2.SimplexCache
 		input := identityDistanceInput(boxProxy(1, 1, vec(0, 0)), boxProxy(1, 1, vecQ("0.5", "0.25")), false)
-		out := dbox2d.ShapeDistance(&input, &cache, nil)
-		if !out.Distance.Eq(dbox2d.QZero()) {
+		out := b2.ShapeDistance(&input, &cache, nil)
+		if !out.Distance.Eq(b2.QZero()) {
 			t.Fatalf("distance %v, want 0", out.Distance)
 		}
 	})
@@ -208,12 +208,12 @@ func TestShapeDistanceReportsOverlap(t *testing.T) {
 	t.Run("origin on the segment", func(t *testing.T) {
 		// The point sits on the segment, so the two-simplex holds the
 		// origin and its search direction is the exact zero vector.
-		var cache dbox2d.SimplexCache
-		a := dbox2d.MakeProxy([]dbox2d.Vec2{vec(0, 0)}, dbox2d.QZero())
-		b := dbox2d.MakeProxy([]dbox2d.Vec2{vec(-1, 0), vec(1, 0)}, dbox2d.QZero())
+		var cache b2.SimplexCache
+		a := b2.MakeProxy([]b2.Vec2{vec(0, 0)}, b2.QZero())
+		b := b2.MakeProxy([]b2.Vec2{vec(-1, 0), vec(1, 0)}, b2.QZero())
 		input := identityDistanceInput(a, b, false)
-		out := dbox2d.ShapeDistance(&input, &cache, nil)
-		if !out.Distance.Eq(dbox2d.QZero()) || !out.PointA.X.Eq(dbox2d.QZero()) {
+		out := b2.ShapeDistance(&input, &cache, nil)
+		if !out.Distance.Eq(b2.QZero()) || !out.PointA.X.Eq(b2.QZero()) {
 			t.Fatalf("distance %v point A %v, want 0 and the origin", out.Distance, out.PointA)
 		}
 	})
@@ -222,12 +222,12 @@ func TestShapeDistanceReportsOverlap(t *testing.T) {
 // TestShapeDistanceWarmStartsFromTheCache reruns a query with the cache
 // of the first run and expects the same answer in no more iterations.
 func TestShapeDistanceWarmStartsFromTheCache(t *testing.T) {
-	var cache dbox2d.SimplexCache
+	var cache b2.SimplexCache
 	input := identityDistanceInput(boxProxy(1, 2, vec(0, 0)), boxProxy(2, 1, vec(4, 3)), false)
-	input.TransformB.Q = dbox2d.MakeRot(dbox2d.QFromRatio(1, 8))
+	input.TransformB.Q = b2.MakeRot(b2.QFromRatio(1, 8))
 
-	cold := dbox2d.ShapeDistance(&input, &cache, nil)
-	warm := dbox2d.ShapeDistance(&input, &cache, nil)
+	cold := b2.ShapeDistance(&input, &cache, nil)
+	warm := b2.ShapeDistance(&input, &cache, nil)
 
 	if !cold.Distance.Eq(warm.Distance) || cold.PointA != warm.PointA {
 		t.Fatalf("cold %+v, warm %+v", cold, warm)
@@ -239,27 +239,27 @@ func TestShapeDistanceWarmStartsFromTheCache(t *testing.T) {
 
 // randomDistanceInput draws a pair of boxes, capsules or circles on a
 // millimetre grid inside a ten metre box.
-func randomDistanceInput(rng *rand.Rand) dbox2d.DistanceInput {
-	milli := func(lo, hi int) dbox2d.Q { return dbox2d.QFromRatio(lo+rng.Intn(hi-lo+1), 1000) }
-	proxy := func() dbox2d.ShapeProxy {
+func randomDistanceInput(rng *rand.Rand) b2.DistanceInput {
+	milli := func(lo, hi int) b2.Q { return b2.QFromRatio(lo+rng.Intn(hi-lo+1), 1000) }
+	proxy := func() b2.ShapeProxy {
 		switch rng.Intn(3) {
 		case 0:
-			box := dbox2d.MakeBox(milli(100, 2000), milli(100, 2000))
-			return dbox2d.MakeProxy(box.Vertices[:box.Count], dbox2d.QZero())
+			box := b2.MakeBox(milli(100, 2000), milli(100, 2000))
+			return b2.MakeProxy(box.Vertices[:box.Count], b2.QZero())
 		case 1:
-			points := []dbox2d.Vec2{{X: milli(-1000, 1000), Y: milli(-1000, 1000)}, {X: milli(-1000, 1000), Y: milli(-1000, 1000)}}
-			return dbox2d.MakeProxy(points, milli(50, 500))
+			points := []b2.Vec2{{X: milli(-1000, 1000), Y: milli(-1000, 1000)}, {X: milli(-1000, 1000), Y: milli(-1000, 1000)}}
+			return b2.MakeProxy(points, milli(50, 500))
 		default:
-			return dbox2d.MakeProxy([]dbox2d.Vec2{{X: milli(-500, 500), Y: milli(-500, 500)}}, milli(50, 1000))
+			return b2.MakeProxy([]b2.Vec2{{X: milli(-500, 500), Y: milli(-500, 500)}}, milli(50, 1000))
 		}
 	}
-	transform := func() dbox2d.Transform {
-		return dbox2d.Transform{
-			P: dbox2d.Vec2{X: milli(-5000, 5000), Y: milli(-5000, 5000)},
-			Q: dbox2d.MakeRot(milli(0, 999)),
+	transform := func() b2.Transform {
+		return b2.Transform{
+			P: b2.Vec2{X: milli(-5000, 5000), Y: milli(-5000, 5000)},
+			Q: b2.MakeRot(milli(0, 999)),
 		}
 	}
-	return dbox2d.DistanceInput{
+	return b2.DistanceInput{
 		ProxyA:     proxy(),
 		ProxyB:     proxy(),
 		TransformA: transform(),
@@ -279,20 +279,20 @@ func TestShapeDistanceConvergesOnRandomPairs(t *testing.T) {
 
 	for range 1000 {
 		input := randomDistanceInput(rng)
-		var cache dbox2d.SimplexCache
-		out := dbox2d.ShapeDistance(&input, &cache, nil)
+		var cache b2.SimplexCache
+		out := b2.ShapeDistance(&input, &cache, nil)
 
 		if out.Iterations > 20 {
 			t.Fatalf("iterations %d on %+v", out.Iterations, input)
 		}
-		if out.Distance.Less(dbox2d.QZero()) {
+		if out.Distance.Less(b2.QZero()) {
 			t.Fatalf("negative distance %v", out.Distance)
 		}
-		if dbox2d.QZero().Less(out.Distance) && !dbox2d.IsNormalized(out.Normal) {
+		if b2.QZero().Less(out.Distance) && !b2.IsNormalized(out.Normal) {
 			t.Fatalf("normal %v is not unit for distance %v", out.Normal, out.Distance)
 		}
 
-		for _, q := range []dbox2d.Q{out.Distance, out.PointA.X, out.PointA.Y, out.PointB.X, out.PointB.Y} {
+		for _, q := range []b2.Q{out.Distance, out.PointA.X, out.PointA.Y, out.PointB.X, out.PointB.Y} {
 			binary.LittleEndian.PutUint64(buf[:], qBits(q))
 			h.Write(buf[:])
 		}
@@ -309,17 +309,17 @@ func TestShapeDistanceConvergesOnRandomPairs(t *testing.T) {
 // TestGetSweepTransformInterpolatesTheCenter checks the two ends and the
 // midpoint of a sweep with an offset center of mass.
 func TestGetSweepTransformInterpolatesTheCenter(t *testing.T) {
-	sweep := dbox2d.Sweep{
+	sweep := b2.Sweep{
 		LocalCenter: vec(1, 0),
 		C1:          vec(1, 0),
 		C2:          vec(5, 0),
-		Q1:          dbox2d.RotIdentity(),
-		Q2:          dbox2d.RotIdentity(),
+		Q1:          b2.RotIdentity(),
+		Q2:          b2.RotIdentity(),
 	}
 
-	start := dbox2d.GetSweepTransform(&sweep, dbox2d.QZero())
-	mid := dbox2d.GetSweepTransform(&sweep, dbox2d.QHalf())
-	end := dbox2d.GetSweepTransform(&sweep, dbox2d.QOne())
+	start := b2.GetSweepTransform(&sweep, b2.QZero())
+	mid := b2.GetSweepTransform(&sweep, b2.QHalf())
+	end := b2.GetSweepTransform(&sweep, b2.QOne())
 
 	if start.P != vec(0, 0) || mid.P != vec(2, 0) || end.P != vec(4, 0) {
 		t.Fatalf("origins %v %v %v, want x = 0, 2, 4", start.P, mid.P, end.P)
@@ -330,15 +330,15 @@ func TestGetSweepTransformInterpolatesTheCenter(t *testing.T) {
 // boxes whose hit fraction is known: the sweep stops once the gap falls
 // under the target, so the fraction lands just short of the exact value.
 func TestShapeCastMatchesHandCases(t *testing.T) {
-	one := dbox2d.QOne()
+	one := b2.QOne()
 	a := boxProxy(1, 1, vec(0, 0))
 	b := boxProxy(1, 1, vec(0, 0))
-	pair := func(positionB, translation dbox2d.Vec2) dbox2d.ShapeCastPairInput {
-		return dbox2d.ShapeCastPairInput{
+	pair := func(positionB, translation b2.Vec2) b2.ShapeCastPairInput {
+		return b2.ShapeCastPairInput{
 			ProxyA:       a,
 			ProxyB:       b,
-			TransformA:   dbox2d.TransformIdentity(),
-			TransformB:   dbox2d.Transform{P: positionB, Q: dbox2d.RotIdentity()},
+			TransformA:   b2.TransformIdentity(),
+			TransformB:   b2.Transform{P: positionB, Q: b2.RotIdentity()},
 			TranslationB: translation,
 			MaxFraction:  one,
 		}
@@ -346,14 +346,14 @@ func TestShapeCastMatchesHandCases(t *testing.T) {
 
 	t.Run("hit", func(t *testing.T) {
 		input := pair(vec(5, 0), vec(-10, 0))
-		out := dbox2d.ShapeCast(&input)
+		out := b2.ShapeCast(&input)
 		if !out.Hit {
 			t.Fatal("the sweep missed")
 		}
 		// The faces meet at a fraction of 0.3; the sweep stops a target
 		// short, within a quarter of a slop.
-		exact := dbox2d.QMustParse("0.3")
-		if !out.Fraction.Less(exact) || exact.Sub(out.Fraction).Less(dbox2d.QZero()) || !exact.Sub(out.Fraction).Less(dbox2d.QMustParse("0.001")) {
+		exact := b2.QMustParse("0.3")
+		if !out.Fraction.Less(exact) || exact.Sub(out.Fraction).Less(b2.QZero()) || !exact.Sub(out.Fraction).Less(b2.QMustParse("0.001")) {
 			t.Fatalf("fraction %v, want just under 0.3", out.Fraction)
 		}
 		if out.Normal != vec(1, 0) || !out.Point.X.Eq(one) {
@@ -366,22 +366,22 @@ func TestShapeCastMatchesHandCases(t *testing.T) {
 
 	t.Run("miss", func(t *testing.T) {
 		input := pair(vec(5, 0), vec(0, 10))
-		if out := dbox2d.ShapeCast(&input); out.Hit {
+		if out := b2.ShapeCast(&input); out.Hit {
 			t.Fatalf("a parallel sweep hit at %v", out.Fraction)
 		}
 	})
 
 	t.Run("out of range", func(t *testing.T) {
 		input := pair(vec(5, 0), vec(-1, 0))
-		if out := dbox2d.ShapeCast(&input); out.Hit {
+		if out := b2.ShapeCast(&input); out.Hit {
 			t.Fatalf("a short sweep hit at %v", out.Fraction)
 		}
 	})
 
 	t.Run("initial overlap", func(t *testing.T) {
 		input := pair(vec(1, 0), vec(-10, 0))
-		out := dbox2d.ShapeCast(&input)
-		if !out.Hit || !out.Fraction.Eq(dbox2d.QZero()) || out.Normal != vec(0, 0) {
+		out := b2.ShapeCast(&input)
+		if !out.Hit || !out.Fraction.Eq(b2.QZero()) || out.Normal != vec(0, 0) {
 			t.Fatalf("overlap reported %+v, want a hit at zero with no normal", out)
 		}
 	})
@@ -389,18 +389,18 @@ func TestShapeCastMatchesHandCases(t *testing.T) {
 	t.Run("encroach", func(t *testing.T) {
 		// Two circles whose surfaces overlap by more than two slops may
 		// move a little closer: the sweep hits, but not at zero.
-		half := dbox2d.QHalf()
-		input := dbox2d.ShapeCastPairInput{
-			ProxyA:       dbox2d.MakeProxy([]dbox2d.Vec2{vec(0, 0)}, half),
-			ProxyB:       dbox2d.MakeProxy([]dbox2d.Vec2{vec(0, 0)}, half),
-			TransformA:   dbox2d.TransformIdentity(),
-			TransformB:   dbox2d.Transform{P: vecQ("0.9", "0"), Q: dbox2d.RotIdentity()},
+		half := b2.QHalf()
+		input := b2.ShapeCastPairInput{
+			ProxyA:       b2.MakeProxy([]b2.Vec2{vec(0, 0)}, half),
+			ProxyB:       b2.MakeProxy([]b2.Vec2{vec(0, 0)}, half),
+			TransformA:   b2.TransformIdentity(),
+			TransformB:   b2.Transform{P: vecQ("0.9", "0"), Q: b2.RotIdentity()},
 			TranslationB: vec(-1, 0),
 			MaxFraction:  one,
 			CanEncroach:  true,
 		}
-		out := dbox2d.ShapeCast(&input)
-		if !out.Hit || !dbox2d.QZero().Less(out.Fraction) || !out.Fraction.Less(dbox2d.QMustParse("0.01")) {
+		out := b2.ShapeCast(&input)
+		if !out.Hit || !b2.QZero().Less(out.Fraction) || !out.Fraction.Less(b2.QMustParse("0.01")) {
 			t.Fatalf("encroach reported %+v, want a small positive fraction", out)
 		}
 	})
@@ -408,78 +408,78 @@ func TestShapeCastMatchesHandCases(t *testing.T) {
 
 // toiPair builds a time of impact input for two proxies. A rests at the
 // origin; B translates from c1 to c2 and turns from q1 to q2.
-func toiPair(a, b dbox2d.ShapeProxy, c1, c2 dbox2d.Vec2, q1, q2 dbox2d.Rot) dbox2d.TOIInput {
-	return dbox2d.TOIInput{
+func toiPair(a, b b2.ShapeProxy, c1, c2 b2.Vec2, q1, q2 b2.Rot) b2.TOIInput {
+	return b2.TOIInput{
 		ProxyA:      a,
 		ProxyB:      b,
-		SweepA:      dbox2d.Sweep{Q1: dbox2d.RotIdentity(), Q2: dbox2d.RotIdentity()},
-		SweepB:      dbox2d.Sweep{C1: c1, C2: c2, Q1: q1, Q2: q2},
-		MaxFraction: dbox2d.QOne(),
+		SweepA:      b2.Sweep{Q1: b2.RotIdentity(), Q2: b2.RotIdentity()},
+		SweepB:      b2.Sweep{C1: c1, C2: c2, Q1: q1, Q2: q2},
+		MaxFraction: b2.QOne(),
 	}
 }
 
 // toiGap returns the core distance of the proxies at the fraction, without
 // the radii, which is the quantity the solver drives to its target.
-func toiGap(input *dbox2d.TOIInput, fraction dbox2d.Q) dbox2d.Q {
-	distanceInput := dbox2d.DistanceInput{
+func toiGap(input *b2.TOIInput, fraction b2.Q) b2.Q {
+	distanceInput := b2.DistanceInput{
 		ProxyA:     input.ProxyA,
 		ProxyB:     input.ProxyB,
-		TransformA: dbox2d.GetSweepTransform(&input.SweepA, fraction),
-		TransformB: dbox2d.GetSweepTransform(&input.SweepB, fraction),
+		TransformA: b2.GetSweepTransform(&input.SweepA, fraction),
+		TransformB: b2.GetSweepTransform(&input.SweepB, fraction),
 	}
-	var cache dbox2d.SimplexCache
-	return dbox2d.ShapeDistance(&distanceInput, &cache, nil).Distance
+	var cache b2.SimplexCache
+	return b2.ShapeDistance(&distanceInput, &cache, nil).Distance
 }
 
 // toiTarget returns the separation the solver seeks and the band around it.
-func toiTarget(input *dbox2d.TOIInput) (target, tolerance dbox2d.Q) {
-	slop := dbox2d.LinearSlop()
+func toiTarget(input *b2.TOIInput) (target, tolerance b2.Q) {
+	slop := b2.LinearSlop()
 	totalRadius := input.ProxyA.Radius.Add(input.ProxyB.Radius)
-	return slop.Max(totalRadius.Sub(slop)), slop.Div(dbox2d.QFromInt(4))
+	return slop.Max(totalRadius.Sub(slop)), slop.Div(b2.QFromInt(4))
 }
 
 // TestTimeOfImpactMatchesHandCases pins the solver on sweeps whose answer
 // is known. The hit fraction lands where the gap equals one slop, within a
 // quarter of a slop.
 func TestTimeOfImpactMatchesHandCases(t *testing.T) {
-	identity := dbox2d.RotIdentity()
+	identity := b2.RotIdentity()
 	a := boxProxy(1, 1, vec(0, 0))
 	b := boxProxy(1, 1, vec(0, 0))
 
 	t.Run("hit", func(t *testing.T) {
 		input := toiPair(a, b, vec(5, 0), vec(-5, 0), identity, identity)
-		out := dbox2d.TimeOfImpact(&input)
-		if out.State != dbox2d.TOIStateHit {
+		out := b2.TimeOfImpact(&input)
+		if out.State != b2.TOIStateHit {
 			t.Fatalf("state %v, want a hit", out.State)
 		}
 		// The faces close a gap of 3 at a speed of 10 and stop one slop
 		// short: (3 - 0.005) / 10.
-		if !near(out.Fraction, dbox2d.QMustParse("0.2995"), dbox2d.QMustParse("0.0002")) {
+		if !near(out.Fraction, b2.QMustParse("0.2995"), b2.QMustParse("0.0002")) {
 			t.Fatalf("fraction %v, want about 0.2995", out.Fraction)
 		}
 	})
 
 	t.Run("separated", func(t *testing.T) {
 		input := toiPair(a, b, vec(5, 0), vec(10, 0), identity, identity)
-		out := dbox2d.TimeOfImpact(&input)
-		if out.State != dbox2d.TOIStateSeparated || !out.Fraction.Eq(dbox2d.QOne()) {
+		out := b2.TimeOfImpact(&input)
+		if out.State != b2.TOIStateSeparated || !out.Fraction.Eq(b2.QOne()) {
 			t.Fatalf("state %v fraction %v, want separated at 1", out.State, out.Fraction)
 		}
 	})
 
 	t.Run("out of range", func(t *testing.T) {
 		input := toiPair(a, b, vec(5, 0), vec(-5, 0), identity, identity)
-		input.MaxFraction = dbox2d.QFromRatio(1, 4)
-		out := dbox2d.TimeOfImpact(&input)
-		if out.State != dbox2d.TOIStateSeparated || !out.Fraction.Eq(input.MaxFraction) {
+		input.MaxFraction = b2.QFromRatio(1, 4)
+		out := b2.TimeOfImpact(&input)
+		if out.State != b2.TOIStateSeparated || !out.Fraction.Eq(input.MaxFraction) {
 			t.Fatalf("state %v fraction %v, want separated at the max fraction", out.State, out.Fraction)
 		}
 	})
 
 	t.Run("overlapped", func(t *testing.T) {
 		input := toiPair(a, b, vec(0, 0), vec(5, 0), identity, identity)
-		out := dbox2d.TimeOfImpact(&input)
-		if out.State != dbox2d.TOIStateOverlapped || !out.Fraction.Eq(dbox2d.QZero()) {
+		out := b2.TimeOfImpact(&input)
+		if out.State != b2.TOIStateOverlapped || !out.Fraction.Eq(b2.QZero()) {
 			t.Fatalf("state %v fraction %v, want overlapped at 0", out.State, out.Fraction)
 		}
 	})
@@ -487,8 +487,8 @@ func TestTimeOfImpactMatchesHandCases(t *testing.T) {
 	t.Run("touching", func(t *testing.T) {
 		// The gap starts at half a slop, inside the target band.
 		input := toiPair(a, b, vecQ("2.0025", "0"), vec(-5, 0), identity, identity)
-		out := dbox2d.TimeOfImpact(&input)
-		if out.State != dbox2d.TOIStateHit || !out.Fraction.Eq(dbox2d.QZero()) {
+		out := b2.TimeOfImpact(&input)
+		if out.State != b2.TOIStateHit || !out.Fraction.Eq(b2.QZero()) {
 			t.Fatalf("state %v fraction %v, want a hit at 0", out.State, out.Fraction)
 		}
 	})
@@ -497,22 +497,22 @@ func TestTimeOfImpactMatchesHandCases(t *testing.T) {
 		// A rod turns a quarter turn about its center and sweeps a small
 		// box that sits above it. The translation alone never touches.
 		rod := boxProxy(3, 1, vec(0, 0))
-		rod.Points[0].Y = dbox2d.QMustParse("-0.1")
-		rod.Points[1].Y = dbox2d.QMustParse("-0.1")
-		rod.Points[2].Y = dbox2d.QMustParse("0.1")
-		rod.Points[3].Y = dbox2d.QMustParse("0.1")
-		input := dbox2d.TOIInput{
+		rod.Points[0].Y = b2.QMustParse("-0.1")
+		rod.Points[1].Y = b2.QMustParse("-0.1")
+		rod.Points[2].Y = b2.QMustParse("0.1")
+		rod.Points[3].Y = b2.QMustParse("0.1")
+		input := b2.TOIInput{
 			ProxyA:      boxProxy(1, 1, vec(0, 0)),
 			ProxyB:      rod,
-			SweepA:      dbox2d.Sweep{C1: vec(2, 2), C2: vec(2, 2), Q1: identity, Q2: identity},
-			SweepB:      dbox2d.Sweep{Q1: identity, Q2: dbox2d.MakeRot(dbox2d.QFromRatio(1, 4))},
-			MaxFraction: dbox2d.QOne(),
+			SweepA:      b2.Sweep{C1: vec(2, 2), C2: vec(2, 2), Q1: identity, Q2: identity},
+			SweepB:      b2.Sweep{Q1: identity, Q2: b2.MakeRot(b2.QFromRatio(1, 4))},
+			MaxFraction: b2.QOne(),
 		}
-		out := dbox2d.TimeOfImpact(&input)
-		if out.State != dbox2d.TOIStateHit {
+		out := b2.TimeOfImpact(&input)
+		if out.State != b2.TOIStateHit {
 			t.Fatalf("state %v, want a hit", out.State)
 		}
-		if !dbox2d.QZero().Less(out.Fraction) || !out.Fraction.Less(dbox2d.QOne()) {
+		if !b2.QZero().Less(out.Fraction) || !out.Fraction.Less(b2.QOne()) {
 			t.Fatalf("fraction %v, want inside (0, 1)", out.Fraction)
 		}
 		target, tolerance := toiTarget(&input)
@@ -526,25 +526,25 @@ func TestTimeOfImpactMatchesHandCases(t *testing.T) {
 // randomTOIInput builds a sweep pair on a millimetre grid. The rotations
 // turn at most a quarter turn, so the interpolated rotation never
 // collapses to zero.
-func randomTOIInput(rng *rand.Rand) dbox2d.TOIInput {
-	milli := func(lo, hi int) dbox2d.Q { return dbox2d.QFromRatio(lo+rng.Intn(hi-lo+1), 1000) }
-	sweep := func() dbox2d.Sweep {
+func randomTOIInput(rng *rand.Rand) b2.TOIInput {
+	milli := func(lo, hi int) b2.Q { return b2.QFromRatio(lo+rng.Intn(hi-lo+1), 1000) }
+	sweep := func() b2.Sweep {
 		turn := milli(0, 999)
-		return dbox2d.Sweep{
-			LocalCenter: dbox2d.Vec2{X: milli(-500, 500), Y: milli(-500, 500)},
-			C1:          dbox2d.Vec2{X: milli(-5000, 5000), Y: milli(-5000, 5000)},
-			C2:          dbox2d.Vec2{X: milli(-5000, 5000), Y: milli(-5000, 5000)},
-			Q1:          dbox2d.MakeRot(turn),
-			Q2:          dbox2d.MakeRot(turn.Add(milli(-250, 250))),
+		return b2.Sweep{
+			LocalCenter: b2.Vec2{X: milli(-500, 500), Y: milli(-500, 500)},
+			C1:          b2.Vec2{X: milli(-5000, 5000), Y: milli(-5000, 5000)},
+			C2:          b2.Vec2{X: milli(-5000, 5000), Y: milli(-5000, 5000)},
+			Q1:          b2.MakeRot(turn),
+			Q2:          b2.MakeRot(turn.Add(milli(-250, 250))),
 		}
 	}
 	distance := randomDistanceInput(rng)
-	return dbox2d.TOIInput{
+	return b2.TOIInput{
 		ProxyA:      distance.ProxyA,
 		ProxyB:      distance.ProxyB,
 		SweepA:      sweep(),
 		SweepB:      sweep(),
-		MaxFraction: dbox2d.QOne(),
+		MaxFraction: b2.QOne(),
 	}
 }
 
@@ -560,31 +560,31 @@ func TestTimeOfImpactConvergesOnRandomSweeps(t *testing.T) {
 
 	for range 1000 {
 		input := randomTOIInput(rng)
-		out := dbox2d.TimeOfImpact(&input)
+		out := b2.TimeOfImpact(&input)
 		target, tolerance := toiTarget(&input)
 
 		switch out.State {
-		case dbox2d.TOIStateHit:
+		case b2.TOIStateHit:
 			hits++
 			gap := toiGap(&input, out.Fraction)
-			if dbox2d.QZero().Less(out.Fraction) && !near(gap, target, tolerance) {
+			if b2.QZero().Less(out.Fraction) && !near(gap, target, tolerance) {
 				t.Fatalf("hit at %v with a gap of %v, want %v within %v", out.Fraction, gap, target, tolerance)
 			}
-			if !dbox2d.QZero().Less(gap) || target.Add(tolerance).Less(gap) {
+			if !b2.QZero().Less(gap) || target.Add(tolerance).Less(gap) {
 				t.Fatalf("hit at %v with a gap of %v, want inside (0, %v]", out.Fraction, gap, target.Add(tolerance))
 			}
-		case dbox2d.TOIStateSeparated:
-			if !out.Fraction.Eq(dbox2d.QOne()) {
+		case b2.TOIStateSeparated:
+			if !out.Fraction.Eq(b2.QOne()) {
 				t.Fatalf("separated at %v, want 1", out.Fraction)
 			}
 			if gap := toiGap(&input, out.Fraction); !target.Less(gap) {
 				t.Fatalf("separated with a gap of %v, want over %v", gap, target)
 			}
-		case dbox2d.TOIStateOverlapped:
-			if !out.Fraction.Eq(dbox2d.QZero()) {
+		case b2.TOIStateOverlapped:
+			if !out.Fraction.Eq(b2.QZero()) {
 				t.Fatalf("overlapped at %v, want 0", out.Fraction)
 			}
-		case dbox2d.TOIStateFailed:
+		case b2.TOIStateFailed:
 			failed++
 		default:
 			t.Fatalf("state %v", out.State)
@@ -624,14 +624,14 @@ func TestIterativeGeometryRejectsInvalidInput(t *testing.T) {
 	}
 
 	t.Run("empty proxy", func(t *testing.T) {
-		input := identityDistanceInput(boxProxy(1, 1, vec(0, 0)), dbox2d.ShapeProxy{}, false)
-		var cache dbox2d.SimplexCache
-		expectPanic(t, func() { dbox2d.ShapeDistance(&input, &cache, nil) })
+		input := identityDistanceInput(boxProxy(1, 1, vec(0, 0)), b2.ShapeProxy{}, false)
+		var cache b2.SimplexCache
+		expectPanic(t, func() { b2.ShapeDistance(&input, &cache, nil) })
 	})
 
 	t.Run("non-unit rotation", func(t *testing.T) {
-		input := toiPair(boxProxy(1, 1, vec(0, 0)), boxProxy(1, 1, vec(0, 0)), vec(5, 0), vec(-5, 0), dbox2d.RotIdentity(), dbox2d.Rot{})
-		expectPanic(t, func() { dbox2d.TimeOfImpact(&input) })
+		input := toiPair(boxProxy(1, 1, vec(0, 0)), boxProxy(1, 1, vec(0, 0)), vec(5, 0), vec(-5, 0), b2.RotIdentity(), b2.Rot{})
+		expectPanic(t, func() { b2.TimeOfImpact(&input) })
 	})
 }
 
@@ -639,31 +639,31 @@ func TestIterativeGeometryRejectsInvalidInput(t *testing.T) {
 // box from a grid of starts in four directions. The cast must return a
 // fraction in [0, 1] and must not panic on any start.
 func TestShapeCastNeverPanicsOnAGrid(t *testing.T) {
-	one := dbox2d.QOne()
-	rounded := dbox2d.MakeRoundedBox(one, one, dbox2d.QFromRatio(1, 10))
-	fixedBox := dbox2d.MakeBox(one, one)
-	proxyA := dbox2d.MakeProxy(fixedBox.Vertices[:fixedBox.Count], fixedBox.Radius)
-	proxyB := dbox2d.MakeProxy(rounded.Vertices[:rounded.Count], rounded.Radius)
+	one := b2.QOne()
+	rounded := b2.MakeRoundedBox(one, one, b2.QFromRatio(1, 10))
+	fixedBox := b2.MakeBox(one, one)
+	proxyA := b2.MakeProxy(fixedBox.Vertices[:fixedBox.Count], fixedBox.Radius)
+	proxyB := b2.MakeProxy(rounded.Vertices[:rounded.Count], rounded.Radius)
 
-	directions := []dbox2d.Vec2{vec(10, 0), vec(-10, 0), vec(0, 10), vec(0, -10)}
-	step := dbox2d.QFromRatio(3, 10)
+	directions := []b2.Vec2{vec(10, 0), vec(-10, 0), vec(0, 10), vec(0, -10)}
+	step := b2.QFromRatio(3, 10)
 	for i := range 21 {
 		for j := range 21 {
-			start := dbox2d.Vec2{
-				X: dbox2d.QFromInt(-3).Add(step.Mul(dbox2d.QFromInt(i))),
-				Y: dbox2d.QFromInt(-3).Add(step.Mul(dbox2d.QFromInt(j))),
+			start := b2.Vec2{
+				X: b2.QFromInt(-3).Add(step.Mul(b2.QFromInt(i))),
+				Y: b2.QFromInt(-3).Add(step.Mul(b2.QFromInt(j))),
 			}
 			for _, direction := range directions {
-				input := dbox2d.ShapeCastPairInput{
+				input := b2.ShapeCastPairInput{
 					ProxyA:       proxyA,
 					ProxyB:       proxyB,
-					TransformA:   dbox2d.TransformIdentity(),
-					TransformB:   dbox2d.Transform{P: start, Q: dbox2d.RotIdentity()},
+					TransformA:   b2.TransformIdentity(),
+					TransformB:   b2.Transform{P: start, Q: b2.RotIdentity()},
 					TranslationB: direction,
 					MaxFraction:  one,
 				}
-				out := dbox2d.ShapeCast(&input)
-				if out.Fraction.Less(dbox2d.QZero()) || one.Less(out.Fraction) {
+				out := b2.ShapeCast(&input)
+				if out.Fraction.Less(b2.QZero()) || one.Less(out.Fraction) {
 					t.Fatalf("start %v direction %v: fraction %v", start, direction, out.Fraction)
 				}
 			}

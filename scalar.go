@@ -1,4 +1,4 @@
-package dbox2d
+package b2
 
 // Scalar is what the short constructors accept: a Go integer or float, for
 // a literal or a value the caller computed, and Q itself, so a value that is

@@ -1,4 +1,4 @@
-package dbox2d
+package b2
 
 // SetTarget changes the mouse joint target (b2MouseJoint_SetTarget).
 func (jointId JointId) SetTarget(target Vec2) {

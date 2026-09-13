@@ -1,4 +1,4 @@
-package dbox2d
+package b2
 
 // This file corresponds to src/weld_joint.c of the reference. The API
 // takes the reference angle in turns (D-004); the joint keeps it in the

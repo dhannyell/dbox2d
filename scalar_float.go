@@ -1,6 +1,6 @@
 //go:build !dbox2d_fixed
 
-package dbox2d
+package b2
 
 import (
 	"math"

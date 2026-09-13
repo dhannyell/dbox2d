@@ -37,9 +37,10 @@ Requires Go 1.26.8 or newer.
 go get github.com/dhannyell/dbox2d
 ```
 
-The API follows Box2D closely. A reference function such as
-`b2Body_GetPosition(bodyId)` becomes `bodyId.GetPosition()`; constructors,
-defaults, and geometry helpers remain package functions.
+The package is named `b2`, so the import needs no alias and a call reads
+like the reference: `b2Body_GetPosition(bodyId)` becomes
+`bodyId.GetPosition()`, and `b2MakeBox(1, 1)` becomes `b2.MakeBox(...)`.
+Constructors, defaults, and geometry helpers remain package functions.
 
 ## First world
 
@@ -49,17 +50,19 @@ package main
 import "github.com/dhannyell/dbox2d"
 
 func main() {
-	def := dbox2d.DefaultWorldDef()
-	def.Gravity = dbox2d.Vec2{Y: dbox2d.QFromInt(-10)}
-	world := dbox2d.CreateWorld(&def)
-	defer dbox2d.DestroyWorld(world)
+	def := b2.DefaultWorldDef()
+	def.Gravity = b2.V2(0, -10)
+	world := b2.CreateWorld(&def)
+	defer b2.DestroyWorld(world)
 
-	world.Step(dbox2d.QFromRatio(1, 60), 4)
+	world.Step(b2.QFromRatio(1, 60), 4)
 }
 ```
 
-Use `QFromInt`, `QFromRatio`, `QFromFloat64`, or `QMustParse` to create values
-that are rounded consistently by the selected scalar mode.
+Every scalar of the API is a `Q`, the scalar of the selected mode. `F`
+converts an integer or a float, `V2` builds a vector, and `Degrees` gives an
+angle in the turns the API uses; see [Scalar modes and determinism](#scalar-modes-and-determinism) for the long forms
+and the rounding contract.
 
 ## Run the samples
 
@@ -124,14 +127,24 @@ itself.
 Use these constructors to create simulation values:
 
 ```go
-dbox2d.QZero()
-dbox2d.QOne()
-dbox2d.QHalf()
-dbox2d.QFromInt(3)
-dbox2d.QFromRatio(1, 8)
-dbox2d.QFromFloat64(0.35)
-dbox2d.QMustParse("0.35")
+b2.F(3)          // an int, exact
+b2.F(0.35)       // a float, rounded once to the mode
+b2.F(q)          // a Q, unchanged
+b2.V2(1, -2)     // a vector; both arguments share one type
+b2.Degrees(90)   // a quarter turn
+b2.QZero()
+b2.QOne()
+b2.QHalf()
+b2.QFromInt(3)
+b2.QFromRatio(1, 8)
+b2.QFromFloat64(0.35)
+b2.QMustParse("0.35")
 ```
+
+`F` and `V2` are generic over `int`, `float32`, `float64`, and `Q`, so an
+untyped literal needs no conversion; `F(3)` is `QFromInt(3)` and `F(0.35)`
+is `QFromFloat64(0.35)`. Mixed arguments need one type: `V2(1, 0.5)` does
+not compile, `V2(1.0, 0.5)` does.
 
 `QFromFloat64` rounds to the nearest scalar of the mode, the same way on every
 architecture, and `QToFloat64` converts back. A constant converts to the same

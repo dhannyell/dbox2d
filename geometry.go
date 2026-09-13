@@ -1,4 +1,4 @@
-package dbox2d
+package b2
 
 // IsValidRay reports whether a ray cast input is usable.
 func IsValidRay(input *RayCastInput) bool {

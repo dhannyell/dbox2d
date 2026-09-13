@@ -173,10 +173,10 @@ func (a *App) drawFrameOverlay(dtSeconds float64) {
 
 // worldOf type-asserts for Base.World, since Sample hides the world id
 // behind Step and the input methods.
-func worldOf(s samples.Sample) (dbox2d.WorldId, bool) {
-	w, ok := s.(interface{ World() dbox2d.WorldId })
+func worldOf(s samples.Sample) (b2.WorldId, bool) {
+	w, ok := s.(interface{ World() b2.WorldId })
 	if !ok {
-		return dbox2d.WorldId{}, false
+		return b2.WorldId{}, false
 	}
 	return w.World(), true
 }

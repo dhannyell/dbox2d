@@ -1,6 +1,6 @@
 //go:build dbox2d_simd && !dbox2d_fixed
 
-package dbox2d
+package b2
 
 // The float lane paths share these element types and conversions; each path
 // adds its own laneW.

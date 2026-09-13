@@ -1,6 +1,6 @@
 //go:build dbox2d_simd && !dbox2d_fixed && goexperiment.simd && go1.27 && (amd64 || arm64 || wasm)
 
-package dbox2d
+package b2
 
 // The archsimd float paths differ only in the vector width and in a few
 // constructors; the per-architecture files supply those, and this file holds

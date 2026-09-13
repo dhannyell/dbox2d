@@ -10,7 +10,7 @@ import "github.com/dhannyell/dbox2d"
 type RGBA8 struct{ R, G, B, A uint8 }
 
 // MakeRGBA8 unpacks a HexColor into the GPU's four-byte form (draw.cpp:39).
-func MakeRGBA8(c dbox2d.HexColor, alpha float32) RGBA8 {
+func MakeRGBA8(c b2.HexColor, alpha float32) RGBA8 {
 	return RGBA8{
 		R: uint8((c >> 16) & 0xFF),
 		G: uint8((c >> 8) & 0xFF),

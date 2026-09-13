@@ -1,4 +1,4 @@
-package dbox2d
+package b2
 
 // This file has no upstream counterpart. A fixed-point world promises the
 // same state on every platform, and the checksum is the witness of that

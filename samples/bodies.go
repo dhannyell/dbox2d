@@ -21,15 +21,15 @@ func init() {
 
 // groundSegment creates a static body with one segment from (-halfWidth, 0)
 // to (halfWidth, 0), the ground most Bodies scenes share.
-func groundSegment(worldId dbox2d.WorldId, shapeDef *dbox2d.ShapeDef, halfWidth int) (dbox2d.BodyId, dbox2d.ShapeId) {
-	bodyDef := dbox2d.DefaultBodyDef()
-	groundId := dbox2d.CreateBody(worldId, &bodyDef)
+func groundSegment(worldId b2.WorldId, shapeDef *b2.ShapeDef, halfWidth int) (b2.BodyId, b2.ShapeId) {
+	bodyDef := b2.DefaultBodyDef()
+	groundId := b2.CreateBody(worldId, &bodyDef)
 
-	segment := dbox2d.Segment{
-		Point1: dbox2d.Vec2{X: dbox2d.F(-halfWidth)},
-		Point2: dbox2d.Vec2{X: dbox2d.F(halfWidth)},
+	segment := b2.Segment{
+		Point1: b2.Vec2{X: b2.F(-halfWidth)},
+		Point2: b2.Vec2{X: b2.F(halfWidth)},
 	}
-	shapeId := dbox2d.CreateSegmentShape(groundId, shapeDef, &segment)
+	shapeId := b2.CreateSegmentShape(groundId, shapeDef, &segment)
 	return groundId, shapeId
 }
 
@@ -37,14 +37,14 @@ func groundSegment(worldId dbox2d.WorldId, shapeDef *dbox2d.ShapeDef, halfWidth 
 // and dynamic, and enables or disables them.
 type BodyType struct {
 	Base
-	attachmentId       dbox2d.BodyId
-	secondAttachmentId dbox2d.BodyId
-	platformId         dbox2d.BodyId
-	secondPayloadId    dbox2d.BodyId
-	touchingBodyId     dbox2d.BodyId
-	floatingBodyId     dbox2d.BodyId
-	bodyType           dbox2d.BodyType
-	speed              dbox2d.Q
+	attachmentId       b2.BodyId
+	secondAttachmentId b2.BodyId
+	platformId         b2.BodyId
+	secondPayloadId    b2.BodyId
+	touchingBodyId     b2.BodyId
+	floatingBodyId     b2.BodyId
+	bodyType           b2.BodyType
+	speed              b2.Q
 	isEnabled          bool
 }
 
@@ -57,159 +57,159 @@ func NewBodyType(ctx *SampleContext) Sample {
 		ctx.Camera.Zoom = 25.0 * 0.4
 	}
 
-	s.bodyType = dbox2d.DynamicBody
+	s.bodyType = b2.DynamicBody
 	s.isEnabled = true
 
-	groundShapeDef := dbox2d.DefaultShapeDef()
+	groundShapeDef := b2.DefaultShapeDef()
 	groundId, _ := groundSegment(s.WorldId, &groundShapeDef, 20)
 
 	// Define attachment
 	{
-		bodyDef := dbox2d.DefaultBodyDef()
-		bodyDef.Type = dbox2d.DynamicBody
-		bodyDef.Position = dbox2d.V2(-2, 3)
-		s.attachmentId = dbox2d.CreateBody(s.WorldId, &bodyDef)
+		bodyDef := b2.DefaultBodyDef()
+		bodyDef.Type = b2.DynamicBody
+		bodyDef.Position = b2.V2(-2, 3)
+		s.attachmentId = b2.CreateBody(s.WorldId, &bodyDef)
 
-		box := dbox2d.MakeBox(dbox2d.QHalf(), dbox2d.F(2))
-		shapeDef := dbox2d.DefaultShapeDef()
-		shapeDef.Density = dbox2d.QOne()
-		dbox2d.CreatePolygonShape(s.attachmentId, &shapeDef, &box)
+		box := b2.MakeBox(b2.QHalf(), b2.F(2))
+		shapeDef := b2.DefaultShapeDef()
+		shapeDef.Density = b2.QOne()
+		b2.CreatePolygonShape(s.attachmentId, &shapeDef, &box)
 	}
 
 	// Define second attachment
 	{
-		bodyDef := dbox2d.DefaultBodyDef()
+		bodyDef := b2.DefaultBodyDef()
 		bodyDef.Type = s.bodyType
 		bodyDef.IsEnabled = s.isEnabled
-		bodyDef.Position = dbox2d.V2(3, 3)
-		s.secondAttachmentId = dbox2d.CreateBody(s.WorldId, &bodyDef)
+		bodyDef.Position = b2.V2(3, 3)
+		s.secondAttachmentId = b2.CreateBody(s.WorldId, &bodyDef)
 
-		box := dbox2d.MakeBox(dbox2d.QHalf(), dbox2d.F(2))
-		shapeDef := dbox2d.DefaultShapeDef()
-		shapeDef.Density = dbox2d.QOne()
-		dbox2d.CreatePolygonShape(s.secondAttachmentId, &shapeDef, &box)
+		box := b2.MakeBox(b2.QHalf(), b2.F(2))
+		shapeDef := b2.DefaultShapeDef()
+		shapeDef.Density = b2.QOne()
+		b2.CreatePolygonShape(s.secondAttachmentId, &shapeDef, &box)
 	}
 
 	// Define platform
 	{
-		bodyDef := dbox2d.DefaultBodyDef()
+		bodyDef := b2.DefaultBodyDef()
 		bodyDef.Type = s.bodyType
 		bodyDef.IsEnabled = s.isEnabled
-		bodyDef.Position = dbox2d.V2(-4, 5)
-		s.platformId = dbox2d.CreateBody(s.WorldId, &bodyDef)
+		bodyDef.Position = b2.V2(-4, 5)
+		s.platformId = b2.CreateBody(s.WorldId, &bodyDef)
 
 		// A quarter turn is the reference's 0.5 * pi.
-		box := dbox2d.MakeOffsetBox(dbox2d.QHalf(), dbox2d.F(4), dbox2d.V2(4, 0), dbox2d.MakeRot(dbox2d.QFromRatio(1, 4)))
+		box := b2.MakeOffsetBox(b2.QHalf(), b2.F(4), b2.V2(4, 0), b2.MakeRot(b2.QFromRatio(1, 4)))
 
-		shapeDef := dbox2d.DefaultShapeDef()
-		shapeDef.Density = dbox2d.F(2)
-		dbox2d.CreatePolygonShape(s.platformId, &shapeDef, &box)
+		shapeDef := b2.DefaultShapeDef()
+		shapeDef.Density = b2.F(2)
+		b2.CreatePolygonShape(s.platformId, &shapeDef, &box)
 
-		revoluteDef := dbox2d.DefaultRevoluteJointDef()
-		pivot := dbox2d.V2(-2, 5)
+		revoluteDef := b2.DefaultRevoluteJointDef()
+		pivot := b2.V2(-2, 5)
 		revoluteDef.BodyIdA = s.attachmentId
 		revoluteDef.BodyIdB = s.platformId
 		revoluteDef.LocalAnchorA = s.attachmentId.GetLocalPoint(pivot)
 		revoluteDef.LocalAnchorB = s.platformId.GetLocalPoint(pivot)
-		revoluteDef.MaxMotorTorque = dbox2d.F(50)
+		revoluteDef.MaxMotorTorque = b2.F(50)
 		revoluteDef.EnableMotor = true
-		dbox2d.CreateRevoluteJoint(s.WorldId, &revoluteDef)
+		b2.CreateRevoluteJoint(s.WorldId, &revoluteDef)
 
-		pivot = dbox2d.V2(3, 5)
+		pivot = b2.V2(3, 5)
 		revoluteDef.BodyIdA = s.secondAttachmentId
 		revoluteDef.BodyIdB = s.platformId
 		revoluteDef.LocalAnchorA = s.secondAttachmentId.GetLocalPoint(pivot)
 		revoluteDef.LocalAnchorB = s.platformId.GetLocalPoint(pivot)
-		revoluteDef.MaxMotorTorque = dbox2d.F(50)
+		revoluteDef.MaxMotorTorque = b2.F(50)
 		revoluteDef.EnableMotor = true
-		dbox2d.CreateRevoluteJoint(s.WorldId, &revoluteDef)
+		b2.CreateRevoluteJoint(s.WorldId, &revoluteDef)
 
-		prismaticDef := dbox2d.DefaultPrismaticJointDef()
-		anchor := dbox2d.V2(0, 5)
+		prismaticDef := b2.DefaultPrismaticJointDef()
+		anchor := b2.V2(0, 5)
 		prismaticDef.BodyIdA = groundId
 		prismaticDef.BodyIdB = s.platformId
 		prismaticDef.LocalAnchorA = groundId.GetLocalPoint(anchor)
 		prismaticDef.LocalAnchorB = s.platformId.GetLocalPoint(anchor)
-		prismaticDef.LocalAxisA = dbox2d.Vec2{X: dbox2d.QOne()}
-		prismaticDef.MaxMotorForce = dbox2d.F(1000)
-		prismaticDef.MotorSpeed = dbox2d.QZero()
+		prismaticDef.LocalAxisA = b2.Vec2{X: b2.QOne()}
+		prismaticDef.MaxMotorForce = b2.F(1000)
+		prismaticDef.MotorSpeed = b2.QZero()
 		prismaticDef.EnableMotor = true
-		prismaticDef.LowerTranslation = dbox2d.F(-10)
-		prismaticDef.UpperTranslation = dbox2d.F(10)
+		prismaticDef.LowerTranslation = b2.F(-10)
+		prismaticDef.UpperTranslation = b2.F(10)
 		prismaticDef.EnableLimit = true
-		dbox2d.CreatePrismaticJoint(s.WorldId, &prismaticDef)
+		b2.CreatePrismaticJoint(s.WorldId, &prismaticDef)
 
-		s.speed = dbox2d.F(3)
+		s.speed = b2.F(3)
 	}
 
 	// Create a payload
 	{
-		bodyDef := dbox2d.DefaultBodyDef()
-		bodyDef.Type = dbox2d.DynamicBody
-		bodyDef.Position = dbox2d.V2(-3, 8)
-		bodyId := dbox2d.CreateBody(s.WorldId, &bodyDef)
+		bodyDef := b2.DefaultBodyDef()
+		bodyDef.Type = b2.DynamicBody
+		bodyDef.Position = b2.V2(-3, 8)
+		bodyId := b2.CreateBody(s.WorldId, &bodyDef)
 
-		box := dbox2d.MakeBox(dbox2d.QFromRatio(3, 4), dbox2d.QFromRatio(3, 4))
-		shapeDef := dbox2d.DefaultShapeDef()
-		shapeDef.Density = dbox2d.F(2)
-		dbox2d.CreatePolygonShape(bodyId, &shapeDef, &box)
+		box := b2.MakeBox(b2.QFromRatio(3, 4), b2.QFromRatio(3, 4))
+		shapeDef := b2.DefaultShapeDef()
+		shapeDef.Density = b2.F(2)
+		b2.CreatePolygonShape(bodyId, &shapeDef, &box)
 	}
 
 	// Create a second payload
 	{
-		bodyDef := dbox2d.DefaultBodyDef()
+		bodyDef := b2.DefaultBodyDef()
 		bodyDef.Type = s.bodyType
 		bodyDef.IsEnabled = s.isEnabled
-		bodyDef.Position = dbox2d.V2(2, 8)
-		s.secondPayloadId = dbox2d.CreateBody(s.WorldId, &bodyDef)
+		bodyDef.Position = b2.V2(2, 8)
+		s.secondPayloadId = b2.CreateBody(s.WorldId, &bodyDef)
 
-		box := dbox2d.MakeBox(dbox2d.QFromRatio(3, 4), dbox2d.QFromRatio(3, 4))
-		shapeDef := dbox2d.DefaultShapeDef()
-		shapeDef.Density = dbox2d.F(2)
-		dbox2d.CreatePolygonShape(s.secondPayloadId, &shapeDef, &box)
+		box := b2.MakeBox(b2.QFromRatio(3, 4), b2.QFromRatio(3, 4))
+		shapeDef := b2.DefaultShapeDef()
+		shapeDef.Density = b2.F(2)
+		b2.CreatePolygonShape(s.secondPayloadId, &shapeDef, &box)
 	}
 
 	// Create a separate body on the ground
 	{
-		bodyDef := dbox2d.DefaultBodyDef()
+		bodyDef := b2.DefaultBodyDef()
 		bodyDef.Type = s.bodyType
 		bodyDef.IsEnabled = s.isEnabled
-		bodyDef.Position = dbox2d.V2(8.0, 0.2)
-		s.touchingBodyId = dbox2d.CreateBody(s.WorldId, &bodyDef)
+		bodyDef.Position = b2.V2(8.0, 0.2)
+		s.touchingBodyId = b2.CreateBody(s.WorldId, &bodyDef)
 
-		capsule := dbox2d.Capsule{
-			Center2: dbox2d.Vec2{X: dbox2d.QOne()},
-			Radius:  dbox2d.QFromRatio(1, 4),
+		capsule := b2.Capsule{
+			Center2: b2.Vec2{X: b2.QOne()},
+			Radius:  b2.QFromRatio(1, 4),
 		}
-		shapeDef := dbox2d.DefaultShapeDef()
-		shapeDef.Density = dbox2d.F(2)
-		dbox2d.CreateCapsuleShape(s.touchingBodyId, &shapeDef, &capsule)
+		shapeDef := b2.DefaultShapeDef()
+		shapeDef.Density = b2.F(2)
+		b2.CreateCapsuleShape(s.touchingBodyId, &shapeDef, &capsule)
 	}
 
 	// Create a separate floating body
 	{
-		bodyDef := dbox2d.DefaultBodyDef()
+		bodyDef := b2.DefaultBodyDef()
 		bodyDef.Type = s.bodyType
 		bodyDef.IsEnabled = s.isEnabled
-		bodyDef.Position = dbox2d.V2(-8, 12)
-		bodyDef.GravityScale = dbox2d.QZero()
-		s.floatingBodyId = dbox2d.CreateBody(s.WorldId, &bodyDef)
+		bodyDef.Position = b2.V2(-8, 12)
+		bodyDef.GravityScale = b2.QZero()
+		s.floatingBodyId = b2.CreateBody(s.WorldId, &bodyDef)
 
-		circle := dbox2d.Circle{Center: dbox2d.Vec2{Y: dbox2d.QHalf()}, Radius: dbox2d.QFromRatio(1, 4)}
-		shapeDef := dbox2d.DefaultShapeDef()
-		shapeDef.Density = dbox2d.F(2)
-		dbox2d.CreateCircleShape(s.floatingBodyId, &shapeDef, &circle)
+		circle := b2.Circle{Center: b2.Vec2{Y: b2.QHalf()}, Radius: b2.QFromRatio(1, 4)}
+		shapeDef := b2.DefaultShapeDef()
+		shapeDef.Density = b2.F(2)
+		b2.CreateCircleShape(s.floatingBodyId, &shapeDef, &circle)
 	}
 
 	return s
 }
 
-func (s *BodyType) setType(bodyType dbox2d.BodyType) {
+func (s *BodyType) setType(bodyType b2.BodyType) {
 	s.bodyType = bodyType
 	s.platformId.SetType(bodyType)
-	if bodyType == dbox2d.KinematicBody {
-		s.platformId.SetLinearVelocity(dbox2d.Vec2{X: s.speed.Neg()})
-		s.platformId.SetAngularVelocity(dbox2d.QZero())
+	if bodyType == b2.KinematicBody {
+		s.platformId.SetLinearVelocity(b2.Vec2{X: s.speed.Neg()})
+		s.platformId.SetAngularVelocity(b2.QZero())
 	}
 	s.secondAttachmentId.SetType(bodyType)
 	s.secondPayloadId.SetType(bodyType)
@@ -223,16 +223,16 @@ func (s *BodyType) UpdateGui() {
 	gui := s.Context.Gui
 	gui.Begin("Body Type", 10, s.Context.Camera.Height-height-50, 180, height)
 
-	if gui.RadioButton("Static", s.bodyType == dbox2d.StaticBody) {
-		s.setType(dbox2d.StaticBody)
+	if gui.RadioButton("Static", s.bodyType == b2.StaticBody) {
+		s.setType(b2.StaticBody)
 	}
 
-	if gui.RadioButton("Kinematic", s.bodyType == dbox2d.KinematicBody) {
-		s.setType(dbox2d.KinematicBody)
+	if gui.RadioButton("Kinematic", s.bodyType == b2.KinematicBody) {
+		s.setType(b2.KinematicBody)
 	}
 
-	if gui.RadioButton("Dynamic", s.bodyType == dbox2d.DynamicBody) {
-		s.setType(dbox2d.DynamicBody)
+	if gui.RadioButton("Dynamic", s.bodyType == b2.DynamicBody) {
+		s.setType(b2.DynamicBody)
 	}
 
 	if gui.Checkbox("Enable", &s.isEnabled) {
@@ -243,9 +243,9 @@ func (s *BodyType) UpdateGui() {
 			s.touchingBodyId.Enable()
 			s.floatingBodyId.Enable()
 
-			if s.bodyType == dbox2d.KinematicBody {
-				s.platformId.SetLinearVelocity(dbox2d.Vec2{X: s.speed.Neg()})
-				s.platformId.SetAngularVelocity(dbox2d.QZero())
+			if s.bodyType == b2.KinematicBody {
+				s.platformId.SetLinearVelocity(b2.Vec2{X: s.speed.Neg()})
+				s.platformId.SetAngularVelocity(b2.QZero())
 			}
 		} else {
 			s.platformId.Disable()
@@ -261,12 +261,12 @@ func (s *BodyType) UpdateGui() {
 
 // Step drives the kinematic platform back and forth, then advances the scene.
 func (s *BodyType) Step() {
-	if s.bodyType == dbox2d.KinematicBody {
+	if s.bodyType == b2.KinematicBody {
 		p := s.platformId.GetPosition()
 		v := s.platformId.GetLinearVelocity()
 
-		if (p.X.Less(dbox2d.F(-14)) && v.X.Less(dbox2d.QZero())) ||
-			(p.X.Greater(dbox2d.F(6)) && v.X.Greater(dbox2d.QZero())) {
+		if (p.X.Less(b2.F(-14)) && v.X.Less(b2.QZero())) ||
+			(p.X.Greater(b2.F(6)) && v.X.Greater(b2.QZero())) {
 			v.X = v.X.Neg()
 			s.platformId.SetLinearVelocity(v)
 		}
@@ -275,21 +275,21 @@ func (s *BodyType) Step() {
 	s.Base.Step()
 }
 
-func weebleFriction(dbox2d.Q, int, dbox2d.Q, int) dbox2d.Q {
-	return dbox2d.QFromRatio(1, 10)
+func weebleFriction(b2.Q, int, b2.Q, int) b2.Q {
+	return b2.QFromRatio(1, 10)
 }
 
-func weebleRestitution(dbox2d.Q, int, dbox2d.Q, int) dbox2d.Q {
-	return dbox2d.QOne()
+func weebleRestitution(b2.Q, int, b2.Q, int) b2.Q {
+	return b2.QOne()
 }
 
 // Weeble is a capsule with its center of mass moved below the shape, so it
 // always rights itself.
 type Weeble struct {
 	Base
-	weebleId           dbox2d.BodyId
-	explosionPosition  dbox2d.Vec2
-	explosionRadius    dbox2d.Q
+	weebleId           b2.BodyId
+	explosionPosition  b2.Vec2
+	explosionRadius    b2.Q
 	explosionMagnitude float64
 }
 
@@ -306,40 +306,40 @@ func NewWeeble(ctx *SampleContext) Sample {
 	s.WorldId.SetFrictionCallback(weebleFriction)
 	s.WorldId.SetRestitutionCallback(weebleRestitution)
 
-	groundShapeDef := dbox2d.DefaultShapeDef()
+	groundShapeDef := b2.DefaultShapeDef()
 	groundSegment(s.WorldId, &groundShapeDef, 20)
 
 	// Build weeble
 	{
-		bodyDef := dbox2d.DefaultBodyDef()
-		bodyDef.Type = dbox2d.DynamicBody
-		bodyDef.Position = dbox2d.V2(0, 3)
+		bodyDef := b2.DefaultBodyDef()
+		bodyDef.Type = b2.DynamicBody
+		bodyDef.Position = b2.V2(0, 3)
 		// An eighth of a turn is the reference's 0.25 * pi.
-		bodyDef.Rotation = dbox2d.MakeRot(dbox2d.QFromRatio(1, 8))
-		s.weebleId = dbox2d.CreateBody(s.WorldId, &bodyDef)
+		bodyDef.Rotation = b2.MakeRot(b2.QFromRatio(1, 8))
+		s.weebleId = b2.CreateBody(s.WorldId, &bodyDef)
 
-		capsule := dbox2d.Capsule{
-			Center1: dbox2d.V2(0, -1),
-			Center2: dbox2d.Vec2{Y: dbox2d.QOne()},
-			Radius:  dbox2d.QOne(),
+		capsule := b2.Capsule{
+			Center1: b2.V2(0, -1),
+			Center2: b2.Vec2{Y: b2.QOne()},
+			Radius:  b2.QOne(),
 		}
-		shapeDef := dbox2d.DefaultShapeDef()
-		dbox2d.CreateCapsuleShape(s.weebleId, &shapeDef, &capsule)
+		shapeDef := b2.DefaultShapeDef()
+		b2.CreateCapsuleShape(s.weebleId, &shapeDef, &capsule)
 
 		mass := s.weebleId.GetMass()
 		inertiaTensor := s.weebleId.GetRotationalInertia()
 
-		offset := dbox2d.F(1.5)
+		offset := b2.F(1.5)
 
 		// See: https://en.wikipedia.org/wiki/Parallel_axis_theorem
 		inertiaTensor = inertiaTensor.Add(mass.Mul(offset).Mul(offset))
 
-		massData := dbox2d.MassData{Mass: mass, Center: dbox2d.Vec2{Y: offset.Neg()}, RotationalInertia: inertiaTensor}
+		massData := b2.MassData{Mass: mass, Center: b2.Vec2{Y: offset.Neg()}, RotationalInertia: inertiaTensor}
 		s.weebleId.SetMassData(massData)
 	}
 
-	s.explosionPosition = dbox2d.Vec2{}
-	s.explosionRadius = dbox2d.F(2)
+	s.explosionPosition = b2.Vec2{}
+	s.explosionRadius = b2.F(2)
 	s.explosionMagnitude = 8.0
 
 	return s
@@ -352,14 +352,14 @@ func (s *Weeble) UpdateGui() {
 	gui.Begin("Weeble", 10, s.Context.Camera.Height-height-50, 200, height)
 	if gui.Button("Teleport") {
 		// 0.475 turns is the reference's 0.95 * pi.
-		s.weebleId.SetTransform(dbox2d.V2(0, 5), dbox2d.MakeRot(dbox2d.F(0.475)))
+		s.weebleId.SetTransform(b2.V2(0, 5), b2.MakeRot(b2.F(0.475)))
 	}
 
 	if gui.Button("Explode") {
-		def := dbox2d.DefaultExplosionDef()
+		def := b2.DefaultExplosionDef()
 		def.Position = s.explosionPosition
 		def.Radius = s.explosionRadius
-		def.Falloff = dbox2d.QFromRatio(1, 10)
+		def.Falloff = b2.QFromRatio(1, 10)
 		def.ImpulsePerLength = FromFloat64(s.explosionMagnitude)
 		s.WorldId.Explode(&def)
 	}
@@ -373,18 +373,18 @@ func (s *Weeble) UpdateGui() {
 func (s *Weeble) Step() {
 	s.Base.Step()
 
-	s.Context.Draw.DrawCircle(s.explosionPosition, s.explosionRadius, dbox2d.ColorAzure)
+	s.Context.Draw.DrawCircle(s.explosionPosition, s.explosionRadius, b2.ColorAzure)
 
 	// This shows how to get the velocity of a point on a body
-	localPoint := dbox2d.V2(0, 2)
+	localPoint := b2.V2(0, 2)
 	worldPoint := s.weebleId.GetWorldPoint(localPoint)
 
 	v1 := s.weebleId.GetLocalPointVelocity(localPoint)
 	v2 := s.weebleId.GetWorldPointVelocity(worldPoint)
 
-	offset := dbox2d.Vec2{X: dbox2d.QFromRatio(1, 20)}
-	s.Context.Draw.DrawSegment(worldPoint, worldPoint.Add(v1), dbox2d.ColorRed)
-	s.Context.Draw.DrawSegment(worldPoint.Add(offset), worldPoint.Add(v2).Add(offset), dbox2d.ColorGreen)
+	offset := b2.Vec2{X: b2.QFromRatio(1, 20)}
+	s.Context.Draw.DrawSegment(worldPoint, worldPoint.Add(v1), b2.ColorRed)
+	s.Context.Draw.DrawSegment(worldPoint.Add(offset), worldPoint.Add(v2).Add(offset), b2.ColorGreen)
 }
 
 // SleepBodies tests sleeping bodies, sensors on sleeping bodies, sleep
@@ -392,10 +392,10 @@ func (s *Weeble) Step() {
 // reference's Sleep; the name Sleep belongs to the benchmark.
 type SleepBodies struct {
 	Base
-	pendulumId     dbox2d.BodyId
-	staticBodyId   dbox2d.BodyId
-	groundShapeId  dbox2d.ShapeId
-	sensorIds      [2]dbox2d.ShapeId
+	pendulumId     b2.BodyId
+	staticBodyId   b2.BodyId
+	groundShapeId  b2.ShapeId
+	sensorIds      [2]b2.ShapeId
 	sensorTouching [2]bool
 }
 
@@ -408,133 +408,133 @@ func NewSleepBodies(ctx *SampleContext) Sample {
 		ctx.Camera.Zoom = 25.0 * 2.2
 	}
 
-	groundShapeDef := dbox2d.DefaultShapeDef()
+	groundShapeDef := b2.DefaultShapeDef()
 	groundShapeDef.EnableSensorEvents = true
 	groundId, groundShapeId := groundSegment(s.WorldId, &groundShapeDef, 40)
 	s.groundShapeId = groundShapeId
 
 	// Sleeping body with sensors
 	for i := range 2 {
-		bodyDef := dbox2d.DefaultBodyDef()
-		bodyDef.Type = dbox2d.DynamicBody
-		bodyDef.Position = dbox2d.Vec2{X: dbox2d.F(-4), Y: dbox2d.F(3 + 2*i)}
+		bodyDef := b2.DefaultBodyDef()
+		bodyDef.Type = b2.DynamicBody
+		bodyDef.Position = b2.Vec2{X: b2.F(-4), Y: b2.F(3 + 2*i)}
 		bodyDef.IsAwake = false
 		bodyDef.EnableSleep = true
-		bodyId := dbox2d.CreateBody(s.WorldId, &bodyDef)
+		bodyId := b2.CreateBody(s.WorldId, &bodyDef)
 
-		capsule := dbox2d.Capsule{
-			Center1: dbox2d.Vec2{Y: dbox2d.QOne()},
-			Center2: dbox2d.Vec2{X: dbox2d.QOne(), Y: dbox2d.QOne()},
-			Radius:  dbox2d.QFromRatio(3, 4),
+		capsule := b2.Capsule{
+			Center1: b2.Vec2{Y: b2.QOne()},
+			Center2: b2.Vec2{X: b2.QOne(), Y: b2.QOne()},
+			Radius:  b2.QFromRatio(3, 4),
 		}
-		shapeDef := dbox2d.DefaultShapeDef()
-		dbox2d.CreateCapsuleShape(bodyId, &shapeDef, &capsule)
+		shapeDef := b2.DefaultShapeDef()
+		b2.CreateCapsuleShape(bodyId, &shapeDef, &capsule)
 
 		shapeDef.IsSensor = true
 		shapeDef.EnableSensorEvents = true
-		capsule.Radius = dbox2d.QOne()
-		s.sensorIds[i] = dbox2d.CreateCapsuleShape(bodyId, &shapeDef, &capsule)
+		capsule.Radius = b2.QOne()
+		s.sensorIds[i] = b2.CreateCapsuleShape(bodyId, &shapeDef, &capsule)
 		s.sensorTouching[i] = false
 	}
 
 	// Sleeping body but sleep is disabled
 	{
-		bodyDef := dbox2d.DefaultBodyDef()
-		bodyDef.Type = dbox2d.DynamicBody
-		bodyDef.Position = dbox2d.V2(0, 3)
+		bodyDef := b2.DefaultBodyDef()
+		bodyDef.Type = b2.DynamicBody
+		bodyDef.Position = b2.V2(0, 3)
 		bodyDef.IsAwake = false
 		bodyDef.EnableSleep = false
-		bodyId := dbox2d.CreateBody(s.WorldId, &bodyDef)
+		bodyId := b2.CreateBody(s.WorldId, &bodyDef)
 
-		circle := dbox2d.Circle{Center: dbox2d.Vec2{X: dbox2d.QOne(), Y: dbox2d.QOne()}, Radius: dbox2d.QOne()}
-		shapeDef := dbox2d.DefaultShapeDef()
-		dbox2d.CreateCircleShape(bodyId, &shapeDef, &circle)
+		circle := b2.Circle{Center: b2.Vec2{X: b2.QOne(), Y: b2.QOne()}, Radius: b2.QOne()}
+		shapeDef := b2.DefaultShapeDef()
+		b2.CreateCircleShape(bodyId, &shapeDef, &circle)
 	}
 
 	// Awake body and sleep is disabled
 	{
-		bodyDef := dbox2d.DefaultBodyDef()
-		bodyDef.Type = dbox2d.DynamicBody
-		bodyDef.Position = dbox2d.V2(5, 3)
+		bodyDef := b2.DefaultBodyDef()
+		bodyDef.Type = b2.DynamicBody
+		bodyDef.Position = b2.V2(5, 3)
 		bodyDef.IsAwake = true
 		bodyDef.EnableSleep = false
-		bodyId := dbox2d.CreateBody(s.WorldId, &bodyDef)
+		bodyId := b2.CreateBody(s.WorldId, &bodyDef)
 
-		box := dbox2d.MakeOffsetBox(dbox2d.QOne(), dbox2d.QOne(), dbox2d.Vec2{Y: dbox2d.QOne()}, dbox2d.MakeRot(dbox2d.QFromRatio(1, 8)))
-		shapeDef := dbox2d.DefaultShapeDef()
-		dbox2d.CreatePolygonShape(bodyId, &shapeDef, &box)
+		box := b2.MakeOffsetBox(b2.QOne(), b2.QOne(), b2.Vec2{Y: b2.QOne()}, b2.MakeRot(b2.QFromRatio(1, 8)))
+		shapeDef := b2.DefaultShapeDef()
+		b2.CreatePolygonShape(bodyId, &shapeDef, &box)
 	}
 
 	// A sleeping body to test waking on collision
 	{
-		bodyDef := dbox2d.DefaultBodyDef()
-		bodyDef.Type = dbox2d.DynamicBody
-		bodyDef.Position = dbox2d.Vec2{X: dbox2d.F(5), Y: dbox2d.QOne()}
+		bodyDef := b2.DefaultBodyDef()
+		bodyDef.Type = b2.DynamicBody
+		bodyDef.Position = b2.Vec2{X: b2.F(5), Y: b2.QOne()}
 		bodyDef.IsAwake = false
 		bodyDef.EnableSleep = true
-		bodyId := dbox2d.CreateBody(s.WorldId, &bodyDef)
+		bodyId := b2.CreateBody(s.WorldId, &bodyDef)
 
-		box := dbox2d.MakeSquare(dbox2d.QOne())
-		shapeDef := dbox2d.DefaultShapeDef()
-		dbox2d.CreatePolygonShape(bodyId, &shapeDef, &box)
+		box := b2.MakeSquare(b2.QOne())
+		shapeDef := b2.DefaultShapeDef()
+		b2.CreatePolygonShape(bodyId, &shapeDef, &box)
 	}
 
 	// A long pendulum
 	{
-		bodyDef := dbox2d.DefaultBodyDef()
-		bodyDef.Type = dbox2d.DynamicBody
-		bodyDef.Position = dbox2d.V2(0, 100)
-		bodyDef.AngularDamping = dbox2d.QHalf()
-		bodyDef.SleepThreshold = dbox2d.QFromRatio(1, 20)
-		s.pendulumId = dbox2d.CreateBody(s.WorldId, &bodyDef)
+		bodyDef := b2.DefaultBodyDef()
+		bodyDef.Type = b2.DynamicBody
+		bodyDef.Position = b2.V2(0, 100)
+		bodyDef.AngularDamping = b2.QHalf()
+		bodyDef.SleepThreshold = b2.QFromRatio(1, 20)
+		s.pendulumId = b2.CreateBody(s.WorldId, &bodyDef)
 
-		capsule := dbox2d.Capsule{
-			Center2: dbox2d.V2(90, 0),
-			Radius:  dbox2d.QFromRatio(1, 4),
+		capsule := b2.Capsule{
+			Center2: b2.V2(90, 0),
+			Radius:  b2.QFromRatio(1, 4),
 		}
-		shapeDef := dbox2d.DefaultShapeDef()
-		dbox2d.CreateCapsuleShape(s.pendulumId, &shapeDef, &capsule)
+		shapeDef := b2.DefaultShapeDef()
+		b2.CreateCapsuleShape(s.pendulumId, &shapeDef, &capsule)
 
 		pivot := bodyDef.Position
-		jointDef := dbox2d.DefaultRevoluteJointDef()
+		jointDef := b2.DefaultRevoluteJointDef()
 		jointDef.BodyIdA = groundId
 		jointDef.BodyIdB = s.pendulumId
 		jointDef.LocalAnchorA = jointDef.BodyIdA.GetLocalPoint(pivot)
 		jointDef.LocalAnchorB = jointDef.BodyIdB.GetLocalPoint(pivot)
-		dbox2d.CreateRevoluteJoint(s.WorldId, &jointDef)
+		b2.CreateRevoluteJoint(s.WorldId, &jointDef)
 	}
 
 	// A sleeping body to test waking on contact destroyed
 	{
-		bodyDef := dbox2d.DefaultBodyDef()
-		bodyDef.Type = dbox2d.DynamicBody
-		bodyDef.Position = dbox2d.Vec2{X: dbox2d.F(-10), Y: dbox2d.QOne()}
+		bodyDef := b2.DefaultBodyDef()
+		bodyDef.Type = b2.DynamicBody
+		bodyDef.Position = b2.Vec2{X: b2.F(-10), Y: b2.QOne()}
 		bodyDef.IsAwake = false
 		bodyDef.EnableSleep = true
-		bodyId := dbox2d.CreateBody(s.WorldId, &bodyDef)
+		bodyId := b2.CreateBody(s.WorldId, &bodyDef)
 
-		box := dbox2d.MakeSquare(dbox2d.QOne())
-		shapeDef := dbox2d.DefaultShapeDef()
-		dbox2d.CreatePolygonShape(bodyId, &shapeDef, &box)
+		box := b2.MakeSquare(b2.QOne())
+		shapeDef := b2.DefaultShapeDef()
+		b2.CreatePolygonShape(bodyId, &shapeDef, &box)
 	}
 
-	s.staticBodyId = dbox2d.BodyId{}
+	s.staticBodyId = b2.BodyId{}
 	return s
 }
 
 func (s *SleepBodies) toggleInvoker() {
 	if s.staticBodyId.IsNull() {
-		bodyDef := dbox2d.DefaultBodyDef()
-		bodyDef.Position = dbox2d.V2(-10.5, 3.0)
-		s.staticBodyId = dbox2d.CreateBody(s.WorldId, &bodyDef)
+		bodyDef := b2.DefaultBodyDef()
+		bodyDef.Position = b2.V2(-10.5, 3.0)
+		s.staticBodyId = b2.CreateBody(s.WorldId, &bodyDef)
 
-		box := dbox2d.MakeOffsetBox(dbox2d.F(2), dbox2d.QFromRatio(1, 10), dbox2d.Vec2{}, dbox2d.MakeRot(dbox2d.QFromRatio(1, 8)))
-		shapeDef := dbox2d.DefaultShapeDef()
+		box := b2.MakeOffsetBox(b2.F(2), b2.QFromRatio(1, 10), b2.Vec2{}, b2.MakeRot(b2.QFromRatio(1, 8)))
+		shapeDef := b2.DefaultShapeDef()
 		shapeDef.InvokeContactCreation = true
-		dbox2d.CreatePolygonShape(s.staticBodyId, &shapeDef, &box)
+		b2.CreatePolygonShape(s.staticBodyId, &shapeDef, &box)
 	} else {
-		dbox2d.DestroyBody(s.staticBodyId)
-		s.staticBodyId = dbox2d.BodyId{}
+		b2.DestroyBody(s.staticBodyId)
+		s.staticBodyId = b2.BodyId{}
 	}
 }
 
@@ -604,7 +604,7 @@ func (s *SleepBodies) Step() {
 // BadBody shows a dynamic body with no mass next to a normal one.
 type BadBody struct {
 	Base
-	badBodyId dbox2d.BodyId
+	badBodyId b2.BodyId
 }
 
 // NewBadBody builds the bad body scene.
@@ -616,43 +616,43 @@ func NewBadBody(ctx *SampleContext) Sample {
 		ctx.Camera.Zoom = 25.0 * 0.5
 	}
 
-	groundShapeDef := dbox2d.DefaultShapeDef()
+	groundShapeDef := b2.DefaultShapeDef()
 	groundSegment(s.WorldId, &groundShapeDef, 20)
 
-	capsule := dbox2d.Capsule{
-		Center1: dbox2d.V2(0, -1),
-		Center2: dbox2d.Vec2{Y: dbox2d.QOne()},
-		Radius:  dbox2d.QOne(),
+	capsule := b2.Capsule{
+		Center1: b2.V2(0, -1),
+		Center2: b2.Vec2{Y: b2.QOne()},
+		Radius:  b2.QOne(),
 	}
 
 	// Build a bad body
 	{
-		bodyDef := dbox2d.DefaultBodyDef()
-		bodyDef.Type = dbox2d.DynamicBody
-		bodyDef.Position = dbox2d.V2(0, 3)
+		bodyDef := b2.DefaultBodyDef()
+		bodyDef.Type = b2.DynamicBody
+		bodyDef.Position = b2.V2(0, 3)
 		bodyDef.AngularVelocity = radiansToTurns(0.5)
-		bodyDef.Rotation = dbox2d.MakeRot(dbox2d.QFromRatio(1, 8))
+		bodyDef.Rotation = b2.MakeRot(b2.QFromRatio(1, 8))
 
-		s.badBodyId = dbox2d.CreateBody(s.WorldId, &bodyDef)
+		s.badBodyId = b2.CreateBody(s.WorldId, &bodyDef)
 
-		shapeDef := dbox2d.DefaultShapeDef()
+		shapeDef := b2.DefaultShapeDef()
 
 		// density set to zero intentionally to create a bad body
-		shapeDef.Density = dbox2d.QZero()
-		dbox2d.CreateCapsuleShape(s.badBodyId, &shapeDef, &capsule)
+		shapeDef.Density = b2.QZero()
+		b2.CreateCapsuleShape(s.badBodyId, &shapeDef, &capsule)
 	}
 
 	// Build a normal body
 	{
-		bodyDef := dbox2d.DefaultBodyDef()
-		bodyDef.Type = dbox2d.DynamicBody
-		bodyDef.Position = dbox2d.V2(2, 3)
-		bodyDef.Rotation = dbox2d.MakeRot(dbox2d.QFromRatio(1, 8))
+		bodyDef := b2.DefaultBodyDef()
+		bodyDef.Type = b2.DynamicBody
+		bodyDef.Position = b2.V2(2, 3)
+		bodyDef.Rotation = b2.MakeRot(b2.QFromRatio(1, 8))
 
-		bodyId := dbox2d.CreateBody(s.WorldId, &bodyDef)
+		bodyId := b2.CreateBody(s.WorldId, &bodyDef)
 
-		shapeDef := dbox2d.DefaultShapeDef()
-		dbox2d.CreateCapsuleShape(bodyId, &shapeDef, &capsule)
+		shapeDef := b2.DefaultShapeDef()
+		b2.CreateCapsuleShape(bodyId, &shapeDef, &capsule)
 	}
 
 	return s
@@ -666,15 +666,15 @@ func (s *BadBody) Step() {
 	s.DrawTextLine("Bad bodies are considered invalid and a user bug. Behavior is not guaranteed.")
 
 	// For science
-	s.badBodyId.ApplyForceToCenter(dbox2d.V2(0, 10), true)
+	s.badBodyId.ApplyForceToCenter(b2.V2(0, 10), true)
 }
 
 // Pivot sets the initial angular velocity so that the bottom end of a lever
 // stays at rest.
 type Pivot struct {
 	Base
-	bodyId dbox2d.BodyId
-	lever  dbox2d.Q
+	bodyId b2.BodyId
+	lever  b2.Q
 }
 
 // NewPivot builds the pivot scene.
@@ -686,31 +686,31 @@ func NewPivot(ctx *SampleContext) Sample {
 		ctx.Camera.Zoom = 25.0 * 0.4
 	}
 
-	groundShapeDef := dbox2d.DefaultShapeDef()
+	groundShapeDef := b2.DefaultShapeDef()
 	groundSegment(s.WorldId, &groundShapeDef, 20)
 
 	// Create a separate body on the ground
 	{
-		v := dbox2d.V2(5, 0)
+		v := b2.V2(5, 0)
 
-		bodyDef := dbox2d.DefaultBodyDef()
-		bodyDef.Type = dbox2d.DynamicBody
-		bodyDef.Position = dbox2d.V2(0, 3)
-		bodyDef.GravityScale = dbox2d.QOne()
+		bodyDef := b2.DefaultBodyDef()
+		bodyDef.Type = b2.DynamicBody
+		bodyDef.Position = b2.V2(0, 3)
+		bodyDef.GravityScale = b2.QOne()
 		bodyDef.LinearVelocity = v
 
-		s.bodyId = dbox2d.CreateBody(s.WorldId, &bodyDef)
+		s.bodyId = b2.CreateBody(s.WorldId, &bodyDef)
 
-		s.lever = dbox2d.F(3)
-		r := dbox2d.Vec2{Y: s.lever.Neg()}
+		s.lever = b2.F(3)
+		r := b2.Vec2{Y: s.lever.Neg()}
 
 		// The reference's omega is in radians per second; the body takes turns.
-		omega := dbox2d.Cross(v, r).Div(r.Dot(r))
-		s.bodyId.SetAngularVelocity(omega.Div(dbox2d.Pi().Mul(dbox2d.F(2))))
+		omega := b2.Cross(v, r).Div(r.Dot(r))
+		s.bodyId.SetAngularVelocity(omega.Div(b2.Pi().Mul(b2.F(2))))
 
-		box := dbox2d.MakeBox(dbox2d.QFromRatio(1, 10), s.lever)
-		shapeDef := dbox2d.DefaultShapeDef()
-		dbox2d.CreatePolygonShape(s.bodyId, &shapeDef, &box)
+		box := b2.MakeBox(b2.QFromRatio(1, 10), s.lever)
+		shapeDef := b2.DefaultShapeDef()
+		b2.CreatePolygonShape(s.bodyId, &shapeDef, &box)
 	}
 
 	return s
@@ -721,10 +721,10 @@ func (s *Pivot) Step() {
 	s.Base.Step()
 
 	v := s.bodyId.GetLinearVelocity()
-	omega := s.bodyId.GetAngularVelocity().Mul(dbox2d.Pi().Mul(dbox2d.F(2)))
-	r := s.bodyId.GetWorldVector(dbox2d.Vec2{Y: s.lever.Neg()})
+	omega := s.bodyId.GetAngularVelocity().Mul(b2.Pi().Mul(b2.F(2)))
+	r := s.bodyId.GetWorldVector(b2.Vec2{Y: s.lever.Neg()})
 
-	vp := v.Add(dbox2d.CrossSV(omega, r))
+	vp := v.Add(b2.CrossSV(omega, r))
 	s.DrawTextLine("pivot velocity = (%g, %g)", ToFloat64(vp.X), ToFloat64(vp.Y))
 }
 
@@ -733,7 +733,7 @@ func (s *Pivot) Step() {
 // to the benchmark.
 type KinematicBody struct {
 	Base
-	bodyId    dbox2d.BodyId
+	bodyId    b2.BodyId
 	amplitude float64
 	time      float64
 }
@@ -750,15 +750,15 @@ func NewKinematicBody(ctx *SampleContext) Sample {
 	s.amplitude = 2.0
 
 	{
-		bodyDef := dbox2d.DefaultBodyDef()
-		bodyDef.Type = dbox2d.KinematicBody
+		bodyDef := b2.DefaultBodyDef()
+		bodyDef.Type = b2.KinematicBody
 		bodyDef.Position.X = FromFloat64(2.0 * s.amplitude)
 
-		s.bodyId = dbox2d.CreateBody(s.WorldId, &bodyDef)
+		s.bodyId = b2.CreateBody(s.WorldId, &bodyDef)
 
-		box := dbox2d.MakeBox(dbox2d.QFromRatio(1, 10), dbox2d.QOne())
-		shapeDef := dbox2d.DefaultShapeDef()
-		dbox2d.CreatePolygonShape(s.bodyId, &shapeDef, &box)
+		box := b2.MakeBox(b2.QFromRatio(1, 10), b2.QOne())
+		shapeDef := b2.DefaultShapeDef()
+		b2.CreatePolygonShape(s.bodyId, &shapeDef, &box)
 	}
 
 	s.time = 0.0
@@ -776,19 +776,19 @@ func (s *KinematicBody) Step() {
 	}
 
 	if timeStep > 0.0 {
-		point := dbox2d.Vec2{
+		point := b2.Vec2{
 			X: FromFloat64(2.0 * s.amplitude * math.Cos(s.time)),
 			Y: FromFloat64(s.amplitude * math.Sin(2.0*s.time)),
 		}
 		// The reference rotates by 2 * time radians.
-		rotation := dbox2d.MakeRot(FromFloat64(s.time / math.Pi))
+		rotation := b2.MakeRot(FromFloat64(s.time / math.Pi))
 
-		axis := dbox2d.RotateVector(rotation, dbox2d.Vec2{Y: dbox2d.QOne()})
-		halfAxis := axis.Mul(dbox2d.QHalf())
-		s.Context.Draw.DrawSegment(point.Sub(halfAxis), point.Add(halfAxis), dbox2d.ColorPlum)
-		s.Context.Draw.DrawPoint(point, dbox2d.F(10), dbox2d.ColorPlum)
+		axis := b2.RotateVector(rotation, b2.Vec2{Y: b2.QOne()})
+		halfAxis := axis.Mul(b2.QHalf())
+		s.Context.Draw.DrawSegment(point.Sub(halfAxis), point.Add(halfAxis), b2.ColorPlum)
+		s.Context.Draw.DrawPoint(point, b2.F(10), b2.ColorPlum)
 
-		s.bodyId.SetTargetTransform(dbox2d.Transform{P: point, Q: rotation}, FromFloat64(timeStep))
+		s.bodyId.SetTargetTransform(b2.Transform{P: point, Q: rotation}, FromFloat64(timeStep))
 	}
 
 	s.Base.Step()

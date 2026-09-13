@@ -1,4 +1,4 @@
-package dbox2d
+package b2
 
 // This file corresponds to src/motor_joint.c of the reference. The API
 // takes the angular offset in turns (D-004); the joint keeps it in the angle

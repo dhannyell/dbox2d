@@ -1,4 +1,4 @@
-package dbox2d
+package b2
 
 // MaxPolygonVertices is the vertex limit of a convex polygon. Raising it
 // costs performance even for shapes that use fewer vertices.

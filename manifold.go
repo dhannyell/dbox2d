@@ -1,4 +1,4 @@
-package dbox2d
+package b2
 
 // makeId packs two feature indices into a contact point id. It corresponds
 // to B2_MAKE_ID in src/manifold.c.

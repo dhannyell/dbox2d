@@ -1,4 +1,4 @@
-package dbox2d
+package b2
 
 func drawPrismaticJoint(draw *DebugDraw, base *jointSim, transformA, transformB Transform) {
 	joint := base.prismatic()

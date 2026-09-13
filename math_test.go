@@ -1,4 +1,4 @@
-package dbox2d_test
+package b2_test
 
 import (
 	"testing"
@@ -7,34 +7,34 @@ import (
 )
 
 // near reports whether a and b differ by less than limit.
-func near(a, b, limit dbox2d.Q) bool {
+func near(a, b, limit b2.Q) bool {
 	return a.Sub(b).Abs().Less(limit)
 }
 
 // tol returns num/den as a tolerance value.
-func tol(num, den int) dbox2d.Q {
-	return dbox2d.QFromRatio(num, den)
+func tol(num, den int) b2.Q {
+	return b2.QFromRatio(num, den)
 }
 
 // TestConstantsMatchTheReference checks the values that the whole solver is
 // tuned around. A wrong slop changes every contact.
 func TestConstantsMatchTheReference(t *testing.T) {
-	if got, want := dbox2d.LinearSlop(), dbox2d.QMustParse("0.005"); !got.Eq(want) {
+	if got, want := b2.LinearSlop(), b2.QMustParse("0.005"); !got.Eq(want) {
 		t.Errorf("LinearSlop = %v, want %v", got, want)
 	}
 	// The reference derives the speculative distance from the slop, so the
 	// port derives it too. It sits one raw unit below the nearest 0.02.
-	if got, want := dbox2d.SpeculativeDistance(), dbox2d.LinearSlop().Mul(dbox2d.QFromInt(4)); !got.Eq(want) {
+	if got, want := b2.SpeculativeDistance(), b2.LinearSlop().Mul(b2.QFromInt(4)); !got.Eq(want) {
 		t.Errorf("SpeculativeDistance = %v, want %v", got, want)
 	}
-	if got, want := dbox2d.AABBMargin(), dbox2d.QMustParse("0.05"); !got.Eq(want) {
+	if got, want := b2.AABBMargin(), b2.QMustParse("0.05"); !got.Eq(want) {
 		t.Errorf("AABBMargin = %v, want %v", got, want)
 	}
 	// The reference limits a step to 0.25 * pi radians, which is 0.125 turns.
-	if got, want := dbox2d.MaxRotation(), dbox2d.QMustParse("0.125"); !got.Eq(want) {
+	if got, want := b2.MaxRotation(), b2.QMustParse("0.125"); !got.Eq(want) {
 		t.Errorf("MaxRotation = %v, want %v", got, want)
 	}
-	if got := dbox2d.ReferenceVersion(); got.Major != 3 || got.Minor != 1 || got.Revision != 1 {
+	if got := b2.ReferenceVersion(); got.Major != 3 || got.Minor != 1 || got.Revision != 1 {
 		t.Errorf("ReferenceVersion = %+v, want 3.1.1", got)
 	}
 }
@@ -42,14 +42,14 @@ func TestConstantsMatchTheReference(t *testing.T) {
 // TestTransformRoundTrip is the conversion test between local and world
 // space. Every shape query depends on the pair agreeing.
 func TestTransformRoundTrip(t *testing.T) {
-	xf := dbox2d.Transform{
-		P: dbox2d.Vec2{X: dbox2d.QFromInt(3), Y: dbox2d.QMustParse("-7.25")},
-		Q: dbox2d.MakeRot(dbox2d.QMustParse("0.3")),
+	xf := b2.Transform{
+		P: b2.Vec2{X: b2.QFromInt(3), Y: b2.QMustParse("-7.25")},
+		Q: b2.MakeRot(b2.QMustParse("0.3")),
 	}
-	p := dbox2d.Vec2{X: dbox2d.QMustParse("1.5"), Y: dbox2d.QMustParse("2.125")}
+	p := b2.Vec2{X: b2.QMustParse("1.5"), Y: b2.QMustParse("2.125")}
 
-	world := dbox2d.TransformPoint(xf, p)
-	back := dbox2d.InvTransformPoint(xf, world)
+	world := b2.TransformPoint(xf, p)
+	back := b2.InvTransformPoint(xf, world)
 
 	limit := tol(1, 1000000)
 	if !near(back.X, p.X, limit) || !near(back.Y, p.Y, limit) {
@@ -60,16 +60,16 @@ func TestTransformRoundTrip(t *testing.T) {
 // TestInvMulTransformsUndoesMulTransforms checks the transform composition
 // against its inverse, which the solver uses for every joint frame.
 func TestInvMulTransformsUndoesMulTransforms(t *testing.T) {
-	a := dbox2d.Transform{
-		P: dbox2d.Vec2{X: dbox2d.QFromInt(2), Y: dbox2d.QFromInt(5)},
-		Q: dbox2d.MakeRot(dbox2d.QMustParse("0.1")),
+	a := b2.Transform{
+		P: b2.Vec2{X: b2.QFromInt(2), Y: b2.QFromInt(5)},
+		Q: b2.MakeRot(b2.QMustParse("0.1")),
 	}
-	b := dbox2d.Transform{
-		P: dbox2d.Vec2{X: dbox2d.QMustParse("-1.5"), Y: dbox2d.QMustParse("0.75")},
-		Q: dbox2d.MakeRot(dbox2d.QMustParse("0.4")),
+	b := b2.Transform{
+		P: b2.Vec2{X: b2.QMustParse("-1.5"), Y: b2.QMustParse("0.75")},
+		Q: b2.MakeRot(b2.QMustParse("0.4")),
 	}
 
-	got := dbox2d.InvMulTransforms(a, dbox2d.MulTransforms(a, b))
+	got := b2.InvMulTransforms(a, b2.MulTransforms(a, b))
 
 	limit := tol(1, 100000)
 	if !near(got.P.X, b.P.X, limit) || !near(got.P.Y, b.P.Y, limit) {
@@ -85,17 +85,17 @@ func TestInvMulTransformsUndoesMulTransforms(t *testing.T) {
 // shows up as a rotation that is off by two pi.
 func TestIntegrateRotationCompletesATurn(t *testing.T) {
 	const steps = 360
-	q := dbox2d.RotIdentity()
-	delta := dbox2d.QFromRatio(1, steps)
+	q := b2.RotIdentity()
+	delta := b2.QFromRatio(1, steps)
 	for range steps {
-		q = dbox2d.IntegrateRotation(q, delta)
+		q = b2.IntegrateRotation(q, delta)
 	}
 
-	if !dbox2d.IsNormalizedRot(q) {
+	if !b2.IsNormalizedRot(q) {
 		t.Fatalf("rotation left the unit circle: %v", q)
 	}
 	// One full turn returns to the identity.
-	if angle := dbox2d.RotGetAngle(q); !near(angle, dbox2d.QZero(), tol(1, 1000)) {
+	if angle := b2.RotGetAngle(q); !near(angle, b2.QZero(), tol(1, 1000)) {
 		t.Errorf("angle after one turn = %v, want 0", angle)
 	}
 }
@@ -103,14 +103,14 @@ func TestIntegrateRotationCompletesATurn(t *testing.T) {
 // TestComputeAngularVelocityInvertsIntegration checks that the solver can
 // recover the velocity it used to advance a rotation.
 func TestComputeAngularVelocityInvertsIntegration(t *testing.T) {
-	h := dbox2d.QFromRatio(1, 60)
-	invH := dbox2d.QFromInt(60)
-	omega := dbox2d.QMustParse("0.25") // turns per second
+	h := b2.QFromRatio(1, 60)
+	invH := b2.QFromInt(60)
+	omega := b2.QMustParse("0.25") // turns per second
 
-	q1 := dbox2d.MakeRot(dbox2d.QMustParse("0.2"))
-	q2 := dbox2d.IntegrateRotation(q1, omega.Mul(h))
+	q1 := b2.MakeRot(b2.QMustParse("0.2"))
+	q2 := b2.IntegrateRotation(q1, omega.Mul(h))
 
-	if got := dbox2d.ComputeAngularVelocity(q1, q2, invH); !near(got, omega, tol(1, 1000)) {
+	if got := b2.ComputeAngularVelocity(q1, q2, invH); !near(got, omega, tol(1, 1000)) {
 		t.Errorf("angular velocity = %v, want %v", got, omega)
 	}
 }
@@ -118,14 +118,14 @@ func TestComputeAngularVelocityInvertsIntegration(t *testing.T) {
 // TestUnwindAngleReducesToHalfTurn checks the reduction that replaces the
 // remainder of two pi. In turns the reduction is exact.
 func TestUnwindAngleReducesToHalfTurn(t *testing.T) {
-	half := dbox2d.QHalf()
+	half := b2.QHalf()
 	for _, in := range []string{"0.25", "1.25", "-1.25", "7.5", "-3.75"} {
-		got := dbox2d.UnwindAngle(dbox2d.QMustParse(in))
+		got := b2.UnwindAngle(b2.QMustParse(in))
 		if half.Less(got.Abs()) {
 			t.Errorf("UnwindAngle(%s) = %v, outside [-0.5, 0.5]", in, got)
 		}
 		// The reduced angle names the same direction.
-		if a, b := dbox2d.MakeRot(got), dbox2d.MakeRot(dbox2d.QMustParse(in)); !a.Cos.Eq(b.Cos) || !a.Sin.Eq(b.Sin) {
+		if a, b := b2.MakeRot(got), b2.MakeRot(b2.QMustParse(in)); !a.Cos.Eq(b.Cos) || !a.Sin.Eq(b.Sin) {
 			t.Errorf("UnwindAngle(%s) = %v, which is a different rotation", in, got)
 		}
 	}
@@ -134,17 +134,17 @@ func TestUnwindAngleReducesToHalfTurn(t *testing.T) {
 // TestCrossAndPerpAgree checks the identities that the reference documents:
 // the perpendiculars are cross products with one.
 func TestCrossAndPerpAgree(t *testing.T) {
-	v := dbox2d.Vec2{X: dbox2d.QFromInt(3), Y: dbox2d.QMustParse("-4.5")}
-	one := dbox2d.QOne()
+	v := b2.Vec2{X: b2.QFromInt(3), Y: b2.QMustParse("-4.5")}
+	one := b2.QOne()
 
-	if got, want := dbox2d.CrossSV(one, v), dbox2d.LeftPerp(v); got != want {
+	if got, want := b2.CrossSV(one, v), b2.LeftPerp(v); got != want {
 		t.Errorf("CrossSV(1, v) = %v, want %v", got, want)
 	}
-	if got, want := dbox2d.CrossVS(v, one), dbox2d.RightPerp(v); got != want {
+	if got, want := b2.CrossVS(v, one), b2.RightPerp(v); got != want {
 		t.Errorf("CrossVS(v, 1) = %v, want %v", got, want)
 	}
 	// A vector is parallel to itself, so the cross product is zero.
-	if got := dbox2d.Cross(v, v); !got.Eq(dbox2d.QZero()) {
+	if got := b2.Cross(v, v); !got.Eq(b2.QZero()) {
 		t.Errorf("Cross(v, v) = %v, want 0", got)
 	}
 }
@@ -152,13 +152,13 @@ func TestCrossAndPerpAgree(t *testing.T) {
 // TestLerpHitsBothEnds checks the endpoint behaviour that decided the
 // formula. The weighted form returns each end exactly.
 func TestLerpHitsBothEnds(t *testing.T) {
-	a := dbox2d.Vec2{X: dbox2d.QFromInt(1), Y: dbox2d.QFromInt(2)}
-	b := dbox2d.Vec2{X: dbox2d.QFromInt(9), Y: dbox2d.QMustParse("-3.5")}
+	a := b2.Vec2{X: b2.QFromInt(1), Y: b2.QFromInt(2)}
+	b := b2.Vec2{X: b2.QFromInt(9), Y: b2.QMustParse("-3.5")}
 
-	if got := dbox2d.Lerp(a, b, dbox2d.QZero()); got != a {
+	if got := b2.Lerp(a, b, b2.QZero()); got != a {
 		t.Errorf("Lerp at 0 = %v, want %v", got, a)
 	}
-	if got := dbox2d.Lerp(a, b, dbox2d.QOne()); got != b {
+	if got := b2.Lerp(a, b, b2.QOne()); got != b {
 		t.Errorf("Lerp at 1 = %v, want %v", got, b)
 	}
 }
@@ -166,28 +166,28 @@ func TestLerpHitsBothEnds(t *testing.T) {
 // TestSolve22SolvesTheSystem checks the 2-by-2 solver, and that a
 // singular matrix returns zero instead of dividing by zero.
 func TestSolve22SolvesTheSystem(t *testing.T) {
-	m := dbox2d.Mat22{
-		Cx: dbox2d.Vec2{X: dbox2d.QFromInt(4), Y: dbox2d.QFromInt(1)},
-		Cy: dbox2d.Vec2{X: dbox2d.QFromInt(2), Y: dbox2d.QFromInt(3)},
+	m := b2.Mat22{
+		Cx: b2.Vec2{X: b2.QFromInt(4), Y: b2.QFromInt(1)},
+		Cy: b2.Vec2{X: b2.QFromInt(2), Y: b2.QFromInt(3)},
 	}
-	b := dbox2d.Vec2{X: dbox2d.QFromInt(10), Y: dbox2d.QFromInt(8)}
+	b := b2.Vec2{X: b2.QFromInt(10), Y: b2.QFromInt(8)}
 
-	x := dbox2d.Solve22(m, b)
-	got := dbox2d.MulMV(m, x)
+	x := b2.Solve22(m, b)
+	got := b2.MulMV(m, x)
 
 	limit := tol(1, 100000)
 	if !near(got.X, b.X, limit) || !near(got.Y, b.Y, limit) {
 		t.Errorf("m * x = %v, want %v", got, b)
 	}
 
-	singular := dbox2d.Mat22{
-		Cx: dbox2d.Vec2{X: dbox2d.QFromInt(1), Y: dbox2d.QFromInt(2)},
-		Cy: dbox2d.Vec2{X: dbox2d.QFromInt(2), Y: dbox2d.QFromInt(4)},
+	singular := b2.Mat22{
+		Cx: b2.Vec2{X: b2.QFromInt(1), Y: b2.QFromInt(2)},
+		Cy: b2.Vec2{X: b2.QFromInt(2), Y: b2.QFromInt(4)},
 	}
-	if got := dbox2d.Solve22(singular, b); got != (dbox2d.Vec2{}) {
+	if got := b2.Solve22(singular, b); got != (b2.Vec2{}) {
 		t.Errorf("singular solve = %v, want the zero vector", got)
 	}
-	if got := dbox2d.GetInverse22(singular); got != (dbox2d.Mat22{}) {
+	if got := b2.GetInverse22(singular); got != (b2.Mat22{}) {
 		t.Errorf("singular inverse = %v, want the zero matrix", got)
 	}
 }
@@ -195,19 +195,19 @@ func TestSolve22SolvesTheSystem(t *testing.T) {
 // TestSpringDamperRemovesEnergy checks the implicit spring: a body at rest
 // away from zero gains a velocity that points back to zero.
 func TestSpringDamperRemovesEnergy(t *testing.T) {
-	hertz := dbox2d.QFromInt(4)
-	damping := dbox2d.QOne()
-	position := dbox2d.QFromInt(2)
-	step := dbox2d.QFromRatio(1, 60)
+	hertz := b2.QFromInt(4)
+	damping := b2.QOne()
+	position := b2.QFromInt(2)
+	step := b2.QFromRatio(1, 60)
 
-	v := dbox2d.SpringDamper(hertz, damping, position, dbox2d.QZero(), step)
-	if !v.Less(dbox2d.QZero()) {
+	v := b2.SpringDamper(hertz, damping, position, b2.QZero(), step)
+	if !v.Less(b2.QZero()) {
 		t.Errorf("velocity = %v, want a value below zero", v)
 	}
 
 	// A zero stiffness leaves the velocity alone.
-	kept := dbox2d.QMustParse("1.5")
-	if got := dbox2d.SpringDamper(dbox2d.QZero(), damping, position, kept, step); !got.Eq(kept) {
+	kept := b2.QMustParse("1.5")
+	if got := b2.SpringDamper(b2.QZero(), damping, position, kept, step); !got.Eq(kept) {
 		t.Errorf("velocity at zero hertz = %v, want %v", got, kept)
 	}
 }
@@ -216,16 +216,16 @@ func TestSpringDamperRemovesEnergy(t *testing.T) {
 // the float epsilons of the reference.
 func TestNormalizedChecksAcceptAUnitPair(t *testing.T) {
 	for _, turns := range []string{"0", "0.125", "0.3", "-0.4"} {
-		q := dbox2d.MakeRot(dbox2d.QMustParse(turns))
-		if !dbox2d.IsNormalizedRot(q) {
+		q := b2.MakeRot(b2.QMustParse(turns))
+		if !b2.IsNormalizedRot(q) {
 			t.Errorf("rotation at %s turns is not normalized: %v", turns, q)
 		}
-		if !dbox2d.IsNormalized(dbox2d.RotGetXAxis(q)) {
+		if !b2.IsNormalized(b2.RotGetXAxis(q)) {
 			t.Errorf("x axis at %s turns is not a unit vector", turns)
 		}
 	}
 
-	if dbox2d.IsNormalized(dbox2d.Vec2{X: dbox2d.QFromInt(2)}) {
+	if b2.IsNormalized(b2.Vec2{X: b2.QFromInt(2)}) {
 		t.Errorf("IsNormalized accepted a vector of length two")
 	}
 }
@@ -233,15 +233,15 @@ func TestNormalizedChecksAcceptAUnitPair(t *testing.T) {
 // TestNormalizeRotKeepsAZeroRotation checks that an invalid rotation stays
 // invalid. The identity would hide the bad state from every later check.
 func TestNormalizeRotKeepsAZeroRotation(t *testing.T) {
-	got := dbox2d.NormalizeRot(dbox2d.Rot{})
+	got := b2.NormalizeRot(b2.Rot{})
 
-	if got != (dbox2d.Rot{}) {
+	if got != (b2.Rot{}) {
 		t.Errorf("NormalizeRot of a zero rotation = %v, want the zero rotation", got)
 	}
-	if dbox2d.IsValidRotation(got) {
+	if b2.IsValidRotation(got) {
 		t.Errorf("IsValidRotation accepted a zero rotation")
 	}
-	if !dbox2d.IsValidRotation(dbox2d.RotIdentity()) {
+	if !b2.IsValidRotation(b2.RotIdentity()) {
 		t.Errorf("IsValidRotation rejected the identity")
 	}
 }
@@ -249,11 +249,11 @@ func TestNormalizeRotKeepsAZeroRotation(t *testing.T) {
 // TestComputeRotationBetweenUnitVectors covers the assertion of the
 // reference, which this port keeps as a panic in every build.
 func TestComputeRotationBetweenUnitVectors(t *testing.T) {
-	x := dbox2d.Vec2{X: dbox2d.QOne()}
-	y := dbox2d.Vec2{Y: dbox2d.QOne()}
+	x := b2.Vec2{X: b2.QOne()}
+	y := b2.Vec2{Y: b2.QOne()}
 
-	got := dbox2d.ComputeRotationBetweenUnitVectors(x, y)
-	if angle := dbox2d.RotGetAngle(got); !near(angle, dbox2d.QMustParse("0.25"), tol(1, 1000)) {
+	got := b2.ComputeRotationBetweenUnitVectors(x, y)
+	if angle := b2.RotGetAngle(got); !near(angle, b2.QMustParse("0.25"), tol(1, 1000)) {
 		t.Errorf("angle from the x axis to the y axis = %v, want 0.25 turns", angle)
 	}
 
@@ -262,5 +262,5 @@ func TestComputeRotationBetweenUnitVectors(t *testing.T) {
 			t.Errorf("a vector of length two did not panic")
 		}
 	}()
-	dbox2d.ComputeRotationBetweenUnitVectors(x, dbox2d.Vec2{X: dbox2d.QFromInt(2)})
+	b2.ComputeRotationBetweenUnitVectors(x, b2.Vec2{X: b2.QFromInt(2)})
 }

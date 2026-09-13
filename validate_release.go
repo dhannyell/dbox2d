@@ -1,6 +1,6 @@
 //go:build !dbox2d_validate
 
-package dbox2d
+package b2
 
 // validateSolverSetsDebug is a no-op in release builds, matching
 // b2ValidateSolverSets in the reference when B2_VALIDATE is disabled.

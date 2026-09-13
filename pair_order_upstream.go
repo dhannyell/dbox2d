@@ -1,6 +1,6 @@
 //go:build dbox2d_upstream_pairs
 
-package dbox2d
+package b2
 
 // upstreamPairOrder selects the pair order of a moved proxy (D-013). This
 // build prepends the pairs as the reference does, so the contacts follow

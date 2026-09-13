@@ -1,4 +1,4 @@
-package dbox2d
+package b2
 
 // WorldId identifies a world. Its zero value is null.
 type WorldId struct {

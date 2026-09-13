@@ -1,4 +1,4 @@
-package dbox2d
+package b2
 
 // Contact flags of the cold data. They correspond to b2ContactFlags in
 // src/contact.h. The touching flag arrives with the narrowphase update of

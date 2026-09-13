@@ -1,6 +1,6 @@
 //go:build amd64 || arm64
 
-package dbox2d
+package b2
 
 // cpuPause is one idle turn of a spin loop: PAUSE on amd64, YIELD on arm64,
 // nothing elsewhere.

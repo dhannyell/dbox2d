@@ -14,8 +14,8 @@ import (
 // parsePath reads an SVG path made only of straight lines (M, L, H, V and
 // their relative forms) and returns at most capacity scaled points. The y
 // axis flips, as in the reference. The reference ignores reverseOrder.
-func parsePath(svgPath string, offset dbox2d.Vec2, capacity int, scale dbox2d.Q) []dbox2d.Vec2 {
-	points := make([]dbox2d.Vec2, 0, capacity)
+func parsePath(svgPath string, offset b2.Vec2, capacity int, scale b2.Q) []b2.Vec2 {
+	points := make([]b2.Vec2, 0, capacity)
 	var x, y float64
 	command := byte(0)
 	for _, token := range strings.Fields(svgPath) {
@@ -46,7 +46,7 @@ func parsePath(svgPath string, offset dbox2d.Vec2, capacity int, scale dbox2d.Q)
 		case 'v':
 			y += first
 		}
-		p := dbox2d.Vec2{
+		p := b2.Vec2{
 			X: scale.Mul(FromFloat64(x).Add(offset.X)),
 			Y: scale.Neg().Mul(FromFloat64(y).Add(offset.Y)),
 		}

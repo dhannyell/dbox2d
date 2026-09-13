@@ -1,6 +1,6 @@
 //go:build !dbox2d_fixed
 
-package dbox2d_test
+package b2_test
 
 import (
 	"math"
@@ -8,17 +8,17 @@ import (
 	"github.com/dhannyell/dbox2d"
 )
 
-func qBits(q dbox2d.Q) uint64 {
-	return uint64(math.Float32bits(float32(dbox2d.QToFloat64(q))))
+func qBits(q b2.Q) uint64 {
+	return uint64(math.Float32bits(float32(b2.QToFloat64(q))))
 }
 
 // qUlps returns n float32 ulps at one.
-func qUlps(n int64) dbox2d.Q {
-	return dbox2d.QMustParse("1.1920929e-7").Mul(dbox2d.QFromInt(int(n)))
+func qUlps(n int64) b2.Q {
+	return b2.QMustParse("1.1920929e-7").Mul(b2.QFromInt(int(n)))
 }
 
 // withinQ reports whether a and b differ by at most limit.
-func withinQ(a, b, limit dbox2d.Q) bool {
+func withinQ(a, b, limit b2.Q) bool {
 	return !limit.Less(a.Sub(b).Abs())
 }
 

@@ -1,4 +1,4 @@
-package dbox2d
+package b2
 
 // solverSet groups the sim data of bodies that the solver treats together:
 // one static set, one disabled set, one awake set and one set per sleeping

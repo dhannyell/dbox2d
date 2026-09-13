@@ -1,6 +1,6 @@
 //go:build !dbox2d_simd
 
-package dbox2d
+package b2
 
 // contactConstraintWide keeps the context layout available in scalar builds.
 type contactConstraintWide struct{}

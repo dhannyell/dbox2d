@@ -1,6 +1,6 @@
 //go:build !js && !wasip1
 
-package dbox2d
+package b2
 
 const (
 	maxWorkers         = 64

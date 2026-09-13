@@ -1,4 +1,4 @@
-package dbox2d
+package b2
 
 // overflowIndex is the color that holds the constraints that do not fit
 // the color limit. It corresponds to B2_OVERFLOW_INDEX in

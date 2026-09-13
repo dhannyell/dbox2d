@@ -1,4 +1,4 @@
-package dbox2d
+package b2
 
 // body holds the organizational details that the solver does not use.
 type body struct {

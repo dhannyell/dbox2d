@@ -19,12 +19,12 @@ func init() {
 
 // createRobustnessGround is the wide ground box shared by the high mass
 // ratio samples.
-func createRobustnessGround(worldId dbox2d.WorldId) {
-	bodyDef := dbox2d.DefaultBodyDef()
-	groundId := dbox2d.CreateBody(worldId, &bodyDef)
-	shapeDef := dbox2d.DefaultShapeDef()
-	box := dbox2d.MakeOffsetBox(dbox2d.F(50), dbox2d.QOne(), dbox2d.V2(0, -1), dbox2d.RotIdentity())
-	dbox2d.CreatePolygonShape(groundId, &shapeDef, &box)
+func createRobustnessGround(worldId b2.WorldId) {
+	bodyDef := b2.DefaultBodyDef()
+	groundId := b2.CreateBody(worldId, &bodyDef)
+	shapeDef := b2.DefaultShapeDef()
+	box := b2.MakeOffsetBox(b2.F(50), b2.QOne(), b2.V2(0, -1), b2.RotIdentity())
+	b2.CreatePolygonShape(groundId, &shapeDef, &box)
 }
 
 // HighMassRatio1 is a pyramid with a heavy box on top.
@@ -39,42 +39,42 @@ func NewHighMassRatio1(ctx *SampleContext) Sample {
 		ctx.Camera.Zoom = 25
 	}
 
-	extent := dbox2d.QOne()
+	extent := b2.QOne()
 
 	createRobustnessGround(s.WorldId)
 
 	{
-		bodyDef := dbox2d.DefaultBodyDef()
-		bodyDef.Type = dbox2d.DynamicBody
-		box := dbox2d.MakeBox(extent, extent)
-		shapeDef := dbox2d.DefaultShapeDef()
+		bodyDef := b2.DefaultBodyDef()
+		bodyDef.Type = b2.DynamicBody
+		box := b2.MakeBox(extent, extent)
+		shapeDef := b2.DefaultShapeDef()
 
 		for j := range 3 {
 			count := 10
 			// -20 + 2 * (count + 1) * j, in units of extent
-			offset := dbox2d.QFromInt(-20 + 2*(count+1)*j).Mul(extent)
+			offset := b2.QFromInt(-20 + 2*(count+1)*j).Mul(extent)
 			y := extent
 			for count > 0 {
 				for i := range count {
 					// 2 * (i - count / 2), in units of extent
-					coeff := dbox2d.F(2*i - count)
+					coeff := b2.F(2*i - count)
 
 					yy := y
 					if count == 1 {
-						yy = y.Add(dbox2d.F(2))
+						yy = y.Add(b2.F(2))
 					}
-					bodyDef.Position = dbox2d.Vec2{X: coeff.Mul(extent).Add(offset), Y: yy}
-					bodyId := dbox2d.CreateBody(s.WorldId, &bodyDef)
+					bodyDef.Position = b2.Vec2{X: coeff.Mul(extent).Add(offset), Y: yy}
+					bodyId := b2.CreateBody(s.WorldId, &bodyDef)
 
-					shapeDef.Density = dbox2d.QOne()
+					shapeDef.Density = b2.QOne()
 					if count == 1 {
-						shapeDef.Density = dbox2d.QFromInt((j + 1) * 100)
+						shapeDef.Density = b2.QFromInt((j + 1) * 100)
 					}
-					dbox2d.CreatePolygonShape(bodyId, &shapeDef, &box)
+					b2.CreatePolygonShape(bodyId, &shapeDef, &box)
 				}
 
 				count--
-				y = y.Add(dbox2d.F(2).Mul(extent))
+				y = y.Add(b2.F(2).Mul(extent))
 			}
 		}
 	}
@@ -97,30 +97,30 @@ func NewHighMassRatio2(ctx *SampleContext) Sample {
 	createRobustnessGround(s.WorldId)
 
 	{
-		bodyDef := dbox2d.DefaultBodyDef()
-		bodyDef.Type = dbox2d.DynamicBody
-		shapeDef := dbox2d.DefaultShapeDef()
+		bodyDef := b2.DefaultBodyDef()
+		bodyDef.Type = b2.DynamicBody
+		shapeDef := b2.DefaultShapeDef()
 
-		extent := dbox2d.QOne()
-		smallBox := dbox2d.MakeBox(dbox2d.QHalf().Mul(extent), dbox2d.QHalf().Mul(extent))
-		bigBox := dbox2d.MakeBox(dbox2d.F(10).Mul(extent), dbox2d.F(10).Mul(extent))
+		extent := b2.QOne()
+		smallBox := b2.MakeBox(b2.QHalf().Mul(extent), b2.QHalf().Mul(extent))
+		bigBox := b2.MakeBox(b2.F(10).Mul(extent), b2.F(10).Mul(extent))
 
 		{
-			bodyDef.Position = dbox2d.Vec2{X: dbox2d.F(-9).Mul(extent), Y: dbox2d.QHalf().Mul(extent)}
-			bodyId := dbox2d.CreateBody(s.WorldId, &bodyDef)
-			dbox2d.CreatePolygonShape(bodyId, &shapeDef, &smallBox)
+			bodyDef.Position = b2.Vec2{X: b2.F(-9).Mul(extent), Y: b2.QHalf().Mul(extent)}
+			bodyId := b2.CreateBody(s.WorldId, &bodyDef)
+			b2.CreatePolygonShape(bodyId, &shapeDef, &smallBox)
 		}
 
 		{
-			bodyDef.Position = dbox2d.Vec2{X: dbox2d.F(9).Mul(extent), Y: dbox2d.QHalf().Mul(extent)}
-			bodyId := dbox2d.CreateBody(s.WorldId, &bodyDef)
-			dbox2d.CreatePolygonShape(bodyId, &shapeDef, &smallBox)
+			bodyDef.Position = b2.Vec2{X: b2.F(9).Mul(extent), Y: b2.QHalf().Mul(extent)}
+			bodyId := b2.CreateBody(s.WorldId, &bodyDef)
+			b2.CreatePolygonShape(bodyId, &shapeDef, &smallBox)
 		}
 
 		{
-			bodyDef.Position = dbox2d.Vec2{Y: dbox2d.F(10 + 16).Mul(extent)}
-			bodyId := dbox2d.CreateBody(s.WorldId, &bodyDef)
-			dbox2d.CreatePolygonShape(bodyId, &shapeDef, &bigBox)
+			bodyDef.Position = b2.Vec2{Y: b2.F(10 + 16).Mul(extent)}
+			bodyId := b2.CreateBody(s.WorldId, &bodyDef)
+			b2.CreatePolygonShape(bodyId, &shapeDef, &bigBox)
 		}
 	}
 
@@ -142,33 +142,33 @@ func NewHighMassRatio3(ctx *SampleContext) Sample {
 	createRobustnessGround(s.WorldId)
 
 	{
-		bodyDef := dbox2d.DefaultBodyDef()
-		bodyDef.Type = dbox2d.DynamicBody
-		shapeDef := dbox2d.DefaultShapeDef()
+		bodyDef := b2.DefaultBodyDef()
+		bodyDef.Type = b2.DynamicBody
+		shapeDef := b2.DefaultShapeDef()
 
-		extent := dbox2d.QOne()
-		half := dbox2d.QHalf().Mul(extent)
-		points := []dbox2d.Vec2{{X: half.Neg()}, {X: half}, {Y: extent}}
-		hull := dbox2d.ComputeHull(points)
-		smallTriangle := dbox2d.MakePolygon(&hull, dbox2d.QZero())
-		bigBox := dbox2d.MakeBox(dbox2d.F(10).Mul(extent), dbox2d.F(10).Mul(extent))
+		extent := b2.QOne()
+		half := b2.QHalf().Mul(extent)
+		points := []b2.Vec2{{X: half.Neg()}, {X: half}, {Y: extent}}
+		hull := b2.ComputeHull(points)
+		smallTriangle := b2.MakePolygon(&hull, b2.QZero())
+		bigBox := b2.MakeBox(b2.F(10).Mul(extent), b2.F(10).Mul(extent))
 
 		{
-			bodyDef.Position = dbox2d.Vec2{X: dbox2d.F(-9).Mul(extent), Y: half}
-			bodyId := dbox2d.CreateBody(s.WorldId, &bodyDef)
-			dbox2d.CreatePolygonShape(bodyId, &shapeDef, &smallTriangle)
+			bodyDef.Position = b2.Vec2{X: b2.F(-9).Mul(extent), Y: half}
+			bodyId := b2.CreateBody(s.WorldId, &bodyDef)
+			b2.CreatePolygonShape(bodyId, &shapeDef, &smallTriangle)
 		}
 
 		{
-			bodyDef.Position = dbox2d.Vec2{X: dbox2d.F(9).Mul(extent), Y: half}
-			bodyId := dbox2d.CreateBody(s.WorldId, &bodyDef)
-			dbox2d.CreatePolygonShape(bodyId, &shapeDef, &smallTriangle)
+			bodyDef.Position = b2.Vec2{X: b2.F(9).Mul(extent), Y: half}
+			bodyId := b2.CreateBody(s.WorldId, &bodyDef)
+			b2.CreatePolygonShape(bodyId, &shapeDef, &smallTriangle)
 		}
 
 		{
-			bodyDef.Position = dbox2d.Vec2{Y: dbox2d.F(10 + 4).Mul(extent)}
-			bodyId := dbox2d.CreateBody(s.WorldId, &bodyDef)
-			dbox2d.CreatePolygonShape(bodyId, &shapeDef, &bigBox)
+			bodyDef.Position = b2.Vec2{Y: b2.F(10 + 4).Mul(extent)}
+			bodyId := b2.CreateBody(s.WorldId, &bodyDef)
+			b2.CreatePolygonShape(bodyId, &shapeDef, &bigBox)
 		}
 	}
 
@@ -180,7 +180,7 @@ func NewHighMassRatio3(ctx *SampleContext) Sample {
 type OverlapRecovery struct {
 	Base
 
-	bodyIds      []dbox2d.BodyId
+	bodyIds      []b2.BodyId
 	baseCount    int
 	overlap      float64
 	extent       float64
@@ -203,15 +203,15 @@ func NewOverlapRecovery(ctx *SampleContext) Sample {
 	s.hertz = 30
 	s.dampingRatio = 10
 
-	bodyDef := dbox2d.DefaultBodyDef()
-	groundId := dbox2d.CreateBody(s.WorldId, &bodyDef)
+	bodyDef := b2.DefaultBodyDef()
+	groundId := b2.CreateBody(s.WorldId, &bodyDef)
 
-	groundWidth := dbox2d.F(40)
-	shapeDef := dbox2d.DefaultShapeDef()
-	shapeDef.Density = dbox2d.QOne()
+	groundWidth := b2.F(40)
+	shapeDef := b2.DefaultShapeDef()
+	shapeDef.Density = b2.QOne()
 
-	segment := dbox2d.Segment{Point1: dbox2d.Vec2{X: groundWidth.Neg()}, Point2: dbox2d.Vec2{X: groundWidth}}
-	dbox2d.CreateSegmentShape(groundId, &shapeDef, &segment)
+	segment := b2.Segment{Point1: b2.Vec2{X: groundWidth.Neg()}, Point2: b2.Vec2{X: groundWidth}}
+	b2.CreateSegmentShape(groundId, &shapeDef, &segment)
 
 	s.createScene()
 	return s
@@ -219,32 +219,32 @@ func NewOverlapRecovery(ctx *SampleContext) Sample {
 
 func (s *OverlapRecovery) createScene() {
 	for _, bodyId := range s.bodyIds {
-		dbox2d.DestroyBody(bodyId)
+		b2.DestroyBody(bodyId)
 	}
 
 	s.WorldId.SetContactTuning(FromFloat64(s.hertz), FromFloat64(s.dampingRatio), FromFloat64(s.pushOut))
 
-	bodyDef := dbox2d.DefaultBodyDef()
-	bodyDef.Type = dbox2d.DynamicBody
+	bodyDef := b2.DefaultBodyDef()
+	bodyDef.Type = b2.DynamicBody
 
 	extent := FromFloat64(s.extent)
-	box := dbox2d.MakeBox(extent, extent)
-	shapeDef := dbox2d.DefaultShapeDef()
-	shapeDef.Density = dbox2d.QOne()
+	box := b2.MakeBox(extent, extent)
+	shapeDef := b2.DefaultShapeDef()
+	shapeDef.Density = b2.QOne()
 
 	bodyCount := s.baseCount * (s.baseCount + 1) / 2
-	s.bodyIds = make([]dbox2d.BodyId, 0, bodyCount)
+	s.bodyIds = make([]b2.BodyId, 0, bodyCount)
 
-	fraction := dbox2d.QOne().Sub(FromFloat64(s.overlap))
-	step := dbox2d.F(2).Mul(fraction).Mul(extent)
+	fraction := b2.QOne().Sub(FromFloat64(s.overlap))
+	step := b2.F(2).Mul(fraction).Mul(extent)
 	y := extent
 	for i := range s.baseCount {
-		x := fraction.Mul(extent).Mul(dbox2d.F(i - s.baseCount))
+		x := fraction.Mul(extent).Mul(b2.F(i - s.baseCount))
 		for j := i; j < s.baseCount; j++ {
-			bodyDef.Position = dbox2d.Vec2{X: x, Y: y}
-			bodyId := dbox2d.CreateBody(s.WorldId, &bodyDef)
+			bodyDef.Position = b2.Vec2{X: x, Y: y}
+			bodyId := b2.CreateBody(s.WorldId, &bodyDef)
 
-			dbox2d.CreatePolygonShape(bodyId, &shapeDef, &box)
+			b2.CreatePolygonShape(bodyId, &shapeDef, &box)
 
 			s.bodyIds = append(s.bodyIds, bodyId)
 
@@ -282,7 +282,7 @@ func (s *OverlapRecovery) UpdateGui() {
 type TinyPyramid struct {
 	Base
 
-	extent dbox2d.Q
+	extent b2.Q
 }
 
 func NewTinyPyramid(ctx *SampleContext) Sample {
@@ -293,35 +293,35 @@ func NewTinyPyramid(ctx *SampleContext) Sample {
 	}
 
 	{
-		bodyDef := dbox2d.DefaultBodyDef()
-		groundId := dbox2d.CreateBody(s.WorldId, &bodyDef)
-		shapeDef := dbox2d.DefaultShapeDef()
-		box := dbox2d.MakeOffsetBox(dbox2d.F(5), dbox2d.QOne(), dbox2d.V2(0, -1), dbox2d.RotIdentity())
-		dbox2d.CreatePolygonShape(groundId, &shapeDef, &box)
+		bodyDef := b2.DefaultBodyDef()
+		groundId := b2.CreateBody(s.WorldId, &bodyDef)
+		shapeDef := b2.DefaultShapeDef()
+		box := b2.MakeOffsetBox(b2.F(5), b2.QOne(), b2.V2(0, -1), b2.RotIdentity())
+		b2.CreatePolygonShape(groundId, &shapeDef, &box)
 	}
 
 	{
-		s.extent = dbox2d.F(0.025)
+		s.extent = b2.F(0.025)
 		baseCount := 30
 
-		bodyDef := dbox2d.DefaultBodyDef()
-		bodyDef.Type = dbox2d.DynamicBody
+		bodyDef := b2.DefaultBodyDef()
+		bodyDef.Type = b2.DynamicBody
 
-		shapeDef := dbox2d.DefaultShapeDef()
+		shapeDef := b2.DefaultShapeDef()
 
-		box := dbox2d.MakeSquare(s.extent)
+		box := b2.MakeSquare(s.extent)
 
 		for i := range baseCount {
-			y := dbox2d.F(2*i + 1).Mul(s.extent)
+			y := b2.F(2*i + 1).Mul(s.extent)
 
 			for j := i; j < baseCount; j++ {
-				x := dbox2d.F(i + 1).Mul(s.extent).
-					Add(dbox2d.QFromInt(2 * (j - i)).Mul(s.extent)).
-					Sub(dbox2d.F(baseCount).Mul(s.extent))
-				bodyDef.Position = dbox2d.Vec2{X: x, Y: y}
+				x := b2.F(i + 1).Mul(s.extent).
+					Add(b2.QFromInt(2 * (j - i)).Mul(s.extent)).
+					Sub(b2.F(baseCount).Mul(s.extent))
+				bodyDef.Position = b2.Vec2{X: x, Y: y}
 
-				bodyId := dbox2d.CreateBody(s.WorldId, &bodyDef)
-				dbox2d.CreatePolygonShape(bodyId, &shapeDef, &box)
+				bodyId := b2.CreateBody(s.WorldId, &bodyDef)
+				b2.CreatePolygonShape(bodyId, &shapeDef, &box)
 			}
 		}
 	}
@@ -339,11 +339,11 @@ func (s *TinyPyramid) Step() {
 type Cart struct {
 	Base
 
-	chassisId dbox2d.BodyId
-	wheelId1  dbox2d.BodyId
-	wheelId2  dbox2d.BodyId
-	jointId1  dbox2d.JointId
-	jointId2  dbox2d.JointId
+	chassisId b2.BodyId
+	wheelId1  b2.BodyId
+	wheelId2  b2.BodyId
+	jointId1  b2.JointId
+	jointId2  b2.JointId
 
 	contactHertz        float64
 	contactDampingRatio float64
@@ -360,16 +360,16 @@ func NewCart(ctx *SampleContext) Sample {
 	}
 
 	{
-		bodyDef := dbox2d.DefaultBodyDef()
-		bodyDef.Position = dbox2d.V2(0, -1)
-		groundId := dbox2d.CreateBody(s.WorldId, &bodyDef)
+		bodyDef := b2.DefaultBodyDef()
+		bodyDef.Position = b2.V2(0, -1)
+		groundId := b2.CreateBody(s.WorldId, &bodyDef)
 
-		shapeDef := dbox2d.DefaultShapeDef()
-		groundBox := dbox2d.MakeBox(dbox2d.F(20), dbox2d.QOne())
-		dbox2d.CreatePolygonShape(groundId, &shapeDef, &groundBox)
+		shapeDef := b2.DefaultShapeDef()
+		groundBox := b2.MakeBox(b2.F(20), b2.QOne())
+		b2.CreatePolygonShape(groundId, &shapeDef, &groundBox)
 	}
 
-	s.WorldId.SetGravity(dbox2d.V2(0, -22))
+	s.WorldId.SetGravity(b2.V2(0, -22))
 
 	s.contactHertz = 30
 	s.contactDampingRatio = 10
@@ -389,61 +389,61 @@ func (s *Cart) setContactTuning() {
 
 func (s *Cart) createScene() {
 	if !s.chassisId.IsNull() {
-		dbox2d.DestroyBody(s.chassisId)
+		b2.DestroyBody(s.chassisId)
 	}
 
 	if !s.wheelId1.IsNull() {
-		dbox2d.DestroyBody(s.wheelId1)
+		b2.DestroyBody(s.wheelId1)
 	}
 
 	if !s.wheelId2.IsNull() {
-		dbox2d.DestroyBody(s.wheelId2)
+		b2.DestroyBody(s.wheelId2)
 	}
 
-	yBase := dbox2d.F(2)
+	yBase := b2.F(2)
 
-	bodyDef := dbox2d.DefaultBodyDef()
-	bodyDef.Type = dbox2d.DynamicBody
-	bodyDef.Position = dbox2d.Vec2{Y: yBase}
-	s.chassisId = dbox2d.CreateBody(s.WorldId, &bodyDef)
+	bodyDef := b2.DefaultBodyDef()
+	bodyDef.Type = b2.DynamicBody
+	bodyDef.Position = b2.Vec2{Y: yBase}
+	s.chassisId = b2.CreateBody(s.WorldId, &bodyDef)
 
-	shapeDef := dbox2d.DefaultShapeDef()
-	shapeDef.Density = dbox2d.F(100)
+	shapeDef := b2.DefaultShapeDef()
+	shapeDef.Density = b2.F(100)
 
-	box := dbox2d.MakeOffsetBox(dbox2d.QHalf(), dbox2d.F(0.25), dbox2d.V2(0.0, 0.25), dbox2d.RotIdentity())
-	dbox2d.CreatePolygonShape(s.chassisId, &shapeDef, &box)
+	box := b2.MakeOffsetBox(b2.QHalf(), b2.F(0.25), b2.V2(0.0, 0.25), b2.RotIdentity())
+	b2.CreatePolygonShape(s.chassisId, &shapeDef, &box)
 
-	shapeDef = dbox2d.DefaultShapeDef()
-	shapeDef.Material.RollingResistance = dbox2d.F(0.02)
-	shapeDef.Density = dbox2d.F(10)
+	shapeDef = b2.DefaultShapeDef()
+	shapeDef.Material.RollingResistance = b2.F(0.02)
+	shapeDef.Density = b2.F(10)
 
-	circle := dbox2d.Circle{Radius: dbox2d.F(0.1)}
-	bodyDef.Position = dbox2d.Vec2{X: dbox2d.F(-0.4), Y: yBase.Sub(dbox2d.F(0.15))}
-	s.wheelId1 = dbox2d.CreateBody(s.WorldId, &bodyDef)
-	dbox2d.CreateCircleShape(s.wheelId1, &shapeDef, &circle)
+	circle := b2.Circle{Radius: b2.F(0.1)}
+	bodyDef.Position = b2.Vec2{X: b2.F(-0.4), Y: yBase.Sub(b2.F(0.15))}
+	s.wheelId1 = b2.CreateBody(s.WorldId, &bodyDef)
+	b2.CreateCircleShape(s.wheelId1, &shapeDef, &circle)
 
-	bodyDef.Position = dbox2d.Vec2{X: dbox2d.F(0.4), Y: yBase.Sub(dbox2d.F(0.15))}
-	s.wheelId2 = dbox2d.CreateBody(s.WorldId, &bodyDef)
-	dbox2d.CreateCircleShape(s.wheelId2, &shapeDef, &circle)
+	bodyDef.Position = b2.Vec2{X: b2.F(0.4), Y: yBase.Sub(b2.F(0.15))}
+	s.wheelId2 = b2.CreateBody(s.WorldId, &bodyDef)
+	b2.CreateCircleShape(s.wheelId2, &shapeDef, &circle)
 
 	jointHertz := FromFloat64(s.jointHertz)
 	jointDampingRatio := FromFloat64(s.jointDampingRatio)
 
-	jointDef := dbox2d.DefaultRevoluteJointDef()
+	jointDef := b2.DefaultRevoluteJointDef()
 	jointDef.BodyIdA = s.chassisId
 	jointDef.BodyIdB = s.wheelId1
-	jointDef.LocalAnchorA = dbox2d.V2(-0.4, -0.15)
-	jointDef.LocalAnchorB = dbox2d.Vec2{}
+	jointDef.LocalAnchorA = b2.V2(-0.4, -0.15)
+	jointDef.LocalAnchorB = b2.Vec2{}
 
-	s.jointId1 = dbox2d.CreateRevoluteJoint(s.WorldId, &jointDef)
+	s.jointId1 = b2.CreateRevoluteJoint(s.WorldId, &jointDef)
 	s.jointId1.SetConstraintTuning(jointHertz, jointDampingRatio)
 
 	jointDef.BodyIdA = s.chassisId
 	jointDef.BodyIdB = s.wheelId2
-	jointDef.LocalAnchorA = dbox2d.V2(0.4, -0.15)
-	jointDef.LocalAnchorB = dbox2d.Vec2{}
+	jointDef.LocalAnchorA = b2.V2(0.4, -0.15)
+	jointDef.LocalAnchorB = b2.Vec2{}
 
-	s.jointId2 = dbox2d.CreateRevoluteJoint(s.WorldId, &jointDef)
+	s.jointId2 = b2.CreateRevoluteJoint(s.WorldId, &jointDef)
 	s.jointId2.SetConstraintTuning(jointHertz, jointDampingRatio)
 }
 
