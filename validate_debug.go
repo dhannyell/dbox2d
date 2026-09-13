@@ -1,6 +1,6 @@
 //go:build dbox2d_validate
 
-package dbox2d
+package b2
 
 // validateSolverSetsDebug runs the solver-set validation from the mutation
 // paths that the reference validates. Build with -tags dbox2d_validate to

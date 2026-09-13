@@ -1,6 +1,6 @@
 //go:build dbox2d_simd
 
-package dbox2d
+package b2
 
 import (
 	"slices"

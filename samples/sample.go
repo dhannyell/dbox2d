@@ -19,7 +19,7 @@ type SampleContext struct {
 	// Gui is the scene widget set; a headless host uses NopGui.
 	Gui Gui
 	// Draw is what the world draws into; the host renders it.
-	Draw dbox2d.DebugDraw
+	Draw b2.DebugDraw
 	// TextLine receives one line of overlay text per call, at the pixel
 	// position the reference's DrawString(5, m_textLine, ...) would use. A
 	// headless host leaves it nil.
@@ -33,7 +33,7 @@ func NewSampleContext() *SampleContext {
 	return &SampleContext{
 		Camera:   NewCamera(),
 		Settings: DefaultSettings(),
-		Draw:     dbox2d.DefaultDebugDraw(),
+		Draw:     b2.DefaultDebugDraw(),
 		Gui:      NopGui{},
 	}
 }
@@ -44,9 +44,9 @@ type Sample interface {
 	Step()
 	UpdateGui()
 	Keyboard(key Key)
-	MouseDown(p dbox2d.Vec2, button MouseButton, mod Modifier)
-	MouseUp(p dbox2d.Vec2, button MouseButton)
-	MouseMove(p dbox2d.Vec2)
+	MouseDown(p b2.Vec2, button MouseButton, mod Modifier)
+	MouseUp(p b2.Vec2, button MouseButton)
+	MouseMove(p b2.Vec2)
 	Destroy()
 }
 
@@ -54,12 +54,12 @@ type Sample interface {
 // the profile.
 type Base struct {
 	Context      *SampleContext
-	WorldId      dbox2d.WorldId
-	GroundBodyId dbox2d.BodyId
-	MouseJointId dbox2d.JointId
+	WorldId      b2.WorldId
+	GroundBodyId b2.BodyId
+	MouseJointId b2.JointId
 	StepCount    int
-	MaxProfile   dbox2d.Profile
-	TotalProfile dbox2d.Profile
+	MaxProfile   b2.Profile
+	TotalProfile b2.Profile
 
 	textLine      int
 	textIncrement int
@@ -84,19 +84,19 @@ func NewBase(ctx *SampleContext) Base {
 // current settings. It corresponds to Sample::CreateWorld.
 func (b *Base) CreateWorld() {
 	if !b.WorldId.IsNull() {
-		dbox2d.DestroyWorld(b.WorldId)
-		b.WorldId = dbox2d.WorldId{}
+		b2.DestroyWorld(b.WorldId)
+		b.WorldId = b2.WorldId{}
 	}
-	worldDef := dbox2d.DefaultWorldDef()
+	worldDef := b2.DefaultWorldDef()
 	worldDef.EnableSleep = b.Context.Settings.EnableSleep
 	worldDef.WorkerCount = b.Context.Settings.WorkerCount
-	b.WorldId = dbox2d.CreateWorld(&worldDef)
+	b.WorldId = b2.CreateWorld(&worldDef)
 }
 
 // Destroy tears the world down. Destroying the world also destroys the
 // bomb, the mouse joint and every body created in it.
 func (b *Base) Destroy() {
-	dbox2d.DestroyWorld(b.WorldId)
+	b2.DestroyWorld(b.WorldId)
 }
 
 // DrawTitle draws the scene title on its own reserved line.
@@ -122,12 +122,12 @@ func (b *Base) Steps() int { return b.StepCount }
 // World returns the sample's world id. Sample hides it behind Step and the
 // input methods; a host that needs it (memory stats, checksums) type-asserts
 // for this method instead of widening the interface.
-func (b *Base) World() dbox2d.WorldId { return b.WorldId }
+func (b *Base) World() b2.WorldId { return b.WorldId }
 
 // ResetProfile clears the accumulated profile and the step counter.
 func (b *Base) ResetProfile() {
-	b.TotalProfile = dbox2d.Profile{}
-	b.MaxProfile = dbox2d.Profile{}
+	b.TotalProfile = b2.Profile{}
+	b.MaxProfile = b2.Profile{}
 	b.StepCount = 0
 }
 
@@ -145,13 +145,13 @@ func (b *Base) keyDown(k Key) bool {
 }
 
 type queryContext struct {
-	point  dbox2d.Vec2
-	bodyId dbox2d.BodyId
+	point  b2.Vec2
+	bodyId b2.BodyId
 }
 
 // MouseDown starts dragging the first dynamic body under the point, using a
 // mouse joint anchored to a throwaway ground body.
-func (b *Base) MouseDown(p dbox2d.Vec2, button MouseButton, mod Modifier) {
+func (b *Base) MouseDown(p b2.Vec2, button MouseButton, mod Modifier) {
 	if !b.MouseJointId.IsNull() {
 		return
 	}
@@ -159,16 +159,16 @@ func (b *Base) MouseDown(p dbox2d.Vec2, button MouseButton, mod Modifier) {
 		return
 	}
 
-	d := dbox2d.Vec2{X: dbox2d.QFromRatio(1, 1000), Y: dbox2d.QFromRatio(1, 1000)}
-	box := dbox2d.AABB{
-		LowerBound: dbox2d.Vec2{X: p.X.Sub(d.X), Y: p.Y.Sub(d.Y)},
-		UpperBound: dbox2d.Vec2{X: p.X.Add(d.X), Y: p.Y.Add(d.Y)},
+	d := b2.Vec2{X: b2.QFromRatio(1, 1000), Y: b2.QFromRatio(1, 1000)}
+	box := b2.AABB{
+		LowerBound: b2.Vec2{X: p.X.Sub(d.X), Y: p.Y.Sub(d.Y)},
+		UpperBound: b2.Vec2{X: p.X.Add(d.X), Y: p.Y.Add(d.Y)},
 	}
 
 	qc := queryContext{point: p}
-	b.WorldId.OverlapAABB(box, dbox2d.DefaultQueryFilter(), func(shapeId dbox2d.ShapeId) bool {
+	b.WorldId.OverlapAABB(box, b2.DefaultQueryFilter(), func(shapeId b2.ShapeId) bool {
 		bodyId := shapeId.GetBody()
-		if bodyId.GetType() != dbox2d.DynamicBody {
+		if bodyId.GetType() != b2.DynamicBody {
 			return true
 		}
 		if shapeId.TestPoint(qc.point) {
@@ -182,43 +182,43 @@ func (b *Base) MouseDown(p dbox2d.Vec2, button MouseButton, mod Modifier) {
 		return
 	}
 
-	bodyDef := dbox2d.DefaultBodyDef()
-	b.GroundBodyId = dbox2d.CreateBody(b.WorldId, &bodyDef)
+	bodyDef := b2.DefaultBodyDef()
+	b.GroundBodyId = b2.CreateBody(b.WorldId, &bodyDef)
 
-	mouseDef := dbox2d.DefaultMouseJointDef()
+	mouseDef := b2.DefaultMouseJointDef()
 	mouseDef.BodyIdA = b.GroundBodyId
 	mouseDef.BodyIdB = qc.bodyId
 	mouseDef.Target = p
-	mouseDef.Hertz = dbox2d.QFromInt(10)
-	mouseDef.DampingRatio = dbox2d.QFromRatio(7, 10)
-	gravityLength, _ := dbox2d.GetLengthAndNormalize(b.WorldId.GetGravity())
-	mouseDef.MaxForce = dbox2d.QFromInt(1000).Mul(qc.bodyId.GetMass()).Mul(gravityLength)
-	b.MouseJointId = dbox2d.CreateMouseJoint(b.WorldId, &mouseDef)
+	mouseDef.Hertz = b2.F(10)
+	mouseDef.DampingRatio = b2.QFromRatio(7, 10)
+	gravityLength, _ := b2.GetLengthAndNormalize(b.WorldId.GetGravity())
+	mouseDef.MaxForce = b2.F(1000).Mul(qc.bodyId.GetMass()).Mul(gravityLength)
+	b.MouseJointId = b2.CreateMouseJoint(b.WorldId, &mouseDef)
 
 	qc.bodyId.SetAwake(true)
 }
 
 // MouseUp releases the mouse joint started by MouseDown.
-func (b *Base) MouseUp(p dbox2d.Vec2, button MouseButton) {
+func (b *Base) MouseUp(p b2.Vec2, button MouseButton) {
 	if !b.MouseJointId.IsNull() && !b.MouseJointId.IsValid() {
 		// The world or attached body was destroyed.
-		b.MouseJointId = dbox2d.JointId{}
+		b.MouseJointId = b2.JointId{}
 	}
 
 	if !b.MouseJointId.IsNull() && button == MouseButtonLeft {
-		dbox2d.DestroyJoint(b.MouseJointId)
-		b.MouseJointId = dbox2d.JointId{}
+		b2.DestroyJoint(b.MouseJointId)
+		b.MouseJointId = b2.JointId{}
 
-		dbox2d.DestroyBody(b.GroundBodyId)
-		b.GroundBodyId = dbox2d.BodyId{}
+		b2.DestroyBody(b.GroundBodyId)
+		b.GroundBodyId = b2.BodyId{}
 	}
 }
 
 // MouseMove drags the mouse joint target to the new point.
-func (b *Base) MouseMove(p dbox2d.Vec2) {
+func (b *Base) MouseMove(p b2.Vec2) {
 	if !b.MouseJointId.IsNull() && !b.MouseJointId.IsValid() {
 		// The world or attached body was destroyed.
-		b.MouseJointId = dbox2d.JointId{}
+		b.MouseJointId = b2.JointId{}
 	}
 
 	if !b.MouseJointId.IsNull() {
@@ -232,16 +232,16 @@ func (b *Base) MouseMove(p dbox2d.Vec2) {
 // profile. It corresponds to Sample::Step.
 func (b *Base) Step() {
 	s := &b.Context.Settings
-	var timeStep dbox2d.Q
+	var timeStep b2.Q
 	if s.Hertz > 0 {
-		timeStep = dbox2d.QOne().Div(dbox2d.QFromInt(int(s.Hertz)))
+		timeStep = b2.QOne().Div(b2.QFromInt(int(s.Hertz)))
 	}
 
 	if s.Pause {
 		if s.SingleStep {
 			s.SingleStep = false
 		} else {
-			timeStep = dbox2d.QZero()
+			timeStep = b2.QZero()
 		}
 		b.DrawTextLine("****PAUSED****")
 	}
@@ -271,7 +271,7 @@ func (b *Base) Step() {
 	b.WorldId.Step(timeStep, s.SubStepCount)
 	b.WorldId.Draw(draw)
 
-	if timeStep.Greater(dbox2d.QZero()) {
+	if timeStep.Greater(b2.QZero()) {
 		b.StepCount++
 	}
 
@@ -296,7 +296,7 @@ func (b *Base) Step() {
 	b.TotalProfile = addProfile(b.TotalProfile, p)
 
 	if s.DrawProfile {
-		var ave dbox2d.Profile
+		var ave b2.Profile
 		if b.StepCount > 0 {
 			ave = scaleProfile(b.TotalProfile, 1/float64(b.StepCount))
 		}
@@ -326,8 +326,8 @@ func (b *Base) Step() {
 	}
 }
 
-func maxProfile(a, b dbox2d.Profile) dbox2d.Profile {
-	return dbox2d.Profile{
+func maxProfile(a, b b2.Profile) b2.Profile {
+	return b2.Profile{
 		Step:                max(a.Step, b.Step),
 		Pairs:               max(a.Pairs, b.Pairs),
 		Collide:             max(a.Collide, b.Collide),
@@ -353,8 +353,8 @@ func maxProfile(a, b dbox2d.Profile) dbox2d.Profile {
 	}
 }
 
-func addProfile(a, b dbox2d.Profile) dbox2d.Profile {
-	return dbox2d.Profile{
+func addProfile(a, b b2.Profile) b2.Profile {
+	return b2.Profile{
 		Step:                a.Step + b.Step,
 		Pairs:               a.Pairs + b.Pairs,
 		Collide:             a.Collide + b.Collide,
@@ -380,8 +380,8 @@ func addProfile(a, b dbox2d.Profile) dbox2d.Profile {
 	}
 }
 
-func scaleProfile(a dbox2d.Profile, scale float64) dbox2d.Profile {
-	return dbox2d.Profile{
+func scaleProfile(a b2.Profile, scale float64) b2.Profile {
+	return b2.Profile{
 		Step:                scale * a.Step,
 		Pairs:               scale * a.Pairs,
 		Collide:             scale * a.Collide,
@@ -409,6 +409,6 @@ func scaleProfile(a dbox2d.Profile, scale float64) dbox2d.Profile {
 
 // radiansToTurns converts a reference value in radians, or radians per
 // second, to the turns this port uses for angles.
-func radiansToTurns(radians float64) dbox2d.Q {
+func radiansToTurns(radians float64) b2.Q {
 	return FromFloat64(radians / (2 * math.Pi))
 }

@@ -1,4 +1,4 @@
-package dbox2d_test
+package b2_test
 
 // The seven benchmark scenes of the reference live in internal/shared, which
 // this suite shares with the scene benchmark in bench_scene_test.go. Two

@@ -16,7 +16,7 @@ in [Scalar modes and determinism](#scalar-modes-and-determinism).
 
 **[![Try the browser samples](samples/gopher.gif)](https://dhannyell.github.io/dbox2d/)**
 
-[Open the live demo](https://dhannyell.github.io/dbox2d/) · [float mode](https://dhannyell.github.io/dbox2d/?mode=float) · [fixed mode](https://dhannyell.github.io/dbox2d/?mode=fixed)
+[Open the live demo](https://dhannyell.github.io/dbox2d/) · [fixed mode](https://dhannyell.github.io/dbox2d/?mode=fixed)
 
 The browser demo requires WebGPU and run on a single thread due to limitations in Go's WebAssembly implementation. To use multithreading, try the native version. see [the samples](samples/README.md).
 
@@ -37,9 +37,10 @@ Requires Go 1.26.8 or newer.
 go get github.com/dhannyell/dbox2d
 ```
 
-The API follows Box2D closely. A reference function such as
-`b2Body_GetPosition(bodyId)` becomes `bodyId.GetPosition()`; constructors,
-defaults, and geometry helpers remain package functions.
+The package is named `b2`, so the import needs no alias and a call reads
+like the reference: `b2Body_GetPosition(bodyId)` becomes
+`bodyId.GetPosition()`, and `b2MakeBox(1, 1)` becomes `b2.MakeBox(...)`.
+Constructors, defaults, and geometry helpers remain package functions.
 
 ## First world
 
@@ -49,17 +50,19 @@ package main
 import "github.com/dhannyell/dbox2d"
 
 func main() {
-	def := dbox2d.DefaultWorldDef()
-	def.Gravity = dbox2d.Vec2{Y: dbox2d.QFromInt(-10)}
-	world := dbox2d.CreateWorld(&def)
-	defer dbox2d.DestroyWorld(world)
+	def := b2.DefaultWorldDef()
+	def.Gravity = b2.V2(0, -10)
+	world := b2.CreateWorld(&def)
+	defer b2.DestroyWorld(world)
 
-	world.Step(dbox2d.QFromRatio(1, 60), 4)
+	world.Step(b2.QFromRatio(1, 60), 4)
 }
 ```
 
-Use `QFromInt`, `QFromRatio`, `QFromFloat64`, or `QMustParse` to create values
-that are rounded consistently by the selected scalar mode.
+Every scalar of the API is a `Q`, the scalar of the selected mode. `F`
+converts an integer or a float, `V2` builds a vector, and `Degrees` gives an
+angle in the turns the API uses; see [Scalar modes and determinism](#scalar-modes-and-determinism) for the long forms
+and the rounding contract.
 
 ## Run the samples
 
@@ -67,17 +70,31 @@ The `samples` module includes the Box2D scenes in native and WebAssembly
 hosts. Native runs need cgo, a C toolchain, and a Vulkan, Metal, or D3D12
 driver. The browser host needs WebGPU.
 
+### SIMD
+
 ```sh
 cd samples
-go run ./cmd/native
+GOTOOLCHAIN=go1.27.0 GOEXPERIMENT=simd go run -tags dbox2d_simd ./cmd/native
 ```
 
 To build the browser host:
 
 ```sh
 cd samples
-CGO_ENABLED=0 GOOS=js GOARCH=wasm go build -o web/app.wasm ./cmd/web
 GOTOOLCHAIN=go1.27.0 GOEXPERIMENT=simd CGO_ENABLED=0 GOOS=js GOARCH=wasm go build -tags dbox2d_simd -o web/app.wasm ./cmd/web
+go run ./cmd/serve
+```
+
+### Scalar
+
+```sh
+cd samples
+go run ./cmd/native
+```
+
+```sh
+cd samples
+CGO_ENABLED=0 GOOS=js GOARCH=wasm go build -o web/app.wasm ./cmd/web
 go run ./cmd/serve
 ```
 
@@ -110,14 +127,24 @@ itself.
 Use these constructors to create simulation values:
 
 ```go
-dbox2d.QZero()
-dbox2d.QOne()
-dbox2d.QHalf()
-dbox2d.QFromInt(3)
-dbox2d.QFromRatio(1, 8)
-dbox2d.QFromFloat64(0.35)
-dbox2d.QMustParse("0.35")
+b2.F(3)          // an int, exact
+b2.F(0.35)       // a float, rounded once to the mode
+b2.F(q)          // a Q, unchanged
+b2.V2(1, -2)     // a vector; both arguments share one type
+b2.Degrees(90)   // a quarter turn
+b2.QZero()
+b2.QOne()
+b2.QHalf()
+b2.QFromInt(3)
+b2.QFromRatio(1, 8)
+b2.QFromFloat64(0.35)
+b2.QMustParse("0.35")
 ```
+
+`F` and `V2` are generic over `int`, `float32`, `float64`, and `Q`, so an
+untyped literal needs no conversion; `F(3)` is `QFromInt(3)` and `F(0.35)`
+is `QFromFloat64(0.35)`. Mixed arguments need one type: `V2(1, 0.5)` does
+not compile, `V2(1.0, 0.5)` does.
 
 `QFromFloat64` rounds to the nearest scalar of the mode, the same way on every
 architecture, and `QToFloat64` converts back. A constant converts to the same
@@ -236,15 +263,15 @@ minima, and each figure is a geometric mean over the seven scenes.
 
 | Workers | Port over reference | With PGO | Reference speedup | Port speedup | Reference efficiency | Port efficiency |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1 | 1.46x | 1.42x | 1.00x | 1.00x | 100% | 100% |
-| 2 | 1.29x | 1.22x | 1.60x | 1.81x | 80% | 91% |
-| 4 | 1.34x | 1.26x | 2.77x | 3.02x | 69% | 75% |
-| 8 | 1.39x | 1.31x | 4.00x | 4.20x | 50% | 52% |
+| 1 | 1.35x | 1.30x | 1.00x | 1.00x | 100% | 100% |
+| 2 | 1.29x | 1.26x | 1.73x | 1.82x | 87% | 91% |
+| 4 | 1.24x | 1.20x | 2.78x | 3.03x | 70% | 76% |
+| 8 | 1.29x | 1.24x | 3.99x | 4.18x | 50% | 52% |
 
-The port scales better than the reference at every worker count: it keeps
-more of its single-thread speed as threads are added, so the gap narrows
-from 1.46x on one thread to 1.39x on eight. The per-scene ratios at eight
-workers run 1.32x to 1.53x.
+The port scales slightly better than the reference at every worker count,
+so the gap is single-thread work rather than the executor. The per-scene
+ratios at one worker run 1.21x to 1.44x; at eight they run 1.19x to 1.39x,
+with `many_pyramids` the slowest scene on both counts.
 
 The port also lands on the same result bits at every worker count, in all
 seven scenes. The reference does so in six; its `rain` hash changes with the
@@ -304,8 +331,8 @@ one whose hot paths matter:
 
 ```sh
 go test -run "^$" -bench . -cpuprofile=cpu.pprof
-cp cpu.pprof ./cmd/game/default.pgo
-go build ./cmd/game
+cp cpu.pprof ./cmd/your_app/default.pgo
+go build ./cmd/your_app
 ```
 
 A profile kept elsewhere works through the flag, and `-pgo=off` builds without

@@ -1,4 +1,4 @@
-package dbox2d
+package b2
 
 // PlaneResult is the collision plane and contact point for a mover collision.
 type PlaneResult struct {

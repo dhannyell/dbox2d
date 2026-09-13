@@ -1,4 +1,4 @@
-package dbox2d
+package b2
 
 // bitSet stores one bit per integer id in 64-bit blocks. The length of bits
 // is the block count and the capacity is the block capacity. It corresponds

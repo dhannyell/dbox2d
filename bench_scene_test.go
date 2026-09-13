@@ -1,4 +1,4 @@
-package dbox2d_test
+package b2_test
 
 // The scene benchmark mirrors the protocol of benchmark/main.c in the
 // reference tree, so a Go number and a C number describe the same

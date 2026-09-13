@@ -16,40 +16,40 @@ const (
 )
 
 type gopher struct {
-	bodies    [5]dbox2d.BodyId
+	bodies    [5]b2.BodyId
 	isSpawned bool
 }
 
-func createGopher(worldId dbox2d.WorldId, position dbox2d.Vec2, scale float64, groupIndex int) gopher {
-	q := func(f float64) dbox2d.Q { return FromFloat64(f * scale) }
+func createGopher(worldId b2.WorldId, position b2.Vec2, scale float64, groupIndex int) gopher {
+	q := func(f float64) b2.Q { return FromFloat64(f * scale) }
 
-	bodyDef := dbox2d.DefaultBodyDef()
-	bodyDef.Type = dbox2d.DynamicBody
-	bodyDef.SleepThreshold = dbox2d.QMustParse("0.1")
+	bodyDef := b2.DefaultBodyDef()
+	bodyDef.Type = b2.DynamicBody
+	bodyDef.SleepThreshold = b2.F(0.1)
 
-	shapeDef := dbox2d.DefaultShapeDef()
+	shapeDef := b2.DefaultShapeDef()
 	shapeDef.Filter.GroupIndex = -groupIndex
 
-	paintDef := dbox2d.DefaultShapeDef()
-	paintDef.Density = dbox2d.QZero()
+	paintDef := b2.DefaultShapeDef()
+	paintDef.Density = b2.QZero()
 	paintDef.Filter.CategoryBits = 0
 	paintDef.Filter.MaskBits = 0
 
 	type part struct {
-		id     dbox2d.BodyId
+		id     b2.BodyId
 		ox, oy float64
 	}
 	newPart := func(ox, oy float64) part {
-		bodyDef.Position = position.Add(dbox2d.Vec2{X: q(ox), Y: q(oy)})
-		return part{id: dbox2d.CreateBody(worldId, &bodyDef), ox: ox, oy: oy}
+		bodyDef.Position = position.Add(b2.Vec2{X: q(ox), Y: q(oy)})
+		return part{id: b2.CreateBody(worldId, &bodyDef), ox: ox, oy: oy}
 	}
-	box := func(p part, def *dbox2d.ShapeDef, color uint32, x, y, hw, hh, r float64) {
-		center := dbox2d.Vec2{X: q(x - p.ox), Y: q(y - p.oy)}
-		poly := dbox2d.MakeOffsetRoundedBox(q(hw), q(hh), center, dbox2d.RotIdentity(), q(r))
+	box := func(p part, def *b2.ShapeDef, color uint32, x, y, hw, hh, r float64) {
+		center := b2.Vec2{X: q(x - p.ox), Y: q(y - p.oy)}
+		poly := b2.MakeOffsetRoundedBox(q(hw), q(hh), center, b2.RotIdentity(), q(r))
 		def.Material.CustomColor = color
-		dbox2d.CreatePolygonShape(p.id, def, &poly)
+		b2.CreatePolygonShape(p.id, def, &poly)
 	}
-	dot := func(p part, def *dbox2d.ShapeDef, color uint32, x, y, r float64) {
+	dot := func(p part, def *b2.ShapeDef, color uint32, x, y, r float64) {
 		box(p, def, color, x, y, 0.005, 0.005, r)
 	}
 
@@ -78,20 +78,20 @@ func createGopher(worldId dbox2d.WorldId, position dbox2d.Vec2, scale float64, g
 			p     part
 			limit float64
 		}{{arm, 0.15}, {foot, 0.06}} {
-			jd := dbox2d.DefaultRevoluteJointDef()
+			jd := b2.DefaultRevoluteJointDef()
 			jd.BodyIdA = body.id
 			jd.BodyIdB = limb.p.id
-			jd.LocalAnchorA = dbox2d.Vec2{X: q(limb.p.ox - body.ox), Y: q(limb.p.oy - body.oy)}
+			jd.LocalAnchorA = b2.Vec2{X: q(limb.p.ox - body.ox), Y: q(limb.p.oy - body.oy)}
 			jd.EnableLimit = true
 			jd.LowerAngle = FromFloat64(-limb.limit)
 			jd.UpperAngle = FromFloat64(limb.limit)
 			jd.EnableMotor = true
 			jd.MaxMotorTorque = FromFloat64(0.2 * scale * scale * scale)
 			jd.EnableSpring = true
-			jd.Hertz = dbox2d.QFromInt(5)
-			jd.DampingRatio = dbox2d.QHalf()
+			jd.Hertz = b2.F(5)
+			jd.DampingRatio = b2.QHalf()
 			jd.DrawSize = q(0.05)
-			dbox2d.CreateRevoluteJoint(worldId, &jd)
+			b2.CreateRevoluteJoint(worldId, &jd)
 		}
 		g.bodies[1+2*i] = arm.id
 		g.bodies[2+2*i] = foot.id
@@ -101,8 +101,8 @@ func createGopher(worldId dbox2d.WorldId, position dbox2d.Vec2, scale float64, g
 
 func (g *gopher) destroy() {
 	for i, id := range g.bodies {
-		dbox2d.DestroyBody(id)
-		g.bodies[i] = dbox2d.BodyId{}
+		b2.DestroyBody(id)
+		g.bodies[i] = b2.BodyId{}
 	}
 	g.isSpawned = false
 }

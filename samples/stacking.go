@@ -25,7 +25,7 @@ func init() {
 // SingleBox drops a box with sideways velocity onto a long ground segment.
 type SingleBox struct {
 	Base
-	bodyId dbox2d.BodyId
+	bodyId b2.BodyId
 }
 
 // NewSingleBox builds the scene, matching the reference SingleBox
@@ -38,26 +38,26 @@ func NewSingleBox(ctx *SampleContext) Sample {
 		ctx.Camera.Zoom = 3.5
 	}
 
-	extent := dbox2d.QOne()
+	extent := b2.QOne()
 
-	bodyDef := dbox2d.DefaultBodyDef()
-	groundId := dbox2d.CreateBody(s.WorldId, &bodyDef)
+	bodyDef := b2.DefaultBodyDef()
+	groundId := b2.CreateBody(s.WorldId, &bodyDef)
 
-	groundWidth := dbox2d.QFromInt(66).Mul(extent)
-	shapeDef := dbox2d.DefaultShapeDef()
+	groundWidth := b2.F(66).Mul(extent)
+	shapeDef := b2.DefaultShapeDef()
 
-	segment := dbox2d.Segment{
-		Point1: dbox2d.Vec2{X: groundWidth.Neg(), Y: dbox2d.QZero()},
-		Point2: dbox2d.Vec2{X: groundWidth, Y: dbox2d.QZero()},
+	segment := b2.Segment{
+		Point1: b2.Vec2{X: groundWidth.Neg(), Y: b2.QZero()},
+		Point2: b2.Vec2{X: groundWidth, Y: b2.QZero()},
 	}
-	dbox2d.CreateSegmentShape(groundId, &shapeDef, &segment)
+	b2.CreateSegmentShape(groundId, &shapeDef, &segment)
 
-	bodyDef.Type = dbox2d.DynamicBody
-	box := dbox2d.MakeBox(extent, extent)
-	bodyDef.Position = dbox2d.Vec2{X: dbox2d.QZero(), Y: dbox2d.QOne()}
-	bodyDef.LinearVelocity = dbox2d.Vec2{X: dbox2d.QFromInt(5), Y: dbox2d.QZero()}
-	s.bodyId = dbox2d.CreateBody(s.WorldId, &bodyDef)
-	dbox2d.CreatePolygonShape(s.bodyId, &shapeDef, &box)
+	bodyDef.Type = b2.DynamicBody
+	box := b2.MakeBox(extent, extent)
+	bodyDef.Position = b2.Vec2{X: b2.QZero(), Y: b2.QOne()}
+	bodyDef.LinearVelocity = b2.Vec2{X: b2.F(5), Y: b2.QZero()}
+	s.bodyId = b2.CreateBody(s.WorldId, &bodyDef)
+	b2.CreatePolygonShape(s.bodyId, &shapeDef, &box)
 
 	return s
 }
@@ -73,7 +73,7 @@ func (s *SingleBox) Step() {
 // TiltedStack creates ten columns of ten rounded boxes with a small offset.
 type TiltedStack struct {
 	Base
-	bodies [tiltedStackRows * tiltedStackColumns]dbox2d.BodyId
+	bodies [tiltedStackRows * tiltedStackColumns]b2.BodyId
 }
 
 const (
@@ -91,44 +91,44 @@ func NewTiltedStack(ctx *SampleContext) Sample {
 	}
 
 	{
-		bodyDef := dbox2d.DefaultBodyDef()
-		bodyDef.Position = dbox2d.Vec2{Y: dbox2d.QFromInt(-1)}
-		groundID := dbox2d.CreateBody(s.WorldId, &bodyDef)
+		bodyDef := b2.DefaultBodyDef()
+		bodyDef.Position = b2.V2(0, -1)
+		groundID := b2.CreateBody(s.WorldId, &bodyDef)
 
-		box := dbox2d.MakeBox(dbox2d.QFromInt(1000), dbox2d.QOne())
-		shapeDef := dbox2d.DefaultShapeDef()
-		dbox2d.CreatePolygonShape(groundID, &shapeDef, &box)
+		box := b2.MakeBox(b2.F(1000), b2.QOne())
+		shapeDef := b2.DefaultShapeDef()
+		b2.CreatePolygonShape(groundID, &shapeDef, &box)
 	}
 
 	for i := range s.bodies {
-		s.bodies[i] = dbox2d.BodyId{}
+		s.bodies[i] = b2.BodyId{}
 	}
 
-	box := dbox2d.MakeRoundedBox(dbox2d.QMustParse("0.45"), dbox2d.QMustParse("0.45"), dbox2d.QMustParse("0.05"))
-	shapeDef := dbox2d.DefaultShapeDef()
-	shapeDef.Density = dbox2d.QOne()
-	shapeDef.Material.Friction = dbox2d.QMustParse("0.3")
+	box := b2.MakeRoundedBox(b2.F(0.45), b2.F(0.45), b2.F(0.05))
+	shapeDef := b2.DefaultShapeDef()
+	shapeDef.Density = b2.QOne()
+	shapeDef.Material.Friction = b2.F(0.3)
 
-	offset := dbox2d.QMustParse("0.2")
-	dx := dbox2d.QFromInt(5)
-	xroot := dx.Mul(dbox2d.QFromRatio(-1*(tiltedStackColumns-1), 2))
+	offset := b2.F(0.2)
+	dx := b2.F(5)
+	xroot := dx.Mul(b2.QFromRatio(-1*(tiltedStackColumns-1), 2))
 
 	for j := range tiltedStackColumns {
-		x := xroot.Add(dx.Mul(dbox2d.QFromInt(j)))
+		x := xroot.Add(dx.Mul(b2.F(j)))
 
 		for i := range tiltedStackRows {
-			bodyDef := dbox2d.DefaultBodyDef()
-			bodyDef.Type = dbox2d.DynamicBody
+			bodyDef := b2.DefaultBodyDef()
+			bodyDef.Type = b2.DynamicBody
 
 			n := j*tiltedStackRows + i
-			bodyDef.Position = dbox2d.Vec2{
-				X: x.Add(offset.Mul(dbox2d.QFromInt(i))),
-				Y: dbox2d.QFromRatio(1, 2).Add(dbox2d.QFromInt(i)),
+			bodyDef.Position = b2.Vec2{
+				X: x.Add(offset.Mul(b2.F(i))),
+				Y: b2.QFromRatio(1, 2).Add(b2.F(i)),
 			}
-			bodyID := dbox2d.CreateBody(s.WorldId, &bodyDef)
+			bodyID := b2.CreateBody(s.WorldId, &bodyDef)
 
 			s.bodies[n] = bodyID
-			dbox2d.CreatePolygonShape(bodyID, &shapeDef, &box)
+			b2.CreatePolygonShape(bodyID, &shapeDef, &box)
 		}
 	}
 
@@ -145,8 +145,8 @@ const (
 // and fast bullets.
 type VerticalStack struct {
 	Base
-	bullets [verticalStackMaxBullets]dbox2d.BodyId
-	bodies  [verticalStackMaxRows * verticalStackMaxColumns]dbox2d.BodyId
+	bullets [verticalStackMaxBullets]b2.BodyId
+	bodies  [verticalStackMaxRows * verticalStackMaxColumns]b2.BodyId
 
 	columnCount int
 	rowCount    int
@@ -170,28 +170,28 @@ func NewVerticalStack(ctx *SampleContext) Sample {
 	}
 
 	{
-		bodyDef := dbox2d.DefaultBodyDef()
-		groundID := dbox2d.CreateBody(s.WorldId, &bodyDef)
-		shapeDef := dbox2d.DefaultShapeDef()
+		bodyDef := b2.DefaultBodyDef()
+		groundID := b2.CreateBody(s.WorldId, &bodyDef)
+		shapeDef := b2.DefaultShapeDef()
 
-		segment := dbox2d.Segment{
-			Point1: dbox2d.Vec2{X: dbox2d.QFromInt(10)},
-			Point2: dbox2d.Vec2{X: dbox2d.QFromInt(10), Y: dbox2d.QFromInt(20)},
+		segment := b2.Segment{
+			Point1: b2.V2(10, 0),
+			Point2: b2.V2(10, 20),
 		}
-		dbox2d.CreateSegmentShape(groundID, &shapeDef, &segment)
+		b2.CreateSegmentShape(groundID, &shapeDef, &segment)
 
-		segment = dbox2d.Segment{
-			Point1: dbox2d.Vec2{X: dbox2d.QFromInt(-30)},
-			Point2: dbox2d.Vec2{X: dbox2d.QFromInt(30)},
+		segment = b2.Segment{
+			Point1: b2.V2(-30, 0),
+			Point2: b2.V2(30, 0),
 		}
-		dbox2d.CreateSegmentShape(groundID, &shapeDef, &segment)
+		b2.CreateSegmentShape(groundID, &shapeDef, &segment)
 	}
 
 	for i := range s.bodies {
-		s.bodies[i] = dbox2d.BodyId{}
+		s.bodies[i] = b2.BodyId{}
 	}
 	for i := range s.bullets {
-		s.bullets[i] = dbox2d.BodyId{}
+		s.bullets[i] = b2.BodyId{}
 	}
 
 	s.shapeType = verticalStackBoxShape
@@ -207,48 +207,48 @@ func NewVerticalStack(ctx *SampleContext) Sample {
 func (s *VerticalStack) createStacks() {
 	for i := range s.bodies {
 		if !s.bodies[i].IsNull() {
-			dbox2d.DestroyBody(s.bodies[i])
-			s.bodies[i] = dbox2d.BodyId{}
+			b2.DestroyBody(s.bodies[i])
+			s.bodies[i] = b2.BodyId{}
 		}
 	}
 
-	circle := dbox2d.Circle{Radius: dbox2d.QHalf()}
-	box := dbox2d.MakeRoundedBox(dbox2d.QMustParse("0.45"), dbox2d.QMustParse("0.45"), dbox2d.QMustParse("0.05"))
-	shapeDef := dbox2d.DefaultShapeDef()
-	shapeDef.Density = dbox2d.QOne()
-	shapeDef.Material.Friction = dbox2d.QMustParse("0.3")
+	circle := b2.Circle{Radius: b2.QHalf()}
+	box := b2.MakeRoundedBox(b2.F(0.45), b2.F(0.45), b2.F(0.05))
+	shapeDef := b2.DefaultShapeDef()
+	shapeDef.Density = b2.QOne()
+	shapeDef.Material.Friction = b2.F(0.3)
 
-	offset := dbox2d.QFromRatio(1, 100)
+	offset := b2.QFromRatio(1, 100)
 	if s.shapeType == verticalStackCircleShape {
-		offset = dbox2d.QZero()
+		offset = b2.QZero()
 	}
 
-	dx := dbox2d.QFromInt(-3)
-	xroot := dbox2d.QFromInt(8)
+	dx := b2.F(-3)
+	xroot := b2.F(8)
 
 	for j := range s.columnCount {
-		x := xroot.Add(dx.Mul(dbox2d.QFromInt(j)))
+		x := xroot.Add(dx.Mul(b2.F(j)))
 
 		for i := range s.rowCount {
-			bodyDef := dbox2d.DefaultBodyDef()
-			bodyDef.Type = dbox2d.DynamicBody
+			bodyDef := b2.DefaultBodyDef()
+			bodyDef.Type = b2.DynamicBody
 
 			n := j*s.rowCount + i
 			shift := offset
 			if i%2 == 0 {
 				shift = offset.Neg()
 			}
-			bodyDef.Position = dbox2d.Vec2{
+			bodyDef.Position = b2.Vec2{
 				X: x.Add(shift),
-				Y: dbox2d.QFromRatio(1, 2).Add(dbox2d.QFromInt(i)),
+				Y: b2.QFromRatio(1, 2).Add(b2.F(i)),
 			}
-			bodyID := dbox2d.CreateBody(s.WorldId, &bodyDef)
+			bodyID := b2.CreateBody(s.WorldId, &bodyDef)
 
 			s.bodies[n] = bodyID
 			if s.shapeType == verticalStackCircleShape {
-				dbox2d.CreateCircleShape(bodyID, &shapeDef, &circle)
+				b2.CreateCircleShape(bodyID, &shapeDef, &circle)
 			} else {
-				dbox2d.CreatePolygonShape(bodyID, &shapeDef, &box)
+				b2.CreatePolygonShape(bodyID, &shapeDef, &box)
 			}
 		}
 	}
@@ -259,8 +259,8 @@ func (s *VerticalStack) destroyBody() {
 		for i := range s.rowCount {
 			n := j*s.rowCount + i
 			if !s.bodies[n].IsNull() {
-				dbox2d.DestroyBody(s.bodies[n])
-				s.bodies[n] = dbox2d.BodyId{}
+				b2.DestroyBody(s.bodies[n])
+				s.bodies[n] = b2.BodyId{}
 				break
 			}
 		}
@@ -270,35 +270,35 @@ func (s *VerticalStack) destroyBody() {
 func (s *VerticalStack) destroyBullets() {
 	for i := range s.bullets {
 		if !s.bullets[i].IsNull() {
-			dbox2d.DestroyBody(s.bullets[i])
-			s.bullets[i] = dbox2d.BodyId{}
+			b2.DestroyBody(s.bullets[i])
+			s.bullets[i] = b2.BodyId{}
 		}
 	}
 }
 
 func (s *VerticalStack) fireBullets() {
-	circle := dbox2d.Circle{Radius: dbox2d.QFromRatio(1, 4)}
-	box := dbox2d.MakeBox(dbox2d.QFromRatio(1, 4), dbox2d.QFromRatio(1, 4))
-	shapeDef := dbox2d.DefaultShapeDef()
-	shapeDef.Density = dbox2d.QFromInt(4)
+	circle := b2.Circle{Radius: b2.QFromRatio(1, 4)}
+	box := b2.MakeBox(b2.QFromRatio(1, 4), b2.QFromRatio(1, 4))
+	shapeDef := b2.DefaultShapeDef()
+	shapeDef.Density = b2.F(4)
 
 	for i := range s.bulletCount {
-		bodyDef := dbox2d.DefaultBodyDef()
-		bodyDef.Type = dbox2d.DynamicBody
-		bodyDef.Position = dbox2d.Vec2{
-			X: dbox2d.QMustParse("-26.7").Sub(dbox2d.QFromInt(i)),
-			Y: dbox2d.QFromInt(6),
+		bodyDef := b2.DefaultBodyDef()
+		bodyDef.Type = b2.DynamicBody
+		bodyDef.Position = b2.Vec2{
+			X: b2.F(-26.7).Sub(b2.F(i)),
+			Y: b2.F(6),
 		}
 		// Bullet speed is linear velocity, so it is not converted to turns.
-		speed := shared.RandomFloatRange(dbox2d.QFromInt(200), dbox2d.QFromInt(300))
-		bodyDef.LinearVelocity = dbox2d.Vec2{X: speed}
+		speed := shared.RandomFloatRange(b2.F(200), b2.F(300))
+		bodyDef.LinearVelocity = b2.Vec2{X: speed}
 		bodyDef.IsBullet = true
 
-		bulletID := dbox2d.CreateBody(s.WorldId, &bodyDef)
+		bulletID := b2.CreateBody(s.WorldId, &bodyDef)
 		if s.bulletType == verticalStackBoxShape {
-			dbox2d.CreatePolygonShape(bulletID, &shapeDef, &box)
+			b2.CreatePolygonShape(bulletID, &shapeDef, &box)
 		} else {
-			dbox2d.CreateCircleShape(bulletID, &shapeDef, &circle)
+			b2.CreateCircleShape(bulletID, &shapeDef, &circle)
 		}
 		s.bullets[i] = bulletID
 	}
@@ -358,38 +358,38 @@ func NewCircleStack(ctx *SampleContext) Sample {
 
 	shapeIndex := 0
 	{
-		bodyDef := dbox2d.DefaultBodyDef()
-		groundID := dbox2d.CreateBody(s.WorldId, &bodyDef)
-		shapeDef := dbox2d.DefaultShapeDef()
+		bodyDef := b2.DefaultBodyDef()
+		groundID := b2.CreateBody(s.WorldId, &bodyDef)
+		shapeDef := b2.DefaultShapeDef()
 		shapeDef.UserData = shapeIndex
 		shapeIndex++
 
-		segment := dbox2d.Segment{
-			Point1: dbox2d.Vec2{X: dbox2d.QFromInt(-10)},
-			Point2: dbox2d.Vec2{X: dbox2d.QFromInt(10)},
+		segment := b2.Segment{
+			Point1: b2.V2(-10, 0),
+			Point2: b2.V2(10, 0),
 		}
-		dbox2d.CreateSegmentShape(groundID, &shapeDef, &segment)
+		b2.CreateSegmentShape(groundID, &shapeDef, &segment)
 	}
 
-	s.WorldId.SetGravity(dbox2d.Vec2{Y: dbox2d.QFromInt(-20)})
-	s.WorldId.SetContactTuning(dbox2d.QFromInt(90), dbox2d.QFromInt(10), dbox2d.QFromInt(3))
+	s.WorldId.SetGravity(b2.V2(0, -20))
+	s.WorldId.SetContactTuning(b2.F(90), b2.F(10), b2.F(3))
 
-	bodyDef := dbox2d.DefaultBodyDef()
-	bodyDef.Type = dbox2d.DynamicBody
-	circle := dbox2d.Circle{Radius: dbox2d.QHalf()}
-	shapeDef := dbox2d.DefaultShapeDef()
+	bodyDef := b2.DefaultBodyDef()
+	bodyDef.Type = b2.DynamicBody
+	circle := b2.Circle{Radius: b2.QHalf()}
+	shapeDef := b2.DefaultShapeDef()
 	shapeDef.EnableHitEvents = true
-	shapeDef.Material.Friction = dbox2d.QZero()
+	shapeDef.Material.Friction = b2.QZero()
 
-	y := dbox2d.QFromRatio(3, 4)
+	y := b2.QFromRatio(3, 4)
 	for i := range 10 {
 		bodyDef.Position.Y = y
-		bodyID := dbox2d.CreateBody(s.WorldId, &bodyDef)
+		bodyID := b2.CreateBody(s.WorldId, &bodyDef)
 		shapeDef.UserData = shapeIndex
-		shapeDef.Density = dbox2d.QFromInt(1 + 4*i)
+		shapeDef.Density = b2.F(1 + 4*i)
 		shapeIndex++
-		dbox2d.CreateCircleShape(bodyID, &shapeDef, &circle)
-		y = y.Add(dbox2d.QFromRatio(5, 4))
+		b2.CreateCircleShape(bodyID, &shapeDef, &circle)
+		y = y.Add(b2.QFromRatio(5, 4))
 	}
 
 	return s
@@ -402,7 +402,7 @@ func (s *CircleStack) Step() {
 	for _, event := range events.HitEvents {
 		indexA, _ := event.ShapeIdA.GetUserData().(int)
 		indexB, _ := event.ShapeIdB.GetUserData().(int)
-		s.Context.Draw.DrawPoint(event.Point, dbox2d.QFromInt(10), dbox2d.ColorWhite)
+		s.Context.Draw.DrawPoint(event.Point, b2.F(10), b2.ColorWhite)
 		s.events = append(s.events, circleStackEvent{indexA: indexA, indexB: indexB})
 	}
 
@@ -426,31 +426,31 @@ func NewCapsuleStack(ctx *SampleContext) Sample {
 	}
 
 	{
-		bodyDef := dbox2d.DefaultBodyDef()
-		bodyDef.Position = dbox2d.Vec2{Y: dbox2d.QFromInt(-1)}
-		groundID := dbox2d.CreateBody(s.WorldId, &bodyDef)
+		bodyDef := b2.DefaultBodyDef()
+		bodyDef.Position = b2.V2(0, -1)
+		groundID := b2.CreateBody(s.WorldId, &bodyDef)
 
-		shapeDef := dbox2d.DefaultShapeDef()
-		polygon := dbox2d.MakeBox(dbox2d.QFromInt(10), dbox2d.QOne())
-		dbox2d.CreatePolygonShape(groundID, &shapeDef, &polygon)
+		shapeDef := b2.DefaultShapeDef()
+		polygon := b2.MakeBox(b2.F(10), b2.QOne())
+		b2.CreatePolygonShape(groundID, &shapeDef, &polygon)
 	}
 
-	bodyDef := dbox2d.DefaultBodyDef()
-	bodyDef.Type = dbox2d.DynamicBody
-	a := dbox2d.QFromRatio(1, 4)
-	capsule := dbox2d.Capsule{
-		Center1: dbox2d.Vec2{X: dbox2d.QFromInt(-4).Mul(a)},
-		Center2: dbox2d.Vec2{X: dbox2d.QFromInt(4).Mul(a)},
+	bodyDef := b2.DefaultBodyDef()
+	bodyDef.Type = b2.DynamicBody
+	a := b2.QFromRatio(1, 4)
+	capsule := b2.Capsule{
+		Center1: b2.Vec2{X: b2.F(-4).Mul(a)},
+		Center2: b2.Vec2{X: b2.F(4).Mul(a)},
 		Radius:  a,
 	}
-	shapeDef := dbox2d.DefaultShapeDef()
+	shapeDef := b2.DefaultShapeDef()
 
-	y := dbox2d.QFromInt(2).Mul(a)
+	y := b2.F(2).Mul(a)
 	for range 20 {
 		bodyDef.Position.Y = y
-		bodyID := dbox2d.CreateBody(s.WorldId, &bodyDef)
-		dbox2d.CreateCapsuleShape(bodyID, &shapeDef, &capsule)
-		y = y.Add(dbox2d.QFromInt(3).Mul(a))
+		bodyID := b2.CreateBody(s.WorldId, &bodyDef)
+		b2.CreateCapsuleShape(bodyID, &shapeDef, &capsule)
+		y = y.Add(b2.F(3).Mul(a))
 	}
 
 	return s
@@ -459,7 +459,7 @@ func NewCapsuleStack(ctx *SampleContext) Sample {
 // Cliff runs moving shapes across a stepped set of static surfaces.
 type Cliff struct {
 	Base
-	bodyIDs [9]dbox2d.BodyId
+	bodyIDs [9]b2.BodyId
 	flip    bool
 }
 
@@ -473,32 +473,32 @@ func NewCliff(ctx *SampleContext) Sample {
 	}
 
 	{
-		bodyDef := dbox2d.DefaultBodyDef()
-		groundID := dbox2d.CreateBody(s.WorldId, &bodyDef)
-		shapeDef := dbox2d.DefaultShapeDef()
-		box := dbox2d.MakeOffsetBox(dbox2d.QFromInt(100), dbox2d.QOne(), dbox2d.Vec2{Y: dbox2d.QFromInt(-1)}, dbox2d.RotIdentity())
-		dbox2d.CreatePolygonShape(groundID, &shapeDef, &box)
+		bodyDef := b2.DefaultBodyDef()
+		groundID := b2.CreateBody(s.WorldId, &bodyDef)
+		shapeDef := b2.DefaultShapeDef()
+		box := b2.MakeOffsetBox(b2.F(100), b2.QOne(), b2.V2(0, -1), b2.RotIdentity())
+		b2.CreatePolygonShape(groundID, &shapeDef, &box)
 
-		segment := dbox2d.Segment{
-			Point1: dbox2d.Vec2{X: dbox2d.QFromInt(-14), Y: dbox2d.QFromInt(4)},
-			Point2: dbox2d.Vec2{X: dbox2d.QFromInt(-8), Y: dbox2d.QFromInt(4)},
+		segment := b2.Segment{
+			Point1: b2.V2(-14, 4),
+			Point2: b2.V2(-8, 4),
 		}
-		dbox2d.CreateSegmentShape(groundID, &shapeDef, &segment)
+		b2.CreateSegmentShape(groundID, &shapeDef, &segment)
 
-		box = dbox2d.MakeOffsetBox(dbox2d.QFromInt(3), dbox2d.QFromRatio(1, 2), dbox2d.Vec2{Y: dbox2d.QFromInt(4)}, dbox2d.RotIdentity())
-		dbox2d.CreatePolygonShape(groundID, &shapeDef, &box)
+		box = b2.MakeOffsetBox(b2.F(3), b2.QFromRatio(1, 2), b2.V2(0, 4), b2.RotIdentity())
+		b2.CreatePolygonShape(groundID, &shapeDef, &box)
 
-		capsule := dbox2d.Capsule{
-			Center1: dbox2d.Vec2{X: dbox2d.QMustParse("8.5"), Y: dbox2d.QFromInt(4)},
-			Center2: dbox2d.Vec2{X: dbox2d.QMustParse("13.5"), Y: dbox2d.QFromInt(4)},
-			Radius:  dbox2d.QHalf(),
+		capsule := b2.Capsule{
+			Center1: b2.V2(8.5, 4.0),
+			Center2: b2.V2(13.5, 4.0),
+			Radius:  b2.QHalf(),
 		}
-		dbox2d.CreateCapsuleShape(groundID, &shapeDef, &capsule)
+		b2.CreateCapsuleShape(groundID, &shapeDef, &capsule)
 	}
 
 	s.flip = false
 	for i := range s.bodyIDs {
-		s.bodyIDs[i] = dbox2d.BodyId{}
+		s.bodyIDs[i] = b2.BodyId{}
 	}
 	s.createBodies()
 
@@ -508,89 +508,89 @@ func NewCliff(ctx *SampleContext) Sample {
 func (s *Cliff) createBodies() {
 	for i := range s.bodyIDs {
 		if !s.bodyIDs[i].IsNull() {
-			dbox2d.DestroyBody(s.bodyIDs[i])
-			s.bodyIDs[i] = dbox2d.BodyId{}
+			b2.DestroyBody(s.bodyIDs[i])
+			s.bodyIDs[i] = b2.BodyId{}
 		}
 	}
 
-	sign := dbox2d.QOne()
+	sign := b2.QOne()
 	if s.flip {
 		sign = sign.Neg()
 	}
 
-	capsule := dbox2d.Capsule{
-		Center1: dbox2d.Vec2{X: dbox2d.QFromRatio(-1, 4)},
-		Center2: dbox2d.Vec2{X: dbox2d.QFromRatio(1, 4)},
-		Radius:  dbox2d.QFromRatio(1, 4),
+	capsule := b2.Capsule{
+		Center1: b2.Vec2{X: b2.QFromRatio(-1, 4)},
+		Center2: b2.Vec2{X: b2.QFromRatio(1, 4)},
+		Radius:  b2.QFromRatio(1, 4),
 	}
-	circle := dbox2d.Circle{Radius: dbox2d.QHalf()}
-	square := dbox2d.MakeSquare(dbox2d.QHalf())
+	circle := b2.Circle{Radius: b2.QHalf()}
+	square := b2.MakeSquare(b2.QHalf())
 
-	bodyDef := dbox2d.DefaultBodyDef()
-	bodyDef.Type = dbox2d.DynamicBody
+	bodyDef := b2.DefaultBodyDef()
+	bodyDef.Type = b2.DynamicBody
 
 	{
-		shapeDef := dbox2d.DefaultShapeDef()
-		shapeDef.Material.Friction = dbox2d.QFromRatio(1, 100)
-		bodyDef.LinearVelocity = dbox2d.Vec2{X: dbox2d.QFromInt(2).Mul(sign)}
+		shapeDef := b2.DefaultShapeDef()
+		shapeDef.Material.Friction = b2.QFromRatio(1, 100)
+		bodyDef.LinearVelocity = b2.Vec2{X: b2.F(2).Mul(sign)}
 
-		offset := dbox2d.QZero()
+		offset := b2.QZero()
 		if s.flip {
-			offset = dbox2d.QFromInt(-4)
+			offset = b2.F(-4)
 		}
 
-		bodyDef.Position = dbox2d.Vec2{X: dbox2d.QFromInt(-9).Add(offset), Y: dbox2d.QMustParse("4.25")}
-		s.bodyIDs[0] = dbox2d.CreateBody(s.WorldId, &bodyDef)
-		dbox2d.CreateCapsuleShape(s.bodyIDs[0], &shapeDef, &capsule)
+		bodyDef.Position = b2.Vec2{X: b2.F(-9).Add(offset), Y: b2.F(4.25)}
+		s.bodyIDs[0] = b2.CreateBody(s.WorldId, &bodyDef)
+		b2.CreateCapsuleShape(s.bodyIDs[0], &shapeDef, &capsule)
 
-		bodyDef.Position = dbox2d.Vec2{X: dbox2d.QFromInt(2).Add(offset), Y: dbox2d.QMustParse("4.75")}
-		s.bodyIDs[1] = dbox2d.CreateBody(s.WorldId, &bodyDef)
-		dbox2d.CreateCapsuleShape(s.bodyIDs[1], &shapeDef, &capsule)
+		bodyDef.Position = b2.Vec2{X: b2.F(2).Add(offset), Y: b2.F(4.75)}
+		s.bodyIDs[1] = b2.CreateBody(s.WorldId, &bodyDef)
+		b2.CreateCapsuleShape(s.bodyIDs[1], &shapeDef, &capsule)
 
-		bodyDef.Position = dbox2d.Vec2{X: dbox2d.QFromInt(13).Add(offset), Y: dbox2d.QMustParse("4.75")}
-		s.bodyIDs[2] = dbox2d.CreateBody(s.WorldId, &bodyDef)
-		dbox2d.CreateCapsuleShape(s.bodyIDs[2], &shapeDef, &capsule)
+		bodyDef.Position = b2.Vec2{X: b2.F(13).Add(offset), Y: b2.F(4.75)}
+		s.bodyIDs[2] = b2.CreateBody(s.WorldId, &bodyDef)
+		b2.CreateCapsuleShape(s.bodyIDs[2], &shapeDef, &capsule)
 	}
 
 	{
-		shapeDef := dbox2d.DefaultShapeDef()
-		shapeDef.Material.Friction = dbox2d.QFromRatio(1, 100)
-		bodyDef.LinearVelocity = dbox2d.Vec2{X: dbox2d.QMustParse("2.5").Mul(sign)}
+		shapeDef := b2.DefaultShapeDef()
+		shapeDef.Material.Friction = b2.QFromRatio(1, 100)
+		bodyDef.LinearVelocity = b2.Vec2{X: b2.F(2.5).Mul(sign)}
 
-		bodyDef.Position = dbox2d.Vec2{X: dbox2d.QFromInt(-11), Y: dbox2d.QMustParse("4.5")}
-		s.bodyIDs[3] = dbox2d.CreateBody(s.WorldId, &bodyDef)
-		dbox2d.CreatePolygonShape(s.bodyIDs[3], &shapeDef, &square)
+		bodyDef.Position = b2.V2(-11.0, 4.5)
+		s.bodyIDs[3] = b2.CreateBody(s.WorldId, &bodyDef)
+		b2.CreatePolygonShape(s.bodyIDs[3], &shapeDef, &square)
 
-		bodyDef.Position = dbox2d.Vec2{Y: dbox2d.QFromInt(5)}
-		s.bodyIDs[4] = dbox2d.CreateBody(s.WorldId, &bodyDef)
-		dbox2d.CreatePolygonShape(s.bodyIDs[4], &shapeDef, &square)
+		bodyDef.Position = b2.V2(0, 5)
+		s.bodyIDs[4] = b2.CreateBody(s.WorldId, &bodyDef)
+		b2.CreatePolygonShape(s.bodyIDs[4], &shapeDef, &square)
 
-		bodyDef.Position = dbox2d.Vec2{X: dbox2d.QFromInt(11), Y: dbox2d.QFromInt(5)}
-		s.bodyIDs[5] = dbox2d.CreateBody(s.WorldId, &bodyDef)
-		dbox2d.CreatePolygonShape(s.bodyIDs[5], &shapeDef, &square)
+		bodyDef.Position = b2.V2(11, 5)
+		s.bodyIDs[5] = b2.CreateBody(s.WorldId, &bodyDef)
+		b2.CreatePolygonShape(s.bodyIDs[5], &shapeDef, &square)
 	}
 
 	{
-		shapeDef := dbox2d.DefaultShapeDef()
-		shapeDef.Material.Friction = dbox2d.QFromRatio(1, 5)
-		bodyDef.LinearVelocity = dbox2d.Vec2{X: dbox2d.QMustParse("1.5").Mul(sign)}
+		shapeDef := b2.DefaultShapeDef()
+		shapeDef.Material.Friction = b2.QFromRatio(1, 5)
+		bodyDef.LinearVelocity = b2.Vec2{X: b2.F(1.5).Mul(sign)}
 
-		offset := dbox2d.QZero()
+		offset := b2.QZero()
 		if s.flip {
-			offset = dbox2d.QFromInt(4)
+			offset = b2.F(4)
 		}
 
-		bodyDef.Position = dbox2d.Vec2{X: dbox2d.QFromInt(-13).Add(offset), Y: dbox2d.QMustParse("4.5")}
-		s.bodyIDs[6] = dbox2d.CreateBody(s.WorldId, &bodyDef)
-		dbox2d.CreateCircleShape(s.bodyIDs[6], &shapeDef, &circle)
+		bodyDef.Position = b2.Vec2{X: b2.F(-13).Add(offset), Y: b2.F(4.5)}
+		s.bodyIDs[6] = b2.CreateBody(s.WorldId, &bodyDef)
+		b2.CreateCircleShape(s.bodyIDs[6], &shapeDef, &circle)
 
-		bodyDef.Position = dbox2d.Vec2{X: dbox2d.QFromInt(-2).Add(offset), Y: dbox2d.QFromInt(5)}
-		s.bodyIDs[7] = dbox2d.CreateBody(s.WorldId, &bodyDef)
-		dbox2d.CreateCircleShape(s.bodyIDs[7], &shapeDef, &circle)
+		bodyDef.Position = b2.Vec2{X: b2.F(-2).Add(offset), Y: b2.F(5)}
+		s.bodyIDs[7] = b2.CreateBody(s.WorldId, &bodyDef)
+		b2.CreateCircleShape(s.bodyIDs[7], &shapeDef, &circle)
 
-		bodyDef.Position = dbox2d.Vec2{X: dbox2d.QFromInt(9).Add(offset), Y: dbox2d.QFromInt(5)}
-		s.bodyIDs[8] = dbox2d.CreateBody(s.WorldId, &bodyDef)
-		dbox2d.CreateCircleShape(s.bodyIDs[8], &shapeDef, &circle)
+		bodyDef.Position = b2.Vec2{X: b2.F(9).Add(offset), Y: b2.F(5)}
+		s.bodyIDs[8] = b2.CreateBody(s.WorldId, &bodyDef)
+		b2.CreateCircleShape(s.bodyIDs[8], &shapeDef, &circle)
 	}
 }
 
@@ -620,30 +620,30 @@ func NewArch(ctx *SampleContext) Sample {
 		ctx.Camera.Zoom = 25.0 * 0.35
 	}
 
-	ps1 := [9]dbox2d.Vec2{
-		{X: dbox2d.QMustParse("16.0"), Y: dbox2d.QMustParse("0.0")},
-		{X: dbox2d.QMustParse("14.93803712795643"), Y: dbox2d.QMustParse("5.133601056842984")},
-		{X: dbox2d.QMustParse("13.79871746027416"), Y: dbox2d.QMustParse("10.24928069555078")},
-		{X: dbox2d.QMustParse("12.56252963284711"), Y: dbox2d.QMustParse("15.34107019122473")},
-		{X: dbox2d.QMustParse("11.20040987372525"), Y: dbox2d.QMustParse("20.39856541571217")},
-		{X: dbox2d.QMustParse("9.66521217819836"), Y: dbox2d.QMustParse("25.40369899225096")},
-		{X: dbox2d.QMustParse("7.87179930638133"), Y: dbox2d.QMustParse("30.3179337000085")},
-		{X: dbox2d.QMustParse("5.635199558196225"), Y: dbox2d.QMustParse("35.03820717801641")},
-		{X: dbox2d.QMustParse("2.405937953536585"), Y: dbox2d.QMustParse("39.09554102558315")},
+	ps1 := [9]b2.Vec2{
+		{X: b2.F(16.0), Y: b2.F(0.0)},
+		{X: b2.F(14.93803712795643), Y: b2.F(5.133601056842984)},
+		{X: b2.F(13.79871746027416), Y: b2.F(10.24928069555078)},
+		{X: b2.F(12.56252963284711), Y: b2.F(15.34107019122473)},
+		{X: b2.F(11.20040987372525), Y: b2.F(20.39856541571217)},
+		{X: b2.F(9.66521217819836), Y: b2.F(25.40369899225096)},
+		{X: b2.F(7.87179930638133), Y: b2.F(30.3179337000085)},
+		{X: b2.F(5.635199558196225), Y: b2.F(35.03820717801641)},
+		{X: b2.F(2.405937953536585), Y: b2.F(39.09554102558315)},
 	}
-	ps2 := [9]dbox2d.Vec2{
-		{X: dbox2d.QMustParse("24.0"), Y: dbox2d.QMustParse("0.0")},
-		{X: dbox2d.QMustParse("22.33619528222415"), Y: dbox2d.QMustParse("6.02299846205841")},
-		{X: dbox2d.QMustParse("20.54936888969905"), Y: dbox2d.QMustParse("12.00964361211476")},
-		{X: dbox2d.QMustParse("18.60854610798073"), Y: dbox2d.QMustParse("17.9470321677465")},
-		{X: dbox2d.QMustParse("16.46769273811807"), Y: dbox2d.QMustParse("23.81367936585418")},
-		{X: dbox2d.QMustParse("14.05325025774858"), Y: dbox2d.QMustParse("29.57079353071012")},
-		{X: dbox2d.QMustParse("11.23551045834022"), Y: dbox2d.QMustParse("35.13775818285372")},
-		{X: dbox2d.QMustParse("7.752568160730571"), Y: dbox2d.QMustParse("40.30450679009583")},
-		{X: dbox2d.QMustParse("3.016931552701656"), Y: dbox2d.QMustParse("44.28891593799322")},
+	ps2 := [9]b2.Vec2{
+		{X: b2.F(24.0), Y: b2.F(0.0)},
+		{X: b2.F(22.33619528222415), Y: b2.F(6.02299846205841)},
+		{X: b2.F(20.54936888969905), Y: b2.F(12.00964361211476)},
+		{X: b2.F(18.60854610798073), Y: b2.F(17.9470321677465)},
+		{X: b2.F(16.46769273811807), Y: b2.F(23.81367936585418)},
+		{X: b2.F(14.05325025774858), Y: b2.F(29.57079353071012)},
+		{X: b2.F(11.23551045834022), Y: b2.F(35.13775818285372)},
+		{X: b2.F(7.752568160730571), Y: b2.F(40.30450679009583)},
+		{X: b2.F(3.016931552701656), Y: b2.F(44.28891593799322)},
 	}
 
-	scale := dbox2d.QFromRatio(1, 4)
+	scale := b2.QFromRatio(1, 4)
 	for i := range ps1 {
 		ps1[i].X = ps1[i].X.Mul(scale)
 		ps1[i].Y = ps1[i].Y.Mul(scale)
@@ -651,61 +651,61 @@ func NewArch(ctx *SampleContext) Sample {
 		ps2[i].Y = ps2[i].Y.Mul(scale)
 	}
 
-	shapeDef := dbox2d.DefaultShapeDef()
-	shapeDef.Material.Friction = dbox2d.QMustParse("0.6")
+	shapeDef := b2.DefaultShapeDef()
+	shapeDef.Material.Friction = b2.F(0.6)
 
 	{
-		bodyDef := dbox2d.DefaultBodyDef()
-		groundID := dbox2d.CreateBody(s.WorldId, &bodyDef)
-		segment := dbox2d.Segment{
-			Point1: dbox2d.Vec2{X: dbox2d.QFromInt(-100)},
-			Point2: dbox2d.Vec2{X: dbox2d.QFromInt(100)},
+		bodyDef := b2.DefaultBodyDef()
+		groundID := b2.CreateBody(s.WorldId, &bodyDef)
+		segment := b2.Segment{
+			Point1: b2.V2(-100, 0),
+			Point2: b2.V2(100, 0),
 		}
-		dbox2d.CreateSegmentShape(groundID, &shapeDef, &segment)
+		b2.CreateSegmentShape(groundID, &shapeDef, &segment)
 	}
 
-	bodyDef := dbox2d.DefaultBodyDef()
-	bodyDef.Type = dbox2d.DynamicBody
+	bodyDef := b2.DefaultBodyDef()
+	bodyDef.Type = b2.DynamicBody
 	for i := range 8 {
-		bodyID := dbox2d.CreateBody(s.WorldId, &bodyDef)
-		points := []dbox2d.Vec2{ps1[i], ps2[i], ps2[i+1], ps1[i+1]}
-		hull := dbox2d.ComputeHull(points)
-		polygon := dbox2d.MakePolygon(&hull, dbox2d.QZero())
-		dbox2d.CreatePolygonShape(bodyID, &shapeDef, &polygon)
+		bodyID := b2.CreateBody(s.WorldId, &bodyDef)
+		points := []b2.Vec2{ps1[i], ps2[i], ps2[i+1], ps1[i+1]}
+		hull := b2.ComputeHull(points)
+		polygon := b2.MakePolygon(&hull, b2.QZero())
+		b2.CreatePolygonShape(bodyID, &shapeDef, &polygon)
 	}
 
 	for i := range 8 {
-		bodyID := dbox2d.CreateBody(s.WorldId, &bodyDef)
-		points := []dbox2d.Vec2{
+		bodyID := b2.CreateBody(s.WorldId, &bodyDef)
+		points := []b2.Vec2{
 			{X: ps2[i].X.Neg(), Y: ps2[i].Y},
 			{X: ps1[i].X.Neg(), Y: ps1[i].Y},
 			{X: ps1[i+1].X.Neg(), Y: ps1[i+1].Y},
 			{X: ps2[i+1].X.Neg(), Y: ps2[i+1].Y},
 		}
-		hull := dbox2d.ComputeHull(points)
-		polygon := dbox2d.MakePolygon(&hull, dbox2d.QZero())
-		dbox2d.CreatePolygonShape(bodyID, &shapeDef, &polygon)
+		hull := b2.ComputeHull(points)
+		polygon := b2.MakePolygon(&hull, b2.QZero())
+		b2.CreatePolygonShape(bodyID, &shapeDef, &polygon)
 	}
 
 	{
-		bodyID := dbox2d.CreateBody(s.WorldId, &bodyDef)
-		points := []dbox2d.Vec2{
+		bodyID := b2.CreateBody(s.WorldId, &bodyDef)
+		points := []b2.Vec2{
 			ps1[8], ps2[8],
 			{X: ps2[8].X.Neg(), Y: ps2[8].Y},
 			{X: ps1[8].X.Neg(), Y: ps1[8].Y},
 		}
-		hull := dbox2d.ComputeHull(points)
-		polygon := dbox2d.MakePolygon(&hull, dbox2d.QZero())
-		dbox2d.CreatePolygonShape(bodyID, &shapeDef, &polygon)
+		hull := b2.ComputeHull(points)
+		polygon := b2.MakePolygon(&hull, b2.QZero())
+		b2.CreatePolygonShape(bodyID, &shapeDef, &polygon)
 	}
 
-	box := dbox2d.MakeBox(dbox2d.QFromInt(2), dbox2d.QHalf())
+	box := b2.MakeBox(b2.F(2), b2.QHalf())
 	for i := range 4 {
-		bodyDef.Position = dbox2d.Vec2{
-			Y: dbox2d.QHalf().Add(ps2[8].Y).Add(dbox2d.QFromInt(i)),
+		bodyDef.Position = b2.Vec2{
+			Y: b2.QHalf().Add(ps2[8].Y).Add(b2.F(i)),
 		}
-		bodyID := dbox2d.CreateBody(s.WorldId, &bodyDef)
-		dbox2d.CreatePolygonShape(bodyID, &shapeDef, &box)
+		bodyID := b2.CreateBody(s.WorldId, &bodyDef)
+		b2.CreatePolygonShape(bodyID, &shapeDef, &box)
 	}
 
 	return s
@@ -726,33 +726,33 @@ func NewDoubleDomino(ctx *SampleContext) Sample {
 	}
 
 	{
-		bodyDef := dbox2d.DefaultBodyDef()
-		bodyDef.Position = dbox2d.Vec2{Y: dbox2d.QFromInt(-1)}
-		groundID := dbox2d.CreateBody(s.WorldId, &bodyDef)
-		box := dbox2d.MakeBox(dbox2d.QFromInt(100), dbox2d.QFromInt(1))
-		shapeDef := dbox2d.DefaultShapeDef()
-		dbox2d.CreatePolygonShape(groundID, &shapeDef, &box)
+		bodyDef := b2.DefaultBodyDef()
+		bodyDef.Position = b2.V2(0, -1)
+		groundID := b2.CreateBody(s.WorldId, &bodyDef)
+		box := b2.MakeBox(b2.F(100), b2.F(1))
+		shapeDef := b2.DefaultShapeDef()
+		b2.CreatePolygonShape(groundID, &shapeDef, &box)
 	}
 
-	box := dbox2d.MakeBox(dbox2d.QFromRatio(1, 8), dbox2d.QHalf())
-	shapeDef := dbox2d.DefaultShapeDef()
-	shapeDef.Material.Friction = dbox2d.QMustParse("0.6")
-	bodyDef := dbox2d.DefaultBodyDef()
-	bodyDef.Type = dbox2d.DynamicBody
+	box := b2.MakeBox(b2.QFromRatio(1, 8), b2.QHalf())
+	shapeDef := b2.DefaultShapeDef()
+	shapeDef.Material.Friction = b2.F(0.6)
+	bodyDef := b2.DefaultBodyDef()
+	bodyDef.Type = b2.DynamicBody
 	count := 15
-	x := dbox2d.QFromRatio(-count, 2)
+	x := b2.QFromRatio(-count, 2)
 	for i := range count {
-		bodyDef.Position = dbox2d.Vec2{X: x, Y: dbox2d.QHalf()}
-		bodyID := dbox2d.CreateBody(s.WorldId, &bodyDef)
-		dbox2d.CreatePolygonShape(bodyID, &shapeDef, &box)
+		bodyDef.Position = b2.Vec2{X: x, Y: b2.QHalf()}
+		bodyID := b2.CreateBody(s.WorldId, &bodyDef)
+		b2.CreatePolygonShape(bodyID, &shapeDef, &box)
 		if i == 0 {
 			bodyID.ApplyLinearImpulse(
-				dbox2d.Vec2{X: dbox2d.QMustParse("0.2")},
-				dbox2d.Vec2{X: x, Y: dbox2d.QFromInt(1)},
+				b2.V2(0.2, 0.0),
+				b2.Vec2{X: x, Y: b2.F(1)},
 				true,
 			)
 		}
-		x = x.Add(dbox2d.QOne())
+		x = x.Add(b2.QOne())
 	}
 
 	return s
@@ -781,52 +781,52 @@ func NewConfined(ctx *SampleContext) Sample {
 	}
 
 	{
-		bodyDef := dbox2d.DefaultBodyDef()
-		groundID := dbox2d.CreateBody(s.WorldId, &bodyDef)
-		shapeDef := dbox2d.DefaultShapeDef()
-		capsule := dbox2d.Capsule{
-			Center1: dbox2d.Vec2{X: dbox2d.QMustParse("-10.5")},
-			Center2: dbox2d.Vec2{X: dbox2d.QMustParse("10.5")},
-			Radius:  dbox2d.QHalf(),
+		bodyDef := b2.DefaultBodyDef()
+		groundID := b2.CreateBody(s.WorldId, &bodyDef)
+		shapeDef := b2.DefaultShapeDef()
+		capsule := b2.Capsule{
+			Center1: b2.V2(-10.5, 0.0),
+			Center2: b2.V2(10.5, 0.0),
+			Radius:  b2.QHalf(),
 		}
-		dbox2d.CreateCapsuleShape(groundID, &shapeDef, &capsule)
-		capsule = dbox2d.Capsule{
-			Center1: dbox2d.Vec2{X: dbox2d.QMustParse("-10.5")},
-			Center2: dbox2d.Vec2{X: dbox2d.QMustParse("-10.5"), Y: dbox2d.QMustParse("20.5")},
-			Radius:  dbox2d.QHalf(),
+		b2.CreateCapsuleShape(groundID, &shapeDef, &capsule)
+		capsule = b2.Capsule{
+			Center1: b2.V2(-10.5, 0.0),
+			Center2: b2.V2(-10.5, 20.5),
+			Radius:  b2.QHalf(),
 		}
-		dbox2d.CreateCapsuleShape(groundID, &shapeDef, &capsule)
-		capsule = dbox2d.Capsule{
-			Center1: dbox2d.Vec2{X: dbox2d.QMustParse("10.5")},
-			Center2: dbox2d.Vec2{X: dbox2d.QMustParse("10.5"), Y: dbox2d.QMustParse("20.5")},
-			Radius:  dbox2d.QHalf(),
+		b2.CreateCapsuleShape(groundID, &shapeDef, &capsule)
+		capsule = b2.Capsule{
+			Center1: b2.V2(10.5, 0.0),
+			Center2: b2.V2(10.5, 20.5),
+			Radius:  b2.QHalf(),
 		}
-		dbox2d.CreateCapsuleShape(groundID, &shapeDef, &capsule)
-		capsule = dbox2d.Capsule{
-			Center1: dbox2d.Vec2{X: dbox2d.QMustParse("-10.5"), Y: dbox2d.QMustParse("20.5")},
-			Center2: dbox2d.Vec2{X: dbox2d.QMustParse("10.5"), Y: dbox2d.QMustParse("20.5")},
-			Radius:  dbox2d.QHalf(),
+		b2.CreateCapsuleShape(groundID, &shapeDef, &capsule)
+		capsule = b2.Capsule{
+			Center1: b2.V2(-10.5, 20.5),
+			Center2: b2.V2(10.5, 20.5),
+			Radius:  b2.QHalf(),
 		}
-		dbox2d.CreateCapsuleShape(groundID, &shapeDef, &capsule)
+		b2.CreateCapsuleShape(groundID, &shapeDef, &capsule)
 	}
 
 	s.row = 0
 	s.column = 0
 	s.count = 0
-	bodyDef := dbox2d.DefaultBodyDef()
-	bodyDef.Type = dbox2d.DynamicBody
-	bodyDef.GravityScale = dbox2d.QZero()
-	shapeDef := dbox2d.DefaultShapeDef()
-	circle := dbox2d.Circle{Radius: dbox2d.QHalf()}
-	step := dbox2d.QFromRatio(18, confinedGridCount)
+	bodyDef := b2.DefaultBodyDef()
+	bodyDef.Type = b2.DynamicBody
+	bodyDef.GravityScale = b2.QZero()
+	shapeDef := b2.DefaultShapeDef()
+	circle := b2.Circle{Radius: b2.QHalf()}
+	step := b2.QFromRatio(18, confinedGridCount)
 	for s.count < confinedMaxCount {
 		s.row = 0
 		for range confinedGridCount {
-			x := dbox2d.QMustParse("-8.75").Add(dbox2d.QFromInt(s.column).Mul(step))
-			y := dbox2d.QMustParse("1.5").Add(dbox2d.QFromInt(s.row).Mul(step))
-			bodyDef.Position = dbox2d.Vec2{X: x, Y: y}
-			bodyID := dbox2d.CreateBody(s.WorldId, &bodyDef)
-			dbox2d.CreateCircleShape(bodyID, &shapeDef, &circle)
+			x := b2.F(-8.75).Add(b2.F(s.column).Mul(step))
+			y := b2.F(1.5).Add(b2.F(s.row).Mul(step))
+			bodyDef.Position = b2.Vec2{X: x, Y: y}
+			bodyID := b2.CreateBody(s.WorldId, &bodyDef)
+			b2.CreateCircleShape(bodyID, &shapeDef, &circle)
 			s.count++
 			s.row++
 		}
@@ -850,53 +850,53 @@ func NewCardHouse(ctx *SampleContext) Sample {
 		ctx.Camera.Zoom = 25.0 * 0.05
 	}
 
-	bodyDef := dbox2d.DefaultBodyDef()
-	bodyDef.Position = dbox2d.Vec2{Y: dbox2d.QFromInt(-2)}
-	groundID := dbox2d.CreateBody(s.WorldId, &bodyDef)
-	shapeDef := dbox2d.DefaultShapeDef()
-	shapeDef.Material.Friction = dbox2d.QMustParse("0.7")
-	groundBox := dbox2d.MakeBox(dbox2d.QFromInt(40), dbox2d.QFromInt(2))
-	dbox2d.CreatePolygonShape(groundID, &shapeDef, &groundBox)
+	bodyDef := b2.DefaultBodyDef()
+	bodyDef.Position = b2.V2(0, -2)
+	groundID := b2.CreateBody(s.WorldId, &bodyDef)
+	shapeDef := b2.DefaultShapeDef()
+	shapeDef.Material.Friction = b2.F(0.7)
+	groundBox := b2.MakeBox(b2.F(40), b2.F(2))
+	b2.CreatePolygonShape(groundID, &shapeDef, &groundBox)
 
-	cardHeight := dbox2d.QMustParse("0.2")
-	cardThickness := dbox2d.QMustParse("0.001")
-	angle0 := dbox2d.QFromRatio(5, 72)
+	cardHeight := b2.F(0.2)
+	cardThickness := b2.F(0.001)
+	angle0 := b2.QFromRatio(5, 72)
 	angle1 := angle0.Neg()
-	angle2 := dbox2d.QFromRatio(1, 4)
-	cardBox := dbox2d.MakeBox(cardThickness, cardHeight)
-	bodyDef.Type = dbox2d.DynamicBody
+	angle2 := b2.QFromRatio(1, 4)
+	cardBox := b2.MakeBox(cardThickness, cardHeight)
+	bodyDef.Type = b2.DynamicBody
 
 	nb := 5
-	z0 := dbox2d.QZero()
-	y := cardHeight.Sub(dbox2d.QMustParse("0.02"))
+	z0 := b2.QZero()
+	y := cardHeight.Sub(b2.F(0.02))
 	for nb > 0 {
 		z := z0
 		for i := range nb {
 			if i != nb-1 {
-				bodyDef.Position = dbox2d.Vec2{
-					X: z.Add(dbox2d.QMustParse("0.25")),
-					Y: y.Add(cardHeight).Sub(dbox2d.QMustParse("0.015")),
+				bodyDef.Position = b2.Vec2{
+					X: z.Add(b2.F(0.25)),
+					Y: y.Add(cardHeight).Sub(b2.F(0.015)),
 				}
-				bodyDef.Rotation = dbox2d.MakeRot(angle2)
-				bodyID := dbox2d.CreateBody(s.WorldId, &bodyDef)
-				dbox2d.CreatePolygonShape(bodyID, &shapeDef, &cardBox)
+				bodyDef.Rotation = b2.MakeRot(angle2)
+				bodyID := b2.CreateBody(s.WorldId, &bodyDef)
+				b2.CreatePolygonShape(bodyID, &shapeDef, &cardBox)
 			}
 
-			bodyDef.Position = dbox2d.Vec2{X: z, Y: y}
-			bodyDef.Rotation = dbox2d.MakeRot(angle1)
-			bodyID := dbox2d.CreateBody(s.WorldId, &bodyDef)
-			dbox2d.CreatePolygonShape(bodyID, &shapeDef, &cardBox)
+			bodyDef.Position = b2.Vec2{X: z, Y: y}
+			bodyDef.Rotation = b2.MakeRot(angle1)
+			bodyID := b2.CreateBody(s.WorldId, &bodyDef)
+			b2.CreatePolygonShape(bodyID, &shapeDef, &cardBox)
 
-			z = z.Add(dbox2d.QMustParse("0.175"))
-			bodyDef.Position = dbox2d.Vec2{X: z, Y: y}
-			bodyDef.Rotation = dbox2d.MakeRot(angle0)
-			bodyID = dbox2d.CreateBody(s.WorldId, &bodyDef)
-			dbox2d.CreatePolygonShape(bodyID, &shapeDef, &cardBox)
+			z = z.Add(b2.F(0.175))
+			bodyDef.Position = b2.Vec2{X: z, Y: y}
+			bodyDef.Rotation = b2.MakeRot(angle0)
+			bodyID = b2.CreateBody(s.WorldId, &bodyDef)
+			b2.CreatePolygonShape(bodyID, &shapeDef, &cardBox)
 
-			z = z.Add(dbox2d.QMustParse("0.175"))
+			z = z.Add(b2.F(0.175))
 		}
-		y = y.Add(cardHeight.Mul(dbox2d.QFromInt(2))).Sub(dbox2d.QMustParse("0.03"))
-		z0 = z0.Add(dbox2d.QMustParse("0.175"))
+		y = y.Add(cardHeight.Mul(b2.F(2))).Sub(b2.F(0.03))
+		z0 = z0.Add(b2.F(0.175))
 		nb--
 	}
 

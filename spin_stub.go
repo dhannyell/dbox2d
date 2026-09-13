@@ -1,5 +1,5 @@
 //go:build !amd64 && !arm64
 
-package dbox2d
+package b2
 
 func cpuPause() {}

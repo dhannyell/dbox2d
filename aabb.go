@@ -1,4 +1,4 @@
-package dbox2d
+package b2
 
 // AABB is an axis-aligned bounding box.
 type AABB struct {

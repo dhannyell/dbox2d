@@ -64,17 +64,17 @@ func CreateHuman(worldId WorldId, position Vec2, scale, frictionTorque, hertz, d
 
 	bodyDef := DefaultBodyDef()
 	bodyDef.Type = DynamicBody
-	bodyDef.SleepThreshold = QMustParse("0.1")
+	bodyDef.SleepThreshold = lit0p1
 	bodyDef.UserData = userData
 
 	shapeDef := DefaultShapeDef()
-	shapeDef.Material.Friction = QMustParse("0.2")
+	shapeDef.Material.Friction = lit0p2
 	shapeDef.Filter.GroupIndex = -groupIndex
 	shapeDef.Filter.CategoryBits = 2
 	shapeDef.Filter.MaskBits = 1 | 2
 
 	footShapeDef := shapeDef
-	footShapeDef.Material.Friction = QMustParse("0.05")
+	footShapeDef.Material.Friction = lit0p05
 	footShapeDef.Filter.CategoryBits = 2
 	footShapeDef.Filter.MaskBits = 1
 
@@ -86,7 +86,7 @@ func CreateHuman(worldId WorldId, position Vec2, scale, frictionTorque, hertz, d
 	maxTorque := frictionTorque.Mul(s)
 	enableMotor := true
 	enableLimit := true
-	drawSize := QMustParse("0.05")
+	drawSize := lit0p05
 
 	shirtColor := ColorMediumTurquoise
 	pantColor := ColorDodgerBlue
@@ -102,7 +102,7 @@ func CreateHuman(worldId WorldId, position Vec2, scale, frictionTorque, hertz, d
 		bone := &h.bones[boneHip]
 		bone.parentIndex = -1
 
-		bodyDef.Position = Vec2{Y: QMustParse("0.95").Mul(s)}.Add(position)
+		bodyDef.Position = Vec2{Y: lit0p95.Mul(s)}.Add(position)
 		bodyDef.LinearDamping = QZero()
 		bodyDef.Name = "hip"
 
@@ -113,9 +113,9 @@ func CreateHuman(worldId WorldId, position Vec2, scale, frictionTorque, hertz, d
 		}
 
 		capsule := Capsule{
-			Center1: Vec2{Y: QMustParse("-0.02").Mul(s)},
-			Center2: Vec2{Y: QMustParse("0.02").Mul(s)},
-			Radius:  QMustParse("0.095").Mul(s),
+			Center1: Vec2{Y: litNeg0p02.Mul(s)},
+			Center2: Vec2{Y: lit0p02.Mul(s)},
+			Radius:  lit0p095.Mul(s),
 		}
 		CreateCapsuleShape(bone.bodyId, &shapeDef, &capsule)
 	}
@@ -124,7 +124,7 @@ func CreateHuman(worldId WorldId, position Vec2, scale, frictionTorque, hertz, d
 		bone := &h.bones[boneTorso]
 		bone.parentIndex = int(boneHip)
 
-		bodyDef.Position = Vec2{Y: QMustParse("1.2").Mul(s)}.Add(position)
+		bodyDef.Position = Vec2{Y: lit1p2.Mul(s)}.Add(position)
 		bodyDef.LinearDamping = QZero()
 		bodyDef.Name = "torso"
 
@@ -137,9 +137,9 @@ func CreateHuman(worldId WorldId, position Vec2, scale, frictionTorque, hertz, d
 		}
 
 		capsule := Capsule{
-			Center1: Vec2{Y: QMustParse("-0.135").Mul(s)},
-			Center2: Vec2{Y: QMustParse("0.135").Mul(s)},
-			Radius:  QMustParse("0.09").Mul(s),
+			Center1: Vec2{Y: litNeg0p135.Mul(s)},
+			Center2: Vec2{Y: lit0p135.Mul(s)},
+			Radius:  lit0p09.Mul(s),
 		}
 		CreateCapsuleShape(bone.bodyId, &shapeDef, &capsule)
 
@@ -167,8 +167,8 @@ func CreateHuman(worldId WorldId, position Vec2, scale, frictionTorque, hertz, d
 		bone := &h.bones[boneHead]
 		bone.parentIndex = int(boneTorso)
 
-		bodyDef.Position = Vec2{Y: QMustParse("1.475").Mul(s)}.Add(position)
-		bodyDef.LinearDamping = QMustParse("0.1")
+		bodyDef.Position = Vec2{Y: lit1p475.Mul(s)}.Add(position)
+		bodyDef.LinearDamping = lit0p1
 		bodyDef.Name = "head"
 
 		bone.bodyId = CreateBody(worldId, &bodyDef)
@@ -179,13 +179,13 @@ func CreateHuman(worldId WorldId, position Vec2, scale, frictionTorque, hertz, d
 		}
 
 		capsule := Capsule{
-			Center1: Vec2{Y: QMustParse("-0.038").Mul(s)},
-			Center2: Vec2{Y: QMustParse("0.039").Mul(s)},
-			Radius:  QMustParse("0.075").Mul(s),
+			Center1: Vec2{Y: litNeg0p038.Mul(s)},
+			Center2: Vec2{Y: lit0p039.Mul(s)},
+			Radius:  lit0p075.Mul(s),
 		}
 		CreateCapsuleShape(bone.bodyId, &shapeDef, &capsule)
 
-		pivot := Vec2{Y: QMustParse("1.4").Mul(s)}.Add(position)
+		pivot := Vec2{Y: lit1p4.Mul(s)}.Add(position)
 		jointDef := DefaultRevoluteJointDef()
 		jointDef.BodyIdA = h.bones[bone.parentIndex].bodyId
 		jointDef.BodyIdB = bone.bodyId
@@ -208,7 +208,7 @@ func CreateHuman(worldId WorldId, position Vec2, scale, frictionTorque, hertz, d
 		bone := &h.bones[boneUpperLeftLeg]
 		bone.parentIndex = int(boneHip)
 
-		bodyDef.Position = Vec2{Y: QMustParse("0.775").Mul(s)}.Add(position)
+		bodyDef.Position = Vec2{Y: lit0p775.Mul(s)}.Add(position)
 		bodyDef.LinearDamping = QZero()
 		bodyDef.Name = "upper_left_leg"
 
@@ -220,13 +220,13 @@ func CreateHuman(worldId WorldId, position Vec2, scale, frictionTorque, hertz, d
 		}
 
 		capsule := Capsule{
-			Center1: Vec2{Y: QMustParse("-0.125").Mul(s)},
-			Center2: Vec2{Y: QMustParse("0.125").Mul(s)},
-			Radius:  QMustParse("0.06").Mul(s),
+			Center1: Vec2{Y: litNeg0p125.Mul(s)},
+			Center2: Vec2{Y: lit0p125.Mul(s)},
+			Radius:  lit0p06.Mul(s),
 		}
 		CreateCapsuleShape(bone.bodyId, &shapeDef, &capsule)
 
-		pivot := Vec2{Y: QMustParse("0.9").Mul(s)}.Add(position)
+		pivot := Vec2{Y: lit0p9.Mul(s)}.Add(position)
 		jointDef := DefaultRevoluteJointDef()
 		jointDef.BodyIdA = h.bones[bone.parentIndex].bodyId
 		jointDef.BodyIdB = bone.bodyId
@@ -246,19 +246,19 @@ func CreateHuman(worldId WorldId, position Vec2, scale, frictionTorque, hertz, d
 	}
 
 	points := []Vec2{
-		{X: QMustParse("-0.03").Mul(s), Y: QMustParse("-0.185").Mul(s)},
-		{X: QMustParse("0.11").Mul(s), Y: QMustParse("-0.185").Mul(s)},
-		{X: QMustParse("0.11").Mul(s), Y: QMustParse("-0.16").Mul(s)},
-		{X: QMustParse("-0.03").Mul(s), Y: QMustParse("-0.14").Mul(s)},
+		{X: litNeg0p03.Mul(s), Y: litNeg0p185.Mul(s)},
+		{X: lit0p11.Mul(s), Y: litNeg0p185.Mul(s)},
+		{X: lit0p11.Mul(s), Y: litNeg0p16.Mul(s)},
+		{X: litNeg0p03.Mul(s), Y: litNeg0p14.Mul(s)},
 	}
 	footHull := ComputeHull(points)
-	footPolygon := MakePolygon(&footHull, QMustParse("0.015").Mul(s))
+	footPolygon := MakePolygon(&footHull, lit0p015.Mul(s))
 
 	{
 		bone := &h.bones[boneLowerLeftLeg]
 		bone.parentIndex = int(boneUpperLeftLeg)
 
-		bodyDef.Position = Vec2{Y: QMustParse("0.475").Mul(s)}.Add(position)
+		bodyDef.Position = Vec2{Y: lit0p475.Mul(s)}.Add(position)
 		bodyDef.LinearDamping = QZero()
 		bodyDef.Name = "lower_left_leg"
 
@@ -270,14 +270,14 @@ func CreateHuman(worldId WorldId, position Vec2, scale, frictionTorque, hertz, d
 		}
 
 		capsule := Capsule{
-			Center1: Vec2{Y: QMustParse("-0.155").Mul(s)},
-			Center2: Vec2{Y: QMustParse("0.125").Mul(s)},
-			Radius:  QMustParse("0.045").Mul(s),
+			Center1: Vec2{Y: litNeg0p155.Mul(s)},
+			Center2: Vec2{Y: lit0p125.Mul(s)},
+			Radius:  lit0p045.Mul(s),
 		}
 		CreateCapsuleShape(bone.bodyId, &shapeDef, &capsule)
 		CreatePolygonShape(bone.bodyId, &footShapeDef, &footPolygon)
 
-		pivot := Vec2{Y: QMustParse("0.625").Mul(s)}.Add(position)
+		pivot := Vec2{Y: lit0p625.Mul(s)}.Add(position)
 		jointDef := DefaultRevoluteJointDef()
 		jointDef.BodyIdA = h.bones[bone.parentIndex].bodyId
 		jointDef.BodyIdB = bone.bodyId
@@ -300,7 +300,7 @@ func CreateHuman(worldId WorldId, position Vec2, scale, frictionTorque, hertz, d
 		bone := &h.bones[boneUpperRightLeg]
 		bone.parentIndex = int(boneHip)
 
-		bodyDef.Position = Vec2{Y: QMustParse("0.775").Mul(s)}.Add(position)
+		bodyDef.Position = Vec2{Y: lit0p775.Mul(s)}.Add(position)
 		bodyDef.LinearDamping = QZero()
 		bodyDef.Name = "upper_right_leg"
 
@@ -312,13 +312,13 @@ func CreateHuman(worldId WorldId, position Vec2, scale, frictionTorque, hertz, d
 		}
 
 		capsule := Capsule{
-			Center1: Vec2{Y: QMustParse("-0.125").Mul(s)},
-			Center2: Vec2{Y: QMustParse("0.125").Mul(s)},
-			Radius:  QMustParse("0.06").Mul(s),
+			Center1: Vec2{Y: litNeg0p125.Mul(s)},
+			Center2: Vec2{Y: lit0p125.Mul(s)},
+			Radius:  lit0p06.Mul(s),
 		}
 		CreateCapsuleShape(bone.bodyId, &shapeDef, &capsule)
 
-		pivot := Vec2{Y: QMustParse("0.9").Mul(s)}.Add(position)
+		pivot := Vec2{Y: lit0p9.Mul(s)}.Add(position)
 		jointDef := DefaultRevoluteJointDef()
 		jointDef.BodyIdA = h.bones[bone.parentIndex].bodyId
 		jointDef.BodyIdB = bone.bodyId
@@ -341,7 +341,7 @@ func CreateHuman(worldId WorldId, position Vec2, scale, frictionTorque, hertz, d
 		bone := &h.bones[boneLowerRightLeg]
 		bone.parentIndex = int(boneUpperRightLeg)
 
-		bodyDef.Position = Vec2{Y: QMustParse("0.475").Mul(s)}.Add(position)
+		bodyDef.Position = Vec2{Y: lit0p475.Mul(s)}.Add(position)
 		bodyDef.LinearDamping = QZero()
 		bodyDef.Name = "lower_right_leg"
 
@@ -353,14 +353,14 @@ func CreateHuman(worldId WorldId, position Vec2, scale, frictionTorque, hertz, d
 		}
 
 		capsule := Capsule{
-			Center1: Vec2{Y: QMustParse("-0.155").Mul(s)},
-			Center2: Vec2{Y: QMustParse("0.125").Mul(s)},
-			Radius:  QMustParse("0.045").Mul(s),
+			Center1: Vec2{Y: litNeg0p155.Mul(s)},
+			Center2: Vec2{Y: lit0p125.Mul(s)},
+			Radius:  lit0p045.Mul(s),
 		}
 		CreateCapsuleShape(bone.bodyId, &shapeDef, &capsule)
 		CreatePolygonShape(bone.bodyId, &footShapeDef, &footPolygon)
 
-		pivot := Vec2{Y: QMustParse("0.625").Mul(s)}.Add(position)
+		pivot := Vec2{Y: lit0p625.Mul(s)}.Add(position)
 		jointDef := DefaultRevoluteJointDef()
 		jointDef.BodyIdA = h.bones[bone.parentIndex].bodyId
 		jointDef.BodyIdB = bone.bodyId
@@ -384,7 +384,7 @@ func CreateHuman(worldId WorldId, position Vec2, scale, frictionTorque, hertz, d
 		bone.parentIndex = int(boneTorso)
 		bone.frictionScale = QHalf()
 
-		bodyDef.Position = Vec2{Y: QMustParse("1.225").Mul(s)}.Add(position)
+		bodyDef.Position = Vec2{Y: lit1p225.Mul(s)}.Add(position)
 		bodyDef.LinearDamping = QZero()
 		bodyDef.Name = "upper_left_arm"
 
@@ -395,13 +395,13 @@ func CreateHuman(worldId WorldId, position Vec2, scale, frictionTorque, hertz, d
 		}
 
 		capsule := Capsule{
-			Center1: Vec2{Y: QMustParse("-0.125").Mul(s)},
-			Center2: Vec2{Y: QMustParse("0.125").Mul(s)},
-			Radius:  QMustParse("0.035").Mul(s),
+			Center1: Vec2{Y: litNeg0p125.Mul(s)},
+			Center2: Vec2{Y: lit0p125.Mul(s)},
+			Radius:  lit0p035.Mul(s),
 		}
 		CreateCapsuleShape(bone.bodyId, &shapeDef, &capsule)
 
-		pivot := Vec2{Y: QMustParse("1.35").Mul(s)}.Add(position)
+		pivot := Vec2{Y: lit1p35.Mul(s)}.Add(position)
 		jointDef := DefaultRevoluteJointDef()
 		jointDef.BodyIdA = h.bones[bone.parentIndex].bodyId
 		jointDef.BodyIdB = bone.bodyId
@@ -424,25 +424,25 @@ func CreateHuman(worldId WorldId, position Vec2, scale, frictionTorque, hertz, d
 		bone := &h.bones[boneLowerLeftArm]
 		bone.parentIndex = int(boneUpperLeftArm)
 
-		bodyDef.Position = Vec2{Y: QMustParse("0.975").Mul(s)}.Add(position)
-		bodyDef.LinearDamping = QMustParse("0.1")
+		bodyDef.Position = Vec2{Y: lit0p975.Mul(s)}.Add(position)
+		bodyDef.LinearDamping = lit0p1
 		bodyDef.Name = "lower_left_arm"
 
 		bone.bodyId = CreateBody(worldId, &bodyDef)
-		bone.frictionScale = QMustParse("0.1")
+		bone.frictionScale = lit0p1
 
 		if colorize {
 			shapeDef.Material.CustomColor = uint32(skinColor)
 		}
 
 		capsule := Capsule{
-			Center1: Vec2{Y: QMustParse("-0.125").Mul(s)},
-			Center2: Vec2{Y: QMustParse("0.125").Mul(s)},
-			Radius:  QMustParse("0.03").Mul(s),
+			Center1: Vec2{Y: litNeg0p125.Mul(s)},
+			Center2: Vec2{Y: lit0p125.Mul(s)},
+			Radius:  lit0p03.Mul(s),
 		}
 		CreateCapsuleShape(bone.bodyId, &shapeDef, &capsule)
 
-		pivot := Vec2{Y: QMustParse("1.1").Mul(s)}.Add(position)
+		pivot := Vec2{Y: lit1p1.Mul(s)}.Add(position)
 		jointDef := DefaultRevoluteJointDef()
 		jointDef.BodyIdA = h.bones[bone.parentIndex].bodyId
 		jointDef.BodyIdB = bone.bodyId
@@ -466,7 +466,7 @@ func CreateHuman(worldId WorldId, position Vec2, scale, frictionTorque, hertz, d
 		bone := &h.bones[boneUpperRightArm]
 		bone.parentIndex = int(boneTorso)
 
-		bodyDef.Position = Vec2{Y: QMustParse("1.225").Mul(s)}.Add(position)
+		bodyDef.Position = Vec2{Y: lit1p225.Mul(s)}.Add(position)
 		bodyDef.LinearDamping = QZero()
 		bodyDef.Name = "upper_right_arm"
 
@@ -478,13 +478,13 @@ func CreateHuman(worldId WorldId, position Vec2, scale, frictionTorque, hertz, d
 		}
 
 		capsule := Capsule{
-			Center1: Vec2{Y: QMustParse("-0.125").Mul(s)},
-			Center2: Vec2{Y: QMustParse("0.125").Mul(s)},
-			Radius:  QMustParse("0.035").Mul(s),
+			Center1: Vec2{Y: litNeg0p125.Mul(s)},
+			Center2: Vec2{Y: lit0p125.Mul(s)},
+			Radius:  lit0p035.Mul(s),
 		}
 		CreateCapsuleShape(bone.bodyId, &shapeDef, &capsule)
 
-		pivot := Vec2{Y: QMustParse("1.35").Mul(s)}.Add(position)
+		pivot := Vec2{Y: lit1p35.Mul(s)}.Add(position)
 		jointDef := DefaultRevoluteJointDef()
 		jointDef.BodyIdA = h.bones[bone.parentIndex].bodyId
 		jointDef.BodyIdB = bone.bodyId
@@ -507,25 +507,25 @@ func CreateHuman(worldId WorldId, position Vec2, scale, frictionTorque, hertz, d
 		bone := &h.bones[boneLowerRightArm]
 		bone.parentIndex = int(boneUpperRightArm)
 
-		bodyDef.Position = Vec2{Y: QMustParse("0.975").Mul(s)}.Add(position)
-		bodyDef.LinearDamping = QMustParse("0.1")
+		bodyDef.Position = Vec2{Y: lit0p975.Mul(s)}.Add(position)
+		bodyDef.LinearDamping = lit0p1
 		bodyDef.Name = "lower_right_arm"
 
 		bone.bodyId = CreateBody(worldId, &bodyDef)
-		bone.frictionScale = QMustParse("0.1")
+		bone.frictionScale = lit0p1
 
 		if colorize {
 			shapeDef.Material.CustomColor = uint32(skinColor)
 		}
 
 		capsule := Capsule{
-			Center1: Vec2{Y: QMustParse("-0.125").Mul(s)},
-			Center2: Vec2{Y: QMustParse("0.125").Mul(s)},
-			Radius:  QMustParse("0.03").Mul(s),
+			Center1: Vec2{Y: litNeg0p125.Mul(s)},
+			Center2: Vec2{Y: lit0p125.Mul(s)},
+			Radius:  lit0p03.Mul(s),
 		}
 		CreateCapsuleShape(bone.bodyId, &shapeDef, &capsule)
 
-		pivot := Vec2{Y: QMustParse("1.1").Mul(s)}.Add(position)
+		pivot := Vec2{Y: lit1p1.Mul(s)}.Add(position)
 		jointDef := DefaultRevoluteJointDef()
 		jointDef.BodyIdA = h.bones[bone.parentIndex].bodyId
 		jointDef.BodyIdB = bone.bodyId

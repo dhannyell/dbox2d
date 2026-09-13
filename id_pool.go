@@ -1,4 +1,4 @@
-package dbox2d
+package b2
 
 // idPool hands out dense indices and takes them back. It is internal
 // machinery: an application never sees an index, only an id from id.go.

@@ -1,4 +1,4 @@
-package dbox2d
+package b2
 
 import (
 	"math"
@@ -517,8 +517,8 @@ func (ctx *continuousContext) queryCallback(_ int, userData uint64) bool {
 	// Prevent pausing on chain segment junctions
 	if s.shapeType == ChainSegmentShape {
 		transform := sim.transform
-		p1 := TransformPoint(transform, s.chainSegment.Segment.Point1)
-		p2 := TransformPoint(transform, s.chainSegment.Segment.Point2)
+		p1 := TransformPoint(transform, s.chainSegment().Segment.Point1)
+		p2 := TransformPoint(transform, s.chainSegment().Segment.Point2)
 		e := p2.Sub(p1)
 		var length Q
 		length, e = GetLengthAndNormalize(e)
@@ -529,7 +529,7 @@ func (ctx *continuousContext) queryCallback(_ int, userData uint64) bool {
 			offset2 := Cross(c2.Sub(p1), e)
 
 			// todo this should use the min extent of the fast shape, not the body
-			allowedFraction := QFromRatio(1, 4)
+			allowedFraction := oneQuarter
 			if offset1.Less(zero) || offset1.Sub(offset2).Less(allowedFraction.Mul(fastBodySim.minExtent)) {
 				// Minimal clipping
 				return true
@@ -555,7 +555,7 @@ func (ctx *continuousContext) queryCallback(_ int, userData uint64) bool {
 		// fallback to TOI of a small circle around the fast shape centroid
 		centroid := getShapeCentroid(fastShape)
 		extent := computeShapeExtent(fastShape, centroid)
-		radius := QFromRatio(1, 4).Mul(extent.minExtent)
+		radius := oneQuarter.Mul(extent.minExtent)
 		centroidPoint := [1]Vec2{centroid}
 		input.ProxyB = MakeProxy(centroidPoint[:], radius)
 		output = TimeOfImpact(&input)

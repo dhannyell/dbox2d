@@ -1,4 +1,4 @@
-package dbox2d
+package b2
 
 // recurseHull is the quickhull recursion. It returns the hull of the points
 // that lie to the right of the edge p1-p2, excluding p1 and p2.

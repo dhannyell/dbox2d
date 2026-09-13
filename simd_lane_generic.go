@@ -1,6 +1,6 @@
 //go:build dbox2d_simd && !dbox2d_fixed && (!goexperiment.simd || !go1.27 || (!amd64 && !arm64 && !wasm))
 
-package dbox2d
+package b2
 
 const (
 	// wideWidth is the number of float32 lanes in the generic vector.

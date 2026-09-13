@@ -1,4 +1,4 @@
-package dbox2d
+package b2
 
 // The fixed build also solves contacts on the Q32 grid, with the same code:
 // contact_solver_q32.go is generated from this file.

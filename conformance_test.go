@@ -1,4 +1,4 @@
-package dbox2d_test
+package b2_test
 
 // The benchmark scene builders mirror samples/benchmarks.go on purpose: the
 // samples module cannot be imported by this library module's tests.

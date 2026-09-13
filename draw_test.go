@@ -1,4 +1,4 @@
-package dbox2d
+package b2
 
 import (
 	"math"
@@ -33,11 +33,12 @@ func TestDrawRevoluteJointLimitsUseTurns(t *testing.T) {
 	var segments [][2]Vec2
 	draw := DefaultDebugDraw()
 	draw.DrawSegment = func(a, b Vec2, _ HexColor) { segments = append(segments, [2]Vec2{a, b}) }
-	base := jointSim{revoluteJoint: revoluteJoint{
+	var base jointSim
+	*base.revolute() = revoluteJoint{
 		enableLimit: true,
 		lowerAngle:  angleFromTurns(QMustParse("-0.25")),
 		upperAngle:  angleFromTurns(QMustParse("0.25")),
-	}}
+	}
 	drawRevoluteJoint(&draw, &base, TransformIdentity(), TransformIdentity(), QOne())
 	if len(segments) < 4 {
 		t.Fatalf("segments = %d, want limit segments", len(segments))
@@ -352,11 +353,11 @@ func TestDrawShapeCallbacksPerType(t *testing.T) {
 		shape shape
 		kinds []string
 	}{
-		{"circle", shape{shapeType: CircleShape, circle: Circle{Center: segment.Point1, Radius: QHalf()}}, []string{"solidCircle"}},
-		{"capsule", shape{shapeType: CapsuleShape, capsule: Capsule{Center1: segment.Point1, Center2: segment.Point2, Radius: QHalf()}}, []string{"capsule"}},
-		{"polygon", shape{shapeType: PolygonShape, polygon: MakeSquare(QHalf())}, []string{"solidPolygon"}},
-		{"segment", shape{shapeType: SegmentShape, segment: segment}, []string{"segment"}},
-		{"chain", shape{shapeType: ChainSegmentShape, chainSegment: ChainSegment{Segment: segment}}, []string{"segment", "point", "segment"}},
+		{"circle", withGeometry(CircleShape, &Circle{Center: segment.Point1, Radius: QHalf()}), []string{"solidCircle"}},
+		{"capsule", withGeometry(CapsuleShape, &Capsule{Center1: segment.Point1, Center2: segment.Point2, Radius: QHalf()}), []string{"capsule"}},
+		{"polygon", withGeometry(PolygonShape, ptr(MakeSquare(QHalf()))), []string{"solidPolygon"}},
+		{"segment", withGeometry(SegmentShape, &segment), []string{"segment"}},
+		{"chain", withGeometry(ChainSegmentShape, &ChainSegment{Segment: segment}), []string{"segment", "point", "segment"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -557,10 +558,31 @@ func TestDrawDistanceLimitsPreserveEndpointOrder(t *testing.T) {
 	draw := DefaultDebugDraw()
 	var segments [][2]Vec2
 	draw.DrawSegment = func(a, b Vec2, _ HexColor) { segments = append(segments, [2]Vec2{a, b}) }
-	base := jointSim{distanceJoint: distanceJoint{enableLimit: true, minLength: QOne(), maxLength: QFromInt(3)}}
+	var base jointSim
+	*base.distance() = distanceJoint{enableLimit: true, minLength: QOne(), maxLength: QFromInt(3)}
 	drawDistanceJoint(&draw, &base, TransformIdentity(), Transform{P: v2(2, 0), Q: RotIdentity()})
 	want := [2]Vec2{{X: QOne(), Y: QMustParse("0.05")}, {X: QOne(), Y: QMustParse("-0.05")}}
 	if len(segments) != 4 || segments[0] != want {
 		t.Fatalf("limit segments = %+v", segments)
 	}
 }
+
+// withGeometry builds a bare shape of one type around its geometry.
+func withGeometry(shapeType ShapeType, geometry any) shape {
+	s := shape{shapeType: shapeType}
+	switch g := geometry.(type) {
+	case *Capsule:
+		*s.capsule() = *g
+	case *Circle:
+		*s.circle() = *g
+	case *Polygon:
+		*s.polygon() = *g
+	case *Segment:
+		*s.segment() = *g
+	case *ChainSegment:
+		*s.chainSegment() = *g
+	}
+	return s
+}
+
+func ptr[T any](v T) *T { return &v }

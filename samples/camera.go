@@ -12,13 +12,13 @@ import (
 // calls them.
 
 // FromFloat64 converts a float64 to the simulation's scalar.
-func FromFloat64(f float64) dbox2d.Q {
-	return dbox2d.QFromFloat64(f)
+func FromFloat64(f float64) b2.Q {
+	return b2.F(f)
 }
 
 // ToFloat64 converts the simulation's scalar to a float64.
-func ToFloat64(q dbox2d.Q) float64 {
-	return dbox2d.QToFloat64(q)
+func ToFloat64(q b2.Q) float64 {
+	return b2.QToFloat64(q)
 }
 
 // Vec2f is a screen- or camera-space vector. Presentation math stays in
@@ -86,12 +86,12 @@ func (c *Camera) ConvertWorldToScreen(pw Vec2f) Vec2f {
 
 // GetViewBounds returns the world-space box the camera currently frames. It
 // only gates what Draw draws; it carries no simulation meaning.
-func (c *Camera) GetViewBounds() dbox2d.AABB {
+func (c *Camera) GetViewBounds() b2.AABB {
 	lower := c.ConvertScreenToWorld(Vec2f{X: 0, Y: float64(c.Height)})
 	upper := c.ConvertScreenToWorld(Vec2f{X: float64(c.Width), Y: 0})
-	return dbox2d.AABB{
-		LowerBound: dbox2d.Vec2{X: FromFloat64(lower.X), Y: FromFloat64(lower.Y)},
-		UpperBound: dbox2d.Vec2{X: FromFloat64(upper.X), Y: FromFloat64(upper.Y)},
+	return b2.AABB{
+		LowerBound: b2.Vec2{X: FromFloat64(lower.X), Y: FromFloat64(lower.Y)},
+		UpperBound: b2.Vec2{X: FromFloat64(upper.X), Y: FromFloat64(upper.Y)},
 	}
 }
 

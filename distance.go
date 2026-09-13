@@ -1,4 +1,4 @@
-package dbox2d
+package b2
 
 // SegmentDistance computes the closest points of two line segments,
 // clamping at the end points when needed. It follows Ericson 5.1.9 and

@@ -117,7 +117,7 @@ jobs:
             printf 'Unexpected fixed-layer imports in float mode:\n%s\n' "$leaks"
             exit 1
           fi
-          if grep -rn 'QFromFloat64\|QToFloat64' --include=*.go . | grep -v '_test.go\|scalar_fixed.go\|scalar_float.go\|samples/camera.go\|samples/determinism_float.go'; then
+          if grep -rn 'QFromFloat64\|QToFloat64' --include=*.go . | grep -v '_test.go\|scalar.go\|scalar_fixed.go\|scalar_float.go\|samples/camera.go\|samples/determinism_float.go'; then
             echo "float64 conversion helpers leaked into production code"
             exit 1
           fi

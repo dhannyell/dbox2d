@@ -1,6 +1,6 @@
 //go:build dbox2d_fixed
 
-package dbox2d_test
+package b2_test
 
 const (
 	shapeDistanceWitness uint64 = 13937014052321988253

@@ -1,4 +1,4 @@
-package dbox2d
+package b2
 
 // island is a persistent connected component of awake bodies, contacts and
 // joints. It corresponds to b2Island in src/island.h.

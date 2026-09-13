@@ -33,7 +33,7 @@ type LargeWorld struct {
 	viewPosition      Vec2f
 	cycleIndex        int
 	speed             float64
-	explosionPosition dbox2d.Vec2
+	explosionPosition b2.Vec2
 	explode           bool
 	followCar         bool
 }
@@ -55,8 +55,8 @@ func NewLargeWorld(ctx *SampleContext) Sample {
 	}
 
 	{
-		bodyDef := dbox2d.DefaultBodyDef()
-		shapeDef := dbox2d.DefaultShapeDef()
+		bodyDef := b2.DefaultBodyDef()
+		shapeDef := b2.DefaultShapeDef()
 
 		// Setting this to false significantly reduces the cost of creating
 		// static bodies and shapes.
@@ -66,10 +66,10 @@ func NewLargeWorld(ctx *SampleContext) Sample {
 		xBody := xStart
 		xShape := xStart
 
-		gridSize := dbox2d.QFromInt(largeWorldGridSize)
-		halfExtent := qs("0.4").Mul(gridSize)
+		gridSize := b2.F(largeWorldGridSize)
+		halfExtent := b2.F(0.4).Mul(gridSize)
 
-		var groundId dbox2d.BodyId
+		var groundId b2.BodyId
 
 		for i := range largeWorldGridCount {
 			// Create a new body regularly so that shapes are not too far from the body origin.
@@ -77,21 +77,21 @@ func NewLargeWorld(ctx *SampleContext) Sample {
 			// relative to the body origin.
 			// This makes a noticeable improvement in stability far from the origin.
 			if i%10 == 0 {
-				bodyDef.Position.X = dbox2d.QFromInt(xBody)
-				groundId = dbox2d.CreateBody(s.WorldId, &bodyDef)
+				bodyDef.Position.X = b2.F(xBody)
+				groundId = b2.CreateBody(s.WorldId, &bodyDef)
 				xShape = 0
 			}
 
-			y := dbox2d.QZero()
+			y := b2.QZero()
 
 			// The ground profile is the float32 cosine of the reference.
 			cosine := float32(math.Cos(float64(omega * float32(xBody))))
 			ycount := int(math.Round(float64(height*cosine))) + 12
 
 			for range ycount {
-				square := dbox2d.MakeOffsetBox(halfExtent, halfExtent, dbox2d.Vec2{X: dbox2d.QFromInt(xShape), Y: y}, dbox2d.RotIdentity())
-				square.Radius = qs("0.1")
-				dbox2d.CreatePolygonShape(groundId, &shapeDef, &square)
+				square := b2.MakeOffsetBox(halfExtent, halfExtent, b2.Vec2{X: b2.F(xShape), Y: y}, b2.RotIdentity())
+				square.Radius = b2.F(0.1)
+				b2.CreatePolygonShape(groundId, &shapeDef, &square)
 
 				y = y.Add(gridSize)
 			}
@@ -104,52 +104,52 @@ func NewLargeWorld(ctx *SampleContext) Sample {
 	humanIndex := 0
 	for cycleIndex := range largeWorldCycleCount {
 		// (0.5 + cycleIndex) * period + xStart
-		xbase := dbox2d.QFromInt(largeWorldPeriod/2 + cycleIndex*largeWorldPeriod + xStart)
+		xbase := b2.F(largeWorldPeriod/2 + cycleIndex*largeWorldPeriod + xStart)
 
 		remainder := cycleIndex % 3
 		if remainder == 0 {
-			bodyDef := dbox2d.DefaultBodyDef()
-			bodyDef.Type = dbox2d.DynamicBody
-			bodyDef.Position = dbox2d.Vec2{X: xbase.Sub(dbox2d.QFromInt(3)), Y: dbox2d.QFromInt(10)}
+			bodyDef := b2.DefaultBodyDef()
+			bodyDef.Type = b2.DynamicBody
+			bodyDef.Position = b2.Vec2{X: xbase.Sub(b2.F(3)), Y: b2.F(10)}
 
-			shapeDef := dbox2d.DefaultShapeDef()
-			box := dbox2d.MakeBox(qs("0.3"), qs("0.2"))
+			shapeDef := b2.DefaultShapeDef()
+			box := b2.MakeBox(b2.F(0.3), b2.F(0.2))
 
 			for range 10 {
-				bodyDef.Position.Y = dbox2d.QFromInt(10)
+				bodyDef.Position.Y = b2.F(10)
 				for range 5 {
-					bodyId := dbox2d.CreateBody(s.WorldId, &bodyDef)
-					dbox2d.CreatePolygonShape(bodyId, &shapeDef, &box)
-					bodyDef.Position.Y = bodyDef.Position.Y.Add(dbox2d.QHalf())
+					bodyId := b2.CreateBody(s.WorldId, &bodyDef)
+					b2.CreatePolygonShape(bodyId, &shapeDef, &box)
+					bodyDef.Position.Y = bodyDef.Position.Y.Add(b2.QHalf())
 				}
-				bodyDef.Position.X = bodyDef.Position.X.Add(qs("0.6"))
+				bodyDef.Position.X = bodyDef.Position.X.Add(b2.F(0.6))
 			}
 		} else if remainder == 1 {
-			position := dbox2d.Vec2{X: xbase.Sub(dbox2d.QFromInt(2)), Y: dbox2d.QFromInt(10)}
+			position := b2.Vec2{X: xbase.Sub(b2.F(2)), Y: b2.F(10)}
 			for range 5 {
-				shared.CreateHuman(s.WorldId, position, qs("1.5"), qs("0.05"), dbox2d.QZero(), dbox2d.QZero(), humanIndex+1, nil, false)
+				shared.CreateHuman(s.WorldId, position, b2.F(1.5), b2.F(0.05), b2.QZero(), b2.QZero(), humanIndex+1, nil, false)
 				humanIndex += 1
-				position.X = position.X.Add(dbox2d.QOne())
+				position.X = position.X.Add(b2.QOne())
 			}
 		} else {
-			position := dbox2d.Vec2{X: xbase.Sub(dbox2d.QFromInt(4)), Y: dbox2d.QFromInt(12)}
+			position := b2.Vec2{X: xbase.Sub(b2.F(4)), Y: b2.F(12)}
 
 			for range 5 {
 				var d donut
-				d.create(s.WorldId, position, qs("0.75"), 0, false, nil)
-				position.X = position.X.Add(dbox2d.QFromInt(2))
+				d.create(s.WorldId, position, b2.F(0.75), 0, false, nil)
+				position.X = position.X.Add(b2.F(2))
 			}
 		}
 	}
 
-	s.car.spawn(s.WorldId, dbox2d.Vec2{X: dbox2d.QFromInt(xStart + 20), Y: dbox2d.QFromInt(40)},
-		dbox2d.QFromInt(10), dbox2d.QFromInt(2), qs("0.7"), dbox2d.QFromInt(2000), nil)
+	s.car.spawn(s.WorldId, b2.Vec2{X: b2.F(xStart + 20), Y: b2.F(40)},
+		b2.F(10), b2.F(2), b2.F(0.7), b2.F(2000), nil)
 
 	s.cycleIndex = 0
 	s.speed = 0
-	s.explosionPosition = dbox2d.Vec2{
-		X: dbox2d.QFromInt(largeWorldPeriod/2 + s.cycleIndex*largeWorldPeriod + xStart),
-		Y: dbox2d.QFromInt(7),
+	s.explosionPosition = b2.Vec2{
+		X: b2.F(largeWorldPeriod/2 + s.cycleIndex*largeWorldPeriod + xStart),
+		Y: b2.F(7),
 	}
 	s.explode = true
 	s.followCar = false
@@ -195,34 +195,34 @@ func (s *LargeWorld) Step() {
 		s.Context.Camera.Center.X = ToFloat64(s.car.chassisId.GetPosition().X)
 	}
 
-	radius := dbox2d.QFromInt(2)
+	radius := b2.F(2)
 	if s.StepCount&0x1 == 0x1 && s.explode {
-		s.explosionPosition.X = dbox2d.QFromInt(largeWorldPeriod/2 + s.cycleIndex*largeWorldPeriod - span)
+		s.explosionPosition.X = b2.F(largeWorldPeriod/2 + s.cycleIndex*largeWorldPeriod - span)
 
-		def := dbox2d.DefaultExplosionDef()
+		def := b2.DefaultExplosionDef()
 		def.Position = s.explosionPosition
 		def.Radius = radius
-		def.Falloff = qs("0.1")
-		def.ImpulsePerLength = dbox2d.QOne()
+		def.Falloff = b2.F(0.1)
+		def.ImpulsePerLength = b2.QOne()
 		s.WorldId.Explode(&def)
 
 		s.cycleIndex = (s.cycleIndex + 1) % largeWorldCycleCount
 	}
 
 	if s.explode {
-		s.Context.Draw.DrawCircle(s.explosionPosition, radius, dbox2d.ColorAzure)
+		s.Context.Draw.DrawCircle(s.explosionPosition, radius, b2.ColorAzure)
 	}
 
 	if s.keyDown(KeyA) {
-		s.car.setSpeed(dbox2d.QFromInt(20))
+		s.car.setSpeed(b2.F(20))
 	}
 
 	if s.keyDown(KeyS) {
-		s.car.setSpeed(dbox2d.QZero())
+		s.car.setSpeed(b2.QZero())
 	}
 
 	if s.keyDown(KeyD) {
-		s.car.setSpeed(dbox2d.QFromInt(-5))
+		s.car.setSpeed(b2.F(-5))
 	}
 
 	s.Base.Step()
