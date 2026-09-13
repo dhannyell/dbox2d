@@ -425,6 +425,13 @@ func TestWorkerPanicReachesTheCaller(t *testing.T) {
 	if caught == nil {
 		t.Fatal("Step did not panic")
 	}
+	if effectiveWorkerCount(def.WorkerCount) == 1 {
+		// A serial step, as on wasm, raises the original value.
+		if caught != "boom in PreSolve" {
+			t.Fatalf("serial Step caught %v, want the original value", caught)
+		}
+		return
+	}
 	wp, ok := caught.(*WorkerPanic)
 	if !ok {
 		t.Fatalf("caught %T %v, want *WorkerPanic", caught, caught)
