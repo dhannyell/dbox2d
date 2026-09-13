@@ -189,10 +189,10 @@ func (b *Base) MouseDown(p dbox2d.Vec2, button MouseButton, mod Modifier) {
 	mouseDef.BodyIdA = b.GroundBodyId
 	mouseDef.BodyIdB = qc.bodyId
 	mouseDef.Target = p
-	mouseDef.Hertz = dbox2d.QFromInt(10)
+	mouseDef.Hertz = dbox2d.F(10)
 	mouseDef.DampingRatio = dbox2d.QFromRatio(7, 10)
 	gravityLength, _ := dbox2d.GetLengthAndNormalize(b.WorldId.GetGravity())
-	mouseDef.MaxForce = dbox2d.QFromInt(1000).Mul(qc.bodyId.GetMass()).Mul(gravityLength)
+	mouseDef.MaxForce = dbox2d.F(1000).Mul(qc.bodyId.GetMass()).Mul(gravityLength)
 	b.MouseJointId = dbox2d.CreateMouseJoint(b.WorldId, &mouseDef)
 
 	qc.bodyId.SetAwake(true)

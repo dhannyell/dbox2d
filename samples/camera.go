@@ -13,7 +13,7 @@ import (
 
 // FromFloat64 converts a float64 to the simulation's scalar.
 func FromFloat64(f float64) dbox2d.Q {
-	return dbox2d.QFromFloat64(f)
+	return dbox2d.F(f)
 }
 
 // ToFloat64 converts the simulation's scalar to a float64.

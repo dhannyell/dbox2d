@@ -25,12 +25,6 @@ func init() {
 	RegisterSample("Collision", "Time of Impact", NewTimeOfImpact)
 }
 
-// qs parses a decimal constant of the reference.
-func qs(s string) dbox2d.Q { return dbox2d.QMustParse(s) }
-
-// qv parses a vector constant of the reference.
-func qv(x, y string) dbox2d.Vec2 { return dbox2d.Vec2{X: qs(x), Y: qs(y)} }
-
 // rotFromRadians builds a rotation from a GUI angle, which stays in
 // radians like the reference slider.
 func rotFromRadians(angle float64) dbox2d.Rot { return dbox2d.MakeRot(radiansToTurns(angle)) }
@@ -92,7 +86,7 @@ func (ps *proxyShapes) drawShape(draw *dbox2d.DebugDraw, shapeType int, transfor
 		if radius.Greater(dbox2d.QZero()) {
 			drawSolidCircleAt(draw, transform, ps.point, radius, color)
 		} else {
-			draw.DrawPoint(p, dbox2d.QFromInt(5), color)
+			draw.DrawPoint(p, dbox2d.F(5), color)
 		}
 
 	case proxySegment:
@@ -163,10 +157,10 @@ func NewCollisionShapeDistance(ctx *SampleContext) Sample {
 		ctx.Camera.Zoom = 3
 	}
 
-	s.shapes.segment = dbox2d.Segment{Point1: qv("-0.5", "0"), Point2: qv("0.5", "0")}
+	s.shapes.segment = dbox2d.Segment{Point1: dbox2d.V2(-0.5, 0.0), Point2: dbox2d.V2(0.5, 0.0)}
 
 	{
-		hull := dbox2d.ComputeHull([]dbox2d.Vec2{qv("-0.5", "0"), qv("0.5", "0"), qv("0", "1")})
+		hull := dbox2d.ComputeHull([]dbox2d.Vec2{dbox2d.V2(-0.5, 0.0), dbox2d.V2(0.5, 0.0), dbox2d.V2(0, 1)})
 		s.shapes.triangle = dbox2d.MakePolygon(&hull, dbox2d.QZero())
 	}
 
@@ -305,7 +299,7 @@ func (s *CollisionShapeDistance) Step() {
 	s.shapes.drawShape(draw, s.typeA, dbox2d.TransformIdentity(), FromFloat64(s.radiusA), dbox2d.ColorCyan)
 	s.shapes.drawShape(draw, s.typeB, s.transform, FromFloat64(s.radiusB), dbox2d.ColorBisque)
 
-	ten := dbox2d.QFromInt(10)
+	ten := dbox2d.F(10)
 
 	if s.drawSimplex && s.simplexIndex >= 0 && s.simplexIndex < s.simplexCount {
 		simplex := &s.simplexes[s.simplexIndex]
@@ -449,7 +443,7 @@ func (s *DynamicTree) buildTree() {
 
 	s.proxies = make([]treeProxy, 0, s.rowCount*s.columnCount)
 
-	y := dbox2d.QFromInt(-4)
+	y := dbox2d.F(-4)
 
 	s.tree = dbox2d.NewDynamicTree()
 
@@ -460,7 +454,7 @@ func (s *DynamicTree) buildTree() {
 	maxRatio := FromFloat64(s.ratio)
 
 	for i := 0; i < s.rowCount; i++ {
-		x := dbox2d.QFromInt(-40)
+		x := dbox2d.F(-40)
 
 		for j := 0; j < s.columnCount; j++ {
 			fillTest := shared.RandomFloatRange(dbox2d.QZero(), dbox2d.QOne())
@@ -613,8 +607,8 @@ func (s *DynamicTree) Step() {
 		})
 
 		draw.DrawSegment(s.startPoint, s.endPoint, dbox2d.ColorWhite)
-		draw.DrawPoint(s.startPoint, dbox2d.QFromInt(5), dbox2d.ColorGreen)
-		draw.DrawPoint(s.endPoint, dbox2d.QFromInt(5), dbox2d.ColorRed)
+		draw.DrawPoint(s.startPoint, dbox2d.F(5), dbox2d.ColorGreen)
+		draw.DrawPoint(s.endPoint, dbox2d.F(5), dbox2d.ColorRed)
 
 		s.DrawTextLine("node visits = %d, leaf visits = %d", result.NodeVisits, result.LeafVisits)
 	}
@@ -745,19 +739,19 @@ func NewRayCast(ctx *SampleContext) Sample {
 		ctx.Camera.Zoom = 17.5
 	}
 
-	s.circle = dbox2d.Circle{Radius: dbox2d.QFromInt(2)}
-	s.capsule = dbox2d.Capsule{Center1: qv("-1", "1"), Center2: qv("1", "-1"), Radius: qs("1.5")}
-	s.box = dbox2d.MakeBox(dbox2d.QFromInt(2), dbox2d.QFromInt(2))
+	s.circle = dbox2d.Circle{Radius: dbox2d.F(2)}
+	s.capsule = dbox2d.Capsule{Center1: dbox2d.V2(-1, 1), Center2: dbox2d.V2(1, -1), Radius: dbox2d.F(1.5)}
+	s.box = dbox2d.MakeBox(dbox2d.F(2), dbox2d.F(2))
 
-	hull := dbox2d.ComputeHull([]dbox2d.Vec2{qv("-2", "0"), qv("2", "0"), qv("2", "3")})
+	hull := dbox2d.ComputeHull([]dbox2d.Vec2{dbox2d.V2(-2, 0), dbox2d.V2(2, 0), dbox2d.V2(2, 3)})
 	s.triangle = dbox2d.MakePolygon(&hull, dbox2d.QZero())
 
-	s.segment = dbox2d.Segment{Point1: qv("-3", "0"), Point2: qv("3", "0")}
+	s.segment = dbox2d.Segment{Point1: dbox2d.V2(-3, 0), Point2: dbox2d.V2(3, 0)}
 
 	s.transform = dbox2d.TransformIdentity()
 
-	s.rayStart = qv("0", "30")
-	s.rayEnd = qv("0", "0")
+	s.rayStart = dbox2d.V2(0, 30)
+	s.rayEnd = dbox2d.V2(0, 0)
 	return s
 }
 
@@ -826,7 +820,7 @@ func (s *RayCast) MouseMove(p dbox2d.Vec2) {
 
 func (s *RayCast) drawRay(output *dbox2d.CastOutput) {
 	draw := &s.Context.Draw
-	five := dbox2d.QFromInt(5)
+	five := dbox2d.F(5)
 
 	p1 := s.rayStart
 	p2 := s.rayEnd
@@ -849,7 +843,7 @@ func (s *RayCast) drawRay(output *dbox2d.CastOutput) {
 		}
 
 		if s.showFraction {
-			ps := dbox2d.Vec2{X: p.X.Add(qs("0.05")), Y: p.Y.Sub(qs("0.02"))}
+			ps := dbox2d.Vec2{X: p.X.Add(dbox2d.F(0.05)), Y: p.Y.Sub(dbox2d.F(0.02))}
 			draw.DrawString(ps, fmt.Sprintf("%.2f", ToFloat64(output.Fraction)), dbox2d.ColorWhite)
 		}
 	} else {
@@ -862,8 +856,8 @@ func (s *RayCast) drawRay(output *dbox2d.CastOutput) {
 func (s *RayCast) Step() {
 	draw := &s.Context.Draw
 
-	offset := qv("-20", "20")
-	increment := qv("10", "0")
+	offset := dbox2d.V2(-20, 20)
+	increment := dbox2d.V2(10, 0)
 
 	color1 := dbox2d.ColorYellow
 
@@ -1108,12 +1102,12 @@ func castWorldPolygons(roundSecond bool) [4]dbox2d.Polygon {
 	var polygons [4]dbox2d.Polygon
 
 	{
-		hull := dbox2d.ComputeHull([]dbox2d.Vec2{qv("-0.5", "0"), qv("0.5", "0"), qv("0", "1.5")})
+		hull := dbox2d.ComputeHull([]dbox2d.Vec2{dbox2d.V2(-0.5, 0.0), dbox2d.V2(0.5, 0.0), dbox2d.V2(0.0, 1.5)})
 		polygons[0] = dbox2d.MakePolygon(&hull, dbox2d.QZero())
 	}
 
 	{
-		hull := dbox2d.ComputeHull([]dbox2d.Vec2{qv("-0.1", "0"), qv("0.1", "0"), qv("0", "1.5")})
+		hull := dbox2d.ComputeHull([]dbox2d.Vec2{dbox2d.V2(-0.1, 0.0), dbox2d.V2(0.1, 0.0), dbox2d.V2(0.0, 1.5)})
 		polygons[1] = dbox2d.MakePolygon(&hull, dbox2d.QZero())
 		if roundSecond {
 			polygons[1].Radius = dbox2d.QHalf()
@@ -1122,8 +1116,8 @@ func castWorldPolygons(roundSecond bool) [4]dbox2d.Polygon {
 
 	{
 		w := dbox2d.QOne()
-		sqrt2 := dbox2d.QFromInt(2).Sqrt()
-		b := w.Div(dbox2d.QFromInt(2).Add(sqrt2))
+		sqrt2 := dbox2d.F(2).Sqrt()
+		b := w.Div(dbox2d.F(2).Add(sqrt2))
 		s := sqrt2.Mul(b)
 		half := dbox2d.QHalf()
 
@@ -1190,14 +1184,14 @@ func NewCastWorld(ctx *SampleContext) Sample {
 		groundId := dbox2d.CreateBody(s.WorldId, &bodyDef)
 
 		shapeDef := dbox2d.DefaultShapeDef()
-		segment := dbox2d.Segment{Point1: qv("-40", "0"), Point2: qv("40", "0")}
+		segment := dbox2d.Segment{Point1: dbox2d.V2(-40, 0), Point2: dbox2d.V2(40, 0)}
 		dbox2d.CreateSegmentShape(groundId, &shapeDef, &segment)
 	}
 
 	s.polygons = castWorldPolygons(true)
-	s.capsule = dbox2d.Capsule{Center1: qv("-0.5", "0"), Center2: qv("0.5", "0"), Radius: qs("0.25")}
+	s.capsule = dbox2d.Capsule{Center1: dbox2d.V2(-0.5, 0.0), Center2: dbox2d.V2(0.5, 0.0), Radius: dbox2d.F(0.25)}
 	s.circle = dbox2d.Circle{Radius: dbox2d.QHalf()}
-	s.segment = dbox2d.Segment{Point1: qv("-1", "0"), Point2: qv("1", "0")}
+	s.segment = dbox2d.Segment{Point1: dbox2d.V2(-1, 0), Point2: dbox2d.V2(1, 0)}
 
 	s.mode = castModeClosest
 	s.ignoreIndex = 7
@@ -1205,8 +1199,8 @@ func NewCastWorld(ctx *SampleContext) Sample {
 	s.castType = castTypeRay
 	s.castRadius = 0.5
 
-	s.rayStart = qv("-20", "10")
-	s.rayEnd = qv("20", "10")
+	s.rayStart = dbox2d.V2(-20, 10)
+	s.rayEnd = dbox2d.V2(20, 10)
 	return s
 }
 
@@ -1216,8 +1210,8 @@ func (s *CastWorld) create(index int) {
 		s.bodyIds[s.bodyIndex] = dbox2d.BodyId{}
 	}
 
-	x := shared.RandomFloatRange(dbox2d.QFromInt(-20), dbox2d.QFromInt(20))
-	y := shared.RandomFloatRange(dbox2d.QZero(), dbox2d.QFromInt(20))
+	x := shared.RandomFloatRange(dbox2d.F(-20), dbox2d.F(20))
+	y := shared.RandomFloatRange(dbox2d.QZero(), dbox2d.F(20))
 
 	bodyDef := dbox2d.DefaultBodyDef()
 	bodyDef.Position = dbox2d.Vec2{X: x, Y: y}
@@ -1348,7 +1342,7 @@ func (s *CastWorld) Step() {
 	s.DrawTextLine("Shape 7 is intentionally ignored by the ray")
 
 	draw := &s.Context.Draw
-	five := dbox2d.QFromInt(5)
+	five := dbox2d.F(5)
 
 	color1 := dbox2d.ColorGreen
 	color2 := dbox2d.ColorLightGray
@@ -1402,11 +1396,11 @@ func (s *CastWorld) Step() {
 		transform := dbox2d.Transform{P: s.rayStart, Q: rotFromRadians(s.angle)}
 		circle := dbox2d.Circle{Center: s.rayStart, Radius: castRadius}
 		capsule := dbox2d.Capsule{
-			Center1: dbox2d.TransformPoint(transform, qv("-0.25", "0")),
-			Center2: dbox2d.TransformPoint(transform, qv("0.25", "0")),
+			Center1: dbox2d.TransformPoint(transform, dbox2d.V2(-0.25, 0.0)),
+			Center2: dbox2d.TransformPoint(transform, dbox2d.V2(0.25, 0.0)),
 			Radius:  castRadius,
 		}
-		box := dbox2d.MakeOffsetRoundedBox(qs("0.25"), dbox2d.QHalf(), transform.P, transform.Q, castRadius)
+		box := dbox2d.MakeOffsetRoundedBox(dbox2d.F(0.25), dbox2d.QHalf(), transform.P, transform.Q, castRadius)
 		var proxy dbox2d.ShapeProxy
 
 		if s.castType == castTypeRay {
@@ -1467,7 +1461,7 @@ func (s *CastWorld) Step() {
 
 	if !s.bodyIds[s.ignoreIndex].IsNull() {
 		p := s.bodyIds[s.ignoreIndex].GetPosition()
-		p.X = p.X.Sub(qs("0.2"))
+		p.X = p.X.Sub(dbox2d.F(0.2))
 		draw.DrawString(p, "ign", dbox2d.ColorWhite)
 	}
 }
@@ -1517,15 +1511,15 @@ func NewOverlapWorld(ctx *SampleContext) Sample {
 	}
 
 	s.polygons = castWorldPolygons(false)
-	s.capsule = dbox2d.Capsule{Center1: qv("-0.5", "0"), Center2: qv("0.5", "0"), Radius: qs("0.25")}
+	s.capsule = dbox2d.Capsule{Center1: dbox2d.V2(-0.5, 0.0), Center2: dbox2d.V2(0.5, 0.0), Radius: dbox2d.F(0.25)}
 	s.circle = dbox2d.Circle{Radius: dbox2d.QHalf()}
-	s.segment = dbox2d.Segment{Point1: qv("-1", "0"), Point2: qv("1", "0")}
+	s.segment = dbox2d.Segment{Point1: dbox2d.V2(-1, 0), Point2: dbox2d.V2(1, 0)}
 
 	s.ignoreIndex = 7
 
 	s.shapeType = overlapCircle
 
-	s.position = qv("0", "10")
+	s.position = dbox2d.V2(0, 10)
 
 	s.createN(0, 10)
 	return s
@@ -1537,8 +1531,8 @@ func (s *OverlapWorld) create(index int) {
 		s.bodyIds[s.bodyIndex] = dbox2d.BodyId{}
 	}
 
-	x := shared.RandomFloatRange(dbox2d.QFromInt(-20), dbox2d.QFromInt(20))
-	y := shared.RandomFloatRange(dbox2d.QZero(), dbox2d.QFromInt(20))
+	x := shared.RandomFloatRange(dbox2d.F(-20), dbox2d.F(20))
+	y := shared.RandomFloatRange(dbox2d.QZero(), dbox2d.F(20))
 
 	bodyDef := dbox2d.DefaultBodyDef()
 	bodyDef.Position = dbox2d.Vec2{X: x, Y: y}
@@ -1656,14 +1650,14 @@ func (s *OverlapWorld) Step() {
 		drawSolidCircleAt(draw, dbox2d.TransformIdentity(), circle.Center, circle.Radius, dbox2d.ColorWhite)
 	} else if s.shapeType == overlapCapsule {
 		capsule := dbox2d.Capsule{
-			Center1: dbox2d.TransformPoint(transform, qv("-1", "0")),
-			Center2: dbox2d.TransformPoint(transform, qv("1", "0")),
+			Center1: dbox2d.TransformPoint(transform, dbox2d.V2(-1, 0)),
+			Center2: dbox2d.TransformPoint(transform, dbox2d.V2(1, 0)),
 			Radius:  dbox2d.QHalf(),
 		}
 		proxy = dbox2d.MakeProxy([]dbox2d.Vec2{capsule.Center1, capsule.Center2}, capsule.Radius)
 		draw.DrawSolidCapsule(capsule.Center1, capsule.Center2, capsule.Radius, dbox2d.ColorWhite)
 	} else if s.shapeType == overlapBox {
-		box := dbox2d.MakeOffsetBox(dbox2d.QFromInt(2), dbox2d.QHalf(), transform.P, transform.Q)
+		box := dbox2d.MakeOffsetBox(dbox2d.F(2), dbox2d.QHalf(), transform.P, transform.Q)
 		proxy = dbox2d.MakeProxy(box.Vertices[:box.Count], box.Radius)
 		draw.DrawPolygon(box.Vertices[:box.Count], dbox2d.ColorWhite)
 	}
@@ -1687,7 +1681,7 @@ func (s *OverlapWorld) Step() {
 
 	if !s.bodyIds[s.ignoreIndex].IsNull() {
 		p := s.bodyIds[s.ignoreIndex].GetPosition()
-		p.X = p.X.Sub(qs("0.2"))
+		p.X = p.X.Sub(dbox2d.F(0.2))
 		draw.DrawString(p, "skip", dbox2d.ColorWhite)
 	}
 
@@ -1740,13 +1734,13 @@ func NewManifold(ctx *SampleContext) Sample {
 	}
 
 	s.transform = dbox2d.TransformIdentity()
-	s.transform.P.X = qs("0.17")
-	s.transform.P.Y = qs("1.12")
+	s.transform.P.X = dbox2d.F(0.17)
+	s.transform.P.Y = dbox2d.F(1.12)
 	s.round = 0.1
 
 	s.enableCaching = true
 
-	s.wedge = dbox2d.ComputeHull([]dbox2d.Vec2{qv("-0.1", "-0.5"), qv("0.1", "-0.5"), qv("0", "0.5")})
+	s.wedge = dbox2d.ComputeHull([]dbox2d.Vec2{dbox2d.V2(-0.1, -0.5), dbox2d.V2(0.1, -0.5), dbox2d.V2(0.0, 0.5)})
 	return s
 }
 
@@ -1828,19 +1822,19 @@ func (s *Manifold) drawManifold(manifold *dbox2d.Manifold, origin1, origin2 dbox
 		draw.DrawSegment(p1, p2, dbox2d.ColorViolet)
 
 		if s.showAnchors {
-			draw.DrawPoint(origin1.Add(mp.AnchorA), dbox2d.QFromInt(5), dbox2d.ColorRed)
-			draw.DrawPoint(origin2.Add(mp.AnchorB), dbox2d.QFromInt(5), dbox2d.ColorGreen)
+			draw.DrawPoint(origin1.Add(mp.AnchorA), dbox2d.F(5), dbox2d.ColorRed)
+			draw.DrawPoint(origin2.Add(mp.AnchorB), dbox2d.F(5), dbox2d.ColorGreen)
 		} else {
-			draw.DrawPoint(p1, dbox2d.QFromInt(10), dbox2d.ColorBlue)
+			draw.DrawPoint(p1, dbox2d.F(10), dbox2d.ColorBlue)
 		}
 
 		if s.showIds {
-			p := dbox2d.Vec2{X: p1.X.Add(qs("0.05")), Y: p1.Y.Sub(qs("0.02"))}
+			p := dbox2d.Vec2{X: p1.X.Add(dbox2d.F(0.05)), Y: p1.Y.Sub(dbox2d.F(0.02))}
 			draw.DrawString(p, fmt.Sprintf("0x%04x", mp.Id), dbox2d.ColorWhite)
 		}
 
 		if s.showSeparation {
-			p := dbox2d.Vec2{X: p1.X.Add(qs("0.05")), Y: p1.Y.Add(qs("0.03"))}
+			p := dbox2d.Vec2{X: p1.X.Add(dbox2d.F(0.05)), Y: p1.Y.Add(dbox2d.F(0.03))}
 			draw.DrawString(p, fmt.Sprintf("%.3f", ToFloat64(mp.Separation)), dbox2d.ColorWhite)
 		}
 	}
@@ -1849,8 +1843,8 @@ func (s *Manifold) drawManifold(manifold *dbox2d.Manifold, origin1, origin2 dbox
 func (s *Manifold) Step() {
 	draw := &s.Context.Draw
 
-	offset := qv("-10", "-5")
-	increment := qv("4", "0")
+	offset := dbox2d.V2(-10, -5)
+	increment := dbox2d.V2(4, 0)
 
 	color1 := dbox2d.ColorAquamarine
 	color2 := dbox2d.ColorPaleGoldenRod
@@ -1891,7 +1885,7 @@ func (s *Manifold) Step() {
 
 	// capsule-circle
 	{
-		capsule := dbox2d.Capsule{Center1: qv("-0.5", "0"), Center2: qv("0.5", "0"), Radius: qs("0.25")}
+		capsule := dbox2d.Capsule{Center1: dbox2d.V2(-0.5, 0.0), Center2: dbox2d.V2(0.5, 0.0), Radius: dbox2d.F(0.25)}
 		circle := dbox2d.Circle{Radius: dbox2d.QHalf()}
 
 		transform1, transform2 := transforms()
@@ -1911,7 +1905,7 @@ func (s *Manifold) Step() {
 
 	// segment-circle
 	{
-		segment := dbox2d.Segment{Point1: qv("-1", "0"), Point2: qv("1", "0")}
+		segment := dbox2d.Segment{Point1: dbox2d.V2(-1, 0), Point2: dbox2d.V2(1, 0)}
 		circle := dbox2d.Circle{Radius: dbox2d.QHalf()}
 
 		transform1, transform2 := transforms()
@@ -1949,8 +1943,8 @@ func (s *Manifold) Step() {
 
 	// capsule-capsule
 	{
-		capsule1 := dbox2d.Capsule{Center1: qv("-0.5", "0"), Center2: qv("0.5", "0"), Radius: qs("0.25")}
-		capsule2 := dbox2d.Capsule{Center1: qv("0.25", "0"), Center2: qv("1", "0"), Radius: qs("0.1")}
+		capsule1 := dbox2d.Capsule{Center1: dbox2d.V2(-0.5, 0.0), Center2: dbox2d.V2(0.5, 0.0), Radius: dbox2d.F(0.25)}
+		capsule2 := dbox2d.Capsule{Center1: dbox2d.V2(0.25, 0.0), Center2: dbox2d.V2(1, 0), Radius: dbox2d.F(0.1)}
 
 		transform1, transform2 := transforms()
 
@@ -1971,8 +1965,8 @@ func (s *Manifold) Step() {
 
 	// box-capsule
 	{
-		capsule := dbox2d.Capsule{Center1: qv("-0.4", "0"), Center2: qv("-0.1", "0"), Radius: qs("0.1")}
-		box := dbox2d.MakeOffsetBox(qs("0.25"), dbox2d.QOne(), qv("1", "-1"), dbox2d.MakeRot(dbox2d.QFromRatio(1, 8)))
+		capsule := dbox2d.Capsule{Center1: dbox2d.V2(-0.4, 0.0), Center2: dbox2d.V2(-0.1, 0.0), Radius: dbox2d.F(0.1)}
+		box := dbox2d.MakeOffsetBox(dbox2d.F(0.25), dbox2d.QOne(), dbox2d.V2(1, -1), dbox2d.MakeRot(dbox2d.QFromRatio(1, 8)))
 
 		transform1, transform2 := transforms()
 
@@ -1991,8 +1985,8 @@ func (s *Manifold) Step() {
 
 	// segment-capsule
 	{
-		segment := dbox2d.Segment{Point1: qv("-1", "0"), Point2: qv("1", "0")}
-		capsule := dbox2d.Capsule{Center1: qv("-0.5", "0"), Center2: qv("0.5", "0"), Radius: qs("0.25")}
+		segment := dbox2d.Segment{Point1: dbox2d.V2(-1, 0), Point2: dbox2d.V2(1, 0)}
+		capsule := dbox2d.Capsule{Center1: dbox2d.V2(-0.5, 0.0), Center2: dbox2d.V2(0.5, 0.0), Radius: dbox2d.F(0.25)}
 
 		transform1, transform2 := transforms()
 
@@ -2011,7 +2005,7 @@ func (s *Manifold) Step() {
 		offset = offset.Add(increment)
 	}
 
-	offset = qv("-10", "0")
+	offset = dbox2d.V2(-10, 0)
 
 	// square-square
 	{
@@ -2032,8 +2026,8 @@ func (s *Manifold) Step() {
 
 	// box-box
 	{
-		box1 := dbox2d.MakeBox(dbox2d.QFromInt(2), qs("0.1"))
-		box := dbox2d.MakeSquare(qs("0.25"))
+		box1 := dbox2d.MakeBox(dbox2d.F(2), dbox2d.F(0.1))
+		box := dbox2d.MakeSquare(dbox2d.F(0.25))
 
 		transform1, transform2 := transforms()
 
@@ -2082,7 +2076,7 @@ func (s *Manifold) Step() {
 
 	// segment-rox
 	{
-		segment := dbox2d.Segment{Point1: qv("-1", "0"), Point2: qv("1", "0")}
+		segment := dbox2d.Segment{Point1: dbox2d.V2(-1, 0), Point2: dbox2d.V2(1, 0)}
 		rox := dbox2d.MakeRoundedBox(h, h, round)
 
 		transform1, transform2 := transforms()
@@ -2119,13 +2113,13 @@ func (s *Manifold) Step() {
 
 	// wox-wox
 	{
-		p1s := []dbox2d.Vec2{qv("0.175740838", "0.224936664"), qv("-0.301293969", "0.194021404"), qv("-0.105151534", "-0.432157338")}
-		p2s := []dbox2d.Vec2{qv("-0.427884758", "-0.225028217"), qv("0.0566576123", "-0.128772855"), qv("0.176625848", "0.338923335")}
+		p1s := []dbox2d.Vec2{dbox2d.V2(0.175740838, 0.224936664), dbox2d.V2(-0.301293969, 0.194021404), dbox2d.V2(-0.105151534, -0.432157338)}
+		p2s := []dbox2d.Vec2{dbox2d.V2(-0.427884758, -0.225028217), dbox2d.V2(0.0566576123, -0.128772855), dbox2d.V2(0.176625848, 0.338923335)}
 
 		h1 := dbox2d.ComputeHull(p1s)
 		h2 := dbox2d.ComputeHull(p2s)
-		w1 := dbox2d.MakePolygon(&h1, qs("0.158798501"))
-		w2 := dbox2d.MakePolygon(&h2, qs("0.205900759"))
+		w1 := dbox2d.MakePolygon(&h1, dbox2d.F(0.158798501))
+		w2 := dbox2d.MakePolygon(&h2, dbox2d.F(0.205900759))
 
 		transform1, transform2 := transforms()
 
@@ -2141,12 +2135,12 @@ func (s *Manifold) Step() {
 		offset = offset.Add(increment)
 	}
 
-	offset = qv("-10", "5")
+	offset = dbox2d.V2(-10, 5)
 
 	// box-triangle
 	{
 		box := dbox2d.MakeBox(dbox2d.QOne(), dbox2d.QOne())
-		hull := dbox2d.ComputeHull([]dbox2d.Vec2{qv("-0.05", "0"), qv("0.05", "0"), qv("0", "0.1")})
+		hull := dbox2d.ComputeHull([]dbox2d.Vec2{dbox2d.V2(-0.05, 0.0), dbox2d.V2(0.05, 0.0), dbox2d.V2(0.0, 0.1)})
 		tri := dbox2d.MakePolygon(&hull, dbox2d.QZero())
 
 		transform1, transform2 := transforms()
@@ -2161,20 +2155,20 @@ func (s *Manifold) Step() {
 		offset = offset.Add(increment)
 	}
 
-	two := dbox2d.QFromInt(2)
-	four := dbox2d.QFromInt(4)
-	five := dbox2d.QFromInt(5)
+	two := dbox2d.F(2)
+	four := dbox2d.F(4)
+	five := dbox2d.F(5)
 
 	segment1 := dbox2d.ChainSegment{
-		Ghost1:  qv("2", "1"),
-		Segment: dbox2d.Segment{Point1: qv("1", "1"), Point2: qv("-1", "0")},
-		Ghost2:  qv("-2", "0"),
+		Ghost1:  dbox2d.V2(2, 1),
+		Segment: dbox2d.Segment{Point1: dbox2d.V2(1, 1), Point2: dbox2d.V2(-1, 0)},
+		Ghost2:  dbox2d.V2(-2, 0),
 		ChainId: -1,
 	}
 	segment2 := dbox2d.ChainSegment{
-		Ghost1:  qv("3", "1"),
-		Segment: dbox2d.Segment{Point1: qv("2", "1"), Point2: qv("1", "1")},
-		Ghost2:  qv("-1", "0"),
+		Ghost1:  dbox2d.V2(3, 1),
+		Segment: dbox2d.Segment{Point1: dbox2d.V2(2, 1), Point2: dbox2d.V2(1, 1)},
+		Ghost2:  dbox2d.V2(-1, 0),
 		ChainId: -1,
 	}
 
@@ -2247,7 +2241,7 @@ func (s *Manifold) Step() {
 
 	// chain-segment vs capsule
 	{
-		capsule := dbox2d.Capsule{Center1: qv("-0.5", "0"), Center2: qv("0.5", "0"), Radius: qs("0.25")}
+		capsule := dbox2d.Capsule{Center1: dbox2d.V2(-0.5, 0.0), Center2: dbox2d.V2(0.5, 0.0), Radius: dbox2d.F(0.25)}
 
 		transform1, transform2 := transforms()
 
@@ -2277,43 +2271,43 @@ const (
 
 // smoothManifoldPoints is the closed path of the Smooth Manifold sample,
 // from https://betravis.github.io/shape-tools/path-to-polygon/.
-var smoothManifoldPoints = [...][2]string{
-	{"-20.58325", "14.54175"},
-	{"-21.90625", "15.8645"},
-	{"-24.552", "17.1875"},
-	{"-27.198", "11.89575"},
-	{"-29.84375", "15.8645"},
-	{"-29.84375", "21.15625"},
-	{"-25.875", "23.802"},
-	{"-20.58325", "25.125"},
-	{"-25.875", "29.09375"},
-	{"-20.58325", "31.7395"},
-	{"-11.0089998", "23.2290001"},
-	{"-8.67700005", "21.15625"},
-	{"-6.03125", "21.15625"},
-	{"-7.35424995", "29.09375"},
-	{"-3.38549995", "29.09375"},
-	{"1.90625", "30.41675"},
-	{"5.875", "17.1875"},
-	{"11.16675", "25.125"},
-	{"9.84375", "29.09375"},
-	{"13.8125", "31.7395"},
-	{"21.75", "30.41675"},
-	{"28.3644981", "26.448"},
-	{"25.71875", "18.5105"},
-	{"24.3957481", "13.21875"},
-	{"17.78125", "11.89575"},
-	{"15.1355", "7.92700005"},
-	{"5.875", "9.25"},
-	{"1.90625", "11.89575"},
-	{"-3.25", "11.89575"},
-	{"-3.25", "9.9375"},
-	{"-4.70825005", "9.25"},
-	{"-8.67700005", "9.25"},
-	{"-11.323", "11.89575"},
-	{"-13.96875", "11.89575"},
-	{"-15.29175", "14.54175"},
-	{"-19.2605", "14.54175"},
+var smoothManifoldPoints = [...][2]float64{
+	{-20.58325, 14.54175},
+	{-21.90625, 15.8645},
+	{-24.552, 17.1875},
+	{-27.198, 11.89575},
+	{-29.84375, 15.8645},
+	{-29.84375, 21.15625},
+	{-25.875, 23.802},
+	{-20.58325, 25.125},
+	{-25.875, 29.09375},
+	{-20.58325, 31.7395},
+	{-11.0089998, 23.2290001},
+	{-8.67700005, 21.15625},
+	{-6.03125, 21.15625},
+	{-7.35424995, 29.09375},
+	{-3.38549995, 29.09375},
+	{1.90625, 30.41675},
+	{5.875, 17.1875},
+	{11.16675, 25.125},
+	{9.84375, 29.09375},
+	{13.8125, 31.7395},
+	{21.75, 30.41675},
+	{28.3644981, 26.448},
+	{25.71875, 18.5105},
+	{24.3957481, 13.21875},
+	{17.78125, 11.89575},
+	{15.1355, 7.92700005},
+	{5.875, 9.25},
+	{1.90625, 11.89575},
+	{-3.25, 11.89575},
+	{-3.25, 9.9375},
+	{-4.70825005, 9.25},
+	{-8.67700005, 9.25},
+	{-11.323, 11.89575},
+	{-13.96875, 11.89575},
+	{-15.29175, 14.54175},
+	{-19.2605, 14.54175},
 }
 
 // SmoothManifold collides a shape against a closed loop of chain segments.
@@ -2347,12 +2341,12 @@ func NewSmoothManifold(ctx *SampleContext) Sample {
 	}
 
 	s.shapeType = smoothBox
-	s.transform = dbox2d.Transform{P: qv("0", "20"), Q: dbox2d.RotIdentity()}
+	s.transform = dbox2d.Transform{P: dbox2d.V2(0, 20), Q: dbox2d.RotIdentity()}
 
 	count := len(smoothManifoldPoints)
 	points := make([]dbox2d.Vec2, count)
 	for i, p := range smoothManifoldPoints {
-		points[i] = qv(p[0], p[1])
+		points[i] = dbox2d.V2(p[0], p[1])
 	}
 
 	s.segments = make([]dbox2d.ChainSegment, count)
@@ -2454,15 +2448,15 @@ func (s *SmoothManifold) drawManifold(manifold *dbox2d.Manifold) {
 		draw.DrawSegment(p1, p2, dbox2d.ColorWhite)
 
 		// The reference draws the same point with or without anchors.
-		draw.DrawPoint(p1, dbox2d.QFromInt(5), dbox2d.ColorGreen)
+		draw.DrawPoint(p1, dbox2d.F(5), dbox2d.ColorGreen)
 
 		if s.showIds {
-			p := dbox2d.Vec2{X: p1.X.Add(qs("0.05")), Y: p1.Y.Sub(qs("0.02"))}
+			p := dbox2d.Vec2{X: p1.X.Add(dbox2d.F(0.05)), Y: p1.Y.Sub(dbox2d.F(0.02))}
 			draw.DrawString(p, fmt.Sprintf("0x%04x", mp.Id), dbox2d.ColorWhite)
 		}
 
 		if s.showSeparation {
-			p := dbox2d.Vec2{X: p1.X.Add(qs("0.05")), Y: p1.Y.Add(qs("0.03"))}
+			p := dbox2d.Vec2{X: p1.X.Add(dbox2d.F(0.05)), Y: p1.Y.Add(dbox2d.F(0.03))}
 			draw.DrawString(p, fmt.Sprintf("%.3f", ToFloat64(mp.Separation)), dbox2d.ColorWhite)
 		}
 	}
@@ -2482,7 +2476,7 @@ func (s *SmoothManifold) Step() {
 		p1 := dbox2d.TransformPoint(transform1, segment.Segment.Point1)
 		p2 := dbox2d.TransformPoint(transform1, segment.Segment.Point2)
 		draw.DrawSegment(p1, p2, color1)
-		draw.DrawPoint(p1, dbox2d.QFromInt(4), color1)
+		draw.DrawPoint(p1, dbox2d.F(4), color1)
 	}
 
 	// chain-segment vs circle
@@ -2540,17 +2534,17 @@ func NewShapeCast(ctx *SampleContext) Sample {
 		ctx.Camera.Zoom = 3
 	}
 
-	s.shapes.segment = dbox2d.Segment{Point1: qv("0", "0"), Point2: qv("0.5", "0")}
+	s.shapes.segment = dbox2d.Segment{Point1: dbox2d.V2(0, 0), Point2: dbox2d.V2(0.5, 0.0)}
 
 	{
-		hull := dbox2d.ComputeHull([]dbox2d.Vec2{qv("-0.5", "0"), qv("0.5", "0"), qv("0", "1")})
+		hull := dbox2d.ComputeHull([]dbox2d.Vec2{dbox2d.V2(-0.5, 0.0), dbox2d.V2(0.5, 0.0), dbox2d.V2(0, 1)})
 		s.shapes.triangle = dbox2d.MakePolygon(&hull, dbox2d.QZero())
 	}
 
 	s.shapes.box = dbox2d.MakeOffsetBox(dbox2d.QHalf(), dbox2d.QHalf(), dbox2d.Vec2{}, dbox2d.RotIdentity())
 
-	s.transform = dbox2d.Transform{P: qv("-0.6", "0"), Q: dbox2d.RotIdentity()}
-	s.translation = qv("2", "0")
+	s.transform = dbox2d.Transform{P: dbox2d.V2(-0.6, 0.0), Q: dbox2d.RotIdentity()}
+	s.translation = dbox2d.V2(2, 0)
 
 	s.typeA = proxyBox
 	s.typeB = proxyPoint
@@ -2685,10 +2679,10 @@ func (s *ShapeCast) Step() {
 		s.shapes.drawShape(draw, s.typeB, transform, FromFloat64(s.radiusB), dbox2d.ColorPlum)
 
 		if output.Fraction.Greater(dbox2d.QZero()) {
-			draw.DrawPoint(output.Point, dbox2d.QFromInt(5), dbox2d.ColorWhite)
+			draw.DrawPoint(output.Point, dbox2d.F(5), dbox2d.ColorWhite)
 			draw.DrawSegment(output.Point, dbox2d.MulAdd(output.Point, dbox2d.QHalf(), output.Normal), dbox2d.ColorYellow)
 		} else {
-			draw.DrawPoint(output.Point, dbox2d.QFromInt(5), dbox2d.ColorPeru)
+			draw.DrawPoint(output.Point, dbox2d.F(5), dbox2d.ColorPeru)
 		}
 	}
 
@@ -2729,11 +2723,11 @@ func NewTimeOfImpact(ctx *SampleContext) Sample {
 		ctx.Camera.Zoom = 5
 	}
 
-	s.verticesA = [4]dbox2d.Vec2{qv("-16.25", "44.75"), qv("-15.75", "44.75"), qv("-15.75", "45.25"), qv("-16.25", "45.25")}
-	s.verticesB = [2]dbox2d.Vec2{qv("0", "-0.125"), qv("0", "0.125")}
+	s.verticesA = [4]dbox2d.Vec2{dbox2d.V2(-16.25, 44.75), dbox2d.V2(-15.75, 44.75), dbox2d.V2(-15.75, 45.25), dbox2d.V2(-16.25, 45.25)}
+	s.verticesB = [2]dbox2d.Vec2{dbox2d.V2(0.0, -0.125), dbox2d.V2(0.0, 0.125)}
 
 	s.radiusA = dbox2d.QZero()
-	s.radiusB = qs("0.0299999993")
+	s.radiusB = dbox2d.F(0.0299999993)
 	return s
 }
 
@@ -2745,10 +2739,10 @@ func (s *TimeOfImpact) Step() {
 		Q2: dbox2d.RotIdentity(),
 	}
 	sweepB := dbox2d.Sweep{
-		C1: qv("-15.8332710", "45.3520279"),
-		C2: qv("-15.8324337", "45.3413048"),
-		Q1: dbox2d.Rot{Cos: qs("-0.540891349"), Sin: qs("0.841092527")},
-		Q2: dbox2d.Rot{Cos: qs("-0.457797021"), Sin: qs("0.889056742")},
+		C1: dbox2d.V2(-15.8332710, 45.3520279),
+		C2: dbox2d.V2(-15.8324337, 45.3413048),
+		Q1: dbox2d.Rot{Cos: dbox2d.F(-0.540891349), Sin: dbox2d.F(0.841092527)},
+		Q2: dbox2d.Rot{Cos: dbox2d.F(-0.457797021), Sin: dbox2d.F(0.889056742)},
 	}
 
 	input := dbox2d.TOIInput{

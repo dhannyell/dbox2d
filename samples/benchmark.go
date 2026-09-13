@@ -97,7 +97,7 @@ func NewBarrel(ctx *SampleContext) Sample {
 		shapeDef := dbox2d.DefaultShapeDef()
 
 		y := dbox2d.QZero()
-		x := dbox2d.QFromInt(-40).Mul(gridSize)
+		x := dbox2d.F(-40).Mul(gridSize)
 		for range 81 {
 			box := dbox2d.MakeOffsetBox(
 				dbox2d.QHalf().Mul(gridSize),
@@ -110,7 +110,7 @@ func NewBarrel(ctx *SampleContext) Sample {
 		}
 
 		y = gridSize
-		x = dbox2d.QFromInt(-40).Mul(gridSize)
+		x = dbox2d.F(-40).Mul(gridSize)
 		for range 100 {
 			box := dbox2d.MakeOffsetBox(
 				dbox2d.QHalf().Mul(gridSize),
@@ -123,7 +123,7 @@ func NewBarrel(ctx *SampleContext) Sample {
 		}
 
 		y = gridSize
-		x = dbox2d.QFromInt(40).Mul(gridSize)
+		x = dbox2d.F(40).Mul(gridSize)
 		for range 100 {
 			box := dbox2d.MakeOffsetBox(
 				dbox2d.QHalf().Mul(gridSize),
@@ -136,8 +136,8 @@ func NewBarrel(ctx *SampleContext) Sample {
 		}
 
 		segment := dbox2d.Segment{
-			Point1: dbox2d.Vec2{X: dbox2d.QFromInt(-800), Y: dbox2d.QFromInt(-80)},
-			Point2: dbox2d.Vec2{X: dbox2d.QFromInt(800), Y: dbox2d.QFromInt(-80)},
+			Point1: dbox2d.V2(-800, -80),
+			Point2: dbox2d.V2(800, -80),
 		}
 		dbox2d.CreateSegmentShape(groundID, &shapeDef, &segment)
 	}
@@ -180,39 +180,39 @@ func (s *Barrel) createScene() {
 	}
 
 	rad := dbox2d.QHalf()
-	shift := dbox2d.QMustParse("1.15")
-	centerX := shift.Mul(dbox2d.QFromInt(s.columnCount)).Div(dbox2d.QFromInt(2))
-	centerY := shift.Div(dbox2d.QFromInt(2))
+	shift := dbox2d.F(1.15)
+	centerX := shift.Mul(dbox2d.F(s.columnCount)).Div(dbox2d.F(2))
+	centerY := shift.Div(dbox2d.F(2))
 
 	bodyDef := dbox2d.DefaultBodyDef()
 	bodyDef.Type = dbox2d.DynamicBody
 	if s.shapeType == barrelMixShape {
-		bodyDef.AngularDamping = dbox2d.QMustParse("0.3")
+		bodyDef.AngularDamping = dbox2d.F(0.3)
 	}
 
 	shapeDef := dbox2d.DefaultShapeDef()
 	shapeDef.Density = dbox2d.QOne()
-	shapeDef.Material.Friction = dbox2d.QMustParse("0.5")
+	shapeDef.Material.Friction = dbox2d.F(0.5)
 
 	capsule := dbox2d.Capsule{
-		Center1: dbox2d.Vec2{Y: dbox2d.QMustParse("-0.25")},
-		Center2: dbox2d.Vec2{Y: dbox2d.QMustParse("0.25")},
+		Center1: dbox2d.V2(0.0, -0.25),
+		Center2: dbox2d.V2(0.0, 0.25),
 		Radius:  rad,
 	}
 	circle := dbox2d.Circle{Radius: rad}
 
 	wedgePoints := []dbox2d.Vec2{
-		{X: dbox2d.QMustParse("-0.1"), Y: dbox2d.QMustParse("-0.5")},
-		{X: dbox2d.QMustParse("0.1"), Y: dbox2d.QMustParse("-0.5")},
-		{Y: dbox2d.QMustParse("0.5")},
+		{X: dbox2d.F(-0.1), Y: dbox2d.F(-0.5)},
+		{X: dbox2d.F(0.1), Y: dbox2d.F(-0.5)},
+		{Y: dbox2d.F(0.5)},
 	}
 	wedgeHull := dbox2d.ComputeHull(wedgePoints)
 	wedge := dbox2d.MakePolygon(&wedgeHull, dbox2d.QZero())
 
 	vertices := []dbox2d.Vec2{
-		{X: dbox2d.QFromInt(-1)},
+		{X: dbox2d.F(-1)},
 		{X: dbox2d.QHalf(), Y: dbox2d.QOne()},
-		{Y: dbox2d.QFromInt(2)},
+		{Y: dbox2d.F(2)},
 	}
 	hull := dbox2d.ComputeHull(vertices)
 	left := dbox2d.MakePolygon(&hull, dbox2d.QZero())
@@ -222,78 +222,78 @@ func (s *Barrel) createScene() {
 	hull = dbox2d.ComputeHull(vertices)
 	right := dbox2d.MakePolygon(&hull, dbox2d.QZero())
 
-	side := dbox2d.QMustParse("-0.1")
+	side := dbox2d.F(-0.1)
 	extraY := dbox2d.QHalf()
 	switch s.shapeType {
 	case barrelCompoundShape:
-		extraY = dbox2d.QMustParse("0.25")
-		side = dbox2d.QMustParse("0.25")
-		shift = dbox2d.QFromInt(2)
-		centerX = shift.Mul(dbox2d.QFromInt(s.columnCount)).Div(dbox2d.QFromInt(2)).Sub(dbox2d.QOne())
+		extraY = dbox2d.F(0.25)
+		side = dbox2d.F(0.25)
+		shift = dbox2d.F(2)
+		centerX = shift.Mul(dbox2d.F(s.columnCount)).Div(dbox2d.F(2)).Sub(dbox2d.QOne())
 	case barrelHumanShape:
 		extraY = dbox2d.QHalf()
-		side = dbox2d.QMustParse("0.55")
-		shift = dbox2d.QMustParse("2.5")
-		centerX = shift.Mul(dbox2d.QFromInt(s.columnCount)).Div(dbox2d.QFromInt(2))
+		side = dbox2d.F(0.55)
+		shift = dbox2d.F(2.5)
+		centerX = shift.Mul(dbox2d.F(s.columnCount)).Div(dbox2d.F(2))
 	case barrelGopherShape:
-		extraY = dbox2d.QMustParse("2.5")
+		extraY = dbox2d.F(2.5)
 		side = dbox2d.QOne()
-		shift = dbox2d.QMustParse("4.5")
-		centerX = shift.Mul(dbox2d.QFromInt(s.columnCount)).Div(dbox2d.QFromInt(2))
+		shift = dbox2d.F(4.5)
+		centerX = shift.Mul(dbox2d.F(s.columnCount)).Div(dbox2d.F(2))
 	}
 
 	index := 0
-	yStart := dbox2d.QFromInt(100)
+	yStart := dbox2d.F(100)
 	switch s.shapeType {
 	case barrelHumanShape:
-		yStart = dbox2d.QFromInt(2)
+		yStart = dbox2d.F(2)
 	case barrelGopherShape:
-		yStart = dbox2d.QFromInt(110)
+		yStart = dbox2d.F(110)
 	}
 
 	for i := range s.columnCount {
-		x := dbox2d.QFromInt(i).Mul(shift).Sub(centerX)
+		x := dbox2d.F(i).Mul(shift).Sub(centerX)
 
 		for j := range s.rowCount {
-			y := dbox2d.QFromInt(j).Mul(shift.Add(extraY)).Add(centerY).Add(yStart)
+			y := dbox2d.F(j).Mul(shift.Add(extraY)).Add(centerY).Add(yStart)
 			bodyDef.Position = dbox2d.Vec2{X: x.Add(side), Y: y}
 			side = side.Neg()
 
 			switch s.shapeType {
 			case barrelCircleShape:
 				s.bodies[index] = dbox2d.CreateBody(s.WorldId, &bodyDef)
-				circle.Radius = shared.RandomFloatRange(dbox2d.QMustParse("0.25"), dbox2d.QMustParse("0.75"))
-				shapeDef.Material.RollingResistance = dbox2d.QMustParse("0.2")
+				circle.Radius = shared.RandomFloatRange(dbox2d.F(0.25), dbox2d.F(0.75))
+				shapeDef.Material.RollingResistance = dbox2d.F(0.2)
 				dbox2d.CreateCircleShape(s.bodies[index], &shapeDef, &circle)
 			case barrelCapsuleShape:
 				s.bodies[index] = dbox2d.CreateBody(s.WorldId, &bodyDef)
-				capsule.Radius = shared.RandomFloatRange(dbox2d.QMustParse("0.25"), dbox2d.QMustParse("0.5"))
-				length := shared.RandomFloatRange(dbox2d.QMustParse("0.25"), dbox2d.QOne())
+				capsule.Radius = shared.RandomFloatRange(dbox2d.F(0.25), dbox2d.F(0.5))
+				length := shared.RandomFloatRange(dbox2d.F(0.25), dbox2d.QOne())
 				capsule.Center1 = dbox2d.Vec2{Y: dbox2d.QHalf().Mul(length).Neg()}
 				capsule.Center2 = dbox2d.Vec2{Y: dbox2d.QHalf().Mul(length)}
-				shapeDef.Material.RollingResistance = dbox2d.QMustParse("0.2")
+				shapeDef.Material.RollingResistance = dbox2d.F(0.2)
 				dbox2d.CreateCapsuleShape(s.bodies[index], &shapeDef, &capsule)
 			case barrelMixShape:
 				s.bodies[index] = dbox2d.CreateBody(s.WorldId, &bodyDef)
 				switch index % 3 {
 				case 0:
-					circle.Radius = shared.RandomFloatRange(dbox2d.QMustParse("0.25"), dbox2d.QMustParse("0.75"))
+					circle.Radius = shared.RandomFloatRange(dbox2d.F(0.25), dbox2d.F(0.75))
 					dbox2d.CreateCircleShape(s.bodies[index], &shapeDef, &circle)
 				case 1:
-					capsule.Radius = shared.RandomFloatRange(dbox2d.QMustParse("0.25"), dbox2d.QMustParse("0.5"))
-					length := shared.RandomFloatRange(dbox2d.QMustParse("0.25"), dbox2d.QOne())
+					capsule.Radius = shared.RandomFloatRange(dbox2d.F(0.25), dbox2d.F(0.5))
+					length := shared.RandomFloatRange(dbox2d.F(0.25), dbox2d.QOne())
 					capsule.Center1 = dbox2d.Vec2{Y: dbox2d.QHalf().Mul(length).Neg()}
 					capsule.Center2 = dbox2d.Vec2{Y: dbox2d.QHalf().Mul(length)}
 					dbox2d.CreateCapsuleShape(s.bodies[index], &shapeDef, &capsule)
 				case 2:
-					width := shared.RandomFloatRange(dbox2d.QMustParse("0.1"), dbox2d.QMustParse("0.5"))
-					height := shared.RandomFloatRange(dbox2d.QMustParse("0.5"), dbox2d.QMustParse("0.75"))
+					width := shared.RandomFloatRange(dbox2d.F(0.1), dbox2d.F(0.5))
+					height := shared.RandomFloatRange(dbox2d.F(0.5), dbox2d.F(0.75))
 					box := dbox2d.MakeBox(width, height)
-					value := shared.RandomFloatRange(dbox2d.QFromInt(-1), dbox2d.QOne())
+					value := shared.RandomFloatRange(dbox2d.F(-1), dbox2d.QOne())
 					box.Radius = dbox2d.QFromRatio(1, 4).Mul(value.Max(dbox2d.QZero()))
 					dbox2d.CreatePolygonShape(s.bodies[index], &shapeDef, &box)
 				default:
-					wedge.Radius = shared.RandomFloatRange(dbox2d.QMustParse("0.1"), dbox2d.QMustParse("0.25"))
+					wedge.Radius = shared.RandomFloatRange(dbox2d.F(0.1), dbox2d.F(0.25))
 					dbox2d.CreatePolygonShape(s.bodies[index], &shapeDef, &wedge)
 				}
 			case barrelCompoundShape:
@@ -301,9 +301,9 @@ func (s *Barrel) createScene() {
 				dbox2d.CreatePolygonShape(s.bodies[index], &shapeDef, &left)
 				dbox2d.CreatePolygonShape(s.bodies[index], &shapeDef, &right)
 			case barrelHumanShape:
-				scale := dbox2d.QMustParse("3.5")
-				jointFriction := dbox2d.QMustParse("0.05")
-				jointHertz := dbox2d.QFromInt(5)
+				scale := dbox2d.F(3.5)
+				jointFriction := dbox2d.F(0.05)
+				jointHertz := dbox2d.F(5)
 				jointDamping := dbox2d.QHalf()
 				s.humans[index] = shared.CreateHuman(
 					s.WorldId, bodyDef.Position, scale, jointFriction, jointHertz, jointDamping,
@@ -356,7 +356,7 @@ type ManyTumblers struct {
 // NewManyTumblers builds the many-tumblers benchmark scene.
 // angularVelocity converts the degrees-per-second slider to turns per second.
 func (s *ManyTumblers) angularVelocity() dbox2d.Q {
-	return FromFloat64(s.angularSpeed).Div(dbox2d.QFromInt(360))
+	return FromFloat64(s.angularSpeed).Div(dbox2d.F(360))
 }
 
 func NewManyTumblers(ctx *SampleContext) Sample {
@@ -388,16 +388,16 @@ func (s *ManyTumblers) createTumbler(position dbox2d.Vec2, index int) {
 	s.tumblerIDs[index] = bodyID
 
 	shapeDef := dbox2d.DefaultShapeDef()
-	shapeDef.Density = dbox2d.QFromInt(50)
+	shapeDef.Density = dbox2d.F(50)
 
 	walls := []struct {
 		halfWidth, halfHeight dbox2d.Q
 		center                dbox2d.Vec2
 	}{
-		{dbox2d.QMustParse("0.25"), dbox2d.QFromInt(2), dbox2d.Vec2{X: dbox2d.QFromInt(2)}},
-		{dbox2d.QMustParse("0.25"), dbox2d.QFromInt(2), dbox2d.Vec2{X: dbox2d.QFromInt(-2)}},
-		{dbox2d.QFromInt(2), dbox2d.QMustParse("0.25"), dbox2d.Vec2{Y: dbox2d.QFromInt(2)}},
-		{dbox2d.QFromInt(2), dbox2d.QMustParse("0.25"), dbox2d.Vec2{Y: dbox2d.QFromInt(-2)}},
+		{dbox2d.F(0.25), dbox2d.F(2), dbox2d.V2(2, 0)},
+		{dbox2d.F(0.25), dbox2d.F(2), dbox2d.V2(-2, 0)},
+		{dbox2d.F(2), dbox2d.F(0.25), dbox2d.V2(0, 2)},
+		{dbox2d.F(2), dbox2d.F(0.25), dbox2d.V2(0, -2)},
 	}
 	for _, wall := range walls {
 		polygon := dbox2d.MakeOffsetBox(wall.halfWidth, wall.halfHeight, wall.center, dbox2d.RotIdentity())
@@ -421,16 +421,16 @@ func (s *ManyTumblers) createScene() {
 	s.positions = make([]dbox2d.Vec2, s.tumblerCount)
 
 	index := 0
-	x := dbox2d.QFromInt(-4 * s.rowCount)
+	x := dbox2d.F(-4 * s.rowCount)
 	for range s.rowCount {
-		y := dbox2d.QFromInt(-4 * s.columnCount)
+		y := dbox2d.F(-4 * s.columnCount)
 		for range s.columnCount {
 			s.positions[index] = dbox2d.Vec2{X: x, Y: y}
 			s.createTumbler(s.positions[index], index)
 			index++
-			y = y.Add(dbox2d.QFromInt(8))
+			y = y.Add(dbox2d.F(8))
 		}
-		x = x.Add(dbox2d.QFromInt(8))
+		x = x.Add(dbox2d.F(8))
 	}
 
 	bodiesPerTumbler := 50
@@ -470,9 +470,9 @@ func (s *ManyTumblers) Step() {
 	if s.bodyIndex < s.bodyCount && s.StepCount&0x7 == 0 {
 		shapeDef := dbox2d.DefaultShapeDef()
 		capsule := dbox2d.Capsule{
-			Center1: dbox2d.Vec2{X: dbox2d.QMustParse("-0.1")},
-			Center2: dbox2d.Vec2{X: dbox2d.QMustParse("0.1")},
-			Radius:  dbox2d.QMustParse("0.075"),
+			Center1: dbox2d.V2(-0.1, 0.0),
+			Center2: dbox2d.V2(0.1, 0.0),
+			Radius:  dbox2d.F(0.075),
 		}
 
 		for i := range s.tumblerCount {
@@ -549,7 +549,7 @@ func NewCreateDestroy(ctx *SampleContext) Sample {
 
 	bodyDef := dbox2d.DefaultBodyDef()
 	groundID := dbox2d.CreateBody(s.WorldId, &bodyDef)
-	ground := dbox2d.MakeBox(dbox2d.QFromInt(100), dbox2d.QOne())
+	ground := dbox2d.MakeBox(dbox2d.F(100), dbox2d.QOne())
 	shapeDef := dbox2d.DefaultShapeDef()
 	dbox2d.CreatePolygonShape(groundID, &shapeDef, &ground)
 
@@ -577,27 +577,27 @@ func (s *CreateDestroy) CreateScene() {
 
 	count := s.baseCount
 	rad := dbox2d.QHalf()
-	shift := rad.Mul(dbox2d.QFromInt(2))
-	centerX := shift.Mul(dbox2d.QFromInt(count)).Div(dbox2d.QFromInt(2))
-	centerY := shift.Div(dbox2d.QFromInt(2)).Add(dbox2d.QOne())
+	shift := rad.Mul(dbox2d.F(2))
+	centerX := shift.Mul(dbox2d.F(count)).Div(dbox2d.F(2))
+	centerY := shift.Div(dbox2d.F(2)).Add(dbox2d.QOne())
 
 	bodyDef := dbox2d.DefaultBodyDef()
 	bodyDef.Type = dbox2d.DynamicBody
 
 	shapeDef := dbox2d.DefaultShapeDef()
 	shapeDef.Density = dbox2d.QOne()
-	shapeDef.Material.Friction = dbox2d.QMustParse("0.5")
+	shapeDef.Material.Friction = dbox2d.F(0.5)
 
 	box := dbox2d.MakeRoundedBox(dbox2d.QHalf(), dbox2d.QHalf(), dbox2d.QZero())
 	index := 0
 
 	timer = time.Now()
 	for i := range count {
-		y := dbox2d.QFromInt(i).Mul(shift).Add(centerY)
+		y := dbox2d.F(i).Mul(shift).Add(centerY)
 
 		for j := i; j < count; j++ {
 			x := dbox2d.QFromRatio(i, 2).Mul(shift).
-				Add(dbox2d.QFromInt(j - i).Mul(shift)).
+				Add(dbox2d.F(j - i).Mul(shift)).
 				Sub(centerX)
 			bodyDef.Position = dbox2d.Vec2{X: x, Y: y}
 
@@ -655,7 +655,7 @@ func NewSleep(ctx *SampleContext) Sample {
 
 	bodyDef := dbox2d.DefaultBodyDef()
 	groundID := dbox2d.CreateBody(s.WorldId, &bodyDef)
-	ground := dbox2d.MakeBox(dbox2d.QFromInt(100), dbox2d.QOne())
+	ground := dbox2d.MakeBox(dbox2d.F(100), dbox2d.QOne())
 	shapeDef := dbox2d.DefaultShapeDef()
 	dbox2d.CreatePolygonShape(groundID, &shapeDef, &ground)
 
@@ -685,26 +685,26 @@ func (s *Sleep) CreateScene() {
 
 	count := s.baseCount
 	rad := dbox2d.QHalf()
-	shift := rad.Mul(dbox2d.QFromInt(2))
-	centerX := shift.Mul(dbox2d.QFromInt(count)).Div(dbox2d.QFromInt(2))
-	centerY := shift.Div(dbox2d.QFromInt(2)).Add(dbox2d.QOne())
+	shift := rad.Mul(dbox2d.F(2))
+	centerX := shift.Mul(dbox2d.F(count)).Div(dbox2d.F(2))
+	centerY := shift.Div(dbox2d.F(2)).Add(dbox2d.QOne())
 
 	bodyDef := dbox2d.DefaultBodyDef()
 	bodyDef.Type = dbox2d.DynamicBody
 
 	shapeDef := dbox2d.DefaultShapeDef()
 	shapeDef.Density = dbox2d.QOne()
-	shapeDef.Material.Friction = dbox2d.QMustParse("0.5")
+	shapeDef.Material.Friction = dbox2d.F(0.5)
 
 	box := dbox2d.MakeRoundedBox(dbox2d.QHalf(), dbox2d.QHalf(), dbox2d.QZero())
 	index := 0
 
 	for i := range count {
-		y := dbox2d.QFromInt(i).Mul(shift).Add(centerY)
+		y := dbox2d.F(i).Mul(shift).Add(centerY)
 
 		for j := i; j < count; j++ {
 			x := dbox2d.QFromRatio(i, 2).Mul(shift).
-				Add(dbox2d.QFromInt(j - i).Mul(shift)).
+				Add(dbox2d.F(j - i).Mul(shift)).
 				Sub(centerX)
 			bodyDef.Position = dbox2d.Vec2{X: x, Y: y}
 
@@ -805,9 +805,9 @@ func NewCompound(ctx *SampleContext) Sample {
 		shapeDef := dbox2d.DefaultShapeDef()
 
 		for i := range height {
-			y := dbox2d.QFromInt(i).Mul(grid)
+			y := dbox2d.F(i).Mul(grid)
 			for j := i; j < width; j++ {
-				x := dbox2d.QFromInt(j).Mul(grid)
+				x := dbox2d.F(j).Mul(grid)
 				square := dbox2d.MakeOffsetBox(
 					dbox2d.QHalf().Mul(grid),
 					dbox2d.QHalf().Mul(grid),
@@ -819,9 +819,9 @@ func NewCompound(ctx *SampleContext) Sample {
 		}
 
 		for i := range height {
-			y := dbox2d.QFromInt(i).Mul(grid)
+			y := dbox2d.F(i).Mul(grid)
 			for j := i; j < width; j++ {
-				x := dbox2d.QFromInt(-j).Mul(grid)
+				x := dbox2d.F(-j).Mul(grid)
 				square := dbox2d.MakeOffsetBox(
 					dbox2d.QHalf().Mul(grid),
 					dbox2d.QHalf().Mul(grid),
@@ -844,20 +844,20 @@ func NewCompound(ctx *SampleContext) Sample {
 		shapeDef.UpdateBodyMass = false
 
 		for m := range count {
-			yBody := dbox2d.QFromInt(100 + m*span).Mul(grid)
+			yBody := dbox2d.F(100 + m*span).Mul(grid)
 
 			for n := range count {
 				xBody := dbox2d.QHalf().Neg().Mul(grid).
-					Mul(dbox2d.QFromInt(count)).
-					Mul(dbox2d.QFromInt(span)).
-					Add(dbox2d.QFromInt(n * span).Mul(grid))
+					Mul(dbox2d.F(count)).
+					Mul(dbox2d.F(span)).
+					Add(dbox2d.F(n * span).Mul(grid))
 				bodyDef.Position = dbox2d.Vec2{X: xBody, Y: yBody}
 				bodyID := dbox2d.CreateBody(s.WorldId, &bodyDef)
 
 				for i := range span {
-					y := dbox2d.QFromInt(i).Mul(grid)
+					y := dbox2d.F(i).Mul(grid)
 					for j := range span {
-						x := dbox2d.QFromInt(j).Mul(grid)
+						x := dbox2d.F(j).Mul(grid)
 						square := dbox2d.MakeOffsetBox(
 							dbox2d.QHalf().Mul(grid),
 							dbox2d.QHalf().Mul(grid),
@@ -896,7 +896,7 @@ func NewKinematic(ctx *SampleContext) Sample {
 	bodyDef := dbox2d.DefaultBodyDef()
 	bodyDef.Type = dbox2d.KinematicBody
 	// The reference uses 1 rad/s; body angular velocity is stored in turns/s.
-	bodyDef.AngularVelocity = dbox2d.QMustParse("0.1591549431")
+	bodyDef.AngularVelocity = dbox2d.F(0.1591549431)
 
 	shapeDef := dbox2d.DefaultShapeDef()
 	shapeDef.Filter.CategoryBits = 1
@@ -907,9 +907,9 @@ func NewKinematic(ctx *SampleContext) Sample {
 	bodyID := dbox2d.CreateBody(s.WorldId, &bodyDef)
 
 	for i := -span; i < span; i++ {
-		y := dbox2d.QFromInt(i).Mul(grid)
+		y := dbox2d.F(i).Mul(grid)
 		for j := -span; j < span; j++ {
-			x := dbox2d.QFromInt(j).Mul(grid)
+			x := dbox2d.F(j).Mul(grid)
 			square := dbox2d.MakeOffsetBox(
 				dbox2d.QHalf().Mul(grid),
 				dbox2d.QHalf().Mul(grid),
@@ -972,22 +972,22 @@ func NewCast(ctx *SampleContext) Sample {
 	}
 
 	s.queryType = castCircle
-	s.ratio = dbox2d.QFromInt(5)
+	s.ratio = dbox2d.F(5)
 	s.grid = dbox2d.QOne()
-	s.fill = dbox2d.QMustParse("0.1")
+	s.fill = dbox2d.F(0.1)
 	s.rowCount = 1000    // release value; BENCHMARK_DEBUG value was 100
 	s.columnCount = 1000 // release value; BENCHMARK_DEBUG value was 100
 	s.minTime = 1e6
 	s.drawIndex = 0
 	s.topDown = false
 	s.buildTime = 0
-	s.radius = dbox2d.QMustParse("0.1")
+	s.radius = dbox2d.F(0.1)
 
 	shared.RandomSeed = 1234
 	sampleCount := 10000 // release value; BENCHMARK_DEBUG value was 100
 	s.origins = make([]dbox2d.Vec2, sampleCount)
 	s.translations = make([]dbox2d.Vec2, sampleCount)
-	extent := dbox2d.QFromInt(s.rowCount).Mul(s.grid)
+	extent := dbox2d.F(s.rowCount).Mul(s.grid)
 
 	// Precompute rays so each step measures queries instead of randomization.
 	for i := range sampleCount {
@@ -1010,16 +1010,16 @@ func (s *Cast) buildScene() {
 	shapeDef := dbox2d.DefaultShapeDef()
 
 	for i := range s.rowCount {
-		y := dbox2d.QFromInt(i).Mul(s.grid)
+		y := dbox2d.F(i).Mul(s.grid)
 		for j := range s.columnCount {
-			x := dbox2d.QFromInt(j).Mul(s.grid)
+			x := dbox2d.F(j).Mul(s.grid)
 			fillTest := shared.RandomFloatRange(dbox2d.QZero(), dbox2d.QOne())
 			if !s.fill.Less(fillTest) {
 				bodyDef.Position = dbox2d.Vec2{X: x, Y: y}
 				bodyID := dbox2d.CreateBody(s.WorldId, &bodyDef)
 
 				ratio := shared.RandomFloatRange(dbox2d.QOne(), s.ratio)
-				halfWidth := shared.RandomFloatRange(dbox2d.QMustParse("0.05"), dbox2d.QMustParse("0.25"))
+				halfWidth := shared.RandomFloatRange(dbox2d.F(0.05), dbox2d.F(0.25))
 				var box dbox2d.Polygon
 				if shared.RandomFloat().Greater(dbox2d.QZero()) {
 					box = dbox2d.MakeBox(ratio.Mul(halfWidth), halfWidth)
@@ -1065,9 +1065,9 @@ func (s *Cast) UpdateGui() {
 	if gui.Combo("Query", &queryType, queryTypes) {
 		s.queryType = castQueryType(queryType)
 		if s.queryType == castOverlap {
-			s.radius = dbox2d.QFromInt(5)
+			s.radius = dbox2d.F(5)
 		} else {
-			s.radius = dbox2d.QMustParse("0.1")
+			s.radius = dbox2d.F(0.1)
 		}
 		changed = true
 	}
@@ -1148,10 +1148,10 @@ func (s *Cast) Step() {
 		p1 := s.origins[s.drawIndex]
 		p2 := p1.Add(s.translations[s.drawIndex])
 		s.Context.Draw.DrawSegment(p1, p2, dbox2d.ColorWhite)
-		s.Context.Draw.DrawPoint(p1, dbox2d.QFromInt(5), dbox2d.ColorGreen)
-		s.Context.Draw.DrawPoint(p2, dbox2d.QFromInt(5), dbox2d.ColorRed)
+		s.Context.Draw.DrawPoint(p1, dbox2d.F(5), dbox2d.ColorGreen)
+		s.Context.Draw.DrawPoint(p2, dbox2d.F(5), dbox2d.ColorRed)
 		if drawResult.Hit {
-			s.Context.Draw.DrawPoint(drawResult.Point, dbox2d.QFromInt(5), dbox2d.ColorWhite)
+			s.Context.Draw.DrawPoint(drawResult.Point, dbox2d.F(5), dbox2d.ColorWhite)
 		}
 
 	case castCircle:
@@ -1186,12 +1186,12 @@ func (s *Cast) Step() {
 		p1 := s.origins[s.drawIndex]
 		p2 := p1.Add(s.translations[s.drawIndex])
 		s.Context.Draw.DrawSegment(p1, p2, dbox2d.ColorWhite)
-		s.Context.Draw.DrawPoint(p1, dbox2d.QFromInt(5), dbox2d.ColorGreen)
-		s.Context.Draw.DrawPoint(p2, dbox2d.QFromInt(5), dbox2d.ColorRed)
+		s.Context.Draw.DrawPoint(p1, dbox2d.F(5), dbox2d.ColorGreen)
+		s.Context.Draw.DrawPoint(p2, dbox2d.F(5), dbox2d.ColorRed)
 		if drawResult.hit {
 			t := dbox2d.Lerp(p1, p2, drawResult.fraction)
 			s.Context.Draw.DrawCircle(t, s.radius, dbox2d.ColorWhite)
-			s.Context.Draw.DrawPoint(drawResult.point, dbox2d.QFromInt(5), dbox2d.ColorWhite)
+			s.Context.Draw.DrawPoint(drawResult.point, dbox2d.F(5), dbox2d.ColorWhite)
 		}
 
 	case castOverlap:
@@ -1233,7 +1233,7 @@ func (s *Cast) Step() {
 			dbox2d.Vec2{X: aabb.LowerBound.X, Y: aabb.UpperBound.Y},
 		}, dbox2d.ColorWhite)
 		for i := range drawResult.count {
-			s.Context.Draw.DrawPoint(drawResult.points[i], dbox2d.QFromInt(5), dbox2d.ColorHotPink)
+			s.Context.Draw.DrawPoint(drawResult.points[i], dbox2d.F(5), dbox2d.ColorHotPink)
 		}
 	}
 
@@ -1338,7 +1338,7 @@ func NewShapeDistance(ctx *SampleContext) Sample {
 			points[i] = dbox2d.RotateVector(q, points[i-1])
 		}
 		hull := dbox2d.ComputeHull(points)
-		s.polygonB = dbox2d.MakePolygon(&hull, dbox2d.QMustParse("0.1"))
+		s.polygonB = dbox2d.MakePolygon(&hull, dbox2d.F(0.1))
 	}
 
 	s.transformAs = make([]dbox2d.Transform, shapeDistanceCount)
@@ -1348,11 +1348,11 @@ func NewShapeDistance(ctx *SampleContext) Sample {
 	shared.RandomSeed = 42
 	for i := range shapeDistanceCount {
 		s.transformAs[i] = dbox2d.Transform{
-			P: shared.RandomVec2(dbox2d.QMustParse("-0.1"), dbox2d.QMustParse("0.1")),
+			P: shared.RandomVec2(dbox2d.F(-0.1), dbox2d.F(0.1)),
 			Q: shared.RandomRot(),
 		}
 		s.transformBs[i] = dbox2d.Transform{
-			P: shared.RandomVec2(dbox2d.QMustParse("0.25"), dbox2d.QFromInt(2)),
+			P: shared.RandomVec2(dbox2d.F(0.25), dbox2d.F(2)),
 			Q: shared.RandomRot(),
 		}
 	}
@@ -1403,8 +1403,8 @@ func (s *ShapeDistance) Step() {
 	s.Context.Draw.DrawSolidPolygon(xfA, s.polygonA.Vertices[:s.polygonA.Count], s.polygonA.Radius, dbox2d.ColorBox2DGreen)
 	s.Context.Draw.DrawSolidPolygon(xfB, s.polygonB.Vertices[:s.polygonB.Count], s.polygonB.Radius, dbox2d.ColorBox2DBlue)
 	s.Context.Draw.DrawSegment(output.PointA, output.PointB, dbox2d.ColorDimGray)
-	s.Context.Draw.DrawPoint(output.PointA, dbox2d.QFromInt(10), dbox2d.ColorWhite)
-	s.Context.Draw.DrawPoint(output.PointB, dbox2d.QFromInt(10), dbox2d.ColorWhite)
+	s.Context.Draw.DrawPoint(output.PointA, dbox2d.F(10), dbox2d.ColorWhite)
+	s.Context.Draw.DrawPoint(output.PointB, dbox2d.F(10), dbox2d.ColorWhite)
 	s.Context.Draw.DrawSegment(output.PointA, dbox2d.MulAdd(output.PointA, dbox2d.QHalf(), output.Normal), dbox2d.ColorYellow)
 	s.DrawTextLine("distance = %s", output.Distance)
 
@@ -1448,13 +1448,13 @@ func NewSensor(ctx *SampleContext) Sample {
 	s.groundId = dbox2d.CreateBody(s.WorldId, &bodyDef)
 
 	{
-		gridSize := dbox2d.QFromInt(3)
+		gridSize := dbox2d.F(3)
 		shapeDef := dbox2d.DefaultShapeDef()
 		shapeDef.IsSensor = true
 		shapeDef.EnableSensorEvents = true
 		shapeDef.UserData = s.activeSensor
 
-		x := dbox2d.QFromInt(-40).Mul(gridSize)
+		x := dbox2d.F(-40).Mul(gridSize)
 		for range 81 {
 			box := dbox2d.MakeOffsetBox(
 				dbox2d.QHalf().Mul(gridSize),
@@ -1468,25 +1468,25 @@ func NewSensor(ctx *SampleContext) Sample {
 	}
 
 	shared.RandomSeed = 42
-	shift := dbox2d.QFromInt(5)
-	xCenter := dbox2d.QHalf().Mul(shift).Mul(dbox2d.QFromInt(sensorColumnCount))
+	shift := dbox2d.F(5)
+	xCenter := dbox2d.QHalf().Mul(shift).Mul(dbox2d.F(sensorColumnCount))
 	shapeDef := dbox2d.DefaultShapeDef()
 	shapeDef.IsSensor = true
 	shapeDef.EnableSensorEvents = true
 	shapeDef.UserData = s.passiveSensor
-	yStart := dbox2d.QFromInt(10)
+	yStart := dbox2d.F(10)
 
 	for j := range sensorRowCount {
-		y := dbox2d.QFromInt(j).Mul(shift).Add(yStart)
+		y := dbox2d.F(j).Mul(shift).Add(yStart)
 		for i := range sensorColumnCount {
-			x := dbox2d.QFromInt(i).Mul(shift).Sub(xCenter)
-			yOffset := shared.RandomFloatRange(dbox2d.QFromInt(-1), dbox2d.QOne())
+			x := dbox2d.F(i).Mul(shift).Sub(xCenter)
+			yOffset := shared.RandomFloatRange(dbox2d.F(-1), dbox2d.QOne())
 			box := dbox2d.MakeOffsetRoundedBox(
 				dbox2d.QHalf(),
 				dbox2d.QHalf(),
 				dbox2d.Vec2{X: x, Y: y.Add(yOffset)},
 				shared.RandomRot(),
-				dbox2d.QMustParse("0.1"),
+				dbox2d.F(0.1),
 			)
 			dbox2d.CreatePolygonShape(s.groundId, &shapeDef, &box)
 		}
@@ -1499,20 +1499,20 @@ func NewSensor(ctx *SampleContext) Sample {
 }
 
 func (s *Sensor) createRow(y dbox2d.Q) {
-	shift := dbox2d.QFromInt(5)
-	xCenter := dbox2d.QHalf().Mul(shift).Mul(dbox2d.QFromInt(sensorColumnCount))
+	shift := dbox2d.F(5)
+	xCenter := dbox2d.QHalf().Mul(shift).Mul(dbox2d.F(sensorColumnCount))
 
 	bodyDef := dbox2d.DefaultBodyDef()
 	bodyDef.Type = dbox2d.DynamicBody
 	bodyDef.GravityScale = dbox2d.QZero()
-	bodyDef.LinearVelocity = dbox2d.Vec2{Y: dbox2d.QFromInt(-5)}
+	bodyDef.LinearVelocity = dbox2d.V2(0, -5)
 
 	shapeDef := dbox2d.DefaultShapeDef()
 	shapeDef.EnableSensorEvents = true
 	circle := dbox2d.Circle{Radius: dbox2d.QHalf()}
 	for i := range sensorColumnCount {
 		bodyDef.Position = dbox2d.Vec2{
-			X: dbox2d.QFromInt(i).Mul(shift).Sub(xCenter),
+			X: dbox2d.F(i).Mul(shift).Sub(xCenter),
 			Y: y,
 		}
 		bodyID := dbox2d.CreateBody(s.WorldId, &bodyDef)
@@ -1563,7 +1563,7 @@ func (s *Sensor) Step() {
 
 	delay := 0x1F
 	if s.StepCount&delay == 0 {
-		s.createRow(dbox2d.QFromInt(10 + sensorRowCount*5))
+		s.createRow(dbox2d.F(10 + sensorRowCount*5))
 	}
 
 	s.lastStepCount = s.StepCount

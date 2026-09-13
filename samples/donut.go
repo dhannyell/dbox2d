@@ -25,11 +25,11 @@ func (d *donut) create(worldId dbox2d.WorldId, position dbox2d.Vec2, scale dbox2
 	}
 
 	radius := scale
-	length := dbox2d.Pi().Mul(dbox2d.QFromInt(2)).Mul(radius).Div(dbox2d.QFromInt(donutSideCount))
+	length := dbox2d.Pi().Mul(dbox2d.F(2)).Mul(radius).Div(dbox2d.F(donutSideCount))
 	capsule := dbox2d.Capsule{
 		Center1: dbox2d.Vec2{Y: length.Mul(dbox2d.QHalf()).Neg()},
 		Center2: dbox2d.Vec2{Y: length.Mul(dbox2d.QHalf())},
-		Radius:  dbox2d.QMustParse("0.25").Mul(scale),
+		Radius:  dbox2d.F(0.25).Mul(scale),
 	}
 
 	bodyDef := dbox2d.DefaultBodyDef()
@@ -39,7 +39,7 @@ func (d *donut) create(worldId dbox2d.WorldId, position dbox2d.Vec2, scale dbox2
 	shapeDef := dbox2d.DefaultShapeDef()
 	shapeDef.EnableSensorEvents = enableSensorEvents
 	shapeDef.Filter.GroupIndex = -groupIndex
-	shapeDef.Material.Friction = dbox2d.QMustParse("0.3")
+	shapeDef.Material.Friction = dbox2d.F(0.3)
 
 	for i := range donutSideCount {
 		rot := dbox2d.MakeRot(dbox2d.QFromRatio(i, donutSideCount))
@@ -53,7 +53,7 @@ func (d *donut) create(worldId dbox2d.WorldId, position dbox2d.Vec2, scale dbox2
 	}
 
 	weldDef := dbox2d.DefaultWeldJointDef()
-	weldDef.AngularHertz = dbox2d.QFromInt(5)
+	weldDef.AngularHertz = dbox2d.F(5)
 	weldDef.AngularDampingRatio = dbox2d.QZero()
 	weldDef.LocalAnchorA = dbox2d.Vec2{Y: length.Mul(dbox2d.QHalf())}
 	weldDef.LocalAnchorB = dbox2d.Vec2{Y: length.Mul(dbox2d.QHalf()).Neg()}

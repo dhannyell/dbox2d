@@ -50,12 +50,12 @@ func (s *ConvexHull) generate() {
 	angle := dbox2d.QHalf().Mul(shared.RandomFloat())
 	r := dbox2d.MakeRot(angle)
 
-	lowerBound := qv("-4", "-4")
-	upperBound := qv("4", "4")
+	lowerBound := dbox2d.V2(-4, -4)
+	upperBound := dbox2d.V2(4, 4)
 
 	for i := range convexHullCount {
-		x := dbox2d.QFromInt(10).Mul(shared.RandomFloat())
-		y := dbox2d.QFromInt(10).Mul(shared.RandomFloat())
+		x := dbox2d.F(10).Mul(shared.RandomFloat())
+		y := dbox2d.F(10).Mul(shared.RandomFloat())
 
 		// Clamp onto a square to help create collinearities.
 		// This will stress the convex hull algorithm.
@@ -128,11 +128,11 @@ func (s *ConvexHull) Step() {
 	draw.DrawPolygon(hull.Points[:hull.Count], dbox2d.ColorGray)
 
 	for i := range s.count {
-		draw.DrawPoint(s.points[i], dbox2d.QFromInt(5), dbox2d.ColorBlue)
-		draw.DrawString(s.points[i].Add(qv("0.1", "0.1")), fmt.Sprintf("%d", i), dbox2d.ColorWhite)
+		draw.DrawPoint(s.points[i], dbox2d.F(5), dbox2d.ColorBlue)
+		draw.DrawString(s.points[i].Add(dbox2d.V2(0.1, 0.1)), fmt.Sprintf("%d", i), dbox2d.ColorWhite)
 	}
 
 	for i := range hull.Count {
-		draw.DrawPoint(hull.Points[i], dbox2d.QFromInt(6), dbox2d.ColorGreen)
+		draw.DrawPoint(hull.Points[i], dbox2d.F(6), dbox2d.ColorGreen)
 	}
 }

@@ -25,7 +25,7 @@ func createGopher(worldId dbox2d.WorldId, position dbox2d.Vec2, scale float64, g
 
 	bodyDef := dbox2d.DefaultBodyDef()
 	bodyDef.Type = dbox2d.DynamicBody
-	bodyDef.SleepThreshold = dbox2d.QMustParse("0.1")
+	bodyDef.SleepThreshold = dbox2d.F(0.1)
 
 	shapeDef := dbox2d.DefaultShapeDef()
 	shapeDef.Filter.GroupIndex = -groupIndex
@@ -88,7 +88,7 @@ func createGopher(worldId dbox2d.WorldId, position dbox2d.Vec2, scale float64, g
 			jd.EnableMotor = true
 			jd.MaxMotorTorque = FromFloat64(0.2 * scale * scale * scale)
 			jd.EnableSpring = true
-			jd.Hertz = dbox2d.QFromInt(5)
+			jd.Hertz = dbox2d.F(5)
 			jd.DampingRatio = dbox2d.QHalf()
 			jd.DrawSize = q(0.05)
 			dbox2d.CreateRevoluteJoint(worldId, &jd)
