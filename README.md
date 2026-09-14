@@ -1,4 +1,4 @@
-# dbox2d
+# Box2D V3 Physics Engine for Go
 
 [![CI](https://github.com/dhannyell/dbox2d/actions/workflows/test.yml/badge.svg)](https://github.com/dhannyell/dbox2d/actions/workflows/test.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/dhannyell/dbox2d.svg)](https://pkg.go.dev/github.com/dhannyell/dbox2d)
@@ -6,10 +6,9 @@
 [![License](https://img.shields.io/github/license/dhannyell/dbox2d)](LICENSE)
 [![Go version](https://img.shields.io/github/go-mod/go-version/dhannyell/dbox2d)](go.mod)
 
-Deterministic 2D physics for Go.
+**dbox2d** is an idiomatic, pure Go port of the **[Box2D](https://box2d.org) v3.1.1** physics engine.
 
-`dbox2d` is a Go port of [Box2D](https://box2d.org) v3.1.1. It offers two
-scalar modes from the same solver: `float32` is the default, and
+It offers two scalar modes from the same solver: `float32` is the default, and
 `-tags dbox2d_fixed` selects Q32.32 fixed-point arithmetic. Both modes are
 deterministic; the difference in their reproducibility contracts is described
 in [Scalar modes and determinism](#scalar-modes-and-determinism).
