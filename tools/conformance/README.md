@@ -1,8 +1,14 @@
 # Conformance traces
 
 This tool generates the frozen inputs used to compare `dbox2d` with the
-Box2D v3.1.1 reference. It covers collision functions and simulation scenes;
+Box2D reference. It covers collision functions and simulation scenes;
 the Go tests consume the generated files in `testdata/conformance/`.
+
+The same source builds against the v3.1.1 and the v3.2.0 reference. CMake
+selects the v3.2 API when the reference has `include/box2d/math_types.h`, and
+the traces then use format v2, described at the end of this file. Against
+v3.1.1 the output is byte-equal to the checked-in v1 traces. The `ref=` token
+of the header is the short commit of the reference checkout.
 
 Regenerate traces only when the reference source or the trace format changes.
 The reference checkout, compiler, flags, and exact commands are recorded in
@@ -139,3 +145,22 @@ The `functions` directory contains:
 - `atan2.txt`
 
 The `scenes` directory contains one `.txt` file for each scene listed above.
+
+## Format v2
+
+The v3.2.0 reference writes `trace v2` in the header. Everything above holds,
+with these changes:
+
+- The colliders take the transform of shape B in shape A's frame. A collision
+  case records shape A, shape B, then that relative transform, computed by
+  the reference as `b2InvMulTransforms( transformA, transformB )` from the
+  same random transforms as v1. The chain segment cases still append the
+  zero simplex cache.
+- A manifold is `normal-x normal-y point-count`, then for each point
+  `point-x point-y separation id`, all in frame A. The v3.2 local manifold has
+  no anchors and no rolling impulse.
+- `shape_distance` records proxy A, proxy B, the relative transform and the
+  use-radii boolean. Its output is in frame A.
+- A time-of-impact result is `state fraction point-x point-y normal-x normal-y`.
+- Scenes query the canonical order with `b2World_OverlapAABB( worldId,
+  b2Pos_zero, ... )`; the hash and the dumps are unchanged.
