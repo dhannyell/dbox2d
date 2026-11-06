@@ -107,30 +107,31 @@ func NewBodyType(ctx *SampleContext) Sample {
 
 		revoluteDef := b2.DefaultRevoluteJointDef()
 		pivot := b2.V2(-2, 5)
-		revoluteDef.BodyIdA = s.attachmentId
-		revoluteDef.BodyIdB = s.platformId
-		revoluteDef.LocalAnchorA = s.attachmentId.GetLocalPoint(pivot)
-		revoluteDef.LocalAnchorB = s.platformId.GetLocalPoint(pivot)
+		revoluteDef.Base.BodyIdA = s.attachmentId
+		revoluteDef.Base.BodyIdB = s.platformId
+		revoluteDef.Base.LocalFrameA.P = s.attachmentId.GetLocalPoint(pivot)
+		revoluteDef.Base.LocalFrameB.P = s.platformId.GetLocalPoint(pivot)
 		revoluteDef.MaxMotorTorque = b2.F(50)
 		revoluteDef.EnableMotor = true
 		b2.CreateRevoluteJoint(s.WorldId, &revoluteDef)
 
 		pivot = b2.V2(3, 5)
-		revoluteDef.BodyIdA = s.secondAttachmentId
-		revoluteDef.BodyIdB = s.platformId
-		revoluteDef.LocalAnchorA = s.secondAttachmentId.GetLocalPoint(pivot)
-		revoluteDef.LocalAnchorB = s.platformId.GetLocalPoint(pivot)
+		revoluteDef.Base.BodyIdA = s.secondAttachmentId
+		revoluteDef.Base.BodyIdB = s.platformId
+		revoluteDef.Base.LocalFrameA.P = s.secondAttachmentId.GetLocalPoint(pivot)
+		revoluteDef.Base.LocalFrameB.P = s.platformId.GetLocalPoint(pivot)
 		revoluteDef.MaxMotorTorque = b2.F(50)
 		revoluteDef.EnableMotor = true
 		b2.CreateRevoluteJoint(s.WorldId, &revoluteDef)
 
 		prismaticDef := b2.DefaultPrismaticJointDef()
 		anchor := b2.V2(0, 5)
-		prismaticDef.BodyIdA = groundId
-		prismaticDef.BodyIdB = s.platformId
-		prismaticDef.LocalAnchorA = groundId.GetLocalPoint(anchor)
-		prismaticDef.LocalAnchorB = s.platformId.GetLocalPoint(anchor)
-		prismaticDef.LocalAxisA = b2.Vec2{X: b2.QOne()}
+		prismaticDef.Base.BodyIdA = groundId
+		prismaticDef.Base.BodyIdB = s.platformId
+		prismaticDef.Base.LocalFrameA.P = groundId.GetLocalPoint(anchor)
+		prismaticDef.Base.LocalFrameB.P = s.platformId.GetLocalPoint(anchor)
+		prismaticDef.Base.LocalFrameA.Q = b2.MakeRotFromUnitVector(b2.Vec2{X: b2.QOne()})
+		prismaticDef.Base.LocalFrameB.Q = prismaticDef.Base.LocalFrameA.Q
 		prismaticDef.MaxMotorForce = b2.F(1000)
 		prismaticDef.MotorSpeed = b2.QZero()
 		prismaticDef.EnableMotor = true
@@ -497,10 +498,10 @@ func NewSleepBodies(ctx *SampleContext) Sample {
 
 		pivot := bodyDef.Position
 		jointDef := b2.DefaultRevoluteJointDef()
-		jointDef.BodyIdA = groundId
-		jointDef.BodyIdB = s.pendulumId
-		jointDef.LocalAnchorA = jointDef.BodyIdA.GetLocalPoint(pivot)
-		jointDef.LocalAnchorB = jointDef.BodyIdB.GetLocalPoint(pivot)
+		jointDef.Base.BodyIdA = groundId
+		jointDef.Base.BodyIdB = s.pendulumId
+		jointDef.Base.LocalFrameA.P = jointDef.Base.BodyIdA.GetLocalPoint(pivot)
+		jointDef.Base.LocalFrameB.P = jointDef.Base.BodyIdB.GetLocalPoint(pivot)
 		b2.CreateRevoluteJoint(s.WorldId, &jointDef)
 	}
 
@@ -788,7 +789,7 @@ func (s *KinematicBody) Step() {
 		s.Context.Draw.DrawSegment(point.Sub(halfAxis), point.Add(halfAxis), b2.ColorPlum)
 		s.Context.Draw.DrawPoint(point, b2.F(10), b2.ColorPlum)
 
-		s.bodyId.SetTargetTransform(b2.Transform{P: point, Q: rotation}, FromFloat64(timeStep))
+		s.bodyId.SetTargetTransform(b2.Transform{P: point, Q: rotation}, FromFloat64(timeStep), true)
 	}
 
 	s.Base.Step()

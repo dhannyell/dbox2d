@@ -26,8 +26,8 @@ func drivenBox(t *testing.T, worldId WorldId, def *MotorJointDef) (*body, *joint
 	unit := MakeBox(QHalf(), QHalf())
 	CreatePolygonShape(boxId, &shapeDef, &unit)
 
-	def.BodyIdA = groundId
-	def.BodyIdB = boxId
+	def.Base.BodyIdA = groundId
+	def.Base.BodyIdB = boxId
 	jointId := CreateMotorJoint(worldId, def)
 	return getBodyFullId(w, boxId), getJointFullId(w, jointId)
 }
@@ -41,43 +41,23 @@ func TestMotorJointAccessorsRoundTrip(t *testing.T) {
 	_, j := drivenBox(t, worldId, &def)
 	jointId := makeJointId(w, jointPair{joint: j, jointSim: getJointSim(w, j)})
 
-	linearOffset := Vec2{X: QFromRatio(3, 2), Y: QFromRatio(-2, 3)}
+	linearVelocity := Vec2{X: QFromRatio(3, 2), Y: QFromRatio(-2, 3)}
 	tests := []struct {
 		name string
 		set  func()
 		get  func() any
 		want any
 	}{
-		{
-			name: "linear offset",
-			set:  func() { jointId.SetLinearOffset(linearOffset) },
-			get:  func() any { return jointId.GetLinearOffset() },
-			want: linearOffset,
-		},
-		{
-			name: "angular offset",
-			set:  func() { jointId.SetAngularOffset(QFromRatio(1, 4)) },
-			get:  func() any { return jointId.GetAngularOffset() },
-			want: QFromRatio(1, 4),
-		},
-		{
-			name: "max force",
-			set:  func() { jointId.SetMaxForce(QFromInt(7)) },
-			get:  func() any { return jointId.GetMaxForce() },
-			want: QFromInt(7),
-		},
-		{
-			name: "max torque",
-			set:  func() { jointId.SetMaxTorque(QFromInt(11)) },
-			get:  func() any { return jointId.GetMaxTorque() },
-			want: QFromInt(11),
-		},
-		{
-			name: "correction factor",
-			set:  func() { jointId.SetCorrectionFactor(QFromRatio(2, 5)) },
-			get:  func() any { return jointId.GetCorrectionFactor() },
-			want: QFromRatio(2, 5),
-		},
+		{"linear velocity", func() { jointId.SetLinearVelocity(linearVelocity) }, func() any { return jointId.GetLinearVelocity() }, linearVelocity},
+		{"angular velocity", func() { jointId.SetAngularVelocity(QFromRatio(1, 4)) }, func() any { return jointId.GetAngularVelocity() }, QFromRatio(1, 4)},
+		{"max velocity force", func() { jointId.SetMaxVelocityForce(QFromInt(7)) }, func() any { return jointId.GetMaxVelocityForce() }, QFromInt(7)},
+		{"max velocity torque", func() { jointId.SetMaxVelocityTorque(QFromInt(11)) }, func() any { return jointId.GetMaxVelocityTorque() }, QFromInt(11)},
+		{"linear hertz", func() { jointId.SetLinearHertz(QFromInt(3)) }, func() any { return jointId.GetLinearHertz() }, QFromInt(3)},
+		{"linear damping ratio", func() { jointId.SetLinearDampingRatio(QFromRatio(2, 5)) }, func() any { return jointId.GetLinearDampingRatio() }, QFromRatio(2, 5)},
+		{"max spring force", func() { jointId.SetMaxSpringForce(QFromInt(13)) }, func() any { return jointId.GetMaxSpringForce() }, QFromInt(13)},
+		{"angular hertz", func() { jointId.SetAngularHertz(QFromInt(5)) }, func() any { return jointId.GetAngularHertz() }, QFromInt(5)},
+		{"angular damping ratio", func() { jointId.SetAngularDampingRatio(QFromRatio(3, 5)) }, func() any { return jointId.GetAngularDampingRatio() }, QFromRatio(3, 5)},
+		{"max spring torque", func() { jointId.SetMaxSpringTorque(QFromInt(17)) }, func() any { return jointId.GetMaxSpringTorque() }, QFromInt(17)},
 	}
 
 	for _, tt := range tests {
@@ -90,8 +70,9 @@ func TestMotorJointAccessorsRoundTrip(t *testing.T) {
 					t.Errorf("got %v, want %v", got, want)
 				}
 			case Q:
+				// The angular velocity goes through radians in float mode.
 				got, ok := tt.get().(Q)
-				if !ok || !got.Eq(want) {
+				if !ok || !withinQ(got, want, qUlps(1<<12)) {
 					t.Errorf("got %v, want %v", got, want)
 				}
 			default:
@@ -99,64 +80,30 @@ func TestMotorJointAccessorsRoundTrip(t *testing.T) {
 			}
 		})
 	}
-
-	t.Run("mouse max force dispatch", func(t *testing.T) {
-		groundDef := DefaultBodyDef()
-		groundId := CreateBody(worldId, &groundDef)
-		bodyDef := DefaultBodyDef()
-		bodyDef.Type = DynamicBody
-		bodyId := CreateBody(worldId, &bodyDef)
-		mouseDef := DefaultMouseJointDef()
-		mouseDef.BodyIdA = groundId
-		mouseDef.BodyIdB = bodyId
-		mouseDef.Target = Vec2Zero()
-		mouseId := CreateMouseJoint(worldId, &mouseDef)
-		want := QFromInt(13)
-		mouseId.SetMaxForce(want)
-		if got := mouseId.GetMaxForce(); !got.Eq(want) {
-			t.Errorf("got %v, want %v", got, want)
-		}
-	})
 }
 
-// TestMotorJointAngularOffsetClampsToHalfTurn pins the port's half-turn
-// bound for angular offsets.
-func TestMotorJointAngularOffsetClampsToHalfTurn(t *testing.T) {
+// TestMotorDrivesAtTheLinearVelocity pins the linear velocity row and the
+// force clamp: the target (1, 0) asks for the impulse (1, 0), and the clamp
+// h * maxVelocityForce = 100/240 = 5/12 keeps (5/12, 0).
+func TestMotorDrivesAtTheLinearVelocity(t *testing.T) {
 	worldId := createTestWorld(t)
 	w := getWorldFromId(worldId)
 	def := DefaultMotorJointDef()
-	_, j := drivenBox(t, worldId, &def)
-	jointId := makeJointId(w, jointPair{joint: j, jointSim: getJointSim(w, j)})
-
-	jointId.SetAngularOffset(QFromRatio(3, 4))
-	if got := jointId.GetAngularOffset(); !got.Eq(QHalf()) {
-		t.Errorf("got %v, want %v", got, QHalf())
-	}
-}
-
-// TestMotorDrivesTowardTheOffset pins the linear row and the force clamp:
-// the offset (1, 0) gives the separation (-1, 0) and the bias
-// 240 * 0.3 * (-1, 0) = (-72, 0), so the impulse asks for (72, 0) and the
-// clamp h * maxForce = 100/240 = 5/12 keeps (5/12, 0).
-func TestMotorDrivesTowardTheOffset(t *testing.T) {
-	worldId := createTestWorld(t)
-	w := getWorldFromId(worldId)
-	def := DefaultMotorJointDef()
-	def.LinearOffset = Vec2{X: QOne()}
-	def.MaxForce = QFromInt(100)
+	def.LinearVelocity = Vec2{X: QOne()}
+	def.MaxVelocityForce = QFromInt(100)
 	box, j := drivenBox(t, worldId, &def)
 	state := getBodyState(w, box)
 
 	context := jointContext(w)
 	prepareJointsTask(0, len(context.joints), context)
-	solveJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex, false)
+	solveJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex, false, 0)
 
 	tolerance := qUlps(1 << 12)
 	js := getJointSim(w, j)
 	twelfths := QFromRatio(5, 12)
-	impulse := js.motor().linearImpulse
+	impulse := js.motor().linearVelocityImpulse
 	if !withinQ(impulse.X, twelfths, tolerance) || !withinQ(impulse.Y, QZero(), tolerance) {
-		t.Errorf("linearImpulse is %v, want (5/12, 0)", impulse)
+		t.Errorf("linearVelocityImpulse is %v, want (5/12, 0)", impulse)
 	}
 	if !withinQ(state.linearVelocity.X, twelfths, tolerance) {
 		t.Errorf("vB.x is %v, want 5/12", state.linearVelocity.X)
@@ -177,129 +124,159 @@ func TestMotorDrivesTowardTheOffset(t *testing.T) {
 	}
 }
 
-// TestMotorTurnsTowardTheAngularOffset pins the angular row and the unit
-// of the offset: a quarter turn is tau/4 radians, so the bias is
-// 240 * 0.3 * (-tau/4) and the impulse asks for more than the clamp
-// h * maxTorque = 5/12. With inverse inertia 6, wB = 2.5 rad/s.
-func TestMotorTurnsTowardTheAngularOffset(t *testing.T) {
+// TestMotorTurnsAtTheAngularVelocity pins the angular velocity row and its
+// unit: a quarter turn per second is tau/4 rad/s, below the torque clamp,
+// so the box reaches it in one solve with the impulse tau/24.
+func TestMotorTurnsAtTheAngularVelocity(t *testing.T) {
 	worldId := createTestWorld(t)
 	w := getWorldFromId(worldId)
 	def := DefaultMotorJointDef()
-	def.AngularOffset = QMustParse("0.25")
-	def.MaxTorque = QFromInt(100)
+	def.AngularVelocity = QMustParse("0.25")
+	def.MaxVelocityTorque = QFromInt(100)
 	box, j := drivenBox(t, worldId, &def)
 	state := getBodyState(w, box)
 
 	context := jointContext(w)
 	prepareJointsTask(0, len(context.joints), context)
-	solveJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex, false)
+	solveJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex, false, 0)
 
-	tolerance := qUlps(1 << 12)
 	js := getJointSim(w, j)
-	if !withinQ(js.motor().angularImpulse, QFromRatio(5, 12), tolerance) {
-		t.Errorf("angularImpulse is %v, want 5/12", js.motor().angularImpulse)
-	}
-	if wB := state.angularVelocity; !withinQ(wB, QFromRatio(5, 2), tolerance) {
-		t.Errorf("wB is %v rad/s, want 2.5", wB)
-	}
+	const limit = 1e-4
+	checkMirror(t, "angularVelocityImpulse", js.motor().angularVelocityImpulse, math.Pi/12, limit)
+	checkMirror(t, "wB", state.angularVelocity, math.Pi/2, limit)
 
+	// The torque report is the velocity impulse over the step.
 	w.invH = context.invH
-	if torque := getMotorJointTorque(w, js); !withinQ(torque, QFromInt(100), tolerance.Mul(context.invH)) {
-		t.Errorf("the joint torque is %v, want 100", torque)
-	}
+	checkMirror(t, "torque", getMotorJointTorque(w, js), math.Pi/12*qToF64(context.invH), 1e-2)
 }
 
-// The float64 mirror follows b2SolveMotorJoint line by line, in radians.
+// The float64 mirror follows b2SolveMotorJoint of v3.2 line by line, in
+// radians.
 
 type f64MotorJoint struct {
-	mA, mB, iA, iB                float64
-	linearImpulse                 f64Vec
-	angularImpulse                float64
-	maxForce, maxTorque           float64
-	correctionFactor              float64
-	anchorA, anchorB, deltaCenter f64Vec
-	deltaAngle                    float64
-	k11, k12, k22                 float64
-	angularMass                   float64
+	mA, mB, iA, iB                      float64
+	linearVelocity                      f64Vec
+	angularVelocity                     float64
+	maxVelocityForce, maxVelocityTorque float64
+	maxSpringForce, maxSpringTorque     float64
+	linearHertz, angularHertz           float64
+	linearSpring, angularSpring         f64Softness
+
+	linearVelocityImpulse, linearSpringImpulse   f64Vec
+	angularVelocityImpulse, angularSpringImpulse float64
+
+	frameA, frameB f64Frame
+	deltaCenter    f64Vec
+	angularMass    float64
 }
 
-func f64SolveMotorJoint(joint *f64MotorJoint, stateA, stateB *f64State, h, invH float64) {
+// f64MotorSolve applies the inverse of the point constraint mass to rhs.
+func f64MotorSolve(mA, mB, iA, iB float64, rA, rB, rhs f64Vec) f64Vec {
+	k11 := mA + mB + rA.y*rA.y*iA + rB.y*rB.y*iB
+	k12 := -rA.y*rA.x*iA - rB.y*rB.x*iB
+	k22 := mA + mB + rA.x*rA.x*iA + rB.x*rB.x*iB
+	det := k11*k22 - k12*k12
+	if det != 0 {
+		det = 1 / det
+	}
+	return f64Vec{det * (k22*rhs.x - k12*rhs.y), det * (k11*rhs.y - k12*rhs.x)}
+}
+
+// f64ClampLength scales v down to maxLength.
+func f64ClampLength(v f64Vec, maxLength float64) f64Vec {
+	if lenSq := f64Dot(v, v); lenSq > maxLength*maxLength {
+		return f64Scale(maxLength/math.Sqrt(lenSq), v)
+	}
+	return v
+}
+
+func f64SolveMotorJoint(joint *f64MotorJoint, stateA, stateB *f64State, h float64) {
 	mA, mB, iA, iB := joint.mA, joint.mB, joint.iA, joint.iB
 
 	vA, wA := stateA.v, stateA.w
 	vB, wB := stateB.v, stateB.w
 
-	{
-		angularSeparation := f64RelativeAngle(stateB.dqc, stateB.dqs, stateA.dqc, stateA.dqs) + joint.deltaAngle
-		angularSeparation = f64UnwindAngle(angularSeparation)
-
-		angularBias := invH * joint.correctionFactor * angularSeparation
-
+	if joint.maxSpringTorque > 0 && joint.angularHertz > 0 {
+		C := f64FrameAngle(stateA, stateB, joint.frameA, joint.frameB)
+		bias := joint.angularSpring.biasRate * C
 		Cdot := wB - wA
-		impulse := -joint.angularMass * (Cdot + angularBias)
-
-		oldImpulse := joint.angularImpulse
-		maxImpulse := h * joint.maxTorque
-		joint.angularImpulse = math.Max(-maxImpulse, math.Min(joint.angularImpulse+impulse, maxImpulse))
-		impulse = joint.angularImpulse - oldImpulse
-
+		maxImpulse := h * joint.maxSpringTorque
+		oldImpulse := joint.angularSpringImpulse
+		impulse := -joint.angularSpring.massScale*joint.angularMass*(Cdot+bias) - joint.angularSpring.impulseScale*oldImpulse
+		joint.angularSpringImpulse = math.Max(-maxImpulse, math.Min(oldImpulse+impulse, maxImpulse))
+		impulse = joint.angularSpringImpulse - oldImpulse
 		wA -= iA * impulse
 		wB += iB * impulse
 	}
 
-	{
-		rA := f64Rotate(stateA.dqc, stateA.dqs, joint.anchorA)
-		rB := f64Rotate(stateB.dqc, stateB.dqs, joint.anchorB)
+	if joint.maxVelocityTorque > 0 {
+		Cdot := wB - wA - joint.angularVelocity
+		impulse := -joint.angularMass * Cdot
+		maxImpulse := h * joint.maxVelocityTorque
+		oldImpulse := joint.angularVelocityImpulse
+		joint.angularVelocityImpulse = math.Max(-maxImpulse, math.Min(oldImpulse+impulse, maxImpulse))
+		impulse = joint.angularVelocityImpulse - oldImpulse
+		wA -= iA * impulse
+		wB += iB * impulse
+	}
 
-		ds := f64Add(f64Sub(stateB.dp, stateA.dp), f64Sub(rB, rA))
-		linearSeparation := f64Add(joint.deltaCenter, ds)
-		linearBias := f64Scale(invH*joint.correctionFactor, linearSeparation)
+	rA := f64Rotate(stateA.dqc, stateA.dqs, joint.frameA.p)
+	rB := f64Rotate(stateB.dqc, stateB.dqs, joint.frameB.p)
 
-		Cdot := f64Sub(f64Add(vB, f64CrossSV(wB, rB)), f64Add(vA, f64CrossSV(wA, rA)))
-		rhs := f64Add(Cdot, linearBias)
-		det := joint.k11*joint.k22 - joint.k12*joint.k12
-		if det != 0 {
-			det = 1 / det
-		}
-		// linearMass = inverse(K) applied to rhs.
-		b := f64Vec{det * (joint.k22*rhs.x - joint.k12*rhs.y), det * (joint.k11*rhs.y - joint.k12*rhs.x)}
-		impulse := f64Vec{-b.x, -b.y}
-
-		oldImpulse := joint.linearImpulse
-		maxImpulse := h * joint.maxForce
-		joint.linearImpulse = f64Add(joint.linearImpulse, impulse)
-
-		if lenSq := f64Dot(joint.linearImpulse, joint.linearImpulse); lenSq > maxImpulse*maxImpulse {
-			joint.linearImpulse = f64Scale(maxImpulse/math.Sqrt(lenSq), joint.linearImpulse)
-		}
-
-		impulse = f64Sub(joint.linearImpulse, oldImpulse)
-
+	apply := func(impulse f64Vec) {
 		vA = f64Sub(vA, f64Scale(mA, impulse))
 		wA -= iA * f64Cross(rA, impulse)
 		vB = f64Add(vB, f64Scale(mB, impulse))
 		wB += iB * f64Cross(rB, impulse)
 	}
 
+	if joint.maxSpringForce > 0 && joint.linearHertz > 0 {
+		C := f64Add(f64Add(f64Sub(stateB.dp, stateA.dp), f64Sub(rB, rA)), joint.deltaCenter)
+		bias := f64Scale(joint.linearSpring.biasRate, C)
+		Cdot := f64Sub(f64Add(vB, f64CrossSV(wB, rB)), f64Add(vA, f64CrossSV(wA, rA)))
+		b := f64MotorSolve(mA, mB, iA, iB, rA, rB, f64Add(Cdot, bias))
+		oldImpulse := joint.linearSpringImpulse
+		ms, is := joint.linearSpring.massScale, joint.linearSpring.impulseScale
+		impulse := f64Vec{-ms*b.x - is*oldImpulse.x, -ms*b.y - is*oldImpulse.y}
+		joint.linearSpringImpulse = f64ClampLength(f64Add(oldImpulse, impulse), h*joint.maxSpringForce)
+		apply(f64Sub(joint.linearSpringImpulse, oldImpulse))
+	}
+
+	if joint.maxVelocityForce > 0 {
+		Cdot := f64Sub(f64Sub(f64Add(vB, f64CrossSV(wB, rB)), f64Add(vA, f64CrossSV(wA, rA))), joint.linearVelocity)
+		b := f64MotorSolve(mA, mB, iA, iB, rA, rB, Cdot)
+		oldImpulse := joint.linearVelocityImpulse
+		joint.linearVelocityImpulse = f64ClampLength(f64Sub(oldImpulse, b), h*joint.maxVelocityForce)
+		apply(f64Sub(joint.linearVelocityImpulse, oldImpulse))
+	}
+
 	stateA.v, stateA.w = vA, wA
 	stateB.v, stateB.w = vB, wB
 }
 
-// TestSolveMotorJointTracksTheFloat64Mirror runs one solve with both rows
-// below their clamps, on two rotated and displaced states. The angular
-// separation goes through the fixed atan2, exact to 2^-20 turn, and the
-// bias scales it by 240 * 0.3, so the bound is 1e-4.
+// TestSolveMotorJointTracksTheFloat64Mirror runs one solve with all four
+// rows armed and below their clamps, on two rotated and displaced states
+// with offset frames. The angular spring goes through the fixed atan2,
+// exact to 2^-20 turn, so the bound is 1e-4.
 func TestSolveMotorJointTracksTheFloat64Mirror(t *testing.T) {
 	worldId := createTestWorld(t)
 	w := getWorldFromId(worldId)
 	idA, idB := mirrorBodies(t, worldId)
 
 	def := DefaultMotorJointDef()
-	def.BodyIdA, def.BodyIdB = idA, idB
-	def.LinearOffset = qv("1.4", "0.6")
-	def.AngularOffset = QMustParse("-0.05")
-	def.MaxForce = QFromInt(1000)
-	def.MaxTorque = QFromInt(1000)
+	def.Base.BodyIdA, def.Base.BodyIdB = idA, idB
+	def.Base.LocalFrameA = Transform{P: qv("0.4", "-0.2"), Q: MakeRot(QMustParse("0.05"))}
+	def.Base.LocalFrameB = Transform{P: qv("-0.3", "0.25"), Q: MakeRot(QMustParse("-0.07"))}
+	def.LinearVelocity = qv("0.6", "-0.4")
+	def.AngularVelocity = QMustParse("0.1")
+	def.MaxVelocityForce = QFromInt(1000)
+	def.MaxVelocityTorque = QFromInt(1000)
+	def.LinearHertz = QFromInt(4)
+	def.LinearDampingRatio = QMustParse("0.7")
+	def.MaxSpringForce = QFromInt(1000)
+	def.AngularHertz = QFromInt(3)
+	def.AngularDampingRatio = QMustParse("0.5")
+	def.MaxSpringTorque = QFromInt(1000)
 	jointId := CreateMotorJoint(worldId, &def)
 	js := getJointSim(w, getJointFullId(w, jointId))
 	stateA := getBodyState(w, getBodyFullId(w, idA))
@@ -309,28 +286,29 @@ func TestSolveMotorJointTracksTheFloat64Mirror(t *testing.T) {
 	prepareJoint(js, context)
 
 	h := qToF64(context.h)
-	invH := qToF64(context.invH)
 	m := js.motor()
 	mirror := &f64MotorJoint{
 		mA: qToF64(js.invMassA), mB: qToF64(js.invMassB), iA: qToF64(js.invIA), iB: qToF64(js.invIB),
-		maxForce:         qToF64(m.maxForce),
-		maxTorque:        qToF64(m.maxTorque),
-		correctionFactor: qToF64(m.correctionFactor),
-		anchorA:          vecToF64(m.anchorA),
-		anchorB:          vecToF64(m.anchorB),
-		deltaCenter:      vecToF64(m.deltaCenter),
-		deltaAngle:       radiansF64(m.deltaAngle),
+		linearVelocity:    vecToF64(m.linearVelocity),
+		angularVelocity:   radiansF64(m.angularVelocity),
+		maxVelocityForce:  qToF64(m.maxVelocityForce),
+		maxVelocityTorque: qToF64(m.maxVelocityTorque),
+		maxSpringForce:    qToF64(m.maxSpringForce),
+		maxSpringTorque:   qToF64(m.maxSpringTorque),
+		linearHertz:       qToF64(m.linearHertz),
+		angularHertz:      qToF64(m.angularHertz),
+		linearSpring:      makeSoftF64(qToF64(m.linearHertz), qToF64(m.linearDampingRatio), h),
+		angularSpring:     makeSoftF64(qToF64(m.angularHertz), qToF64(m.angularDampingRatio), h),
+		frameA:            frameToF64(m.frameA),
+		frameB:            frameToF64(m.frameB),
+		deltaCenter:       vecToF64(m.deltaCenter),
 	}
-	rA, rB := mirror.anchorA, mirror.anchorB
-	mirror.k11 = mirror.mA + mirror.mB + rA.y*rA.y*mirror.iA + rB.y*rB.y*mirror.iB
-	mirror.k12 = -rA.y*rA.x*mirror.iA - rB.y*rB.x*mirror.iB
-	mirror.k22 = mirror.mA + mirror.mB + rA.x*rA.x*mirror.iA + rB.x*rB.x*mirror.iB
 	mirror.angularMass = 1 / (mirror.iA + mirror.iB)
 	fA := stateToF64(stateA)
 	fB := stateToF64(stateB)
 
-	solveMotorJoint(js, context, true)
-	f64SolveMotorJoint(mirror, &fA, &fB, h, invH)
+	solveMotorJoint(js, context)
+	f64SolveMotorJoint(mirror, &fA, &fB, h)
 
 	const limit = 1e-4
 	checkMirror(t, "vA.x", stateA.linearVelocity.X, fA.v.x, limit)
@@ -339,7 +317,10 @@ func TestSolveMotorJointTracksTheFloat64Mirror(t *testing.T) {
 	checkMirror(t, "vB.x", stateB.linearVelocity.X, fB.v.x, limit)
 	checkMirror(t, "vB.y", stateB.linearVelocity.Y, fB.v.y, limit)
 	checkMirror(t, "wB", stateB.angularVelocity, fB.w, limit)
-	checkMirror(t, "angularImpulse", m.angularImpulse, mirror.angularImpulse, limit)
-	checkMirror(t, "linearImpulse.x", m.linearImpulse.X, mirror.linearImpulse.x, limit)
-	checkMirror(t, "linearImpulse.y", m.linearImpulse.Y, mirror.linearImpulse.y, limit)
+	checkMirror(t, "angularSpringImpulse", m.angularSpringImpulse, mirror.angularSpringImpulse, limit)
+	checkMirror(t, "angularVelocityImpulse", m.angularVelocityImpulse, mirror.angularVelocityImpulse, limit)
+	checkMirror(t, "linearSpringImpulse.x", m.linearSpringImpulse.X, mirror.linearSpringImpulse.x, limit)
+	checkMirror(t, "linearSpringImpulse.y", m.linearSpringImpulse.Y, mirror.linearSpringImpulse.y, limit)
+	checkMirror(t, "linearVelocityImpulse.x", m.linearVelocityImpulse.X, mirror.linearVelocityImpulse.x, limit)
+	checkMirror(t, "linearVelocityImpulse.y", m.linearVelocityImpulse.Y, mirror.linearVelocityImpulse.y, limit)
 }

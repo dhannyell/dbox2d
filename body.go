@@ -429,7 +429,7 @@ func DestroyBody(bodyId BodyId) {
 		edgeKey = j.edges[edgeIndex].nextKey
 
 		// Careful because this modifies the list being traversed
-		destroyJointInternal(w, j, wakeBodies)
+		destroyJointInternal(w, j)
 	}
 
 	// Destroy all contacts attached to this body.
@@ -650,130 +650,106 @@ func (bodyId BodyId) SetType(bodyType BodyType) {
 		return
 	}
 
+	// Stage 2: destroy all contacts
 	destroyBodyContacts(w, b, false)
+
+	// Stage 3: wake this body (does nothing if body is static), otherwise it
+	// will also wake all bodies in the same sleeping solver set.
 	wakeBody(w, b)
+
+	// Stage 4: move joints to temporary storage
+	staticSolverSet := &w.solverSets[staticSet]
 
 	for jointKey := b.headJointKey; jointKey != nullIndex; {
 		jointId := jointKey >> 1
 		edgeIndex := jointKey & 1
 		j := &w.joints[jointId]
+		jointKey = j.edges[edgeIndex].nextKey
+
+		// Joint may be disabled by other body
+		if j.setIndex == disabledSet {
+			continue
+		}
+
+		// Wake attached bodies. The wakeBody call above does not wake bodies
+		// attached to a static body. But it is necessary because the body may
+		// have no joints.
+		wakeBody(w, &w.bodies[j.edges[0].bodyId])
+		wakeBody(w, &w.bodies[j.edges[1].bodyId])
+
+		// Remove joint from island
 		if j.islandId != nullIndex {
 			unlinkJoint(w, j)
 		}
 
-		bodyA := &w.bodies[j.edges[0].bodyId]
-		bodyB := &w.bodies[j.edges[1].bodyId]
-		wakeBody(w, bodyA)
-		wakeBody(w, bodyB)
-
-		jointKey = j.edges[edgeIndex].nextKey
+		// It is necessary to transfer all joints to the static set so they can
+		// be added to the constraint graph below and acquire consistent colors.
+		if j.setIndex != staticSet {
+			transferJoint(w, staticSolverSet, &w.solverSets[j.setIndex], j)
+		}
 	}
 
+	// Stage 5: change the body type and transfer body
 	b.bodyType = bodyType
 	setDynamicFlag(b)
 
+	awakeSolverSet := &w.solverSets[awakeSet]
+	sourceSet := &w.solverSets[b.setIndex]
+	targetSet := awakeSolverSet
+	if bodyType == StaticBody {
+		targetSet = staticSolverSet
+	}
+
+	// Transfer body
+	if targetSet != sourceSet {
+		transferBody(w, targetSet, sourceSet, b)
+	}
+
+	// Stage 6: update island participation for the body
 	if originalType == StaticBody {
-		if b.setIndex != staticSet {
-			panic("dbox2d: a static body is not in the static set")
-		}
-
-		staticSolverSet := &w.solverSets[staticSet]
-		awakeSolverSet := &w.solverSets[awakeSet]
-		transferBody(w, awakeSolverSet, staticSolverSet, b)
+		// Create island for body
 		createIslandForBody(w, awakeSet, b)
-
-		for jointKey := b.headJointKey; jointKey != nullIndex; {
-			jointId := jointKey >> 1
-			edgeIndex := jointKey & 1
-			j := &w.joints[jointId]
-
-			if j.setIndex == staticSet {
-				transferJoint(w, awakeSolverSet, staticSolverSet, j)
-			} else if j.setIndex == awakeSet {
-				transferJoint(w, staticSolverSet, awakeSolverSet, j)
-				transferJoint(w, awakeSolverSet, staticSolverSet, j)
-			} else if j.setIndex != disabledSet {
-				panic("dbox2d: a joint of a static body is in an unexpected set")
-			}
-
-			jointKey = j.edges[edgeIndex].nextKey
-		}
-
-		transform := getBodyTransformQuick(w, b)
-		for shapeId := b.headShapeId; shapeId != nullIndex; {
-			s := &w.shapes[shapeId]
-			shapeId = s.nextShapeId
-			destroyShapeProxy(s, &w.broadPhase)
-			createShapeProxy(w, s, bodyType, transform, true)
-		}
 	} else if bodyType == StaticBody {
-		if b.setIndex != awakeSet {
-			panic("dbox2d: a moving body is not in the awake set")
-		}
-
-		staticSolverSet := &w.solverSets[staticSet]
-		awakeSolverSet := &w.solverSets[awakeSet]
-		transferBody(w, staticSolverSet, awakeSolverSet, b)
+		// Remove body from island.
 		removeBodyFromIsland(w, b)
-
 		sim := &staticSolverSet.bodySims[b.localIndex]
 		sim.flags &^= bodyIsFast | bodyTransientFlags
+	}
 
-		for jointKey := b.headJointKey; jointKey != nullIndex; {
-			jointId := jointKey >> 1
-			edgeIndex := jointKey & 1
-			j := &w.joints[jointId]
-			jointKey = j.edges[edgeIndex].nextKey
+	// Stage 7: Transfer joints to the target set
+	for jointKey := b.headJointKey; jointKey != nullIndex; {
+		jointId := jointKey >> 1
+		edgeIndex := jointKey & 1
+		j := &w.joints[jointId]
+		jointKey = j.edges[edgeIndex].nextKey
 
-			otherBody := &w.bodies[j.edges[edgeIndex^1].bodyId]
-			if j.setIndex == disabledSet {
-				if otherBody.setIndex != disabledSet {
-					panic("dbox2d: a disabled joint is not connected to a disabled body")
-				}
-				continue
-			}
-			if j.setIndex != awakeSet {
-				panic("dbox2d: a joint of a moving body is not awake")
-			}
-
-			if otherBody.setIndex == staticSet {
-				transferJoint(w, staticSolverSet, awakeSolverSet, j)
-			} else {
-				if otherBody.setIndex != awakeSet {
-					panic("dbox2d: the other joint body is not awake")
-				}
-				if j.colorIndex < 0 || j.colorIndex >= graphColorCount {
-					panic("dbox2d: the joint color index is out of range")
-				}
-				transferJoint(w, staticSolverSet, awakeSolverSet, j)
-				transferJoint(w, awakeSolverSet, staticSolverSet, j)
-			}
+		// Joint may be disabled by other body
+		if j.setIndex == disabledSet {
+			continue
 		}
 
-		transform := getBodyTransformQuick(w, b)
-		for shapeId := b.headShapeId; shapeId != nullIndex; {
-			s := &w.shapes[shapeId]
-			shapeId = s.nextShapeId
-			destroyShapeProxy(s, &w.broadPhase)
-			createShapeProxy(w, s, StaticBody, transform, true)
-		}
-	} else {
-		if originalType != DynamicBody && originalType != KinematicBody {
-			panic("dbox2d: the original body type is not movable")
-		}
-		if bodyType != DynamicBody && bodyType != KinematicBody {
-			panic("dbox2d: the new body type is not movable")
+		// All joints were transferred to the static set in an earlier stage
+		if j.setIndex != staticSet {
+			panic("dbox2d: a joint was not moved to the static set")
 		}
 
-		transform := getBodyTransformQuick(w, b)
-		for shapeId := b.headShapeId; shapeId != nullIndex; {
-			s := &w.shapes[shapeId]
-			shapeId = s.nextShapeId
-			destroyShapeProxy(s, &w.broadPhase)
-			createShapeProxy(w, s, bodyType, transform, true)
+		bodyA := &w.bodies[j.edges[0].bodyId]
+		bodyB := &w.bodies[j.edges[1].bodyId]
+		if bodyA.bodyType == DynamicBody || bodyB.bodyType == DynamicBody {
+			transferJoint(w, awakeSolverSet, staticSolverSet, j)
 		}
 	}
 
+	// Recreate shape proxies in broadphase
+	transform := getBodyTransformQuick(w, b)
+	for shapeId := b.headShapeId; shapeId != nullIndex; {
+		s := &w.shapes[shapeId]
+		shapeId = s.nextShapeId
+		destroyShapeProxy(s, &w.broadPhase)
+		createShapeProxy(w, s, bodyType, transform, true)
+	}
+
+	// Relink all joints
 	for jointKey := b.headJointKey; jointKey != nullIndex; {
 		jointId := jointKey >> 1
 		edgeIndex := jointKey & 1
@@ -784,12 +760,14 @@ func (bodyId BodyId) SetType(bodyType BodyType) {
 		if otherBody.setIndex == disabledSet {
 			continue
 		}
-		if b.bodyType == StaticBody && otherBody.bodyType == StaticBody {
+		if b.bodyType != DynamicBody && otherBody.bodyType != DynamicBody {
 			continue
 		}
 		linkJoint(w, j, false)
 	}
 	mergeAwakeIslands(w)
+
+	syncBodyFlags(w, b)
 
 	updateBodyMassData(w, b)
 }
@@ -856,50 +834,57 @@ func (bodyId BodyId) SetTransform(position Vec2, rotation Rot) {
 	}
 }
 
-// SetTargetTransform sets the velocity needed to reach a target transform.
-// It corresponds to b2Body_SetTargetTransform.
-func (bodyId BodyId) SetTargetTransform(target Transform, timeStep Q) {
+// SetTargetTransform sets the velocity needed to reach a target transform
+// in timeStep. A sleeping body is left alone unless wake is true, and it
+// stays asleep when the motion would be below its sleep threshold. It
+// corresponds to b2Body_SetTargetTransform.
+func (bodyId BodyId) SetTargetTransform(target Transform, timeStep Q, wake bool) {
+	if !IsValidTransform(target) || !IsValidQ(timeStep) {
+		panic("dbox2d: SetTargetTransform needs a valid target and time step")
+	}
 	w := getWorld(bodyId.world0)
 	b := getBodyFullId(w, bodyId)
+	if b.setIndex == disabledSet {
+		return
+	}
+
 	zero := QZero()
 	if b.bodyType == StaticBody || !zero.Less(timeStep) {
 		return
 	}
 
+	if b.setIndex != awakeSet && !wake {
+		return
+	}
+
 	sim := getBodySim(w, b)
+
 	// D-006: the reciprocal is an exact fixed-point division.
 	invTimeStep := QOne().Div(timeStep)
-	center1 := sim.center
-	center2 := TransformPoint(target, sim.localCenter)
-	linearVelocity := center2.Sub(center1).Mul(invTimeStep)
+	delta := TransformPoint(target, sim.localCenter).Sub(sim.center)
+	linearVelocity := delta.Mul(invTimeStep)
 
-	if b.flags&bodyLockLinearX != 0 {
-		linearVelocity.X = zero
-	}
-	if b.flags&bodyLockLinearY != 0 {
-		linearVelocity.Y = zero
-	}
+	// D-004: the state stores radians.
+	deltaAngle := relativeAngle(sim.transform.Q, target.Q)
+	angularVelocity := angleRadians(deltaAngle).Mul(invTimeStep)
 
-	angularVelocity := zero
-	if b.flags&bodyLockAngularZ == 0 {
-		// D-004: the state stores radians.
-		deltaAngle := relativeAngle(sim.transform.Q, target.Q)
-		angularVelocity = angleRadians(deltaAngle).Mul(invTimeStep)
-	}
+	// Early out if the body is asleep already and the desired movement is
+	// small.
+	if b.setIndex != awakeSet {
+		maxVelocity := linearVelocity.Len().Add(angularVelocity.Abs().Mul(sim.maxExtent))
 
-	maxVelocity := linearVelocity.Len().Add(angularVelocity.Abs().Mul(sim.maxExtent))
-	if maxVelocity.Less(b.sleepThreshold) {
-		return
+		// Return if velocity would be sleepy
+		if maxVelocity.Less(b.sleepThreshold) {
+			return
+		}
+
+		// Must wake for state to exist
+		wakeBody(w, b)
 	}
 
-	wakeBody(w, b)
 	state := getBodyState(w, b)
-	if state == nil {
-		return
-	}
 	state.linearVelocity = linearVelocity
 	state.angularVelocity = angularVelocity
-	limitVelocity(state, w.maxLinearSpeed)
 }
 
 // GetLocalPoint converts a world point to the body's local frame. It

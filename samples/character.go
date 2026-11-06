@@ -186,20 +186,20 @@ func NewMover(ctx *SampleContext) Sample {
 			b2.CreatePolygonShape(bodyId, &shapeDef, &box)
 
 			pivot := b2.Vec2{X: xBase.Add(b2.F(i)), Y: yBase}
-			jointDef.BodyIdA = prevBodyId
-			jointDef.BodyIdB = bodyId
-			jointDef.LocalAnchorA = jointDef.BodyIdA.GetLocalPoint(pivot)
-			jointDef.LocalAnchorB = jointDef.BodyIdB.GetLocalPoint(pivot)
+			jointDef.Base.BodyIdA = prevBodyId
+			jointDef.Base.BodyIdB = bodyId
+			jointDef.Base.LocalFrameA.P = jointDef.Base.BodyIdA.GetLocalPoint(pivot)
+			jointDef.Base.LocalFrameB.P = jointDef.Base.BodyIdB.GetLocalPoint(pivot)
 			b2.CreateRevoluteJoint(s.WorldId, &jointDef)
 
 			prevBodyId = bodyId
 		}
 
 		pivot := b2.Vec2{X: xBase.Add(b2.F(count)), Y: yBase}
-		jointDef.BodyIdA = prevBodyId
-		jointDef.BodyIdB = groundId2
-		jointDef.LocalAnchorA = jointDef.BodyIdA.GetLocalPoint(pivot)
-		jointDef.LocalAnchorB = jointDef.BodyIdB.GetLocalPoint(pivot)
+		jointDef.Base.BodyIdA = prevBodyId
+		jointDef.Base.BodyIdB = groundId2
+		jointDef.Base.LocalFrameA.P = jointDef.Base.BodyIdA.GetLocalPoint(pivot)
+		jointDef.Base.LocalFrameB.P = jointDef.Base.BodyIdB.GetLocalPoint(pivot)
 		b2.CreateRevoluteJoint(s.WorldId, &jointDef)
 	}
 
@@ -548,7 +548,7 @@ func (s *Mover) Step() {
 			Y: FromFloat64(moverElevatorAmplitude * math.Cos(1.0*s.time+math.Pi)).Add(moverElevatorBase.Y),
 		}
 
-		s.elevatorId.SetTargetTransform(b2.Transform{P: point, Q: b2.RotIdentity()}, FromFloat64(timeStep))
+		s.elevatorId.SetTargetTransform(b2.Transform{P: point, Q: b2.RotIdentity()}, FromFloat64(timeStep), true)
 	}
 
 	s.time += timeStep

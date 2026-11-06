@@ -59,11 +59,11 @@ func (c *car) spawn(worldId b2.WorldId, position b2.Vec2, scale, hertz, dampingR
 	axis := b2.Vec2{Y: b2.QOne()}
 	pivot := c.rearWheelId.GetPosition()
 	jointDef := b2.DefaultWheelJointDef()
-	jointDef.BodyIdA = c.chassisId
-	jointDef.BodyIdB = c.rearWheelId
-	jointDef.LocalAxisA = jointDef.BodyIdA.GetLocalVector(axis)
-	jointDef.LocalAnchorA = jointDef.BodyIdA.GetLocalPoint(pivot)
-	jointDef.LocalAnchorB = jointDef.BodyIdB.GetLocalPoint(pivot)
+	jointDef.Base.BodyIdA = c.chassisId
+	jointDef.Base.BodyIdB = c.rearWheelId
+	jointDef.Base.LocalFrameA.Q = b2.MakeRotFromUnitVector(jointDef.Base.BodyIdA.GetLocalVector(axis))
+	jointDef.Base.LocalFrameA.P = jointDef.Base.BodyIdA.GetLocalPoint(pivot)
+	jointDef.Base.LocalFrameB.P = jointDef.Base.BodyIdB.GetLocalPoint(pivot)
 	jointDef.MotorSpeed = b2.QZero()
 	jointDef.MaxMotorTorque = torque
 	jointDef.EnableMotor = true
@@ -75,11 +75,11 @@ func (c *car) spawn(worldId b2.WorldId, position b2.Vec2, scale, hertz, dampingR
 	c.rearAxleId = b2.CreateWheelJoint(worldId, &jointDef)
 
 	pivot = c.frontWheelId.GetPosition()
-	jointDef.BodyIdA = c.chassisId
-	jointDef.BodyIdB = c.frontWheelId
-	jointDef.LocalAxisA = jointDef.BodyIdA.GetLocalVector(axis)
-	jointDef.LocalAnchorA = jointDef.BodyIdA.GetLocalPoint(pivot)
-	jointDef.LocalAnchorB = jointDef.BodyIdB.GetLocalPoint(pivot)
+	jointDef.Base.BodyIdA = c.chassisId
+	jointDef.Base.BodyIdB = c.frontWheelId
+	jointDef.Base.LocalFrameA.Q = b2.MakeRotFromUnitVector(jointDef.Base.BodyIdA.GetLocalVector(axis))
+	jointDef.Base.LocalFrameA.P = jointDef.Base.BodyIdA.GetLocalPoint(pivot)
+	jointDef.Base.LocalFrameB.P = jointDef.Base.BodyIdB.GetLocalPoint(pivot)
 	jointDef.MotorSpeed = b2.QZero()
 	jointDef.MaxMotorTorque = torque
 	jointDef.EnableMotor = true
@@ -104,8 +104,8 @@ func (c *car) despawn() {
 func (c *car) setSpeed(speed b2.Q) {
 	// rad/s to turns/s.
 	turnsPerSecond := speed.Div(b2.Pi().Mul(b2.F(2)))
-	c.rearAxleId.SetMotorSpeed(turnsPerSecond)
-	c.frontAxleId.SetMotorSpeed(turnsPerSecond)
+	c.rearAxleId.SetTargetMotorSpeed(turnsPerSecond)
+	c.frontAxleId.SetTargetMotorSpeed(turnsPerSecond)
 	c.rearAxleId.WakeBodies()
 }
 
@@ -182,11 +182,11 @@ func (t *truck) spawn(worldId b2.WorldId, position b2.Vec2, scale, hertz, dampin
 	axis := b2.Vec2{Y: b2.QOne()}
 	pivot := t.rearWheelId.GetPosition()
 	jointDef := b2.DefaultWheelJointDef()
-	jointDef.BodyIdA = t.chassisId
-	jointDef.BodyIdB = t.rearWheelId
-	jointDef.LocalAxisA = jointDef.BodyIdA.GetLocalVector(axis)
-	jointDef.LocalAnchorA = jointDef.BodyIdA.GetLocalPoint(pivot)
-	jointDef.LocalAnchorB = jointDef.BodyIdB.GetLocalPoint(pivot)
+	jointDef.Base.BodyIdA = t.chassisId
+	jointDef.Base.BodyIdB = t.rearWheelId
+	jointDef.Base.LocalFrameA.Q = b2.MakeRotFromUnitVector(jointDef.Base.BodyIdA.GetLocalVector(axis))
+	jointDef.Base.LocalFrameA.P = jointDef.Base.BodyIdA.GetLocalPoint(pivot)
+	jointDef.Base.LocalFrameB.P = jointDef.Base.BodyIdB.GetLocalPoint(pivot)
 	jointDef.MotorSpeed = b2.QZero()
 	jointDef.MaxMotorTorque = torque
 	jointDef.EnableMotor = true
@@ -198,11 +198,11 @@ func (t *truck) spawn(worldId b2.WorldId, position b2.Vec2, scale, hertz, dampin
 	t.rearAxleId = b2.CreateWheelJoint(worldId, &jointDef)
 
 	pivot = t.frontWheelId.GetPosition()
-	jointDef.BodyIdA = t.chassisId
-	jointDef.BodyIdB = t.frontWheelId
-	jointDef.LocalAxisA = jointDef.BodyIdA.GetLocalVector(axis)
-	jointDef.LocalAnchorA = jointDef.BodyIdA.GetLocalPoint(pivot)
-	jointDef.LocalAnchorB = jointDef.BodyIdB.GetLocalPoint(pivot)
+	jointDef.Base.BodyIdA = t.chassisId
+	jointDef.Base.BodyIdB = t.frontWheelId
+	jointDef.Base.LocalFrameA.Q = b2.MakeRotFromUnitVector(jointDef.Base.BodyIdA.GetLocalVector(axis))
+	jointDef.Base.LocalFrameA.P = jointDef.Base.BodyIdA.GetLocalPoint(pivot)
+	jointDef.Base.LocalFrameB.P = jointDef.Base.BodyIdB.GetLocalPoint(pivot)
 	jointDef.MotorSpeed = b2.QZero()
 	jointDef.MaxMotorTorque = torque
 	jointDef.EnableMotor = true
@@ -227,8 +227,8 @@ func (t *truck) despawn() {
 func (t *truck) setSpeed(speed b2.Q) {
 	// rad/s to turns/s.
 	turnsPerSecond := speed.Div(b2.Pi().Mul(b2.F(2)))
-	t.rearAxleId.SetMotorSpeed(turnsPerSecond)
-	t.frontAxleId.SetMotorSpeed(turnsPerSecond)
+	t.rearAxleId.SetTargetMotorSpeed(turnsPerSecond)
+	t.frontAxleId.SetTargetMotorSpeed(turnsPerSecond)
 	t.rearAxleId.WakeBodies()
 }
 

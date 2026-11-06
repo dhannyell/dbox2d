@@ -79,17 +79,17 @@ func BuildJointGrid(worldId WorldId, opts Options) StepFn {
 			bodyId := CreateBody(worldId, &bodyDef)
 			CreateCircleShape(bodyId, &shapeDef, &circle)
 			if i > 0 {
-				jointDef.BodyIdA = bodies[index-1]
-				jointDef.BodyIdB = bodyId
-				jointDef.LocalAnchorA = Vec2{Y: QHalf().Neg()}
-				jointDef.LocalAnchorB = Vec2{Y: QHalf()}
+				jointDef.Base.BodyIdA = bodies[index-1]
+				jointDef.Base.BodyIdB = bodyId
+				jointDef.Base.LocalFrameA.P = Vec2{Y: QHalf().Neg()}
+				jointDef.Base.LocalFrameB.P = Vec2{Y: QHalf()}
 				CreateRevoluteJoint(worldId, &jointDef)
 			}
 			if k > 0 {
-				jointDef.BodyIdA = bodies[index-n]
-				jointDef.BodyIdB = bodyId
-				jointDef.LocalAnchorA = Vec2{X: QHalf()}
-				jointDef.LocalAnchorB = Vec2{X: QHalf().Neg()}
+				jointDef.Base.BodyIdA = bodies[index-n]
+				jointDef.Base.BodyIdB = bodyId
+				jointDef.Base.LocalFrameA.P = Vec2{X: QHalf()}
+				jointDef.Base.LocalFrameB.P = Vec2{X: QHalf().Neg()}
 				CreateRevoluteJoint(worldId, &jointDef)
 			}
 			bodies[index] = bodyId
@@ -248,9 +248,9 @@ func BuildSpinner(worldId WorldId, opts Options) StepFn {
 	shapeDef.Material.Friction = QZero()
 	CreatePolygonShape(spinnerId, &shapeDef, &spinner)
 	jointDef := DefaultRevoluteJointDef()
-	jointDef.BodyIdA = groundId
-	jointDef.BodyIdB = spinnerId
-	jointDef.LocalAnchorA = bodyDef.Position
+	jointDef.Base.BodyIdA = groundId
+	jointDef.Base.BodyIdB = spinnerId
+	jointDef.Base.LocalFrameA.P = bodyDef.Position
 	jointDef.EnableMotor = true
 	jointDef.MotorSpeed = QMustParse("0.7957747155")
 	jointDef.MaxMotorTorque = QFromInt(40000)
@@ -283,7 +283,7 @@ func BuildSpinner(worldId WorldId, opts Options) StepFn {
 			y = y.Add(QOne())
 		}
 	}
-	return func(int) { _ = spinnerJoint.GetAngle() }
+	return func(int) { _ = spinnerJoint.GetCurrentAngle() }
 }
 
 // BuildTumbler is CreateTumbler: a motorised hollow box full of small ones.
@@ -311,9 +311,9 @@ func BuildTumbler(worldId WorldId, opts Options) StepFn {
 		CreatePolygonShape(tumblerId, &shapeDef, &polygon)
 	}
 	jointDef := DefaultRevoluteJointDef()
-	jointDef.BodyIdA = groundId
-	jointDef.BodyIdB = tumblerId
-	jointDef.LocalAnchorA = Vec2{Y: QFromInt(10)}
+	jointDef.Base.BodyIdA = groundId
+	jointDef.Base.BodyIdB = tumblerId
+	jointDef.Base.LocalFrameA.P = Vec2{Y: QFromInt(10)}
 	jointDef.MotorSpeed = QFromRatio(25, 360)
 	jointDef.MaxMotorTorque = QFromInt(100000000)
 	jointDef.EnableMotor = true

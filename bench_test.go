@@ -2263,14 +2263,14 @@ func buildRevoluteChain(worldId WorldId) {
 	shapeDef := DefaultShapeDef()
 	box := MakeBox(QHalf(), QHalf())
 	jointDef := DefaultRevoluteJointDef()
-	jointDef.LocalAnchorA = Vec2{X: QHalf()}
-	jointDef.LocalAnchorB = Vec2{X: QHalf().Neg()}
+	jointDef.Base.LocalFrameA.P = Vec2{X: QHalf()}
+	jointDef.Base.LocalFrameB.P = Vec2{X: QHalf().Neg()}
 	for i := range 32 {
 		boxDef.Position = Vec2{X: QFromInt(i + 1)}
 		bodyId := CreateBody(worldId, &boxDef)
 		CreatePolygonShape(bodyId, &shapeDef, &box)
-		jointDef.BodyIdA = prevId
-		jointDef.BodyIdB = bodyId
+		jointDef.Base.BodyIdA = prevId
+		jointDef.Base.BodyIdB = bodyId
 		CreateRevoluteJoint(worldId, &jointDef)
 		prevId = bodyId
 	}

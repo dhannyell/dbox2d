@@ -128,10 +128,10 @@ func newSetTypeScenario(t *testing.T) setTypeScenario {
 	CreatePolygonShape(bodyB, &shapeDef, &bodyBox)
 
 	jointDef := DefaultRevoluteJointDef()
-	jointDef.BodyIdA = bodyA
-	jointDef.BodyIdB = bodyB
-	jointDef.LocalAnchorA = v2(1, 0)
-	jointDef.LocalAnchorB = v2(-1, 0)
+	jointDef.Base.BodyIdA = bodyA
+	jointDef.Base.BodyIdB = bodyB
+	jointDef.Base.LocalFrameA.P = v2(1, 0)
+	jointDef.Base.LocalFrameB.P = v2(-1, 0)
 	CreateRevoluteJoint(worldId, &jointDef)
 
 	for range 5 {
@@ -403,7 +403,7 @@ func TestSetTypeKeepsJointAndContacts(t *testing.T) {
 func TestSetTargetTransformDerivesVelocity(t *testing.T) {
 	worldId := createTestWorld(t)
 	body := addDynamicBox(t, worldId, Vec2Zero())
-	body.SetTargetTransform(Transform{P: v2(1, 0), Q: MakeRot(QMustParse("0.25"))}, QFromRatio(1, 60))
+	body.SetTargetTransform(Transform{P: v2(1, 0), Q: MakeRot(QMustParse("0.25"))}, QFromRatio(1, 60), true)
 
 	// (1 m - 0 m) / (1/60 s) = 60 m/s; (0.25 turn - 0 turn) / (1/60 s) = 15 turns/s.
 	linearWant := v2(60, 0)
@@ -592,9 +592,9 @@ func TestGetShapesAndJointsKeepListOrder(t *testing.T) {
 	otherA := addPlate(t, worldId, StaticBody, -3)
 	otherB := addPlate(t, worldId, StaticBody, 3)
 	jointDef := DefaultRevoluteJointDef()
-	jointDef.BodyIdA, jointDef.BodyIdB = body, otherA
+	jointDef.Base.BodyIdA, jointDef.Base.BodyIdB = body, otherA
 	firstJoint := CreateRevoluteJoint(worldId, &jointDef)
-	jointDef.BodyIdB = otherB
+	jointDef.Base.BodyIdB = otherB
 	secondJoint := CreateRevoluteJoint(worldId, &jointDef)
 
 	if body.GetShapeCount() != 3 || body.GetJointCount() != 2 {

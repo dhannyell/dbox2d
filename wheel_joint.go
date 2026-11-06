@@ -1,43 +1,25 @@
 package b2
 
-func drawWheelJoint(draw *DebugDraw, base *jointSim, transformA, transformB Transform) {
-	joint := base.wheel()
-	pA := TransformPoint(transformA, base.localOriginAnchorA)
-	pB := TransformPoint(transformB, base.localOriginAnchorB)
-	axis := RotateVector(transformA.Q, joint.localAxisA)
-	draw.DrawSegment(pA, pB, ColorBlue)
-	if joint.enableLimit {
-		lower := MulAdd(pA, joint.lowerTranslation, axis)
-		upper := MulAdd(pA, joint.upperTranslation, axis)
-		perp := LeftPerp(axis).Mul(QMustParse("0.1"))
-		draw.DrawSegment(lower, upper, ColorGray)
-		draw.DrawSegment(lower.Sub(perp), lower.Add(perp), ColorGreen)
-		draw.DrawSegment(upper.Sub(perp), upper.Add(perp), ColorRed)
-	} else {
-		draw.DrawSegment(pA.Sub(axis), pA.Add(axis), ColorGray)
-	}
-	draw.DrawPoint(pA, QFromInt(5), ColorGray)
-	draw.DrawPoint(pB, QFromInt(5), ColorDimGray)
-}
-
-// This file corresponds to src/wheel_joint.c of the reference. The API
-// takes the motor speed in turns per second (D-004); the joint keeps it in
-// the angle unit of the mode.
+// This file corresponds to src/wheel_joint.c of the reference. The wheel
+// slides along the x-axis of frame A. The API takes the motor speed in
+// turns per second (D-004); the joint keeps it in the angle unit of the
+// mode and angleRadians converts it where it meets an angular velocity.
 
 // getWheelJointForce reports the constraint force of the last step. It
 // corresponds to b2GetWheelJointForce in src/wheel_joint.c.
 func getWheelJointForce(w *world, base *jointSim) Vec2 {
-	joint := base.wheel()
+	qA := getBodyTransform(w, base.bodyIdA).Q
 
-	// This is a frame behind
-	axisA := joint.axisA
+	localAxisA := prismaticAxis(base.localFrameA.Q)
+	axisA := RotateVector(qA, localAxisA)
 	perpA := LeftPerp(axisA)
+
+	joint := base.wheel()
 
 	perpForce := w.invH.Mul(joint.perpImpulse)
 	axialForce := w.invH.Mul(joint.springImpulse.Add(joint.lowerImpulse).Sub(joint.upperImpulse))
 
-	force := perpA.Mul(perpForce).Add(axisA.Mul(axialForce))
-	return force
+	return perpA.Mul(perpForce).Add(axisA.Mul(axialForce))
 }
 
 // getWheelJointTorque reports the constraint torque of the last step. It
@@ -68,62 +50,28 @@ func prepareWheelJoint(base *jointSim, context *stepContext) {
 	if base.jointType != WheelJoint {
 		panic("dbox2d: the joint is not a wheel joint")
 	}
-
-	// chase body id to the solver set where the body lives
-	idA := base.bodyIdA
-	idB := base.bodyIdB
-
-	w := context.world
-
-	bodyA := &w.bodies[idA]
-	bodyB := &w.bodies[idB]
-
-	if bodyA.setIndex != awakeSet && bodyB.setIndex != awakeSet {
-		panic("dbox2d: neither body of the joint is awake")
-	}
-	setA := &w.solverSets[bodyA.setIndex]
-	setB := &w.solverSets[bodyB.setIndex]
-
-	localIndexA := bodyA.localIndex
-	localIndexB := bodyB.localIndex
-
-	bodySimA := &setA.bodySims[localIndexA]
-	bodySimB := &setB.bodySims[localIndexB]
-
-	mA := bodySimA.invMass
-	iA := bodySimA.invInertia
-	mB := bodySimB.invMass
-	iB := bodySimB.invInertia
-
-	base.invMassA = mA
-	base.invMassB = mB
-	base.invIA = iA
-	base.invIB = iB
+	bodySimA, bodySimB, indexA, indexB := prepareJointBodies(base, context)
+	mA := base.invMassA
+	mB := base.invMassB
+	iA := base.invIA
+	iB := base.invIB
 
 	joint := base.wheel()
+	joint.indexA = indexA
+	joint.indexB = indexB
 
-	joint.indexA = nullIndex
-	if bodyA.setIndex == awakeSet {
-		joint.indexA = localIndexA
-	}
-	joint.indexB = nullIndex
-	if bodyB.setIndex == awakeSet {
-		joint.indexB = localIndexB
-	}
+	joint.frameA = jointFrame(bodySimA, base.localFrameA)
+	joint.frameB = jointFrame(bodySimB, base.localFrameB)
 
-	qA := bodySimA.transform.Q
-	qB := bodySimB.transform.Q
-
-	joint.anchorA = RotateVector(qA, base.localOriginAnchorA.Sub(bodySimA.localCenter))
-	joint.anchorB = RotateVector(qB, base.localOriginAnchorB.Sub(bodySimB.localCenter))
-	joint.axisA = RotateVector(qA, joint.localAxisA)
+	// Compute the initial center delta. Incremental position updates are
+	// relative to this.
 	joint.deltaCenter = bodySimB.center.Sub(bodySimA.center)
 
-	rA := joint.anchorA
-	rB := joint.anchorB
+	rA := joint.frameA.P
+	rB := joint.frameB.P
 
 	d := joint.deltaCenter.Add(rB.Sub(rA))
-	axisA := joint.axisA
+	axisA := prismaticAxis(joint.frameA.Q)
 	perpA := LeftPerp(axisA)
 
 	zero := QZero()
@@ -133,7 +81,7 @@ func prepareWheelJoint(base *jointSim, context *stepContext) {
 	s1 := Cross(d.Add(rA), perpA)
 	s2 := Cross(rB, perpA)
 
-	// D-006: the reference multiplies by the reciprocals of kp, ka and km.
+	// D-006: the reference multiplies by the reciprocals of the masses.
 	kp := mA.Add(mB).Add(iA.Mul(s1).Mul(s1)).Add(iB.Mul(s2).Mul(s2))
 	joint.perpMass = zero
 	if zero.Less(kp) {
@@ -183,14 +131,14 @@ func warmStartWheelJoint(base *jointSim, context *stepContext) {
 	dummyState := identityBodyState()
 
 	joint := base.wheel()
-
 	stateA, stateB := jointStates(context.states, &dummyState, joint.indexA, joint.indexB)
 
-	rA := RotateVector(stateA.deltaRotation, joint.anchorA)
-	rB := RotateVector(stateB.deltaRotation, joint.anchorB)
+	rA := RotateVector(stateA.deltaRotation, joint.frameA.P)
+	rB := RotateVector(stateB.deltaRotation, joint.frameB.P)
 
 	d := stateB.deltaPosition.Sub(stateA.deltaPosition).Add(joint.deltaCenter).Add(rB.Sub(rA))
-	axisA := RotateVector(stateA.deltaRotation, joint.axisA)
+	axisA := prismaticAxis(joint.frameA.Q)
+	axisA = RotateVector(stateA.deltaRotation, axisA)
 	perpA := LeftPerp(axisA)
 
 	a1 := Cross(d.Add(rA), axisA)
@@ -204,10 +152,14 @@ func warmStartWheelJoint(base *jointSim, context *stepContext) {
 	LA := axialImpulse.Mul(a1).Add(joint.perpImpulse.Mul(s1)).Add(joint.motorImpulse)
 	LB := axialImpulse.Mul(a2).Add(joint.perpImpulse.Mul(s2)).Add(joint.motorImpulse)
 
-	stateA.linearVelocity = MulSub(stateA.linearVelocity, mA, P)
-	stateA.angularVelocity = stateA.angularVelocity.Sub(iA.Mul(LA))
-	stateB.linearVelocity = MulAdd(stateB.linearVelocity, mB, P)
-	stateB.angularVelocity = stateB.angularVelocity.Add(iB.Mul(LB))
+	if stateA.flags&bodyDynamicFlag != 0 {
+		stateA.linearVelocity = MulSub(stateA.linearVelocity, mA, P)
+		stateA.angularVelocity = stateA.angularVelocity.Sub(iA.Mul(LA))
+	}
+	if stateB.flags&bodyDynamicFlag != 0 {
+		stateB.linearVelocity = MulAdd(stateB.linearVelocity, mB, P)
+		stateB.angularVelocity = stateB.angularVelocity.Add(iB.Mul(LB))
+	}
 }
 
 // solveWheelJoint corresponds to b2SolveWheelJoint in src/wheel_joint.c.
@@ -225,7 +177,6 @@ func solveWheelJoint(base *jointSim, context *stepContext, useBias bool) {
 	dummyState := identityBodyState()
 
 	joint := base.wheel()
-
 	stateA, stateB := jointStates(context.states, &dummyState, joint.indexA, joint.indexB)
 
 	vA := stateA.linearVelocity
@@ -238,11 +189,12 @@ func solveWheelJoint(base *jointSim, context *stepContext, useBias bool) {
 	fixedRotation := iA.Add(iB).Eq(zero)
 
 	// current anchors
-	rA := RotateVector(stateA.deltaRotation, joint.anchorA)
-	rB := RotateVector(stateB.deltaRotation, joint.anchorB)
+	rA := RotateVector(stateA.deltaRotation, joint.frameA.P)
+	rB := RotateVector(stateB.deltaRotation, joint.frameB.P)
 
 	d := stateB.deltaPosition.Sub(stateA.deltaPosition).Add(joint.deltaCenter).Add(rB.Sub(rA))
-	axisA := RotateVector(stateA.deltaRotation, joint.axisA)
+	axisA := prismaticAxis(joint.frameA.Q)
+	axisA = RotateVector(stateA.deltaRotation, axisA)
 	translation := axisA.Dot(d)
 
 	a1 := Cross(d.Add(rA), axisA)
@@ -385,8 +337,38 @@ func solveWheelJoint(base *jointSim, context *stepContext, useBias bool) {
 		wB = wB.Add(iB.Mul(LB))
 	}
 
-	stateA.linearVelocity = vA
-	stateA.angularVelocity = wA
-	stateB.linearVelocity = vB
-	stateB.angularVelocity = wB
+	storeJointVelocity(stateA, vA, wA)
+	storeJointVelocity(stateB, vB, wB)
+}
+
+// drawWheelJoint corresponds to b2DrawWheelJoint.
+func drawWheelJoint(draw *DebugDraw, base *jointSim, transformA, transformB Transform, drawScale Q) {
+	joint := base.wheel()
+
+	frameA := MulTransforms(transformA, base.localFrameA)
+	frameB := MulTransforms(transformB, base.localFrameB)
+	axisA := prismaticAxis(frameA.Q)
+
+	c1 := ColorGray
+	c2 := ColorGreen
+	c3 := ColorRed
+	c4 := ColorDimGray
+	c5 := ColorBlue
+
+	draw.DrawSegment(frameA.P, frameB.P, c5)
+
+	if joint.enableLimit {
+		lower := MulAdd(frameA.P, joint.lowerTranslation, axisA)
+		upper := MulAdd(frameA.P, joint.upperTranslation, axisA)
+		perp := LeftPerp(axisA)
+		b := QMustParse("0.1").Mul(drawScale)
+		draw.DrawSegment(lower, upper, c1)
+		draw.DrawSegment(MulSub(lower, b, perp), MulAdd(lower, b, perp), c2)
+		draw.DrawSegment(MulSub(upper, b, perp), MulAdd(upper, b, perp), c3)
+	} else {
+		draw.DrawSegment(frameA.P.Sub(axisA), frameA.P.Add(axisA), c1)
+	}
+
+	draw.DrawPoint(frameA.P, QFromInt(5), c1)
+	draw.DrawPoint(frameB.P, QFromInt(5), c4)
 }

@@ -4,6 +4,7 @@ import (
 	"math"
 	"os"
 	"reflect"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -23,9 +24,9 @@ func TestDefaultDebugDrawIsCallable(t *testing.T) {
 	draw.DrawString(Vec2{}, "", ColorBlack)
 }
 
-func TestDefaultRevoluteJointDefDrawSize(t *testing.T) {
-	if got, want := DefaultRevoluteJointDef().DrawSize.String(), "0.25"; got != want {
-		t.Fatalf("DrawSize = %s, want %s", got, want)
+func TestDefaultJointDefDrawScale(t *testing.T) {
+	if got, want := DefaultRevoluteJointDef().Base.DrawScale.String(), "1"; got != want {
+		t.Fatalf("DrawScale = %s, want %s", got, want)
 	}
 }
 
@@ -34,21 +35,23 @@ func TestDrawRevoluteJointLimitsUseTurns(t *testing.T) {
 	draw := DefaultDebugDraw()
 	draw.DrawSegment = func(a, b Vec2, _ HexColor) { segments = append(segments, [2]Vec2{a, b}) }
 	var base jointSim
+	base.localFrameA, base.localFrameB = TransformIdentity(), TransformIdentity()
 	*base.revolute() = revoluteJoint{
 		enableLimit: true,
 		lowerAngle:  angleFromTurns(QMustParse("-0.25")),
 		upperAngle:  angleFromTurns(QMustParse("0.25")),
 	}
-	drawRevoluteJoint(&draw, &base, TransformIdentity(), TransformIdentity(), QOne())
+	// The draw scale 4 makes the radius 0.25 * 4 = 1.
+	drawRevoluteJoint(&draw, &base, TransformIdentity(), TransformIdentity(), QFromInt(4))
 	if len(segments) < 4 {
 		t.Fatalf("segments = %d, want limit segments", len(segments))
 	}
 	lowerWant := Vec2{Y: QOne().Neg()}
-	if got := segments[1][1]; got != lowerWant {
+	if got := segments[2][1]; got != lowerWant {
 		t.Fatalf("lower limit endpoint = %#v, want %#v", got, lowerWant)
 	}
 	upperWant := Vec2{Y: QOne()}
-	if got := segments[2][1]; got != upperWant {
+	if got := segments[3][1]; got != upperWant {
 		t.Fatalf("upper limit endpoint = %#v, want %#v", got, upperWant)
 	}
 }
@@ -200,8 +203,8 @@ func createDrawScene(t testing.TB) WorldId {
 	hinge := CreateBody(w, &bd)
 	CreatePolygonShape(hinge, &sd, &box)
 	jd := DefaultRevoluteJointDef()
-	jd.BodyIdA, jd.BodyIdB = ground, hinge
-	jd.LocalAnchorA = Vec2{X: QZero(), Y: QMustParse("3.5")}
+	jd.Base.BodyIdA, jd.Base.BodyIdB = ground, hinge
+	jd.Base.LocalFrameA.P = Vec2{X: QZero(), Y: QMustParse("3.5")}
 	jd.EnableLimit = true
 	jd.LowerAngle, jd.UpperAngle = QMustParse("-0.25"), QMustParse("0.25")
 	CreateRevoluteJoint(w, &jd)
@@ -213,8 +216,8 @@ func createDrawScene(t testing.TB) WorldId {
 	distanceBody := CreateBody(w, &bd)
 	CreatePolygonShape(distanceBody, &sd, &small)
 	dd := DefaultDistanceJointDef()
-	dd.BodyIdA, dd.BodyIdB = ground, distanceBody
-	dd.LocalAnchorA = Vec2{X: QFromInt(8), Y: QMustParse("5.5")}
+	dd.Base.BodyIdA, dd.Base.BodyIdB = ground, distanceBody
+	dd.Base.LocalFrameA.P = Vec2{X: QFromInt(8), Y: QMustParse("5.5")}
 	dd.Length = QFromInt(2)
 	dd.EnableLimit = true
 	dd.MinLength, dd.MaxLength = QOne(), QFromInt(3)
@@ -226,9 +229,10 @@ func createDrawScene(t testing.TB) WorldId {
 	prismaticBody := CreateBody(w, &bd)
 	CreatePolygonShape(prismaticBody, &sd, &box)
 	pd := DefaultPrismaticJointDef()
-	pd.BodyIdA, pd.BodyIdB = ground, prismaticBody
-	pd.LocalAnchorA = Vec2{X: QFromInt(16), Y: QMustParse("3.5")}
-	pd.LocalAxisA = Vec2{Y: QOne()}
+	pd.Base.BodyIdA, pd.Base.BodyIdB = ground, prismaticBody
+	pd.Base.LocalFrameA.P = Vec2{X: QFromInt(16), Y: QMustParse("3.5")}
+	pd.Base.LocalFrameA.Q = MakeRotFromUnitVector(Vec2{Y: QOne()})
+	pd.Base.LocalFrameB.Q = pd.Base.LocalFrameA.Q
 	pd.EnableLimit = true
 	pd.LowerTranslation, pd.UpperTranslation = QZero(), QFromInt(3)
 	CreatePrismaticJoint(w, &pd)
@@ -239,8 +243,9 @@ func createDrawScene(t testing.TB) WorldId {
 	wheelBody := CreateBody(w, &bd)
 	CreatePolygonShape(wheelBody, &sd, &small)
 	wd := DefaultWheelJointDef()
-	wd.BodyIdA, wd.BodyIdB = ground, wheelBody
-	wd.LocalAnchorA = Vec2{X: QFromInt(24), Y: QMustParse("3.5")}
+	wd.Base.BodyIdA, wd.Base.BodyIdB = ground, wheelBody
+	wd.Base.LocalFrameA.P = Vec2{X: QFromInt(24), Y: QMustParse("3.5")}
+	wd.Base.LocalFrameA.Q = MakeRot(QMustParse("0.25"))
 	wd.EnableMotor = true
 	wd.MotorSpeed, wd.MaxMotorTorque = QOne(), QFromInt(10)
 	CreateWheelJoint(w, &wd)
@@ -325,24 +330,34 @@ func TestDrawMatchesGolden(t *testing.T) {
 	}
 }
 
-// Numeric labels have the same fixed-point budget as geometry; names stay exact.
+// drawNumberPattern matches the numbers of a label.
+var drawNumberPattern = regexp.MustCompile(`-?[0-9]+(\.[0-9]+)?`)
+
+// Numeric labels have the same fixed-point budget as geometry; names stay
+// exact. A label may hold several numbers, as the joint force label does.
 func drawTextMatches(got, want string) bool {
 	if got == want {
 		return true
 	}
-	if strings.HasSuffix(got, " deg") != strings.HasSuffix(want, " deg") {
+	if drawNumberPattern.ReplaceAllString(got, "#") != drawNumberPattern.ReplaceAllString(want, "#") {
 		return false
 	}
-	want = strings.TrimSpace(strings.TrimSuffix(want, " deg"))
-	a, errA := strconv.ParseFloat(strings.TrimSpace(strings.TrimSuffix(got, " deg")), 64)
-	b, errB := strconv.ParseFloat(want, 64)
-	limit := 1e-3
-	// In fixed mode, a label near a rounding boundary may print one unit apart
-	// in its last place.
-	if i := strings.IndexByte(want, '.'); i >= 0 && ScalarMode == "fixed" {
-		limit = math.Max(limit, 1.0001*math.Pow(10, -float64(len(want)-i-1)))
+	gotNumbers := drawNumberPattern.FindAllString(got, -1)
+	wantNumbers := drawNumberPattern.FindAllString(want, -1)
+	for i, w := range wantNumbers {
+		a, errA := strconv.ParseFloat(gotNumbers[i], 64)
+		b, errB := strconv.ParseFloat(w, 64)
+		limit := 1e-3
+		// In fixed mode, a label near a rounding boundary may print one unit
+		// apart in its last place.
+		if j := strings.IndexByte(w, '.'); j >= 0 && ScalarMode == "fixed" {
+			limit = math.Max(limit, 1.0001*math.Pow(10, -float64(len(w)-j-1)))
+		}
+		if errA != nil || errB != nil || math.Abs(a-b) > limit {
+			return false
+		}
 	}
-	return errA == nil && errB == nil && math.Abs(a-b) <= limit
+	return true
 }
 
 func TestDrawShapeCallbacksPerType(t *testing.T) {
@@ -435,7 +450,7 @@ func TestDrawBoundsVisitLinkedJointOnlyOnce(t *testing.T) {
 	a := addDynamicBox(t, w, v2(0, 0))
 	b := addDynamicBox(t, w, v2(3, 0))
 	jd := DefaultDistanceJointDef()
-	jd.BodyIdA, jd.BodyIdB, jd.Length = a, b, QFromInt(3)
+	jd.Base.BodyIdA, jd.Base.BodyIdB, jd.Length = a, b, QFromInt(3)
 	CreateDistanceJoint(w, &jd)
 	for _, upper := range []int{1, 4} {
 		draw, calls := recordDraw()
@@ -521,7 +536,7 @@ func TestDrawJointDiagnosticsRespectFlags(t *testing.T) {
 	bd.Type = DynamicBody
 	b := CreateBody(w, &bd)
 	jd := DefaultRevoluteJointDef()
-	jd.BodyIdA, jd.BodyIdB = a, b
+	jd.Base.BodyIdA, jd.Base.BodyIdB = a, b
 	CreateRevoluteJoint(w, &jd)
 	draw, calls := recordDraw()
 	draw.DrawJoints = true
@@ -544,12 +559,13 @@ func TestDrawJointDiagnosticsRespectFlags(t *testing.T) {
 		}
 		if c.kind == "string" {
 			labels++
-			if c.text != " 0.0 deg" {
-				t.Fatalf("angle label = %q", c.text)
+			if c.text != " 0.0 deg" && !strings.HasPrefix(c.text, "f = [") {
+				t.Fatalf("joint label = %q", c.text)
 			}
 		}
 	}
-	if points != 1 || labels != 1 {
+	// The labels are the joint angle and the constraint force and torque.
+	if points != 1 || labels != 2 {
 		t.Fatalf("diagnostics points=%d labels=%d", points, labels)
 	}
 }
@@ -586,3 +602,14 @@ func withGeometry(shapeType ShapeType, geometry any) shape {
 }
 
 func ptr[T any](v T) *T { return &v }
+
+// TestDrawNumberPrintsSmallValuesInPlainDecimal pins the label of a value
+// that float mode prints with an exponent: -2^-20 is -0.00, not -9.54.
+func TestDrawNumberPrintsSmallValuesInPlainDecimal(t *testing.T) {
+	if got := drawNumber(QFromRatio(-1, 1<<20), 2); got != "-0.00" {
+		t.Errorf("drawNumber(-2^-20, 2) = %q, want -0.00", got)
+	}
+	if got := drawNumber(QFromInt(1<<20), 1); got != "1048576.0" {
+		t.Errorf("drawNumber(2^20, 1) = %q, want 1048576.0", got)
+	}
+}

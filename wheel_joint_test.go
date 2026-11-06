@@ -11,7 +11,8 @@ import (
 
 // suspendedBox creates a static ground at the origin and a unit box of
 // mass one (inverse inertia 6) at the position, on a wheel joint along the
-// default vertical axis between the two body origins. The effective axial
+// vertical axis between the two body origins: the axis is the x-axis of
+// frame A, turned a quarter turn. The effective axial
 // and perpendicular masses are one and the motor mass is 1/6.
 func suspendedBox(t *testing.T, worldId WorldId, position Vec2, def *WheelJointDef) (*body, *joint) {
 	t.Helper()
@@ -28,8 +29,9 @@ func suspendedBox(t *testing.T, worldId WorldId, position Vec2, def *WheelJointD
 	unit := MakeBox(QHalf(), QHalf())
 	CreatePolygonShape(boxId, &shapeDef, &unit)
 
-	def.BodyIdA = groundId
-	def.BodyIdB = boxId
+	def.Base.BodyIdA = groundId
+	def.Base.BodyIdB = boxId
+	def.Base.LocalFrameA.Q = MakeRot(QMustParse("0.25"))
 	jointId := CreateWheelJoint(worldId, def)
 	return getBodyFullId(w, boxId), getJointFullId(w, jointId)
 }
@@ -49,7 +51,7 @@ func TestWheelLineHoldsTheBox(t *testing.T) {
 
 	context := jointContext(w)
 	prepareJointsTask(0, len(context.joints), context)
-	solveJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex, false)
+	solveJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex, false, 0)
 
 	tolerance := qUlps(1 << 12)
 	js := getJointSim(w, j)
@@ -88,7 +90,7 @@ func TestWheelUpperLimitStopsTheTravel(t *testing.T) {
 
 	context := jointContext(w)
 	prepareJointsTask(0, len(context.joints), context)
-	solveJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex, false)
+	solveJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex, false, 0)
 
 	tolerance := qUlps(1 << 12)
 	js := getJointSim(w, j)
@@ -117,7 +119,7 @@ func TestWheelMotorSaturatesAtTheTorque(t *testing.T) {
 
 	context := jointContext(w)
 	prepareJointsTask(0, len(context.joints), context)
-	solveJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex, false)
+	solveJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex, false, 0)
 
 	tolerance := qUlps(1 << 12)
 	js := getJointSim(w, j)
@@ -155,7 +157,8 @@ type f64WheelJoint struct {
 	maxMotorTorque, motorSpeed               float64
 	lowerTranslation, upperTranslation       float64
 	hertz, dampingRatio                      float64
-	anchorA, anchorB, axisA, deltaCenter     f64Vec
+	frameA, frameB                           f64Frame
+	deltaCenter                              f64Vec
 	perpMass, motorMass, axialMass           float64
 	springSoftness                           f64Softness
 	enableSpring, enableMotor, enableLimit   bool
@@ -169,11 +172,11 @@ func f64SolveWheelJoint(joint *f64WheelJoint, stateA, stateB *f64State, h, invH 
 
 	fixedRotation := iA+iB == 0
 
-	rA := f64Rotate(stateA.dqc, stateA.dqs, joint.anchorA)
-	rB := f64Rotate(stateB.dqc, stateB.dqs, joint.anchorB)
+	rA := f64Rotate(stateA.dqc, stateA.dqs, joint.frameA.p)
+	rB := f64Rotate(stateB.dqc, stateB.dqs, joint.frameB.p)
 
 	d := f64Add(f64Add(f64Sub(stateB.dp, stateA.dp), joint.deltaCenter), f64Sub(rB, rA))
-	axisA := f64Rotate(stateA.dqc, stateA.dqs, joint.axisA)
+	axisA := f64Rotate(stateA.dqc, stateA.dqs, f64Vec{joint.frameA.c, joint.frameA.s})
 	translation := f64Dot(axisA, d)
 
 	a1 := f64Cross(f64Add(d, rA), axisA)
@@ -287,10 +290,10 @@ func TestSolveWheelJointTracksTheFloat64Mirror(t *testing.T) {
 	idA, idB := mirrorBodies(t, worldId)
 
 	def := DefaultWheelJointDef()
-	def.BodyIdA, def.BodyIdB = idA, idB
-	def.LocalAnchorA = qv("0.5", "0.25")
-	def.LocalAnchorB = qv("-1", "0.25")
-	def.LocalAxisA = qv("1", "0.5")
+	def.Base.BodyIdA, def.Base.BodyIdB = idA, idB
+	def.Base.LocalFrameA.P = qv("0.5", "0.25")
+	def.Base.LocalFrameB.P = qv("-1", "0.25")
+	def.Base.LocalFrameA.Q = MakeRotFromUnitVector(qv("1", "0.5").Normalize())
 	def.EnableSpring = true
 	def.Hertz = QFromInt(2)
 	def.DampingRatio = QHalf()
@@ -320,9 +323,8 @@ func TestSolveWheelJointTracksTheFloat64Mirror(t *testing.T) {
 		upperTranslation:   qToF64(wj.upperTranslation),
 		hertz:              qToF64(wj.hertz),
 		dampingRatio:       qToF64(wj.dampingRatio),
-		anchorA:            vecToF64(wj.anchorA),
-		anchorB:            vecToF64(wj.anchorB),
-		axisA:              vecToF64(wj.axisA),
+		frameA:             frameToF64(wj.frameA),
+		frameB:             frameToF64(wj.frameB),
 		deltaCenter:        vecToF64(wj.deltaCenter),
 		perpMass:           qToF64(wj.perpMass),
 		motorMass:          qToF64(wj.motorMass),

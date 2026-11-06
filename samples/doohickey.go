@@ -61,28 +61,29 @@ func (d *doohickey) spawn(worldId b2.WorldId, position b2.Vec2, scale b2.Q) {
 	b2.CreateCapsuleShape(d.barId2, &shapeDef, &capsule)
 
 	revoluteDef := b2.DefaultRevoluteJointDef()
-	revoluteDef.BodyIdA = d.wheelId1
-	revoluteDef.BodyIdB = d.barId1
-	revoluteDef.LocalAnchorA = b2.Vec2{}
-	revoluteDef.LocalAnchorB = b2.Vec2{X: b2.F(-3.5).Mul(scale)}
+	revoluteDef.Base.BodyIdA = d.wheelId1
+	revoluteDef.Base.BodyIdB = d.barId1
+	revoluteDef.Base.LocalFrameA.P = b2.Vec2{}
+	revoluteDef.Base.LocalFrameB.P = b2.Vec2{X: b2.F(-3.5).Mul(scale)}
 	revoluteDef.EnableMotor = true
 	revoluteDef.MaxMotorTorque = b2.F(2).Mul(scale)
 	d.axleId1 = b2.CreateRevoluteJoint(worldId, &revoluteDef)
 
-	revoluteDef.BodyIdA = d.wheelId2
-	revoluteDef.BodyIdB = d.barId2
-	revoluteDef.LocalAnchorA = b2.Vec2{}
-	revoluteDef.LocalAnchorB = b2.Vec2{X: b2.F(3.5).Mul(scale)}
+	revoluteDef.Base.BodyIdA = d.wheelId2
+	revoluteDef.Base.BodyIdB = d.barId2
+	revoluteDef.Base.LocalFrameA.P = b2.Vec2{}
+	revoluteDef.Base.LocalFrameB.P = b2.Vec2{X: b2.F(3.5).Mul(scale)}
 	revoluteDef.EnableMotor = true
 	revoluteDef.MaxMotorTorque = b2.F(2).Mul(scale)
 	d.axleId2 = b2.CreateRevoluteJoint(worldId, &revoluteDef)
 
 	prismaticDef := b2.DefaultPrismaticJointDef()
-	prismaticDef.BodyIdA = d.barId1
-	prismaticDef.BodyIdB = d.barId2
-	prismaticDef.LocalAxisA = b2.Vec2{X: b2.QOne()}
-	prismaticDef.LocalAnchorA = b2.Vec2{X: b2.F(2).Mul(scale)}
-	prismaticDef.LocalAnchorB = b2.Vec2{X: b2.F(-2).Mul(scale)}
+	prismaticDef.Base.BodyIdA = d.barId1
+	prismaticDef.Base.BodyIdB = d.barId2
+	prismaticDef.Base.LocalFrameA.Q = b2.MakeRotFromUnitVector(b2.Vec2{X: b2.QOne()})
+	prismaticDef.Base.LocalFrameB.Q = prismaticDef.Base.LocalFrameA.Q
+	prismaticDef.Base.LocalFrameA.P = b2.Vec2{X: b2.F(2).Mul(scale)}
+	prismaticDef.Base.LocalFrameB.P = b2.Vec2{X: b2.F(-2).Mul(scale)}
 	prismaticDef.LowerTranslation = b2.F(-2).Mul(scale)
 	prismaticDef.UpperTranslation = b2.F(2).Mul(scale)
 	prismaticDef.EnableLimit = true

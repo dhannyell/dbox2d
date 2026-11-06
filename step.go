@@ -107,6 +107,7 @@ func (worldId WorldId) Step(timeStep Q, subStepCount int) {
 	w.bodyMoveEvents = w.bodyMoveEvents[:0]
 	w.contactBeginEvents = w.contactBeginEvents[:0]
 	w.contactHitEvents = w.contactHitEvents[:0]
+	w.jointEvents = w.jointEvents[:0]
 	w.sensorBeginEvents = w.sensorBeginEvents[:0]
 
 	w.profile = Profile{}

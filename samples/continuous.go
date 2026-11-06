@@ -1263,23 +1263,23 @@ func NewPinball(ctx *SampleContext) Sample {
 		b2.CreatePolygonShape(rightFlipperId, &shapeDef, &box)
 
 		jointDef := b2.DefaultRevoluteJointDef()
-		jointDef.BodyIdA = groundId
-		jointDef.LocalAnchorB = b2.Vec2{}
+		jointDef.Base.BodyIdA = groundId
+		jointDef.Base.LocalFrameB.P = b2.Vec2{}
 		jointDef.EnableMotor = true
 		jointDef.MaxMotorTorque = b2.F(1000)
 		jointDef.EnableLimit = true
 
 		// 30 degrees is 1/12 turn and 5 degrees is 1/72 turn.
 		jointDef.MotorSpeed = b2.QZero()
-		jointDef.LocalAnchorA = p1
-		jointDef.BodyIdB = leftFlipperId
+		jointDef.Base.LocalFrameA.P = p1
+		jointDef.Base.BodyIdB = leftFlipperId
 		jointDef.LowerAngle = b2.QFromRatio(-1, 12)
 		jointDef.UpperAngle = b2.QFromRatio(1, 72)
 		s.leftJointId = b2.CreateRevoluteJoint(s.WorldId, &jointDef)
 
 		jointDef.MotorSpeed = b2.QZero()
-		jointDef.LocalAnchorA = p2
-		jointDef.BodyIdB = rightFlipperId
+		jointDef.Base.LocalFrameA.P = p2
+		jointDef.Base.BodyIdB = rightFlipperId
 		jointDef.LowerAngle = b2.QFromRatio(-1, 72)
 		jointDef.UpperAngle = b2.QFromRatio(1, 12)
 		s.rightJointId = b2.CreateRevoluteJoint(s.WorldId, &jointDef)
@@ -1301,10 +1301,10 @@ func NewPinball(ctx *SampleContext) Sample {
 		b2.CreatePolygonShape(bodyId, &shapeDef, &box2)
 
 		jointDef := b2.DefaultRevoluteJointDef()
-		jointDef.BodyIdA = groundId
-		jointDef.BodyIdB = bodyId
-		jointDef.LocalAnchorA = bodyDef.Position
-		jointDef.LocalAnchorB = b2.Vec2{}
+		jointDef.Base.BodyIdA = groundId
+		jointDef.Base.BodyIdB = bodyId
+		jointDef.Base.LocalFrameA.P = bodyDef.Position
+		jointDef.Base.LocalFrameB.P = b2.Vec2{}
 		jointDef.EnableMotor = true
 		jointDef.MaxMotorTorque = b2.F(0.1)
 		b2.CreateRevoluteJoint(s.WorldId, &jointDef)
@@ -1313,8 +1313,8 @@ func NewPinball(ctx *SampleContext) Sample {
 		bodyId = b2.CreateBody(s.WorldId, &bodyDef)
 		b2.CreatePolygonShape(bodyId, &shapeDef, &box1)
 		b2.CreatePolygonShape(bodyId, &shapeDef, &box2)
-		jointDef.LocalAnchorA = bodyDef.Position
-		jointDef.BodyIdB = bodyId
+		jointDef.Base.LocalFrameA.P = bodyDef.Position
+		jointDef.Base.BodyIdB = bodyId
 		b2.CreateRevoluteJoint(s.WorldId, &jointDef)
 	}
 
@@ -1356,11 +1356,11 @@ func (s *Pinball) Step() {
 	s.Base.Step()
 
 	if s.keyDown(KeySpace) {
-		s.leftJointId.SetMotorSpeed(radiansToTurns(20))
-		s.rightJointId.SetMotorSpeed(radiansToTurns(-20))
+		s.leftJointId.SetTargetMotorSpeed(radiansToTurns(20))
+		s.rightJointId.SetTargetMotorSpeed(radiansToTurns(-20))
 	} else {
-		s.leftJointId.SetMotorSpeed(radiansToTurns(-10))
-		s.rightJointId.SetMotorSpeed(radiansToTurns(10))
+		s.leftJointId.SetTargetMotorSpeed(radiansToTurns(-10))
+		s.rightJointId.SetTargetMotorSpeed(radiansToTurns(10))
 	}
 }
 

@@ -50,9 +50,9 @@ func CreateFallingHinges(worldId WorldId, opts Options) []BodyId {
 	jointDef.EnableSpring = true
 	jointDef.Hertz = QHalf()
 	jointDef.DampingRatio = QHalf()
-	jointDef.LocalAnchorA = Vec2{X: half, Y: half}
-	jointDef.LocalAnchorB = Vec2{X: offset, Y: half.Neg()}
-	jointDef.DrawSize = QMustParse("0.1")
+	jointDef.Base.LocalFrameA.P = Vec2{X: half, Y: half}
+	jointDef.Base.LocalFrameB.P = Vec2{X: offset, Y: half.Neg()}
+	jointDef.Base.DrawScale = QHalf()
 
 	bodyIds := make([]BodyId, 0, rowCount*columnCount)
 	for j := range columnCount {
@@ -71,8 +71,8 @@ func CreateFallingHinges(worldId WorldId, opts Options) []BodyId {
 			if i&1 == 0 {
 				previous = bodyId
 			} else {
-				jointDef.BodyIdA = previous
-				jointDef.BodyIdB = bodyId
+				jointDef.Base.BodyIdA = previous
+				jointDef.Base.BodyIdB = bodyId
 				CreateRevoluteJoint(worldId, &jointDef)
 				previous = BodyId{}
 			}

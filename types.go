@@ -89,6 +89,7 @@ type Profile struct {
 	StoreImpulses       float64
 	SplitIslands        float64
 	Transforms          float64
+	JointEvents         float64
 	HitEvents           float64
 	Refit               float64
 	Bullets             float64
@@ -628,38 +629,99 @@ type JointType int
 
 // Joint types. upstream b2JointType
 const (
+	// DistanceJoint constrains the distance between two points.
 	DistanceJoint JointType = iota
+	// FilterJoint filters collision between two bodies.
 	FilterJoint
+	// MotorJoint fully controls the movement of a body.
 	MotorJoint
-	MouseJoint
+	// MoverJoint controls the movement of the dynamic character mover.
+	MoverJoint
+	// PogoJoint is the ground interaction of the dynamic character mover.
+	PogoJoint
+	// PrismaticJoint slides along an axis.
 	PrismaticJoint
+	// RevoluteJoint rotates around a pivot.
 	RevoluteJoint
+	// WeldJoint brings two bodies together with some flex.
 	WeldJoint
+	// WheelJoint spins a wheel with a shock absorber.
 	WheelJoint
 )
 
-// DistanceJointDef configures a distance joint: a point on each body kept
-// at a fixed length, or within a length range. Initialize it with
-// DefaultDistanceJointDef.
-type DistanceJointDef struct {
+// JointDef is the base definition of every joint type. The local frames
+// are measured from the body origin rather than the center of mass because
+// the center of mass may be unknown when the joint is made, and because
+// adding or removing shapes would otherwise break the joint. It corresponds
+// to b2JointDef.
+type JointDef struct {
+	// Application data attached to the joint.
+	UserData any
+
 	// The first attached body.
 	BodyIdA BodyId
 
 	// The second attached body.
 	BodyIdB BodyId
 
-	// The local anchor point relative to the origin of body A.
-	LocalAnchorA Vec2
+	// The first local joint frame.
+	LocalFrameA Transform
 
-	// The local anchor point relative to the origin of body B.
-	LocalAnchorB Vec2
+	// The second local joint frame.
+	LocalFrameB Transform
+
+	// Force threshold for joint events.
+	ForceThreshold Q
+
+	// Torque threshold for joint events.
+	TorqueThreshold Q
+
+	// Constraint stiffness in cycles per second (advanced).
+	ConstraintHertz Q
+
+	// Constraint damping ratio (advanced).
+	ConstraintDampingRatio Q
+
+	// Debug draw scale.
+	DrawScale Q
+
+	// Set this flag to true if the attached bodies should collide.
+	CollideConnected bool
+}
+
+// defaultJointDef corresponds to b2DefaultJointDef in src/joint.c.
+func defaultJointDef() JointDef {
+	return JointDef{
+		LocalFrameA:            Transform{Q: RotIdentity()},
+		LocalFrameB:            Transform{Q: RotIdentity()},
+		ForceThreshold:         QMaxValue(),
+		TorqueThreshold:        QMaxValue(),
+		ConstraintHertz:        QFromInt(60),
+		ConstraintDampingRatio: QFromInt(2),
+		DrawScale:              QOne(),
+	}
+}
+
+// DistanceJointDef configures a distance joint: the origin of local frame
+// A and the origin of local frame B kept at a fixed length, or within a
+// length range. Useful for ropes and springs. Initialize it with
+// DefaultDistanceJointDef.
+type DistanceJointDef struct {
+	// Base joint definition.
+	Base JointDef
 
 	// The rest length of the joint. Clamped to a stable minimum value.
 	Length Q
 
 	// Enable the distance constraint to behave like a spring. If false the
-	// distance joint is rigid, otherwise the limit and the motor apply.
+	// distance joint is rigid, overriding the limit and the motor.
 	EnableSpring bool
+
+	// The lower spring force controls how much tension it can sustain.
+	LowerSpringForce Q
+
+	// The upper spring force controls how much compression it can sustain.
+	UpperSpringForce Q
 
 	// The spring linear stiffness in cycles per second.
 	Hertz Q
@@ -686,12 +748,6 @@ type DistanceJointDef struct {
 	// The desired motor speed, usually in meters per second.
 	MotorSpeed Q
 
-	// Set this flag to true if the attached bodies should collide.
-	CollideConnected bool
-
-	// Application data attached to the joint.
-	UserData any
-
 	// internalValue proves that DefaultDistanceJointDef ran. upstream
 	// internalValue
 	internalValue int
@@ -700,114 +756,20 @@ type DistanceJointDef struct {
 // DefaultDistanceJointDef returns the default distance joint definition.
 func DefaultDistanceJointDef() DistanceJointDef {
 	return DistanceJointDef{
-		Length:        QOne(),
-		MaxLength:     Huge,
-		internalValue: secretCookie,
-	}
-}
-
-// MotorJointDef configures a motor joint: it drives the relative
-// transform of two bodies toward an offset. Initialize it with
-// DefaultMotorJointDef.
-type MotorJointDef struct {
-	// The first attached body.
-	BodyIdA BodyId
-
-	// The second attached body.
-	BodyIdB BodyId
-
-	// Position of body B minus the position of body A, in the frame of
-	// body A, in meters.
-	LinearOffset Vec2
-
-	// The angle of body B minus the angle of body A, in turns.
-	AngularOffset Q
-
-	// The maximum motor force in newtons.
-	MaxForce Q
-
-	// The maximum motor torque in newton-meters.
-	MaxTorque Q
-
-	// Position correction factor in the range [0, 1].
-	CorrectionFactor Q
-
-	// Set this flag to true if the attached bodies should collide.
-	CollideConnected bool
-
-	// Application data attached to the joint.
-	UserData any
-
-	// internalValue proves that DefaultMotorJointDef ran. upstream
-	// internalValue
-	internalValue int
-}
-
-// DefaultMotorJointDef returns the default motor joint definition.
-func DefaultMotorJointDef() MotorJointDef {
-	return MotorJointDef{
-		MaxForce:         QOne(),
-		MaxTorque:        QOne(),
-		CorrectionFactor: defaultCorrectionFactor,
+		Base:             defaultJointDef(),
+		LowerSpringForce: QMaxValue().Neg(),
+		UpperSpringForce: QMaxValue(),
+		Length:           QOne(),
+		MaxLength:        Huge,
 		internalValue:    secretCookie,
 	}
 }
 
-// MouseJointDef configures a mouse joint: it drags a point on body B
-// toward a world target with a spring. Body A is a ground reference and
-// gets no reaction. Initialize it with DefaultMouseJointDef.
-type MouseJointDef struct {
-	// The first attached body. It is unused here, but it plays a role in
-	// the solver order.
-	BodyIdA BodyId
-
-	// The second attached body.
-	BodyIdB BodyId
-
-	// The initial target point in world space.
-	Target Vec2
-
-	// Stiffness in cycles per second.
-	Hertz Q
-
-	// Damping ratio, non-dimensional.
-	DampingRatio Q
-
-	// Maximum force, usually in newtons.
-	MaxForce Q
-
-	// Set this flag to true if the attached bodies should collide.
-	CollideConnected bool
-
-	// Application data attached to the joint.
-	UserData any
-
-	// internalValue proves that DefaultMouseJointDef ran. upstream
-	// internalValue
-	internalValue int
-}
-
-// DefaultMouseJointDef returns the default mouse joint definition.
-func DefaultMouseJointDef() MouseJointDef {
-	return MouseJointDef{
-		Hertz:         QFromInt(4),
-		DampingRatio:  QOne(),
-		MaxForce:      QOne(),
-		internalValue: secretCookie,
-	}
-}
-
 // FilterJointDef configures a filter joint: it only disables collision
-// between two bodies. Initialize it with DefaultFilterJointDef.
+// between two specific bodies. Initialize it with DefaultFilterJointDef.
 type FilterJointDef struct {
-	// The first attached body.
-	BodyIdA BodyId
-
-	// The second attached body.
-	BodyIdB BodyId
-
-	// Application data attached to the joint.
-	UserData any
+	// Base joint definition.
+	Base JointDef
 
 	// internalValue proves that DefaultFilterJointDef ran. upstream
 	// internalValue
@@ -816,35 +778,133 @@ type FilterJointDef struct {
 
 // DefaultFilterJointDef returns the default filter joint definition.
 func DefaultFilterJointDef() FilterJointDef {
-	return FilterJointDef{internalValue: secretCookie}
+	return FilterJointDef{Base: defaultJointDef(), internalValue: secretCookie}
 }
 
-// PrismaticJointDef configures a prismatic joint: body B translates along
-// an axis fixed in body A, with no relative rotation. Initialize it with
-// DefaultPrismaticJointDef.
+// MotorJointDef configures a motor joint: it controls the relative
+// velocity and the relative transform of two bodies. With a velocity of
+// zero it acts like top-down friction. Move local frame A to change the
+// target transform. Initialize it with DefaultMotorJointDef.
+type MotorJointDef struct {
+	// Base joint definition.
+	Base JointDef
+
+	// The desired linear velocity.
+	LinearVelocity Vec2
+
+	// The maximum velocity force in newtons.
+	MaxVelocityForce Q
+
+	// The desired angular velocity in turns per second.
+	AngularVelocity Q
+
+	// The maximum velocity torque in newton-meters.
+	MaxVelocityTorque Q
+
+	// Linear spring stiffness in cycles per second, for position control.
+	LinearHertz Q
+
+	// Linear spring damping ratio.
+	LinearDampingRatio Q
+
+	// Maximum spring force in newtons.
+	MaxSpringForce Q
+
+	// Angular spring stiffness in cycles per second, for position control.
+	AngularHertz Q
+
+	// Angular spring damping ratio.
+	AngularDampingRatio Q
+
+	// Maximum spring torque in newton-meters.
+	MaxSpringTorque Q
+
+	// internalValue proves that DefaultMotorJointDef ran. upstream
+	// internalValue
+	internalValue int
+}
+
+// DefaultMotorJointDef returns the default motor joint definition. Every
+// setting starts at zero.
+func DefaultMotorJointDef() MotorJointDef {
+	return MotorJointDef{Base: defaultJointDef(), internalValue: secretCookie}
+}
+
+// MoverJointDef configures a mover joint: it moves a dynamic character
+// mover through velocity commands. The x and y directions are handled
+// separately. It does not affect rotation. Initialize it with
+// DefaultMoverJointDef.
+type MoverJointDef struct {
+	// Base joint definition.
+	Base JointDef
+
+	// The desired linear velocity.
+	LinearVelocity Vec2
+
+	// The maximum velocity force in newtons, per axis.
+	MaxVelocityForce Vec2
+
+	// internalValue proves that DefaultMoverJointDef ran. upstream
+	// internalValue
+	internalValue int
+}
+
+// DefaultMoverJointDef returns the default mover joint definition.
+func DefaultMoverJointDef() MoverJointDef {
+	return MoverJointDef{Base: defaultJointDef(), internalValue: secretCookie}
+}
+
+// PogoJointDef configures a pogo joint: the ground spring of the dynamic
+// character mover. Initialize it with DefaultPogoJointDef.
+type PogoJointDef struct {
+	// Base joint definition.
+	Base JointDef
+
+	// Normal vector at the contact.
+	Normal Vec2
+
+	// The spring stiffness in cycles per second.
+	Hertz Q
+
+	// The spring damping ratio, non-dimensional.
+	DampingRatio Q
+
+	// Spring length.
+	RestLength Q
+
+	// Maximum tension force. Controls how sticky the mover is to the
+	// ground.
+	MaxTensionForce Q
+
+	// Maximum compression force. How hard the pogo pushes the mover up
+	// from the ground.
+	MaxCompressionForce Q
+
+	// The initial internal impulse. The pogo is typically recreated every
+	// frame; this moves the internal state forward for a smoother spring.
+	Impulse Q
+
+	// The initial internal velocity. The pogo is typically recreated every
+	// frame; this moves the internal state forward for a smoother spring.
+	Velocity Q
+
+	// internalValue proves that DefaultPogoJointDef ran. upstream
+	// internalValue
+	internalValue int
+}
+
+// DefaultPogoJointDef returns the default pogo joint definition.
+func DefaultPogoJointDef() PogoJointDef {
+	return PogoJointDef{Base: defaultJointDef(), internalValue: secretCookie}
+}
+
+// PrismaticJointDef configures a prismatic joint: body B slides along the
+// x-axis of local frame A and cannot rotate relative to body A. The
+// translation is zero when the local frame origins coincide in world space.
+// Initialize it with DefaultPrismaticJointDef.
 type PrismaticJointDef struct {
-	// The first attached body.
-	BodyIdA BodyId
-
-	// The second attached body.
-	BodyIdB BodyId
-
-	// The local anchor point relative to the origin of body A.
-	LocalAnchorA Vec2
-
-	// The local anchor point relative to the origin of body B.
-	LocalAnchorB Vec2
-
-	// The local translation unit axis in body A.
-	LocalAxisA Vec2
-
-	// The constrained angle between the bodies: angle of B minus angle of
-	// A, in turns.
-	ReferenceAngle Q
-
-	// The target translation for the joint in meters. The spring-damper
-	// pulls toward this translation.
-	TargetTranslation Q
+	// Base joint definition.
+	Base JointDef
 
 	// Enable a linear spring along the prismatic joint axis.
 	EnableSpring bool
@@ -854,6 +914,10 @@ type PrismaticJointDef struct {
 
 	// The spring damping ratio, non-dimensional.
 	DampingRatio Q
+
+	// The target translation for the joint in meters. The spring-damper
+	// drives toward this translation.
+	TargetTranslation Q
 
 	// Enable and disable the joint limit.
 	EnableLimit bool
@@ -873,12 +937,6 @@ type PrismaticJointDef struct {
 	// The desired motor speed, usually in meters per second.
 	MotorSpeed Q
 
-	// Set this flag to true if the attached bodies should collide.
-	CollideConnected bool
-
-	// Application data attached to the joint.
-	UserData any
-
 	// internalValue proves that DefaultPrismaticJointDef ran. upstream
 	// internalValue
 	internalValue int
@@ -886,32 +944,17 @@ type PrismaticJointDef struct {
 
 // DefaultPrismaticJointDef returns the default prismatic joint definition.
 func DefaultPrismaticJointDef() PrismaticJointDef {
-	return PrismaticJointDef{
-		LocalAxisA:    Vec2{X: QOne()},
-		internalValue: secretCookie,
-	}
+	return PrismaticJointDef{Base: defaultJointDef(), internalValue: secretCookie}
 }
 
-// RevoluteJointDef configures a revolute joint: a shared anchor point
-// with free relative rotation. Initialize it with DefaultRevoluteJointDef.
+// RevoluteJointDef configures a revolute joint: the origin of local frame
+// B is fixed to the origin of local frame A, with free relative rotation.
+// Initialize it with DefaultRevoluteJointDef.
 type RevoluteJointDef struct {
-	// The first attached body.
-	BodyIdA BodyId
+	// Base joint definition.
+	Base JointDef
 
-	// The second attached body.
-	BodyIdB BodyId
-
-	// The local anchor point relative to the origin of body A.
-	LocalAnchorA Vec2
-
-	// The local anchor point relative to the origin of body B.
-	LocalAnchorB Vec2
-
-	// The angle of body B minus the angle of body A in the reference
-	// state, in turns. It is clamped to [-0.5, 0.5] turns.
-	ReferenceAngle Q
-
-	// The target angle for the joint in turns. The spring-damper pulls
+	// The target angle for the joint in turns. The spring-damper drives
 	// toward this angle.
 	TargetAngle Q
 
@@ -927,12 +970,12 @@ type RevoluteJointDef struct {
 	// Enable and disable the joint limit.
 	EnableLimit bool
 
-	// The lower angle for the joint limit in turns. Must be greater than
-	// -0.495 turns.
+	// The lower angle for the joint limit in turns. Minimum of -0.495
+	// turns.
 	LowerAngle Q
 
-	// The upper angle for the joint limit in turns. Must be less than
-	// 0.495 turns.
+	// The upper angle for the joint limit in turns. Maximum of 0.495
+	// turns.
 	UpperAngle Q
 
 	// Enable and disable the joint motor.
@@ -944,15 +987,6 @@ type RevoluteJointDef struct {
 	// The desired motor speed in turns per second.
 	MotorSpeed Q
 
-	// DrawSize scales the debug draw of the joint.
-	DrawSize Q
-
-	// Set this flag to true if the attached bodies should collide.
-	CollideConnected bool
-
-	// Application data attached to the joint.
-	UserData any
-
 	// internalValue proves that DefaultRevoluteJointDef ran. upstream
 	// internalValue
 	internalValue int
@@ -960,31 +994,16 @@ type RevoluteJointDef struct {
 
 // DefaultRevoluteJointDef returns the default revolute joint definition.
 func DefaultRevoluteJointDef() RevoluteJointDef {
-	return RevoluteJointDef{
-		DrawSize:      defaultDrawSize,
-		internalValue: secretCookie,
-	}
+	return RevoluteJointDef{Base: defaultJointDef(), internalValue: secretCookie}
 }
 
-// WeldJointDef configures a weld joint: it holds the relative transform
-// of two bodies, rigidly or with a spring. Initialize it with
+// WeldJointDef configures a weld joint: it holds local frame B on local
+// frame A, rigidly or with springs that mimic a soft body. The approximate
+// solver cannot hold many bodies together rigidly. Initialize it with
 // DefaultWeldJointDef.
 type WeldJointDef struct {
-	// The first attached body.
-	BodyIdA BodyId
-
-	// The second attached body.
-	BodyIdB BodyId
-
-	// The local anchor point relative to the origin of body A.
-	LocalAnchorA Vec2
-
-	// The local anchor point relative to the origin of body B.
-	LocalAnchorB Vec2
-
-	// The angle of body B minus the angle of body A in the reference
-	// state, in turns.
-	ReferenceAngle Q
+	// Base joint definition.
+	Base JointDef
 
 	// Linear stiffness in cycles per second. Zero means rigid.
 	LinearHertz Q
@@ -992,17 +1011,11 @@ type WeldJointDef struct {
 	// Angular stiffness in cycles per second. Zero means rigid.
 	AngularHertz Q
 
-	// Linear damping ratio, non-dimensional.
+	// Linear damping ratio, non-dimensional. Use 1 for critical damping.
 	LinearDampingRatio Q
 
-	// Angular damping ratio, non-dimensional.
+	// Angular damping ratio, non-dimensional. Use 1 for critical damping.
 	AngularDampingRatio Q
-
-	// Set this flag to true if the attached bodies should collide.
-	CollideConnected bool
-
-	// Application data attached to the joint.
-	UserData any
 
 	// internalValue proves that DefaultWeldJointDef ran. upstream
 	// internalValue
@@ -1011,27 +1024,16 @@ type WeldJointDef struct {
 
 // DefaultWeldJointDef returns the default weld joint definition.
 func DefaultWeldJointDef() WeldJointDef {
-	return WeldJointDef{internalValue: secretCookie}
+	return WeldJointDef{Base: defaultJointDef(), internalValue: secretCookie}
 }
 
-// WheelJointDef configures a wheel joint: body B rotates freely about a
-// point on an axis fixed in body A, with a suspension spring along the
-// axis. Initialize it with DefaultWheelJointDef.
+// WheelJointDef configures a wheel joint: body B is a wheel that rotates
+// freely and slides along the x-axis of local frame A, with a suspension
+// spring. The translation is zero when the local frame origins coincide in
+// world space. Initialize it with DefaultWheelJointDef.
 type WheelJointDef struct {
-	// The first attached body.
-	BodyIdA BodyId
-
-	// The second attached body.
-	BodyIdB BodyId
-
-	// The local anchor point relative to the origin of body A.
-	LocalAnchorA Vec2
-
-	// The local anchor point relative to the origin of body B.
-	LocalAnchorB Vec2
-
-	// The local translation unit axis in body A.
-	LocalAxisA Vec2
+	// Base joint definition.
+	Base JointDef
 
 	// Enable a linear spring along the local axis.
 	EnableSpring bool
@@ -1060,15 +1062,20 @@ type WheelJointDef struct {
 	// The desired motor speed in turns per second.
 	MotorSpeed Q
 
-	// Set this flag to true if the attached bodies should collide.
-	CollideConnected bool
-
-	// Application data attached to the joint.
-	UserData any
-
 	// internalValue proves that DefaultWheelJointDef ran. upstream
 	// internalValue
 	internalValue int
+}
+
+// JointEvent reports an awake joint whose force or torque exceeded its
+// threshold. The observed force and torque are not returned. It
+// corresponds to b2JointEvent.
+type JointEvent struct {
+	// JointId is the joint.
+	JointId JointId
+
+	// UserData is the joint user data, for convenience.
+	UserData any
 }
 
 // HexColor is an RGB color encoded as 0xRRGGBB.
@@ -1467,7 +1474,7 @@ func DefaultDebugDraw() DebugDraw {
 // DefaultWheelJointDef returns the default wheel joint definition.
 func DefaultWheelJointDef() WheelJointDef {
 	return WheelJointDef{
-		LocalAxisA:    Vec2{Y: QOne()},
+		Base:          defaultJointDef(),
 		EnableSpring:  true,
 		Hertz:         QOne(),
 		DampingRatio:  defaultWheelDampingRatio,

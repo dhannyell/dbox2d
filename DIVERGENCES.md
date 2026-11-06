@@ -145,6 +145,8 @@ Numbering is sequential from `D-001` and never reused.
 - Behaviour: fixed mode uses the largest and smallest representable values for
   search seeds and clamps. Public defaults that need an unreachable bound use
   `Huge`, including distance-joint maximum length and mover push limits.
+  Defaults of ±`QMaxValue` (distance spring force range, joint force and
+  torque thresholds) pass validation through `isForceBound`.
 - Test: `TestTreeSeedNeverWins` and
   `TestSolvePlanesSinglePlaneProjects`
 

@@ -32,8 +32,8 @@ func ExampleCreateDistanceJoint() {
 
 	// A rope of length two from the ground origin to the box center.
 	def := b2.DefaultDistanceJointDef()
-	def.BodyIdA = groundId
-	def.BodyIdB = boxId
+	def.Base.BodyIdA = groundId
+	def.Base.BodyIdB = boxId
 	def.Length = b2.QFromInt(2)
 	jointId := b2.CreateDistanceJoint(worldId, &def)
 
@@ -283,8 +283,8 @@ func ExampleJointId_SetCollideConnected() {
 	defer b2.DestroyWorld(worldId)
 
 	def := b2.DefaultDistanceJointDef()
-	def.BodyIdA = groundId
-	def.BodyIdB = boxId
+	def.Base.BodyIdA = groundId
+	def.Base.BodyIdB = boxId
 	def.Length = b2.QFromInt(2)
 	jointId := b2.CreateDistanceJoint(worldId, &def)
 
@@ -301,8 +301,8 @@ func ExampleCreateFilterJoint() {
 	// The box falls through the ground; the filter joint disables the
 	// collision between the two bodies.
 	def := b2.DefaultFilterJointDef()
-	def.BodyIdA = groundId
-	def.BodyIdB = boxId
+	def.Base.BodyIdA = groundId
+	def.Base.BodyIdB = boxId
 	jointId := b2.CreateFilterJoint(worldId, &def)
 
 	fmt.Println(jointId.IsNull())
@@ -313,29 +313,16 @@ func ExampleCreateMotorJoint() {
 	worldId, groundId, boxId := exampleWorld()
 	defer b2.DestroyWorld(worldId)
 
-	// The motor drives the box toward an offset of (1, 2) from the ground.
+	// A linear spring pulls the box toward the point (1, 2) of the
+	// ground; the motor joint also replaces the removed mouse joint.
 	def := b2.DefaultMotorJointDef()
-	def.BodyIdA = groundId
-	def.BodyIdB = boxId
-	def.LinearOffset = b2.Vec2{X: b2.QOne(), Y: b2.QFromInt(2)}
-	def.MaxForce = b2.QFromInt(100)
+	def.Base.BodyIdA = groundId
+	def.Base.BodyIdB = boxId
+	def.Base.LocalFrameA.P = b2.Vec2{X: b2.QOne(), Y: b2.QFromInt(2)}
+	def.LinearHertz = b2.QFromInt(5)
+	def.LinearDampingRatio = b2.QOne()
+	def.MaxSpringForce = b2.QFromInt(100)
 	jointId := b2.CreateMotorJoint(worldId, &def)
-
-	fmt.Println(jointId.IsNull())
-	// Output: false
-}
-
-func ExampleCreateMouseJoint() {
-	worldId, groundId, boxId := exampleWorld()
-	defer b2.DestroyWorld(worldId)
-
-	// The target is a world point; the joint pulls the box toward it.
-	def := b2.DefaultMouseJointDef()
-	def.BodyIdA = groundId
-	def.BodyIdB = boxId
-	def.Target = b2.Vec2{X: b2.QOne(), Y: b2.QFromInt(2)}
-	def.MaxForce = b2.QFromInt(500)
-	jointId := b2.CreateMouseJoint(worldId, &def)
 
 	fmt.Println(jointId.IsNull())
 	// Output: false
@@ -348,9 +335,10 @@ func ExampleCreatePrismaticJoint() {
 	// The box slides along the vertical axis of the ground, between
 	// zero and three units.
 	def := b2.DefaultPrismaticJointDef()
-	def.BodyIdA = groundId
-	def.BodyIdB = boxId
-	def.LocalAxisA = b2.Vec2{Y: b2.QOne()}
+	def.Base.BodyIdA = groundId
+	def.Base.BodyIdB = boxId
+	def.Base.LocalFrameA.Q = b2.MakeRot(b2.QMustParse("0.25"))
+	def.Base.LocalFrameB.Q = def.Base.LocalFrameA.Q
 	def.EnableLimit = true
 	def.LowerTranslation = b2.QZero()
 	def.UpperTranslation = b2.QFromInt(3)
@@ -367,9 +355,9 @@ func ExampleCreateRevoluteJoint() {
 	// A pendulum: the pivot is the ground origin, two units below the
 	// box center. The angles are in turns; a quarter turn is 0.25.
 	def := b2.DefaultRevoluteJointDef()
-	def.BodyIdA = groundId
-	def.BodyIdB = boxId
-	def.LocalAnchorB = b2.Vec2{Y: b2.QFromInt(-2)}
+	def.Base.BodyIdA = groundId
+	def.Base.BodyIdB = boxId
+	def.Base.LocalFrameB.P = b2.Vec2{Y: b2.QFromInt(-2)}
 	def.EnableLimit = true
 	def.LowerAngle = b2.QMustParse("-0.25")
 	def.UpperAngle = b2.QMustParse("0.25")
@@ -385,9 +373,9 @@ func ExampleCreateWeldJoint() {
 
 	// A weld with a soft angular spring holds the box in place.
 	def := b2.DefaultWeldJointDef()
-	def.BodyIdA = groundId
-	def.BodyIdB = boxId
-	def.LocalAnchorB = b2.Vec2{Y: b2.QFromInt(-2)}
+	def.Base.BodyIdA = groundId
+	def.Base.BodyIdB = boxId
+	def.Base.LocalFrameB.P = b2.Vec2{Y: b2.QFromInt(-2)}
 	def.AngularHertz = b2.QFromInt(2)
 	def.AngularDampingRatio = b2.QHalf()
 	jointId := b2.CreateWeldJoint(worldId, &def)
@@ -402,9 +390,11 @@ func ExampleCreateWheelJoint() {
 
 	// A suspension: the box rides the vertical axis on a spring and its
 	// motor spins it at one turn per second.
+	// The axis is the x-axis of frame A, turned a quarter turn up.
 	def := b2.DefaultWheelJointDef()
-	def.BodyIdA = groundId
-	def.BodyIdB = boxId
+	def.Base.BodyIdA = groundId
+	def.Base.BodyIdB = boxId
+	def.Base.LocalFrameA.Q = b2.MakeRot(b2.QMustParse("0.25"))
 	def.EnableMotor = true
 	def.MotorSpeed = b2.QOne()
 	def.MaxMotorTorque = b2.QFromInt(10)

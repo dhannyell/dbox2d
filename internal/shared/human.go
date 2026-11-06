@@ -145,10 +145,10 @@ func CreateHuman(worldId WorldId, position Vec2, scale, frictionTorque, hertz, d
 
 		pivot := Vec2{Y: s}.Add(position)
 		jointDef := DefaultRevoluteJointDef()
-		jointDef.BodyIdA = h.bones[bone.parentIndex].bodyId
-		jointDef.BodyIdB = bone.bodyId
-		jointDef.LocalAnchorA = jointDef.BodyIdA.GetLocalPoint(pivot)
-		jointDef.LocalAnchorB = jointDef.BodyIdB.GetLocalPoint(pivot)
+		jointDef.Base.BodyIdA = h.bones[bone.parentIndex].bodyId
+		jointDef.Base.BodyIdB = bone.bodyId
+		jointDef.Base.LocalFrameA.P = jointDef.Base.BodyIdA.GetLocalPoint(pivot)
+		jointDef.Base.LocalFrameB.P = jointDef.Base.BodyIdB.GetLocalPoint(pivot)
 		jointDef.EnableLimit = enableLimit
 		// Joint angles use turns; the reference values are multiples of pi.
 		jointDef.LowerAngle = QFromRatio(-1, 8)
@@ -158,7 +158,7 @@ func CreateHuman(worldId WorldId, position Vec2, scale, frictionTorque, hertz, d
 		jointDef.EnableSpring = hertz.Greater(QZero())
 		jointDef.Hertz = hertz
 		jointDef.DampingRatio = dampingRatio
-		jointDef.DrawSize = drawSize
+		jointDef.Base.DrawScale = drawSize
 
 		bone.jointId = CreateRevoluteJoint(worldId, &jointDef)
 	}
@@ -187,10 +187,10 @@ func CreateHuman(worldId WorldId, position Vec2, scale, frictionTorque, hertz, d
 
 		pivot := Vec2{Y: lit1p4.Mul(s)}.Add(position)
 		jointDef := DefaultRevoluteJointDef()
-		jointDef.BodyIdA = h.bones[bone.parentIndex].bodyId
-		jointDef.BodyIdB = bone.bodyId
-		jointDef.LocalAnchorA = jointDef.BodyIdA.GetLocalPoint(pivot)
-		jointDef.LocalAnchorB = jointDef.BodyIdB.GetLocalPoint(pivot)
+		jointDef.Base.BodyIdA = h.bones[bone.parentIndex].bodyId
+		jointDef.Base.BodyIdB = bone.bodyId
+		jointDef.Base.LocalFrameA.P = jointDef.Base.BodyIdA.GetLocalPoint(pivot)
+		jointDef.Base.LocalFrameB.P = jointDef.Base.BodyIdB.GetLocalPoint(pivot)
 		jointDef.EnableLimit = enableLimit
 		jointDef.LowerAngle = QFromRatio(-3, 20)
 		jointDef.UpperAngle = QFromRatio(1, 20)
@@ -199,7 +199,7 @@ func CreateHuman(worldId WorldId, position Vec2, scale, frictionTorque, hertz, d
 		jointDef.EnableSpring = hertz.Greater(QZero())
 		jointDef.Hertz = hertz
 		jointDef.DampingRatio = dampingRatio
-		jointDef.DrawSize = drawSize
+		jointDef.Base.DrawScale = drawSize
 
 		bone.jointId = CreateRevoluteJoint(worldId, &jointDef)
 	}
@@ -228,10 +228,10 @@ func CreateHuman(worldId WorldId, position Vec2, scale, frictionTorque, hertz, d
 
 		pivot := Vec2{Y: lit0p9.Mul(s)}.Add(position)
 		jointDef := DefaultRevoluteJointDef()
-		jointDef.BodyIdA = h.bones[bone.parentIndex].bodyId
-		jointDef.BodyIdB = bone.bodyId
-		jointDef.LocalAnchorA = jointDef.BodyIdA.GetLocalPoint(pivot)
-		jointDef.LocalAnchorB = jointDef.BodyIdB.GetLocalPoint(pivot)
+		jointDef.Base.BodyIdA = h.bones[bone.parentIndex].bodyId
+		jointDef.Base.BodyIdB = bone.bodyId
+		jointDef.Base.LocalFrameA.P = jointDef.Base.BodyIdA.GetLocalPoint(pivot)
+		jointDef.Base.LocalFrameB.P = jointDef.Base.BodyIdB.GetLocalPoint(pivot)
 		jointDef.EnableLimit = enableLimit
 		jointDef.LowerAngle = QFromRatio(-1, 40)
 		jointDef.UpperAngle = QFromRatio(1, 5)
@@ -240,7 +240,7 @@ func CreateHuman(worldId WorldId, position Vec2, scale, frictionTorque, hertz, d
 		jointDef.EnableSpring = hertz.Greater(QZero())
 		jointDef.Hertz = hertz
 		jointDef.DampingRatio = dampingRatio
-		jointDef.DrawSize = drawSize
+		jointDef.Base.DrawScale = drawSize
 
 		bone.jointId = CreateRevoluteJoint(worldId, &jointDef)
 	}
@@ -279,10 +279,10 @@ func CreateHuman(worldId WorldId, position Vec2, scale, frictionTorque, hertz, d
 
 		pivot := Vec2{Y: lit0p625.Mul(s)}.Add(position)
 		jointDef := DefaultRevoluteJointDef()
-		jointDef.BodyIdA = h.bones[bone.parentIndex].bodyId
-		jointDef.BodyIdB = bone.bodyId
-		jointDef.LocalAnchorA = jointDef.BodyIdA.GetLocalPoint(pivot)
-		jointDef.LocalAnchorB = jointDef.BodyIdB.GetLocalPoint(pivot)
+		jointDef.Base.BodyIdA = h.bones[bone.parentIndex].bodyId
+		jointDef.Base.BodyIdB = bone.bodyId
+		jointDef.Base.LocalFrameA.P = jointDef.Base.BodyIdA.GetLocalPoint(pivot)
+		jointDef.Base.LocalFrameB.P = jointDef.Base.BodyIdB.GetLocalPoint(pivot)
 		jointDef.EnableLimit = enableLimit
 		jointDef.LowerAngle = QFromRatio(-1, 4)
 		jointDef.UpperAngle = QFromRatio(-1, 100)
@@ -291,7 +291,7 @@ func CreateHuman(worldId WorldId, position Vec2, scale, frictionTorque, hertz, d
 		jointDef.EnableSpring = hertz.Greater(QZero())
 		jointDef.Hertz = hertz
 		jointDef.DampingRatio = dampingRatio
-		jointDef.DrawSize = drawSize
+		jointDef.Base.DrawScale = drawSize
 
 		bone.jointId = CreateRevoluteJoint(worldId, &jointDef)
 	}
@@ -320,10 +320,10 @@ func CreateHuman(worldId WorldId, position Vec2, scale, frictionTorque, hertz, d
 
 		pivot := Vec2{Y: lit0p9.Mul(s)}.Add(position)
 		jointDef := DefaultRevoluteJointDef()
-		jointDef.BodyIdA = h.bones[bone.parentIndex].bodyId
-		jointDef.BodyIdB = bone.bodyId
-		jointDef.LocalAnchorA = jointDef.BodyIdA.GetLocalPoint(pivot)
-		jointDef.LocalAnchorB = jointDef.BodyIdB.GetLocalPoint(pivot)
+		jointDef.Base.BodyIdA = h.bones[bone.parentIndex].bodyId
+		jointDef.Base.BodyIdB = bone.bodyId
+		jointDef.Base.LocalFrameA.P = jointDef.Base.BodyIdA.GetLocalPoint(pivot)
+		jointDef.Base.LocalFrameB.P = jointDef.Base.BodyIdB.GetLocalPoint(pivot)
 		jointDef.EnableLimit = enableLimit
 		jointDef.LowerAngle = QFromRatio(-1, 40)
 		jointDef.UpperAngle = QFromRatio(1, 5)
@@ -332,7 +332,7 @@ func CreateHuman(worldId WorldId, position Vec2, scale, frictionTorque, hertz, d
 		jointDef.EnableSpring = hertz.Greater(QZero())
 		jointDef.Hertz = hertz
 		jointDef.DampingRatio = dampingRatio
-		jointDef.DrawSize = drawSize
+		jointDef.Base.DrawScale = drawSize
 
 		bone.jointId = CreateRevoluteJoint(worldId, &jointDef)
 	}
@@ -362,10 +362,10 @@ func CreateHuman(worldId WorldId, position Vec2, scale, frictionTorque, hertz, d
 
 		pivot := Vec2{Y: lit0p625.Mul(s)}.Add(position)
 		jointDef := DefaultRevoluteJointDef()
-		jointDef.BodyIdA = h.bones[bone.parentIndex].bodyId
-		jointDef.BodyIdB = bone.bodyId
-		jointDef.LocalAnchorA = jointDef.BodyIdA.GetLocalPoint(pivot)
-		jointDef.LocalAnchorB = jointDef.BodyIdB.GetLocalPoint(pivot)
+		jointDef.Base.BodyIdA = h.bones[bone.parentIndex].bodyId
+		jointDef.Base.BodyIdB = bone.bodyId
+		jointDef.Base.LocalFrameA.P = jointDef.Base.BodyIdA.GetLocalPoint(pivot)
+		jointDef.Base.LocalFrameB.P = jointDef.Base.BodyIdB.GetLocalPoint(pivot)
 		jointDef.EnableLimit = enableLimit
 		jointDef.LowerAngle = QFromRatio(-1, 4)
 		jointDef.UpperAngle = QFromRatio(-1, 100)
@@ -374,7 +374,7 @@ func CreateHuman(worldId WorldId, position Vec2, scale, frictionTorque, hertz, d
 		jointDef.EnableSpring = hertz.Greater(QZero())
 		jointDef.Hertz = hertz
 		jointDef.DampingRatio = dampingRatio
-		jointDef.DrawSize = drawSize
+		jointDef.Base.DrawScale = drawSize
 
 		bone.jointId = CreateRevoluteJoint(worldId, &jointDef)
 	}
@@ -403,10 +403,10 @@ func CreateHuman(worldId WorldId, position Vec2, scale, frictionTorque, hertz, d
 
 		pivot := Vec2{Y: lit1p35.Mul(s)}.Add(position)
 		jointDef := DefaultRevoluteJointDef()
-		jointDef.BodyIdA = h.bones[bone.parentIndex].bodyId
-		jointDef.BodyIdB = bone.bodyId
-		jointDef.LocalAnchorA = jointDef.BodyIdA.GetLocalPoint(pivot)
-		jointDef.LocalAnchorB = jointDef.BodyIdB.GetLocalPoint(pivot)
+		jointDef.Base.BodyIdA = h.bones[bone.parentIndex].bodyId
+		jointDef.Base.BodyIdB = bone.bodyId
+		jointDef.Base.LocalFrameA.P = jointDef.Base.BodyIdA.GetLocalPoint(pivot)
+		jointDef.Base.LocalFrameB.P = jointDef.Base.BodyIdB.GetLocalPoint(pivot)
 		jointDef.EnableLimit = enableLimit
 		jointDef.LowerAngle = QFromRatio(-1, 20)
 		jointDef.UpperAngle = QFromRatio(2, 5)
@@ -415,7 +415,7 @@ func CreateHuman(worldId WorldId, position Vec2, scale, frictionTorque, hertz, d
 		jointDef.EnableSpring = hertz.Greater(QZero())
 		jointDef.Hertz = hertz
 		jointDef.DampingRatio = dampingRatio
-		jointDef.DrawSize = drawSize
+		jointDef.Base.DrawScale = drawSize
 
 		bone.jointId = CreateRevoluteJoint(worldId, &jointDef)
 	}
@@ -444,11 +444,11 @@ func CreateHuman(worldId WorldId, position Vec2, scale, frictionTorque, hertz, d
 
 		pivot := Vec2{Y: lit1p1.Mul(s)}.Add(position)
 		jointDef := DefaultRevoluteJointDef()
-		jointDef.BodyIdA = h.bones[bone.parentIndex].bodyId
-		jointDef.BodyIdB = bone.bodyId
-		jointDef.LocalAnchorA = jointDef.BodyIdA.GetLocalPoint(pivot)
-		jointDef.LocalAnchorB = jointDef.BodyIdB.GetLocalPoint(pivot)
-		jointDef.ReferenceAngle = QFromRatio(1, 8)
+		jointDef.Base.BodyIdA = h.bones[bone.parentIndex].bodyId
+		jointDef.Base.BodyIdB = bone.bodyId
+		jointDef.Base.LocalFrameA.P = jointDef.Base.BodyIdA.GetLocalPoint(pivot)
+		jointDef.Base.LocalFrameB.P = jointDef.Base.BodyIdB.GetLocalPoint(pivot)
+		jointDef.Base.LocalFrameA.Q = MakeRot(QFromRatio(1, 8))
 		jointDef.EnableLimit = enableLimit
 		jointDef.LowerAngle = QFromRatio(-1, 10)
 		jointDef.UpperAngle = QFromRatio(3, 20)
@@ -457,7 +457,7 @@ func CreateHuman(worldId WorldId, position Vec2, scale, frictionTorque, hertz, d
 		jointDef.EnableSpring = hertz.Greater(QZero())
 		jointDef.Hertz = hertz
 		jointDef.DampingRatio = dampingRatio
-		jointDef.DrawSize = drawSize
+		jointDef.Base.DrawScale = drawSize
 
 		bone.jointId = CreateRevoluteJoint(worldId, &jointDef)
 	}
@@ -486,10 +486,10 @@ func CreateHuman(worldId WorldId, position Vec2, scale, frictionTorque, hertz, d
 
 		pivot := Vec2{Y: lit1p35.Mul(s)}.Add(position)
 		jointDef := DefaultRevoluteJointDef()
-		jointDef.BodyIdA = h.bones[bone.parentIndex].bodyId
-		jointDef.BodyIdB = bone.bodyId
-		jointDef.LocalAnchorA = jointDef.BodyIdA.GetLocalPoint(pivot)
-		jointDef.LocalAnchorB = jointDef.BodyIdB.GetLocalPoint(pivot)
+		jointDef.Base.BodyIdA = h.bones[bone.parentIndex].bodyId
+		jointDef.Base.BodyIdB = bone.bodyId
+		jointDef.Base.LocalFrameA.P = jointDef.Base.BodyIdA.GetLocalPoint(pivot)
+		jointDef.Base.LocalFrameB.P = jointDef.Base.BodyIdB.GetLocalPoint(pivot)
 		jointDef.EnableLimit = enableLimit
 		jointDef.LowerAngle = QFromRatio(-1, 20)
 		jointDef.UpperAngle = QFromRatio(2, 5)
@@ -498,7 +498,7 @@ func CreateHuman(worldId WorldId, position Vec2, scale, frictionTorque, hertz, d
 		jointDef.EnableSpring = hertz.Greater(QZero())
 		jointDef.Hertz = hertz
 		jointDef.DampingRatio = dampingRatio
-		jointDef.DrawSize = drawSize
+		jointDef.Base.DrawScale = drawSize
 
 		bone.jointId = CreateRevoluteJoint(worldId, &jointDef)
 	}
@@ -527,11 +527,11 @@ func CreateHuman(worldId WorldId, position Vec2, scale, frictionTorque, hertz, d
 
 		pivot := Vec2{Y: lit1p1.Mul(s)}.Add(position)
 		jointDef := DefaultRevoluteJointDef()
-		jointDef.BodyIdA = h.bones[bone.parentIndex].bodyId
-		jointDef.BodyIdB = bone.bodyId
-		jointDef.LocalAnchorA = jointDef.BodyIdA.GetLocalPoint(pivot)
-		jointDef.LocalAnchorB = jointDef.BodyIdB.GetLocalPoint(pivot)
-		jointDef.ReferenceAngle = QFromRatio(1, 8)
+		jointDef.Base.BodyIdA = h.bones[bone.parentIndex].bodyId
+		jointDef.Base.BodyIdB = bone.bodyId
+		jointDef.Base.LocalFrameA.P = jointDef.Base.BodyIdA.GetLocalPoint(pivot)
+		jointDef.Base.LocalFrameB.P = jointDef.Base.BodyIdB.GetLocalPoint(pivot)
+		jointDef.Base.LocalFrameA.Q = MakeRot(QFromRatio(1, 8))
 		jointDef.EnableLimit = enableLimit
 		jointDef.LowerAngle = QFromRatio(-1, 10)
 		jointDef.UpperAngle = QFromRatio(3, 20)
@@ -540,7 +540,7 @@ func CreateHuman(worldId WorldId, position Vec2, scale, frictionTorque, hertz, d
 		jointDef.EnableSpring = hertz.Greater(QZero())
 		jointDef.Hertz = hertz
 		jointDef.DampingRatio = dampingRatio
-		jointDef.DrawSize = drawSize
+		jointDef.Base.DrawScale = drawSize
 
 		bone.jointId = CreateRevoluteJoint(worldId, &jointDef)
 	}
@@ -653,10 +653,12 @@ func (h *Human) SetScale(scale Q) {
 			transform.P = origin.Add(transform.P.Sub(origin).Mul(ratio))
 			bone.bodyId.SetTransform(transform.P, transform.Q)
 
-			localAnchorA := bone.jointId.GetLocalAnchorA().Mul(ratio)
-			localAnchorB := bone.jointId.GetLocalAnchorB().Mul(ratio)
-			bone.jointId.SetLocalAnchorA(localAnchorA)
-			bone.jointId.SetLocalAnchorB(localAnchorB)
+			localFrameA := bone.jointId.GetLocalFrameA()
+			localFrameB := bone.jointId.GetLocalFrameB()
+			localFrameA.P = localFrameA.P.Mul(ratio)
+			localFrameB.P = localFrameB.P.Mul(ratio)
+			bone.jointId.SetLocalFrameA(localFrameA)
+			bone.jointId.SetLocalFrameB(localFrameB)
 
 			if bone.jointId.GetType() == RevoluteJoint {
 				bone.jointId.SetMaxMotorTorque(bone.frictionScale.Mul(frictionTorque))

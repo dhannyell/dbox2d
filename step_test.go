@@ -263,9 +263,9 @@ func TestStepAllocatesNothing(t *testing.T) {
 		boxIds[i] = addDynamicBox(t, worldId, v2(10+i*3, 0))
 	}
 	jointDef := DefaultRevoluteJointDef()
-	jointDef.BodyIdA, jointDef.BodyIdB = boxIds[0], boxIds[1]
-	jointDef.LocalAnchorA = Vec2{X: QFromInt(2)}
-	jointDef.LocalAnchorB = Vec2{X: QFromInt(-1)}
+	jointDef.Base.BodyIdA, jointDef.Base.BodyIdB = boxIds[0], boxIds[1]
+	jointDef.Base.LocalFrameA.P = Vec2{X: QFromInt(2)}
+	jointDef.Base.LocalFrameB.P = Vec2{X: QFromInt(-1)}
 	CreateRevoluteJoint(worldId, &jointDef)
 	w := getWorldFromId(worldId)
 
@@ -1166,9 +1166,9 @@ func TestStepSwingsAPendulum(t *testing.T) {
 	CreatePolygonShape(bobId, &shapeDef, &bob)
 
 	def := DefaultRevoluteJointDef()
-	def.BodyIdA = pivotId
-	def.BodyIdB = bobId
-	def.LocalAnchorB = Vec2{X: QOne().Neg()}
+	def.Base.BodyIdA = pivotId
+	def.Base.BodyIdB = bobId
+	def.Base.LocalFrameB.P = Vec2{X: QOne().Neg()}
 	CreateRevoluteJoint(worldId, &def)
 
 	resetSaturationCount()
@@ -1208,8 +1208,8 @@ func TestStepPullsTheRopeTight(t *testing.T) {
 	idA := addDynamicCircle(t, worldId, v2(0, 0))
 	idB := addDynamicCircle(t, worldId, v2(2, 0))
 	def := DefaultDistanceJointDef()
-	def.BodyIdA = idA
-	def.BodyIdB = idB
+	def.Base.BodyIdA = idA
+	def.Base.BodyIdB = idB
 	def.Length = QOne()
 	CreateDistanceJoint(worldId, &def)
 
@@ -1245,8 +1245,8 @@ func TestStepSlidesToTheStop(t *testing.T) {
 	boxId := addDynamicCircle(t, worldId, v2(0, 0))
 
 	def := DefaultPrismaticJointDef()
-	def.BodyIdA = groundId
-	def.BodyIdB = boxId
+	def.Base.BodyIdA = groundId
+	def.Base.BodyIdB = boxId
 	def.EnableLimit = true
 	def.LowerTranslation = QZero()
 	def.UpperTranslation = QOne()
@@ -1285,8 +1285,8 @@ func TestStepSettlesTheSuspension(t *testing.T) {
 	wheelId := addDynamicCircle(t, worldId, Vec2{Y: QHalf()})
 
 	def := DefaultWheelJointDef()
-	def.BodyIdA = groundId
-	def.BodyIdB = wheelId
+	def.Base.BodyIdA = groundId
+	def.Base.BodyIdB = wheelId
 	def.Hertz = QFromInt(2)
 	CreateWheelJoint(worldId, &def)
 
@@ -1329,10 +1329,10 @@ func TestStepWeldsTwoBoxes(t *testing.T) {
 	idB := makeBox(v2(1, 0))
 
 	def := DefaultWeldJointDef()
-	def.BodyIdA = idA
-	def.BodyIdB = idB
-	def.LocalAnchorA = Vec2{X: QHalf()}
-	def.LocalAnchorB = Vec2{X: QHalf().Neg()}
+	def.Base.BodyIdA = idA
+	def.Base.BodyIdB = idB
+	def.Base.LocalFrameA.P = Vec2{X: QHalf()}
+	def.Base.LocalFrameB.P = Vec2{X: QHalf().Neg()}
 	CreateWeldJoint(worldId, &def)
 
 	bodyA := getBodyFullId(w, idA)
@@ -1360,10 +1360,10 @@ func TestStepWeldsTwoBoxes(t *testing.T) {
 	validateWorld(w)
 }
 
-// TestStepDrivesToTheOffset pins the motor joint inside Step: a circle on
-// a motor joint to the ground with the linear offset (1, 0) and the
-// default correction factor converges to x = 1 within two linear slops in
-// 120 steps, and no operation saturates.
+// TestStepDrivesToTheOffset pins the motor joint spring inside Step: a
+// circle on a motor joint to the ground with the frame offset (1, 0) and a
+// critically damped five hertz linear spring converges to x = 1 within two
+// linear slops in 120 steps, and no operation saturates.
 func TestStepDrivesToTheOffset(t *testing.T) {
 	worldDef := DefaultWorldDef()
 	worldDef.Gravity = Vec2Zero()
@@ -1376,11 +1376,12 @@ func TestStepDrivesToTheOffset(t *testing.T) {
 	circleId := addDynamicCircle(t, worldId, v2(0, 0))
 
 	def := DefaultMotorJointDef()
-	def.BodyIdA = groundId
-	def.BodyIdB = circleId
-	def.LinearOffset = Vec2{X: QOne()}
-	def.MaxForce = QFromInt(1000)
-	def.MaxTorque = QFromInt(1000)
+	def.Base.BodyIdA = groundId
+	def.Base.BodyIdB = circleId
+	def.Base.LocalFrameA.P = Vec2{X: QOne()}
+	def.LinearHertz = QFromInt(5)
+	def.LinearDampingRatio = QOne()
+	def.MaxSpringForce = QFromInt(1000)
 	CreateMotorJoint(worldId, &def)
 
 	resetSaturationCount()
@@ -1400,9 +1401,10 @@ func TestStepDrivesToTheOffset(t *testing.T) {
 	validateWorld(w)
 }
 
-// TestStepDragsToTheTarget pins the mouse joint inside Step: a five hertz
-// mouse joint grabs a circle at its center, the target moves to (1, 0),
-// and the circle gets within 0.05 of it in 60 steps without saturation.
+// TestStepDragsToTheTarget pins the sample drag inside Step: a kinematic
+// mouse body moves to (1, 0) through SetTargetTransform and pulls a circle
+// on a 7.5 hertz motor joint spring, as in the upstream samples. The
+// circle gets within 0.05 of the target in 60 steps without saturation.
 func TestStepDragsToTheTarget(t *testing.T) {
 	worldDef := DefaultWorldDef()
 	worldDef.Gravity = Vec2Zero()
@@ -1410,23 +1412,26 @@ func TestStepDragsToTheTarget(t *testing.T) {
 	t.Cleanup(func() { DestroyWorld(worldId) })
 	w := getWorldFromId(worldId)
 
-	groundDef := DefaultBodyDef()
-	groundId := CreateBody(worldId, &groundDef)
+	mouseDef := DefaultBodyDef()
+	mouseDef.Type = KinematicBody
+	mouseDef.EnableSleep = false
+	mouseId := CreateBody(worldId, &mouseDef)
 	circleId := addDynamicCircle(t, worldId, v2(0, 0))
 
-	def := DefaultMouseJointDef()
-	def.BodyIdA = groundId
-	def.BodyIdB = circleId
-	def.Hertz = QFromInt(5)
-	def.MaxForce = QFromInt(1000)
-	jointId := CreateMouseJoint(worldId, &def)
+	def := DefaultMotorJointDef()
+	def.Base.BodyIdA = mouseId
+	def.Base.BodyIdB = circleId
+	def.LinearHertz = QMustParse("7.5")
+	def.LinearDampingRatio = QOne()
+	def.MaxSpringForce = QFromInt(1000)
+	CreateMotorJoint(worldId, &def)
 	target := Vec2{X: QOne()}
-	getJointSim(w, getJointFullId(w, jointId)).mouse().targetA = target
 
 	resetSaturationCount()
 	body := getBodyFullId(w, circleId)
 	dt := stepDt()
 	for range 60 {
+		mouseId.SetTargetTransform(Transform{P: target, Q: RotIdentity()}, dt, true)
 		worldId.Step(dt, 4)
 	}
 	center := getBodySim(w, body).center

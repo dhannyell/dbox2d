@@ -80,8 +80,8 @@ func TestWorldGetCounters(t *testing.T) {
 	addDynamicBox(t, worldId, v2(2, 0))
 
 	jointDef := DefaultDistanceJointDef()
-	jointDef.BodyIdA = bodyA
-	jointDef.BodyIdB = bodyB
+	jointDef.Base.BodyIdA = bodyA
+	jointDef.Base.BodyIdB = bodyB
 	CreateDistanceJoint(worldId, &jointDef)
 	worldId.Step(stepDt(), 4)
 
@@ -128,8 +128,8 @@ func TestDumpMemoryStatsListsEverySection(t *testing.T) {
 	addDynamicBox(t, worldId, v2(2, 0))
 
 	jointDef := DefaultDistanceJointDef()
-	jointDef.BodyIdA = bodyA
-	jointDef.BodyIdB = bodyB
+	jointDef.Base.BodyIdA = bodyA
+	jointDef.Base.BodyIdB = bodyB
 	CreateDistanceJoint(worldId, &jointDef)
 	for range 4 {
 		worldId.Step(stepDt(), 4)

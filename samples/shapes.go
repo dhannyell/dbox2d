@@ -1369,13 +1369,13 @@ func NewExplosion(ctx *SampleContext) Sample {
 	s.referenceAngle = b2.QZero()
 
 	weldDef := b2.DefaultWeldJointDef()
-	weldDef.ReferenceAngle = s.referenceAngle
+	weldDef.Base.LocalFrameA.Q = b2.MakeRot(s.referenceAngle)
 	weldDef.AngularHertz = b2.QHalf()
 	weldDef.AngularDampingRatio = b2.F(0.7)
 	weldDef.LinearHertz = b2.QHalf()
 	weldDef.LinearDampingRatio = b2.F(0.7)
-	weldDef.BodyIdA = groundId
-	weldDef.LocalAnchorB = b2.Vec2{}
+	weldDef.Base.BodyIdA = groundId
+	weldDef.Base.LocalFrameB.P = b2.Vec2{}
 
 	r := b2.F(8)
 	for angle := 0; angle < 360; angle += 30 {
@@ -1386,8 +1386,8 @@ func NewExplosion(ctx *SampleContext) Sample {
 		box := b2.MakeBox(b2.QOne(), b2.F(0.1))
 		b2.CreatePolygonShape(bodyId, &shapeDef, &box)
 
-		weldDef.LocalAnchorA = bodyDef.Position
-		weldDef.BodyIdB = bodyId
+		weldDef.Base.LocalFrameA.P = bodyDef.Position
+		weldDef.Base.BodyIdB = bodyId
 		jointId := b2.CreateWeldJoint(s.WorldId, &weldDef)
 		s.jointIds = append(s.jointIds, jointId)
 	}
@@ -1429,7 +1429,9 @@ func (s *Explosion) Step() {
 		s.referenceAngle = b2.UnwindAngle(s.referenceAngle)
 
 		for _, jointId := range s.jointIds {
-			jointId.SetReferenceAngle(s.referenceAngle)
+			frameA := jointId.GetLocalFrameA()
+			frameA.Q = b2.MakeRot(s.referenceAngle)
+			jointId.SetLocalFrameA(frameA)
 		}
 	}
 

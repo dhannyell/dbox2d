@@ -102,10 +102,10 @@ func NewSensorFunnel(ctx *SampleContext) Sample {
 			b2.CreatePolygonShape(bodyId, &shapeDef, &box)
 
 			revoluteDef := b2.DefaultRevoluteJointDef()
-			revoluteDef.BodyIdA = groundId
-			revoluteDef.BodyIdB = bodyId
-			revoluteDef.LocalAnchorA = bodyDef.Position
-			revoluteDef.LocalAnchorB = b2.Vec2{}
+			revoluteDef.Base.BodyIdA = groundId
+			revoluteDef.Base.BodyIdB = bodyId
+			revoluteDef.Base.LocalFrameA.P = bodyDef.Position
+			revoluteDef.Base.LocalFrameB.P = b2.Vec2{}
 			revoluteDef.MaxMotorTorque = b2.F(200)
 			revoluteDef.MotorSpeed = radiansQToTurns(b2.F(2).Mul(sign))
 			revoluteDef.EnableMotor = true

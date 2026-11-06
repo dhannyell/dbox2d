@@ -115,6 +115,7 @@ type world struct {
 	contactBeginEvents []ContactBeginTouchEvent
 	contactEndEvents   [2][]ContactEndTouchEvent
 	contactHitEvents   []ContactHitEvent
+	jointEvents        []JointEvent
 	endEventArrayIndex int
 	sensorBeginEvents  []SensorBeginTouchEvent
 	sensorEndEvents    [2][]SensorEndTouchEvent
@@ -296,6 +297,7 @@ func CreateWorld(def *WorldDef) WorldId {
 	for i := range w.taskContexts {
 		w.taskContexts[i].contactStateBitSet = createBitSet(1024)
 		w.taskContexts[i].awakeIslandBitSet = createBitSet(256)
+		w.taskContexts[i].jointStateBitSet = createBitSet(1024)
 		w.taskContexts[i].splitIslandId = nullIndex
 	}
 	w.sensorTaskContexts = make([]sensorTaskContext, w.workerCount)
@@ -305,6 +307,7 @@ func CreateWorld(def *WorldDef) WorldId {
 	w.contactEndEvents[0] = make([]ContactEndTouchEvent, 0, 16)
 	w.contactEndEvents[1] = make([]ContactEndTouchEvent, 0, 16)
 	w.contactHitEvents = make([]ContactHitEvent, 0, 16)
+	w.jointEvents = make([]JointEvent, 0, 4)
 	w.sensorBeginEvents = make([]SensorBeginTouchEvent, 0, 16)
 	w.sensorEndEvents[0] = make([]SensorEndTouchEvent, 0, 16)
 	w.sensorEndEvents[1] = make([]SensorEndTouchEvent, 0, 16)
@@ -1034,6 +1037,10 @@ type taskContext struct {
 	// awakeIslandBitSet marks the awake islands by local index.
 	awakeIslandBitSet bitSet
 
+	// jointStateBitSet marks the joints whose reaction crossed a threshold,
+	// by joint id.
+	jointStateBitSet bitSet
+
 	// bulletBodies is the slice of the step's bullet buffer that covers
 	// this worker's body range; the ranges never overlap.
 	bulletBodies    []int
@@ -1081,6 +1088,17 @@ func (worldId WorldId) GetContactEvents() ContactEvents {
 		EndEvents:   w.contactEndEvents[endEventArrayIndex],
 		HitEvents:   w.contactHitEvents,
 	}
+}
+
+// GetJointEvents returns the joint events of the last step: the awake
+// joints whose force or torque crossed their threshold. It corresponds to
+// b2World_GetJointEvents in src/physics_world.c.
+func (worldId WorldId) GetJointEvents() []JointEvent {
+	w := getWorldFromId(worldId)
+	if w.locked {
+		panic("dbox2d: the world is locked")
+	}
+	return w.jointEvents
 }
 
 // GetSensorEvents returns the sensor events of the last step. It
@@ -1854,6 +1872,12 @@ var graphColors = [graphColorCount]HexColor{
 // drawNumber keeps the reference's decimal labels without converting Q to float.
 func drawNumber(value Q, places int) string {
 	text := value.String()
+	if strings.ContainsAny(text, "eE") {
+		// Float mode prints small and large values with an exponent; the
+		// rounding below needs plain decimal digits.
+		f, _ := strconv.ParseFloat(text, 64)
+		text = strconv.FormatFloat(f, 'f', -1, 32)
+	}
 	negative := strings.HasPrefix(text, "-")
 	text = strings.TrimPrefix(text, "-")
 	whole, fraction, _ := strings.Cut(text, ".")

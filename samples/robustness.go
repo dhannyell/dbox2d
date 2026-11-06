@@ -430,18 +430,18 @@ func (s *Cart) createScene() {
 	jointDampingRatio := FromFloat64(s.jointDampingRatio)
 
 	jointDef := b2.DefaultRevoluteJointDef()
-	jointDef.BodyIdA = s.chassisId
-	jointDef.BodyIdB = s.wheelId1
-	jointDef.LocalAnchorA = b2.V2(-0.4, -0.15)
-	jointDef.LocalAnchorB = b2.Vec2{}
+	jointDef.Base.BodyIdA = s.chassisId
+	jointDef.Base.BodyIdB = s.wheelId1
+	jointDef.Base.LocalFrameA.P = b2.V2(-0.4, -0.15)
+	jointDef.Base.LocalFrameB.P = b2.Vec2{}
 
 	s.jointId1 = b2.CreateRevoluteJoint(s.WorldId, &jointDef)
 	s.jointId1.SetConstraintTuning(jointHertz, jointDampingRatio)
 
-	jointDef.BodyIdA = s.chassisId
-	jointDef.BodyIdB = s.wheelId2
-	jointDef.LocalAnchorA = b2.V2(0.4, -0.15)
-	jointDef.LocalAnchorB = b2.Vec2{}
+	jointDef.Base.BodyIdA = s.chassisId
+	jointDef.Base.BodyIdB = s.wheelId2
+	jointDef.Base.LocalFrameA.P = b2.V2(0.4, -0.15)
+	jointDef.Base.LocalFrameB.P = b2.Vec2{}
 
 	s.jointId2 = b2.CreateRevoluteJoint(s.WorldId, &jointDef)
 	s.jointId2.SetConstraintTuning(jointHertz, jointDampingRatio)

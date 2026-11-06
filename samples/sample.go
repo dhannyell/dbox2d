@@ -55,8 +55,10 @@ type Sample interface {
 type Base struct {
 	Context      *SampleContext
 	WorldId      b2.WorldId
-	GroundBodyId b2.BodyId
-	MouseJointId b2.JointId
+	MouseBodyId     b2.BodyId
+	MouseJointId    b2.JointId
+	MousePoint      b2.Vec2
+	MouseForceScale b2.Q
 	StepCount    int
 	MaxProfile   b2.Profile
 	TotalProfile b2.Profile
@@ -75,6 +77,8 @@ func NewBase(ctx *SampleContext) Base {
 		Context:       ctx,
 		textLine:      30,
 		textIncrement: 22,
+
+		MouseForceScale: b2.F(100),
 	}
 	b.CreateWorld()
 	return b
@@ -150,7 +154,7 @@ type queryContext struct {
 }
 
 // MouseDown starts dragging the first dynamic body under the point, using a
-// mouse joint anchored to a throwaway ground body.
+// motor joint anchored to a kinematic mouse body that Step moves to the point.
 func (b *Base) MouseDown(p b2.Vec2, button MouseButton, mod Modifier) {
 	if !b.MouseJointId.IsNull() {
 		return
@@ -182,50 +186,52 @@ func (b *Base) MouseDown(p b2.Vec2, button MouseButton, mod Modifier) {
 		return
 	}
 
+	b.MousePoint = p
 	bodyDef := b2.DefaultBodyDef()
-	b.GroundBodyId = b2.CreateBody(b.WorldId, &bodyDef)
+	bodyDef.Type = b2.KinematicBody
+	bodyDef.Position = p
+	bodyDef.EnableSleep = false
+	b.MouseBodyId = b2.CreateBody(b.WorldId, &bodyDef)
 
-	mouseDef := b2.DefaultMouseJointDef()
-	mouseDef.BodyIdA = b.GroundBodyId
-	mouseDef.BodyIdB = qc.bodyId
-	mouseDef.Target = p
-	mouseDef.Hertz = b2.F(10)
-	mouseDef.DampingRatio = b2.QFromRatio(7, 10)
-	gravityLength, _ := b2.GetLengthAndNormalize(b.WorldId.GetGravity())
-	mouseDef.MaxForce = b2.F(1000).Mul(qc.bodyId.GetMass()).Mul(gravityLength)
-	b.MouseJointId = b2.CreateMouseJoint(b.WorldId, &mouseDef)
+	jointDef := b2.DefaultMotorJointDef()
+	jointDef.Base.BodyIdA = b.MouseBodyId
+	jointDef.Base.BodyIdB = qc.bodyId
+	jointDef.Base.LocalFrameB.P = qc.bodyId.GetLocalPoint(p)
+	jointDef.LinearHertz = FromFloat64(7.5)
+	jointDef.LinearDampingRatio = b2.QOne()
 
-	qc.bodyId.SetAwake(true)
-}
-
-// MouseUp releases the mouse joint started by MouseDown.
-func (b *Base) MouseUp(p b2.Vec2, button MouseButton) {
-	if !b.MouseJointId.IsNull() && !b.MouseJointId.IsValid() {
-		// The world or attached body was destroyed.
-		b.MouseJointId = b2.JointId{}
+	massData := qc.bodyId.GetMassData()
+	g := b.WorldId.GetGravity().Len()
+	mg := massData.Mass.Mul(g)
+	jointDef.MaxSpringForce = b.MouseForceScale.Mul(mg)
+	if massData.Mass.Greater(b2.QZero()) {
+		// This acts like angular friction.
+		lever := FromFloat64(math.Sqrt(ToFloat64(massData.RotationalInertia.Div(massData.Mass))))
+		jointDef.MaxVelocityTorque = FromFloat64(0.25).Mul(lever).Mul(mg)
 	}
 
+	b.MouseJointId = b2.CreateMotorJoint(b.WorldId, &jointDef)
+}
+
+// MouseUp releases the drag started by MouseDown.
+func (b *Base) MouseUp(p b2.Vec2, button MouseButton) {
 	if !b.MouseJointId.IsNull() && button == MouseButtonLeft {
 		b2.DestroyJoint(b.MouseJointId)
 		b.MouseJointId = b2.JointId{}
 
-		b2.DestroyBody(b.GroundBodyId)
-		b.GroundBodyId = b2.BodyId{}
+		b2.DestroyBody(b.MouseBodyId)
+		b.MouseBodyId = b2.BodyId{}
 	}
 }
 
-// MouseMove drags the mouse joint target to the new point.
+// MouseMove records the drag target; Step moves the mouse body toward it.
 func (b *Base) MouseMove(p b2.Vec2) {
-	if !b.MouseJointId.IsNull() && !b.MouseJointId.IsValid() {
+	if !b.MouseJointId.IsValid() {
 		// The world or attached body was destroyed.
 		b.MouseJointId = b2.JointId{}
 	}
 
-	if !b.MouseJointId.IsNull() {
-		b.MouseJointId.SetTarget(p)
-		bodyIdB := b.MouseJointId.GetBodyB()
-		bodyIdB.SetAwake(true)
-	}
+	b.MousePoint = p
 }
 
 // Step advances the world by one frame, then draws it and records the
@@ -267,6 +273,19 @@ func (b *Base) Step() {
 	b.WorldId.EnableSleeping(s.EnableSleep)
 	b.WorldId.EnableWarmStarting(s.EnableWarmStarting)
 	b.WorldId.EnableContinuous(s.EnableContinuous)
+
+	if !b.MouseJointId.IsNull() && !b.MouseJointId.IsValid() {
+		// The world or attached body was destroyed.
+		b.MouseJointId = b2.JointId{}
+		if !b.MouseBodyId.IsNull() {
+			b2.DestroyBody(b.MouseBodyId)
+			b.MouseBodyId = b2.BodyId{}
+		}
+	}
+
+	if !b.MouseBodyId.IsNull() && timeStep.Greater(b2.QZero()) {
+		b.MouseBodyId.SetTargetTransform(b2.Transform{P: b.MousePoint, Q: b2.RotIdentity()}, timeStep, true)
+	}
 
 	b.WorldId.Step(timeStep, s.SubStepCount)
 	b.WorldId.Draw(draw)

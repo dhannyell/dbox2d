@@ -54,11 +54,11 @@ var conformanceTolerance = map[string]conformanceToleranceConfig{
 	"compute_hull.txt":                      {ulps: 0, abs: 0},                  // exact after cyclic alignment
 	"make_rot.txt":                          {ulps: 1328, abs: 4e-3},            // ulps: D-004; abs: D-017 (CORDIC vs Bhaskara)
 	"atan2.txt":                             {ulps: 0, abs: 6e-5},               // abs: D-017 (CORDIC vs polynomial)
-	"falling_hinges.txt":                    {abs: 4e-3, absFloat: 1e-6},        // abs: D-017 (rotation from an angle); absFloat and no hash gate until phase 5: v3.2 relative-frame collision moves step 1 by a few ULP against this v3.1.1 trace
+	"falling_hinges.txt":                    {abs: 4e-3, absFloat: 1e-5},        // abs: D-017 (rotation from an angle); absFloat and no hash gate until phase 5: v3.2 relative-frame collision and the v3.2 revolute solve move step 1 against this v3.1.1 trace
 	"joint_grid.txt":                        {hashSteps: 500},                   // no step-1 dump; count and hash only; hash equal through step 500 in float mode
 	"large_pyramid.txt":                     {},                                 // no step-1 dump; count and hash only
 	"many_pyramids.txt":                     {},                                 // no step-1 dump; count and hash only
-	"rain.txt":                              {abs: 4e-5, hashSteps: 171},        // precision; exact at step 1 and hash equal through step 171 in float mode
+	"rain.txt":                              {abs: 1e-2, absFloat: 1e-2},        // until phase 5: the v3.2 revolute solve (spring, motor and limit feed-forward) moves the ragdolls from step 1 against this v3.1.1 trace
 	"smash.txt":                             {hashSteps: 69},                    // no step-1 dump; count and hash only; hash equal through step 69 in float mode
 	"spinner.txt":                           {abs: 1e-2, absFloat: 1e-2},        // v3.1.1 trace: the colored set of the bar contacts differs (D-013, retired)
 	"tumbler.txt":                           {abs: 2e-5, hashSteps: 6},          // precision; exact at step 1 and hash equal through step 6 in float mode

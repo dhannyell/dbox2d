@@ -2,6 +2,7 @@ package b2
 
 import (
 	"math"
+	"math/bits"
 	"slices"
 	"sync/atomic"
 	"time"
@@ -184,7 +185,7 @@ func integratePositionsTask(startIndex, endIndex int, context *stepContext) {
 	}
 }
 
-func executeBlock(stage *solverStage, context *stepContext, block *solverBlock) {
+func executeBlock(stage *solverStage, context *stepContext, block *solverBlock, workerIndex int) {
 	startIndex := block.startIndex
 	endIndex := startIndex + block.count
 	blockType := solverBlockType(block.blockType)
@@ -208,7 +209,7 @@ func executeBlock(stage *solverStage, context *stepContext, block *solverBlock) 
 		case graphContactBlock:
 			runGraphContactBlock(stage, context, startIndex, endIndex)
 		case graphJointBlock:
-			solveJointsTask(startIndex, endIndex, context, stage.colorIndex, true)
+			solveJointsTask(startIndex, endIndex, context, stage.colorIndex, true, workerIndex)
 		}
 	case stageIntegratePositions:
 		integratePositionsTask(startIndex, endIndex, context)
@@ -217,7 +218,7 @@ func executeBlock(stage *solverStage, context *stepContext, block *solverBlock) 
 		case graphContactBlock:
 			runGraphContactBlock(stage, context, startIndex, endIndex)
 		case graphJointBlock:
-			solveJointsTask(startIndex, endIndex, context, stage.colorIndex, false)
+			solveJointsTask(startIndex, endIndex, context, stage.colorIndex, false, workerIndex)
 		}
 	case stageRestitution:
 		if blockType == graphContactBlock {
@@ -252,7 +253,7 @@ func executeStage(stage *solverStage, context *stepContext, previousSyncIndex, s
 
 	blockIndex := startIndex
 	for blocks[blockIndex].syncIndex.CompareAndSwap(int32(previousSyncIndex), int32(syncIndex)) {
-		executeBlock(stage, context, &blocks[blockIndex])
+		executeBlock(stage, context, &blocks[blockIndex], workerIndex)
 		completedCount += 1
 		blockIndex += 1
 		if blockIndex >= blockCount {
@@ -269,7 +270,7 @@ func executeStage(stage *solverStage, context *stepContext, previousSyncIndex, s
 			break
 		}
 
-		executeBlock(stage, context, &blocks[blockIndex])
+		executeBlock(stage, context, &blocks[blockIndex], workerIndex)
 		completedCount += 1
 		blockIndex -= 1
 	}
@@ -280,7 +281,7 @@ func executeStage(stage *solverStage, context *stepContext, previousSyncIndex, s
 func executeMainStage(stage *solverStage, context *stepContext, syncBits uint32) {
 	if context.workerCount == 1 {
 		for i := range stage.blocks {
-			executeBlock(stage, context, &stage.blocks[i])
+			executeBlock(stage, context, &stage.blocks[i], 0)
 		}
 		return
 	}
@@ -290,7 +291,7 @@ func executeMainStage(stage *solverStage, context *stepContext, syncBits uint32)
 		return
 	}
 	if blockCount == 1 {
-		executeBlock(stage, context, &stage.blocks[0])
+		executeBlock(stage, context, &stage.blocks[0], 0)
 		return
 	}
 
@@ -1256,6 +1257,13 @@ func solve(w *world, context *stepContext) {
 		// The split writes the islands and their links, which the script
 		// never reads; the body finalize must wait for it.
 		w.taskCount++
+
+		// The joint solve flags the joints that cross a threshold by id.
+		jointIdCapacity := w.jointIdPool.idCapacity()
+		for i := range w.taskContexts {
+			setBitCountAndClear(&w.taskContexts[i].jointStateBitSet, jointIdCapacity)
+		}
+
 		w.executor.runContextWithSide(solverTask, sideFn, context)
 		w.splitIslandId = nullIndex
 
@@ -1315,6 +1323,37 @@ func solve(w *world, context *stepContext) {
 		context.contactConstraintMem = nil
 
 		w.profile.Transforms = millisecondsSince(transformsStart)
+	}
+
+	// Report joint events
+	{
+		jointEventsStart := time.Now()
+
+		// Gather bits for all joints that have force/torque events
+		jointStateBitSet := &w.taskContexts[0].jointStateBitSet
+		for i := 1; i < len(w.taskContexts); i++ {
+			inPlaceUnion(jointStateBitSet, &w.taskContexts[i].jointStateBitSet)
+		}
+
+		for k, word := range jointStateBitSet.bits {
+			for word != 0 {
+				jointId := 64*k + bits.TrailingZeros64(word)
+				j := &w.joints[jointId]
+				if j.setIndex != awakeSet {
+					panic("dbox2d: a joint event comes from a joint that is not awake")
+				}
+
+				w.jointEvents = append(w.jointEvents, JointEvent{
+					JointId:  JointId{index1: int32(jointId) + 1, world0: w.worldId, generation: j.generation},
+					UserData: j.userData,
+				})
+
+				// Clear the smallest set bit
+				word &= word - 1
+			}
+		}
+
+		w.profile.JointEvents = millisecondsSince(jointEventsStart)
 	}
 
 	// Report hit events

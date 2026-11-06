@@ -49,9 +49,9 @@ func pinnedBox(t *testing.T, worldId WorldId, position Vec2, def *RevoluteJointD
 	unit := MakeBox(QHalf(), QHalf())
 	CreatePolygonShape(boxId, &shapeDef, &unit)
 
-	def.BodyIdA = groundId
-	def.BodyIdB = boxId
-	def.LocalAnchorB = Vec2{X: position.X.Neg(), Y: position.Y.Neg()}
+	def.Base.BodyIdA = groundId
+	def.Base.BodyIdB = boxId
+	def.Base.LocalFrameB.P = Vec2{X: position.X.Neg(), Y: position.Y.Neg()}
 	jointId := CreateRevoluteJoint(worldId, def)
 	return getBodyFullId(w, boxId), getJointFullId(w, jointId)
 }
@@ -74,7 +74,7 @@ func TestRevoluteHoldsTheAnchor(t *testing.T) {
 
 	context := jointContext(w)
 	prepareJointsTask(0, len(context.joints), context)
-	solveJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex, false)
+	solveJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex, false, 0)
 
 	tolerance := qUlps(1 << 12)
 	js := getJointSim(w, j)
@@ -118,7 +118,7 @@ func TestRevoluteLimitStopsTheSpin(t *testing.T) {
 
 	context := jointContext(w)
 	prepareJointsTask(0, len(context.joints), context)
-	solveJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex, false)
+	solveJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex, false, 0)
 
 	tolerance := qUlps(1 << 12)
 	js := getJointSim(w, j)
@@ -149,7 +149,7 @@ func TestRevoluteMotorSaturatesAtTheTorque(t *testing.T) {
 
 	context := jointContext(w)
 	prepareJointsTask(0, len(context.joints), context)
-	solveJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex, false)
+	solveJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex, false, 0)
 
 	tolerance := qUlps(1 << 12)
 	js := getJointSim(w, j)
@@ -185,8 +185,8 @@ func TestRevoluteJointAccessorsRoundTrip(t *testing.T) {
 	bodyId := CreateBody(worldId, &bodyDef)
 
 	def := DefaultRevoluteJointDef()
-	def.BodyIdA = groundId
-	def.BodyIdB = bodyId
+	def.Base.BodyIdA = groundId
+	def.Base.BodyIdB = bodyId
 	jointId := CreateRevoluteJoint(worldId, &def)
 	tolerance := qUlps(1 << 12)
 
@@ -201,7 +201,7 @@ func TestRevoluteJointAccessorsRoundTrip(t *testing.T) {
 		{"spring damping ratio", func() { jointId.SetSpringDampingRatio(QHalf()) }, jointId.GetSpringDampingRatio, QHalf()},
 		{"lower limit", func() { jointId.SetLimits(QFromRatio(-1, 4), QFromRatio(1, 3)) }, jointId.GetLowerLimit, QFromRatio(-1, 4)},
 		{"upper limit", func() { jointId.SetLimits(QFromRatio(-1, 4), QFromRatio(1, 3)) }, jointId.GetUpperLimit, QFromRatio(1, 3)},
-		{"motor speed", func() { jointId.SetMotorSpeed(QFromRatio(1, 2)) }, jointId.GetMotorSpeed, QFromRatio(1, 2)},
+		{"motor speed", func() { jointId.SetTargetMotorSpeed(QFromRatio(1, 2)) }, jointId.GetTargetMotorSpeed, QFromRatio(1, 2)},
 		{"maximum motor torque", func() { jointId.SetMaxMotorTorque(QFromInt(5)) }, jointId.GetMaxMotorTorque, QFromInt(5)},
 	}
 	for _, tc := range qCases {
@@ -241,11 +241,11 @@ func TestRevoluteJointGetAngleInTurns(t *testing.T) {
 	bodyId := CreateBody(worldId, &bodyDef)
 
 	def := DefaultRevoluteJointDef()
-	def.BodyIdA = groundId
-	def.BodyIdB = bodyId
+	def.Base.BodyIdA = groundId
+	def.Base.BodyIdB = bodyId
 	jointId := CreateRevoluteJoint(worldId, &def)
 	bodyId.SetTransform(Vec2Zero(), MakeRot(QFromRatio(1, 4)))
-	if got := jointId.GetAngle(); !withinQ(got, QFromRatio(1, 4), qUlps(1<<12)) {
+	if got := jointId.GetCurrentAngle(); !withinQ(got, QFromRatio(1, 4), qUlps(1<<12)) {
 		t.Errorf("angle = %v turns, want 0.25", got)
 	}
 }
