@@ -5,6 +5,10 @@ package b2
 // src/constants.h.
 const graphColorCount = 12
 
+// nameLength is the longest body name in bytes. It corresponds to
+// B2_NAME_LENGTH in include/box2d/constants.h.
+const nameLength = 10
+
 // A length is a meter. The reference lets an application rescale its
 // tolerances; this package does not, because a world that rescales them
 // stops matching a world that does not. See DIVERGENCES.md.
@@ -27,8 +31,11 @@ var (
 	// upstream 4.0f * B2_LINEAR_SLOP
 	speculativeDistance = linearSlop.Mul(QFromInt(4))
 
-	// upstream 0.05f * b2_lengthUnitsPerMeter
-	aabbMargin = QMustParse("0.05")
+	// upstream B2_MAX_AABB_MARGIN, 0.05f * b2_lengthUnitsPerMeter
+	maxAABBMargin = QMustParse("0.05")
+
+	// upstream B2_AABB_MARGIN_FRACTION 0.125f
+	aabbMarginFraction = QMustParse("0.125")
 
 	// upstream 0.5f
 	timeToSleep = QHalf()
@@ -88,11 +95,12 @@ func MaxRotation() Q { return maxRotation }
 // Changing it has a significant effect on performance and stability.
 func SpeculativeDistance() Q { return speculativeDistance }
 
-// AABBMargin fattens the bounds in the dynamic tree, in meters. A proxy that
-// moves less than the margin triggers no tree adjustment.
+// AABBMargin is the largest margin that fattens the bounds in the dynamic
+// tree, in meters. Each shape uses an eighth of its extent, up to this cap.
+// A proxy that moves less than its margin triggers no tree adjustment.
 //
 // Changing it has a significant effect on performance.
-func AABBMargin() Q { return aabbMargin }
+func AABBMargin() Q { return maxAABBMargin }
 
 // TimeToSleep is how long a body must stay still before it sleeps, in
 // seconds.

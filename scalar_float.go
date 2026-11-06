@@ -238,6 +238,18 @@ func (q Q) Mul(o Q) Q { return Q{float32(q.v * o.v)} }
 func (q Q) Div(o Q) Q { return Q{float32(q.v / o.v)} }
 
 // Sqrt returns the square root, rounded once to float32.
+// qSubSum returns a - (b + c) with one rounding to float32, as upstream
+// computes the fat bounds in double.
+func qSubSum(a, b, c Q) Q {
+	return Q{float32(float64(a.v) - (float64(b.v) + float64(c.v)))}
+}
+
+// qAddSum returns a + (b + c) with one rounding to float32, as upstream
+// computes the fat bounds in double.
+func qAddSum(a, b, c Q) Q {
+	return Q{float32(float64(a.v) + (float64(b.v) + float64(c.v)))}
+}
+
 func (q Q) Sqrt() Q { return Q{float32(math.Sqrt(float64(q.v)))} }
 
 // Neg returns -q.

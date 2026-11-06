@@ -180,7 +180,7 @@ func TestStepRefreshesFastBodyBoundsWithoutAHit(t *testing.T) {
 
 	b := getBodyFullId(w, bodyId)
 	sim := getBodySim(w, b)
-	if !sim.isFast {
+	if sim.flags&bodyIsFast == 0 {
 		t.Fatal("the body is not marked fast")
 	}
 	if want := computeShapeAABB(s, sim.transform); s.aabb != want {
@@ -189,8 +189,8 @@ func TestStepRefreshesFastBodyBoundsWithoutAHit(t *testing.T) {
 	if s.aabb == before {
 		t.Errorf("shape AABB did not move with the fast body")
 	}
-	if !AABBContains(s.fatAABB, s.aabb) {
-		t.Errorf("fat AABB %+v does not contain %+v", s.fatAABB, s.aabb)
+	if !AABBContains(w.fatAABBs[s.id], s.aabb) {
+		t.Errorf("fat AABB %+v does not contain %+v", w.fatAABBs[s.id], s.aabb)
 	}
 	if sim.center0 != sim.center || sim.rotation0 != sim.transform.Q {
 		t.Errorf("previous transform was not advanced")
@@ -575,8 +575,9 @@ func TestHeavyBoxRestsOnTheGround(t *testing.T) {
 }
 
 // TestStepReportsBeginAndEndTouch pins the contact events: the begin
-// event arrives on the step of the touch with a manifold without
-// impulses, and the end event arrives on the step of the separation.
+// event arrives on the step of the touch with a contact id whose manifold
+// holds the solved impulses, and the end event arrives on the step of the
+// separation with the same id.
 func TestStepReportsBeginAndEndTouch(t *testing.T) {
 	worldId := createTestWorld(t)
 	w := getWorldFromId(worldId)
@@ -594,8 +595,15 @@ func TestStepReportsBeginAndEndTouch(t *testing.T) {
 	if begin.ShapeIdB != shapeIdOf(w, firstShape(w, boxId)) {
 		t.Errorf("the begin event names the wrong shape")
 	}
-	if begin.Manifold.PointCount == 0 || !begin.Manifold.Points[0].NormalImpulse.Eq(QZero()) {
-		t.Errorf("the begin manifold has %d points and impulse %v, want points and zero", begin.Manifold.PointCount, begin.Manifold.Points[0].NormalImpulse)
+	if !begin.ContactId.IsValid() {
+		t.Fatalf("the begin event contact id %+v is not valid", begin.ContactId)
+	}
+	data := begin.ContactId.GetData()
+	if data.ContactId != begin.ContactId || data.ShapeIdA != begin.ShapeIdA || data.ShapeIdB != begin.ShapeIdB {
+		t.Errorf("the contact data %+v does not match the begin event %+v", data, begin)
+	}
+	if data.Manifold.PointCount == 0 || !QZero().Less(data.Manifold.Points[0].NormalImpulse) {
+		t.Errorf("the contact manifold has %d points and impulse %v, want points and a positive impulse", data.Manifold.PointCount, data.Manifold.Points[0].NormalImpulse)
 	}
 
 	worldId.Step(dt, 4)
@@ -619,11 +627,55 @@ func TestStepReportsBeginAndEndTouch(t *testing.T) {
 	if events.EndEvents[0].ShapeIdB != shapeIdOf(w, firstShape(w, boxId)) {
 		t.Errorf("the end event names the wrong shape")
 	}
+	if events.EndEvents[0].ContactId != begin.ContactId {
+		t.Errorf("the end event contact id %+v differs from the begin id %+v", events.EndEvents[0].ContactId, begin.ContactId)
+	}
 	c := &w.contacts[0]
 	if c.flags&contactTouchingFlag != 0 || c.colorIndex != nullIndex || c.islandId != nullIndex {
 		t.Errorf("the contact still touches after the lift")
 	}
 	validateSolverSets(w)
+}
+
+// TestContactIdGoesStaleWhenTheSlotIsReused checks that a held contact id
+// stops being valid once its contact is destroyed, even after a new contact
+// takes the same slot.
+func TestContactIdGoesStaleWhenTheSlotIsReused(t *testing.T) {
+	worldId := createTestWorld(t)
+	boxId := boxOnGround(t, worldId, QZero())
+	worldId.Step(stepDt(), 4)
+
+	events := worldId.GetContactEvents()
+	if len(events.BeginEvents) != 1 {
+		t.Fatalf("begin events = %d, want 1", len(events.BeginEvents))
+	}
+	held := events.BeginEvents[0].ContactId
+
+	DestroyBody(boxId)
+	if held.IsValid() {
+		t.Fatal("the contact id stays valid after the body is destroyed")
+	}
+
+	boxOnGround(t, worldId, QZero())
+	worldId.Step(stepDt(), 4)
+	var fresh ContactId
+	for _, begin := range worldId.GetContactEvents().BeginEvents {
+		if begin.ContactId.index1 == held.index1 {
+			fresh = begin.ContactId
+		}
+	}
+	if fresh.IsNull() {
+		t.Fatalf("no new contact took the reused slot %d", held.index1)
+	}
+	if held.IsValid() || !fresh.IsValid() {
+		t.Errorf("held valid = %v and fresh valid = %v, want false and true", held.IsValid(), fresh.IsValid())
+	}
+	if LoadContactId(StoreContactId(fresh)) != fresh {
+		t.Error("the contact id does not survive a store and load")
+	}
+	if (ContactId{}).IsValid() || !(ContactId{}).IsNull() {
+		t.Error("the zero contact id is not null")
+	}
 }
 
 // TestStepDestroysADisjointContact pins the disjoint branch: once the fat
@@ -880,11 +932,10 @@ func TestStepLandsABoxOnAChainSegment(t *testing.T) {
 	groundId := CreateBody(worldId, &groundDef)
 	chainDef := DefaultChainDef()
 	chainDef.Points = []Vec2{
-		{X: QFromInt(6)},
 		{X: QFromInt(5)},
 		{X: QFromInt(-5)},
-		{X: QFromInt(-6)},
 	}
+	chainDef.Ghost1, chainDef.Ghost2 = Vec2{X: QFromInt(6)}, Vec2{X: QFromInt(-6)}
 	CreateChain(groundId, &chainDef)
 
 	boxId := addDynamicBox(t, worldId, Vec2{Y: QFromInt(2)})
@@ -975,7 +1026,7 @@ func TestStepStopsAFastBodyAtAStaticPlate(t *testing.T) {
 		if !x.Less(face) || !QMustParse("4.8").Less(x) {
 			t.Fatalf("x %v, want just under %v", x, face)
 		}
-		if sim := getBodySim(w, getBodyFullId(w, boxId)); !sim.isFast {
+		if sim := getBodySim(w, getBodyFullId(w, boxId)); sim.flags&bodyIsFast == 0 {
 			t.Fatal("the box is not marked fast")
 		}
 
@@ -1058,12 +1109,11 @@ func TestStepFastBodyCrossesAChainJunction(t *testing.T) {
 	shapeDef := DefaultShapeDef()
 	chainDef := DefaultChainDef()
 	chainDef.Points = []Vec2{
-		{X: QFromInt(30)},
 		{X: QFromInt(20)},
 		{X: QFromInt(8)},
 		{X: QFromInt(-10)},
-		{X: QFromInt(-20)},
 	}
+	chainDef.Ghost1, chainDef.Ghost2 = Vec2{X: QFromInt(30)}, Vec2{X: QFromInt(-20)}
 	CreateChain(groundId, &chainDef)
 
 	// The box has a half extent of 0.1. It crosses more than three metres

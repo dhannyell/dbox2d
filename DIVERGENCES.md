@@ -55,14 +55,17 @@ Numbering is sequential from `D-001` and never reused.
 
 ### D-003 An assertion becomes a panic
 
-- Files: validation sites throughout the solver (upstream `B2_ASSERT`)
+- Files: validation sites throughout the solver (upstream `B2_ASSERT` and
+  `B2_CHECK_INPUT`)
 - Tier: T2
 - Reason: the reference can compile assertions out; Go has no equivalent
   release switch, and continuing after a failed precondition risks corruption.
 - Behaviour: invalid preconditions panic in every build. Validation queries still
-  return booleans, while mutation during a locked step panics.
+  return booleans, while mutation during a locked step panics. Since v3.2 the
+  reference logs invalid API input and returns in release builds
+  (`B2_CHECK_INPUT`); the port keeps the debug behaviour and panics instead.
 - Test: `TestIdPoolRejectsAnUnknownIndex`, `TestStepRejectsInvalidInput`, and
-  `TestCreateChainPanicsBelowFourPoints`, plus the geometry and joint cases
+  `TestCreateChainRejectsBadDefs`, plus the geometry and joint cases
 
 ### D-004 An angle is a turn
 

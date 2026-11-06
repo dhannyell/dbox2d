@@ -504,7 +504,7 @@ func (s *Mover) kick(shapeId b2.ShapeId) bool {
 		return true
 	}
 
-	center := bodyId.GetWorldCenterOfMass()
+	center := bodyId.GetWorldCenter()
 	_, direction := b2.GetLengthAndNormalize(center.Sub(s.transform.P))
 	impulse := b2.Vec2{X: b2.F(2).Mul(direction.X), Y: b2.F(2)}
 	bodyId.ApplyLinearImpulseToCenter(impulse, true)

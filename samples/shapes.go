@@ -150,7 +150,9 @@ func (s *ChainShape) UpdateGui() {
 
 	if gui.SliderFloat("Friction", &s.friction, 0, 1) {
 		s.shapeId.SetFriction(FromFloat64(s.friction))
-		s.chainId.SetFriction(FromFloat64(s.friction))
+		material := s.chainId.GetSurfaceMaterial(0)
+		material.Friction = FromFloat64(s.friction)
+		s.chainId.SetAllSurfaceMaterials(material)
 	}
 
 	if gui.SliderFloat("Restitution", &s.restitution, 0, 2) {
@@ -372,10 +374,10 @@ func (s *CompoundShapes) Step() {
 	s.Base.Step()
 
 	if s.drawBodyAABBs {
-		s.drawAABB(s.table1Id.ComputeAABB(), b2.ColorYellow)
-		s.drawAABB(s.table2Id.ComputeAABB(), b2.ColorYellow)
-		s.drawAABB(s.ship1Id.ComputeAABB(), b2.ColorYellow)
-		s.drawAABB(s.ship2Id.ComputeAABB(), b2.ColorYellow)
+		s.drawAABB(s.table1Id.ComputeBounds(), b2.ColorYellow)
+		s.drawAABB(s.table2Id.ComputeBounds(), b2.ColorYellow)
+		s.drawAABB(s.ship1Id.ComputeBounds(), b2.ColorYellow)
+		s.drawAABB(s.ship2Id.ComputeBounds(), b2.ColorYellow)
 	}
 }
 
@@ -540,6 +542,7 @@ func NewCustomFilter(ctx *SampleContext) Sample {
 	bodyDef := b2.DefaultBodyDef()
 	bodyDef.Type = b2.DynamicBody
 	shapeDef := b2.DefaultShapeDef()
+	shapeDef.EnableCustomFiltering = true
 	box := b2.MakeSquare(b2.QOne())
 	x := b2.F(-customFilterCount)
 
@@ -1062,7 +1065,7 @@ func (s *ModifyGeometry) updateShape() {
 	}
 
 	bodyId := s.shapeId.GetBody()
-	bodyId.ApplyMassFromShapes()
+	bodyId.UpdateMassFromShapes()
 }
 
 func (s *ModifyGeometry) UpdateGui() {
@@ -1133,14 +1136,18 @@ func NewChainLink(ctx *SampleContext) Sample {
 
 	{
 		chainDef := b2.DefaultChainDef()
-		chainDef.Points = points1
+		chainDef.Points = points1[1:5]
+
+		// The other chain carries on past both ends of this one
+		chainDef.Ghost1, chainDef.Ghost2 = points1[0], points1[5]
 		chainDef.IsLoop = false
 		b2.CreateChain(groundId, &chainDef)
 	}
 
 	{
 		chainDef := b2.DefaultChainDef()
-		chainDef.Points = points2
+		chainDef.Points = points2[1:5]
+		chainDef.Ghost1, chainDef.Ghost2 = points2[0], points2[5]
 		chainDef.IsLoop = false
 		b2.CreateChain(groundId, &chainDef)
 	}

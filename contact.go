@@ -71,7 +71,76 @@ type contact struct {
 
 	flags uint32
 
+	// generation advances each time a contact takes this slot. It lets a
+	// ContactId detect a destroyed contact.
+	generation uint32
+
 	isMarked bool
+}
+
+// contactIdOf builds the public id of a live contact.
+func contactIdOf(w *world, c *contact) ContactId {
+	return ContactId{index1: int32(c.contactId) + 1, world0: w.worldId, generation: c.generation}
+}
+
+// getContactFullId returns the contact of a valid id. It corresponds to
+// b2GetContactFullId in src/contact.c.
+func getContactFullId(w *world, contactId ContactId) *contact {
+	id := int(contactId.index1) - 1
+	if id < 0 || len(w.contacts) <= id {
+		panic("dbox2d: the contact id is out of range")
+	}
+	c := &w.contacts[id]
+	if c.contactId != id || c.generation != contactId.generation {
+		panic("dbox2d: the contact id is stale")
+	}
+	return c
+}
+
+// IsValid reports whether the id references a live contact. It provides
+// validation for up to 2^32 allocations per slot. It corresponds to
+// b2Contact_IsValid.
+func (contactId ContactId) IsValid() bool {
+	if maxWorlds <= contactId.world0 {
+		return false
+	}
+
+	w := &worlds[contactId.world0]
+	if w.worldId != contactId.world0 {
+		// world is free
+		return false
+	}
+
+	id := int(contactId.index1) - 1
+	if id < 0 || len(w.contacts) <= id {
+		return false
+	}
+
+	c := &w.contacts[id]
+	if c.contactId == nullIndex {
+		// contact is free
+		return false
+	}
+
+	if c.contactId != id {
+		panic("dbox2d: a live contact has the wrong id")
+	}
+
+	return contactId.generation == c.generation
+}
+
+// GetData returns the shapes and the manifold of a contact. The manifold
+// may have no points if the contact is not touching. It corresponds to
+// b2Contact_GetData.
+func (contactId ContactId) GetData() ContactData {
+	w := getWorld(contactId.world0)
+	c := getContactFullId(w, contactId)
+	return ContactData{
+		ContactId: contactId,
+		ShapeIdA:  shapeIdOf(w, &w.shapes[c.shapeIdA]),
+		ShapeIdB:  shapeIdOf(w, &w.shapes[c.shapeIdB]),
+		Manifold:  getContactSim(w, c).manifold,
+	}
 }
 
 // contactSim is the warm contact data that the narrowphase and the solver
@@ -253,6 +322,7 @@ func createContact(w *world, shapeA, shapeB *shape) {
 
 	c := &w.contacts[contactId]
 	c.contactId = contactId
+	c.generation++
 	c.setIndex = setIndex
 	c.colorIndex = nullIndex
 	c.localIndex = len(set.contactSims)
@@ -348,7 +418,7 @@ func destroyContact(w *world, c *contact, wakeBodies bool) {
 	if touching && flags&contactEnableContactEvents != 0 {
 		shapeA := &w.shapes[c.shapeIdA]
 		shapeB := &w.shapes[c.shapeIdB]
-		event := ContactEndTouchEvent{ShapeIdA: shapeIdOf(w, shapeA), ShapeIdB: shapeIdOf(w, shapeB)}
+		event := ContactEndTouchEvent{ShapeIdA: shapeIdOf(w, shapeA), ShapeIdB: shapeIdOf(w, shapeB), ContactId: contactIdOf(w, c)}
 		w.contactEndEvents[w.endEventArrayIndex] = append(w.contactEndEvents[w.endEventArrayIndex], event)
 	}
 

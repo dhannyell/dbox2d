@@ -46,7 +46,7 @@ func ExampleWorldId_SetFrictionCallback() {
 	worldId := b2.CreateWorld(&worldDef)
 	defer b2.DestroyWorld(worldId)
 
-	worldId.SetFrictionCallback(func(frictionA b2.Q, _ int, frictionB b2.Q, _ int) b2.Q {
+	worldId.SetFrictionCallback(func(frictionA b2.Q, _ uint64, frictionB b2.Q, _ uint64) b2.Q {
 		return frictionA.Add(frictionB).Div(b2.QFromInt(2))
 	})
 
@@ -93,16 +93,16 @@ func ExampleCreateChain() {
 	worldId, groundId, _ := exampleWorld()
 	defer b2.DestroyWorld(worldId)
 
-	// An open chain of four points builds two segments; the two end
-	// segments extend with ghost vertices for smooth rolling contact.
+	// An open chain of three points builds two segments; the ghost points
+	// past each end give smooth rolling contact at the ends.
 	def := b2.DefaultChainDef()
 	def.Points = []b2.Vec2{
-		{X: b2.QFromInt(0)},
 		{X: b2.QFromInt(1)},
 		{X: b2.QFromInt(2)},
 		{X: b2.QFromInt(3)},
-		{X: b2.QFromInt(4)},
 	}
+	def.Ghost1 = b2.Vec2{X: b2.QFromInt(0)}
+	def.Ghost2 = b2.Vec2{X: b2.QFromInt(4)}
 	chainId := b2.CreateChain(groundId, &def)
 
 	fmt.Println(chainId.GetSegmentCount())
@@ -202,10 +202,15 @@ func ExampleWorldId_SetCustomFilterCallback() {
 	worldId, groundId, boxId := exampleWorld()
 	defer b2.DestroyWorld(worldId)
 
-	// Rejecting every pair keeps the box from ever touching the ground.
+	// Rejecting every pair keeps the box from ever touching the ground. Only
+	// shapes that enable custom filtering reach the callback.
 	worldId.SetCustomFilterCallback(func(b2.ShapeId, b2.ShapeId) bool {
 		return false
 	})
+	shapeDef := b2.DefaultShapeDef()
+	shapeDef.EnableCustomFiltering = true
+	segment := b2.Segment{Point1: b2.Vec2{X: b2.QFromInt(-5)}, Point2: b2.Vec2{X: b2.QFromInt(5)}}
+	b2.CreateSegmentShape(groundId, &shapeDef, &segment)
 
 	dt := b2.QOne().Div(b2.QFromInt(60))
 	for range 60 {

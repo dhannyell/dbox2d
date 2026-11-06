@@ -6,8 +6,10 @@ import "testing"
 
 // Rebased when the body state took radians (D-004) and the colored contacts
 // took the normal impulse of b2SolveContactsTask (D-018), and when the shape
-// stopped folding the retired enlargedAABB flag (v3.2 phase 2).
-const checksumWitness uint64 = 8145229803301060507
+// stopped folding the retired enlargedAABB flag (v3.2 phase 2), and when the
+// body flags became one word, the shape folded its AABB margin and its
+// custom filtering flag, and the body its safety factor (v3.2 phase 3).
+const checksumWitness uint64 = 10887155754959468082
 
 // TestChecksumContactsIgnoreCreationOrder checks the contact graph as well as
 // the body and shape folds. The second world reverses both object creation and

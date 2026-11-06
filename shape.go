@@ -6,7 +6,6 @@ import "unsafe"
 type shape struct {
 	id          int
 	bodyId      int
-	chainId     int
 	prevShapeId int
 	nextShapeId int
 	sensorIndex int
@@ -17,10 +16,10 @@ type shape struct {
 	restitution       Q
 	rollingResistance Q
 	tangentSpeed      Q
-	userMaterialId    int
+	userMaterialId    uint64
 
 	aabb          AABB
-	fatAABB       AABB
+	aabbMargin    Q
 	localCentroid Vec2
 	proxyKey      int
 
@@ -37,10 +36,11 @@ type shape struct {
 	// ShapeId fails validation.
 	generation uint16
 
-	enableSensorEvents   bool
-	enableContactEvents  bool
-	enableHitEvents      bool
-	enablePreSolveEvents bool
+	enableSensorEvents    bool
+	enableContactEvents   bool
+	enableHitEvents       bool
+	enablePreSolveEvents  bool
+	enableCustomFiltering bool
 }
 
 // shapeGeometry is the storage of the geometry union: the largest of the
@@ -85,25 +85,63 @@ func getShape(w *world, shapeId ShapeId) *shape {
 	return s
 }
 
-// updateShapeAABBs refreshes the tight and the fat bounds of a shape.
-func updateShapeAABBs(s *shape, transform Transform, proxyType BodyType) {
-	// Compute a bounding box with a speculative margin
-	aabb := computeShapeAABB(s, transform)
-	aabb.LowerBound.X = aabb.LowerBound.X.Sub(speculativeDistance)
-	aabb.LowerBound.Y = aabb.LowerBound.Y.Sub(speculativeDistance)
-	aabb.UpperBound.X = aabb.UpperBound.X.Add(speculativeDistance)
-	aabb.UpperBound.Y = aabb.UpperBound.Y.Add(speculativeDistance)
-	s.aabb = aabb
-
-	// Smaller margin for static bodies. Cannot be zero due to TOI tolerance.
-	margin := aabbMargin
-	if proxyType == StaticBody {
-		margin = speculativeDistance
+// computeShapeMargin returns the fat AABB margin of a shape: a fraction of
+// its extent, capped at maxAABBMargin. Small shapes get small margins. It
+// corresponds to b2ComputeShapeMargin.
+func computeShapeMargin(s *shape) Q {
+	var margin Q
+	switch s.shapeType {
+	case CapsuleShape:
+		c := s.capsule()
+		margin = QHalf().Mul(c.Center2.Distance(c.Center1)).Add(c.Radius)
+	case CircleShape:
+		margin = s.circle().Radius
+	case PolygonShape:
+		poly := s.polygon()
+		maxExtentSqr := QZero()
+		for i := 0; i < poly.Count; i++ {
+			distanceSqr := poly.Vertices[i].DistanceSq(poly.Centroid)
+			maxExtentSqr = maxExtentSqr.Max(distanceSqr)
+		}
+		margin = maxExtentSqr.Sqrt()
+	case SegmentShape:
+		seg := s.segment()
+		margin = QHalf().Mul(seg.Point1.Distance(seg.Point2))
+	case ChainSegmentShape:
+		seg := &s.chainSegment().Segment
+		margin = QHalf().Mul(seg.Point1.Distance(seg.Point2))
+	default:
+		panic("dbox2d: unknown shape type")
 	}
-	s.fatAABB = AABB{
+
+	return maxAABBMargin.Min(aabbMarginFraction.Mul(margin))
+}
+
+// fatMargin returns the margin of a fat AABB: the margin of the shape, or
+// the speculative distance for a static proxy.
+func fatMargin(s *shape, proxyType BodyType) Q {
+	// Smaller margin for static bodies. Cannot be zero due to TOI tolerance.
+	if proxyType == StaticBody {
+		return speculativeDistance
+	}
+	return s.aabbMargin
+}
+
+// fattenAABB grows a box by a margin on every side.
+func fattenAABB(aabb AABB, margin Q) AABB {
+	return AABB{
 		LowerBound: Vec2{X: aabb.LowerBound.X.Sub(margin), Y: aabb.LowerBound.Y.Sub(margin)},
 		UpperBound: Vec2{X: aabb.UpperBound.X.Add(margin), Y: aabb.UpperBound.Y.Add(margin)},
 	}
+}
+
+// updateShapeAABBs refreshes the tight bounds of a shape and its fat bounds.
+// It corresponds to b2UpdateShapeAABBs.
+func updateShapeAABBs(s *shape, fatAABB *AABB, transform Transform, proxyType BodyType) {
+	// Compute a bounding box with a speculative margin
+	aabb := computeFatShapeAABB(s, transform, speculativeDistance)
+	s.aabb = aabb
+	*fatAABB = fattenAABB(aabb, fatMargin(s, proxyType))
 }
 
 // createShapeInternal allocates the shape record and links it to the body.
@@ -112,6 +150,7 @@ func createShapeInternal(w *world, b *body, transform Transform, def *ShapeDef, 
 
 	if shapeId == len(w.shapes) {
 		w.shapes = append(w.shapes, shape{})
+		w.fatAABBs = append(w.fatAABBs, AABB{})
 	} else if w.shapes[shapeId].id != nullIndex {
 		panic("dbox2d: the shape slot is still in use")
 	}
@@ -135,7 +174,6 @@ func createShapeInternal(w *world, b *body, transform Transform, def *ShapeDef, 
 
 	s.id = shapeId
 	s.bodyId = b.id
-	s.chainId = nullIndex
 	s.shapeType = shapeType
 	s.density = def.Density
 	s.friction = def.Material.Friction
@@ -150,15 +188,17 @@ func createShapeInternal(w *world, b *body, transform Transform, def *ShapeDef, 
 	s.enableContactEvents = def.EnableContactEvents
 	s.enableHitEvents = def.EnableHitEvents
 	s.enablePreSolveEvents = def.EnablePreSolveEvents
+	s.enableCustomFiltering = def.EnableCustomFiltering
 	s.proxyKey = nullIndex
 	s.localCentroid = getShapeCentroid(s)
+	s.aabbMargin = computeShapeMargin(s)
 	s.aabb = AABB{}
-	s.fatAABB = AABB{}
+	w.fatAABBs[shapeId] = AABB{}
 	s.generation += 1
 
 	if b.setIndex != disabledSet {
 		proxyType := b.bodyType
-		createShapeProxy(s, &w.broadPhase, proxyType, transform, def.InvokeContactCreation || def.IsSensor)
+		createShapeProxy(w, s, proxyType, transform, def.InvokeContactCreation || def.IsSensor)
 	}
 
 	// Add to shape doubly linked list
@@ -252,33 +292,98 @@ func CreateSegmentShape(bodyId BodyId, def *ShapeDef, segment *Segment) ShapeId 
 	return createShape(bodyId, def, segment, SegmentShape)
 }
 
-// CreateChain ports b2CreateChain.
+// validateMaterial panics on a material with an invalid friction,
+// restitution, rolling resistance or tangent speed. It corresponds to
+// b2IsValidMaterial.
+func validateMaterial(material *SurfaceMaterial, what string) {
+	zero := QZero()
+	if !IsValidQ(material.Friction) || material.Friction.Less(zero) {
+		panic("dbox2d: " + what + " has an invalid friction")
+	}
+	if !IsValidQ(material.Restitution) || material.Restitution.Less(zero) {
+		panic("dbox2d: " + what + " has an invalid restitution")
+	}
+	if !IsValidQ(material.RollingResistance) || material.RollingResistance.Less(zero) {
+		panic("dbox2d: " + what + " has an invalid rolling resistance")
+	}
+	if !IsValidQ(material.TangentSpeed) {
+		panic("dbox2d: " + what + " has an invalid tangent speed")
+	}
+}
+
+// isValidChainSegment reports whether every point of the chain segment is
+// valid. It corresponds to b2IsValidChainSegment.
+func isValidChainSegment(chainSegment *ChainSegment) bool {
+	return IsValidVec2(chainSegment.Ghost1) && IsValidVec2(chainSegment.Segment.Point1) &&
+		IsValidVec2(chainSegment.Segment.Point2) && IsValidVec2(chainSegment.Ghost2)
+}
+
+// isValidGhost reports whether a chain ghost point was set: it is valid and
+// is not the infinity sentinel of DefaultChainDef. Fixed point has no
+// infinity, so the sentinel is the largest value in both components.
+func isValidGhost(ghost Vec2) bool {
+	return IsValidVec2(ghost) && ghost != Vec2{X: qInfinity(), Y: qInfinity()}
+}
+
+// CreateChainSegmentShape creates a chain segment that has no parent chain.
+// It panics on a degenerate segment. It corresponds to
+// b2CreateChainSegmentShape.
+func CreateChainSegmentShape(bodyId BodyId, def *ShapeDef, chainSegment *ChainSegment) ShapeId {
+	if !isValidChainSegment(chainSegment) {
+		panic("dbox2d: the chain segment is not valid")
+	}
+
+	lengthSqr := chainSegment.Segment.Point1.DistanceSq(chainSegment.Segment.Point2)
+	if !linearSlop.Mul(linearSlop).Less(lengthSqr) {
+		panic("dbox2d: the chain segment is degenerate")
+	}
+
+	// No parent chain shape
+	local := *chainSegment
+	local.ChainId = nullIndex
+
+	return createShape(bodyId, def, &local, ChainSegmentShape)
+}
+
+// CreateChain creates a chain of segment shapes on a body. An open chain
+// needs at least two points and both ghost points; a loop needs at least
+// three points. It corresponds to b2CreateChain.
 func CreateChain(bodyId BodyId, def *ChainDef) ChainId {
 	checkDef(def.internalValue)
 
-	n := len(def.Points)
-	if n < 4 {
-		panic("dbox2d: ChainDef.Points must contain at least 4 points")
+	pointCount := len(def.Points)
+	if def.IsLoop && pointCount < 3 {
+		panic("dbox2d: a loop chain needs at least 3 points")
 	}
-	materialCount := len(def.Materials)
-	if materialCount != 1 && materialCount != n {
-		panic("dbox2d: ChainDef.Materials must contain one material or one per point")
+	if !def.IsLoop && pointCount < 2 {
+		panic("dbox2d: an open chain needs at least 2 points")
 	}
 
-	zero := QZero()
+	segmentCount := pointCount - 1
+	if def.IsLoop {
+		segmentCount = pointCount
+	}
+
+	materialCount := len(def.Materials)
+	if materialCount != 1 && materialCount != segmentCount {
+		panic("dbox2d: ChainDef.Materials must contain one material or one per segment")
+	}
+
+	for i := range def.Points {
+		if !IsValidVec2(def.Points[i]) {
+			panic("dbox2d: ChainDef.Points contains an invalid point")
+		}
+	}
+
 	for i := range def.Materials {
-		material := def.Materials[i]
-		if !IsValidQ(material.Friction) || material.Friction.Less(zero) {
-			panic("dbox2d: ChainDef.Materials contains invalid friction")
-		}
-		if !IsValidQ(material.Restitution) || material.Restitution.Less(zero) {
-			panic("dbox2d: ChainDef.Materials contains invalid restitution")
-		}
-		if !IsValidQ(material.RollingResistance) || material.RollingResistance.Less(zero) {
-			panic("dbox2d: ChainDef.Materials contains invalid rolling resistance")
-		}
-		if !IsValidQ(material.TangentSpeed) {
-			panic("dbox2d: ChainDef.Materials contains invalid tangent speed")
+		validateMaterial(&def.Materials[i], "ChainDef.Materials")
+	}
+
+	if !def.IsLoop {
+		// These are set to infinity in the default def as a sentinel to
+		// ensure they are set.
+		if !isValidGhost(def.Ghost1) || !isValidGhost(def.Ghost2) {
+			panic("dbox2d: an open chain needs ChainDef.Ghost1 and ChainDef.Ghost2")
 		}
 	}
 
@@ -306,18 +411,20 @@ func CreateChain(bodyId BodyId, def *ChainDef) ChainId {
 	shapeDef.EnableSensorEvents = def.EnableSensorEvents
 	shapeDef.EnableContactEvents = false
 	shapeDef.EnableHitEvents = false
-	shapeDef.EnablePreSolveEvents = false
 
+	points := def.Points
+	n := segmentCount
+	chain.shapeIndices = make([]int, n)
+
+	var chainSegment ChainSegment
 	if def.IsLoop {
-		chain.shapeIndices = make([]int, n)
-
-		chainSegment := ChainSegment{ChainId: chainID}
 		prevIndex := n - 1
-		for i := 0; i < n-2; i++ {
-			chainSegment.Ghost1 = def.Points[prevIndex]
-			chainSegment.Segment.Point1 = def.Points[i]
-			chainSegment.Segment.Point2 = def.Points[i+1]
-			chainSegment.Ghost2 = def.Points[i+2]
+		for i := 0; i < n; i++ {
+			chainSegment.Ghost1 = points[prevIndex]
+			chainSegment.Segment.Point1 = points[i]
+			chainSegment.Segment.Point2 = points[(i+1)%n]
+			chainSegment.Ghost2 = points[(i+2)%n]
+			chainSegment.ChainId = chainID
 			prevIndex = i
 
 			materialIndex := 0
@@ -327,56 +434,31 @@ func CreateChain(bodyId BodyId, def *ChainDef) ChainId {
 			shapeDef.Material = def.Materials[materialIndex]
 
 			s := createShapeInternal(w, b, transform, &shapeDef, &chainSegment, ChainSegmentShape)
-			s.chainId = chainID
 			chain.shapeIndices[i] = s.id
 		}
-
-		chainSegment.Ghost1 = def.Points[n-3]
-		chainSegment.Segment.Point1 = def.Points[n-2]
-		chainSegment.Segment.Point2 = def.Points[n-1]
-		chainSegment.Ghost2 = def.Points[0]
-		materialIndex := 0
-		if materialCount != 1 {
-			materialIndex = n - 2
-		}
-		shapeDef.Material = def.Materials[materialIndex]
-		s := createShapeInternal(w, b, transform, &shapeDef, &chainSegment, ChainSegmentShape)
-		s.chainId = chainID
-		chain.shapeIndices[n-2] = s.id
-
-		chainSegment.Ghost1 = def.Points[n-2]
-		chainSegment.Segment.Point1 = def.Points[n-1]
-		chainSegment.Segment.Point2 = def.Points[0]
-		chainSegment.Ghost2 = def.Points[1]
-		materialIndex = 0
-		if materialCount != 1 {
-			materialIndex = n - 1
-		}
-		shapeDef.Material = def.Materials[materialIndex]
-		s = createShapeInternal(w, b, transform, &shapeDef, &chainSegment, ChainSegmentShape)
-		s.chainId = chainID
-		chain.shapeIndices[n-1] = s.id
 	} else {
-		chain.shapeIndices = make([]int, n-3)
-
-		for i := 0; i < n-3; i++ {
-			chainSegment := ChainSegment{
-				Ghost1: def.Points[i],
-				Segment: Segment{
-					Point1: def.Points[i+1],
-					Point2: def.Points[i+2],
-				},
-				Ghost2:  def.Points[i+3],
-				ChainId: chainID,
+		for i := 0; i < n; i++ {
+			if i == 0 {
+				chainSegment.Ghost1 = def.Ghost1
+			} else {
+				chainSegment.Ghost1 = points[i-1]
 			}
+			chainSegment.Segment.Point1 = points[i]
+			chainSegment.Segment.Point2 = points[i+1]
+			if i == n-1 {
+				chainSegment.Ghost2 = def.Ghost2
+			} else {
+				chainSegment.Ghost2 = points[i+2]
+			}
+			chainSegment.ChainId = chainID
+
 			materialIndex := 0
 			if materialCount != 1 {
-				materialIndex = i + 1
+				materialIndex = i
 			}
 			shapeDef.Material = def.Materials[materialIndex]
 
 			s := createShapeInternal(w, b, transform, &shapeDef, &chainSegment, ChainSegmentShape)
-			s.chainId = chainID
 			chain.shapeIndices[i] = s.id
 		}
 	}
@@ -487,6 +569,12 @@ func DestroyShape(shapeId ShapeId, updateBodyMass bool) {
 	w := getWorldLocked(shapeId.world0)
 
 	s := getShape(w, shapeId)
+
+	// Cannot destroy a chain segment that has a parent chain shape
+	if s.shapeType == ChainSegmentShape && s.chainSegment().ChainId != nullIndex {
+		panic("dbox2d: DestroyShape cannot destroy a segment owned by a chain")
+	}
+
 	b := &w.bodies[s.bodyId]
 
 	destroyShapeInternal(w, s, b)
@@ -498,15 +586,16 @@ func DestroyShape(shapeId ShapeId, updateBodyMass bool) {
 
 // createShapeProxy refreshes the bounds of a shape and inserts it in the
 // broadphase. It corresponds to b2CreateShapeProxy in src/shape.c.
-func createShapeProxy(s *shape, bp *broadPhase, proxyType BodyType, transform Transform, forcePairCreation bool) {
+func createShapeProxy(w *world, s *shape, proxyType BodyType, transform Transform, forcePairCreation bool) {
 	if s.proxyKey != nullIndex {
 		panic("dbox2d: the shape already has a proxy")
 	}
 
-	updateShapeAABBs(s, transform, proxyType)
+	fatAABB := &w.fatAABBs[s.id]
+	updateShapeAABBs(s, fatAABB, transform, proxyType)
 
 	// Create proxies in the broad-phase.
-	s.proxyKey = bp.createProxy(proxyType, s.fatAABB, s.filter.CategoryBits, s.id, forcePairCreation)
+	s.proxyKey = w.broadPhase.createProxy(proxyType, *fatAABB, s.filter.CategoryBits, s.id, forcePairCreation)
 	if proxyTypeOf(s.proxyKey) >= BodyTypeCount {
 		panic("dbox2d: the proxy key carries a bad type")
 	}
@@ -536,6 +625,53 @@ func computeShapeAABB(s *shape, xf Transform) AABB {
 		return ComputeSegmentBounds(&s.chainSegment().Segment, xf)
 	default:
 		panic("dbox2d: unknown shape type")
+	}
+}
+
+// computeFatShapeAABB returns the bounds of a shape grown by extra on every
+// side. Like upstream, the radius and extra are summed before they meet the
+// position, so each bound rounds once. It corresponds to
+// b2ComputeFatShapeAABB.
+func computeFatShapeAABB(s *shape, xf Transform, extra Q) AABB {
+	var lower, upper Vec2
+	radius := QZero()
+	switch s.shapeType {
+	case CapsuleShape:
+		c := s.capsule()
+		v1 := TransformPoint(xf, c.Center1)
+		v2 := TransformPoint(xf, c.Center2)
+		lower, upper, radius = Min(v1, v2), Max(v1, v2), c.Radius
+	case CircleShape:
+		c := s.circle()
+		lower = TransformPoint(xf, c.Center)
+		upper, radius = lower, c.Radius
+	case PolygonShape:
+		poly := s.polygon()
+		lower = TransformPoint(xf, poly.Vertices[0])
+		upper = lower
+		for i := 1; i < poly.Count; i++ {
+			v := TransformPoint(xf, poly.Vertices[i])
+			lower = Min(lower, v)
+			upper = Max(upper, v)
+		}
+		radius = poly.Radius
+	case SegmentShape:
+		seg := s.segment()
+		v1 := TransformPoint(xf, seg.Point1)
+		v2 := TransformPoint(xf, seg.Point2)
+		lower, upper = Min(v1, v2), Max(v1, v2)
+	case ChainSegmentShape:
+		seg := &s.chainSegment().Segment
+		v1 := TransformPoint(xf, seg.Point1)
+		v2 := TransformPoint(xf, seg.Point2)
+		lower, upper = Min(v1, v2), Max(v1, v2)
+	default:
+		panic("dbox2d: unknown shape type")
+	}
+
+	return AABB{
+		LowerBound: Vec2{X: qSubSum(lower.X, radius, extra), Y: qSubSum(lower.Y, radius, extra)},
+		UpperBound: Vec2{X: qAddSum(upper.X, radius, extra), Y: qAddSum(upper.Y, radius, extra)},
 	}
 }
 
@@ -850,12 +986,17 @@ func (shapeId ShapeId) GetWorld() WorldId {
 func (shapeId ShapeId) GetParentChain() ChainId {
 	w := getWorld(shapeId.world0)
 	s := getShape(w, shapeId)
-	if s.shapeType != ChainSegmentShape || s.chainId == nullIndex {
+	if s.shapeType != ChainSegmentShape {
 		return ChainId{}
 	}
 
-	chain := &w.chainShapes[s.chainId]
-	return ChainId{index1: int32(s.chainId) + 1, world0: shapeId.world0, generation: chain.generation}
+	chainIndex := s.chainSegment().ChainId
+	if chainIndex == nullIndex {
+		return ChainId{}
+	}
+
+	chain := &w.chainShapes[chainIndex]
+	return ChainId{index1: int32(chainIndex) + 1, world0: shapeId.world0, generation: chain.generation}
 }
 
 // IsValid reports whether the id references a live chain.
@@ -916,67 +1057,40 @@ func (chainId ChainId) GetSegments(segments []ShapeId) int {
 	return count
 }
 
-// SetFriction changes the friction of every chain segment. It corresponds to
-// b2Chain_SetFriction.
-func (chainId ChainId) SetFriction(friction Q) {
-	zero := QZero()
-	if !IsValidQ(friction) || friction.Less(zero) {
-		panic("dbox2d: SetFriction friction is not valid")
+// SetSurfaceMaterial changes the material of one chain segment. It
+// corresponds to b2Chain_SetSurfaceMaterial.
+func (chainId ChainId) SetSurfaceMaterial(material SurfaceMaterial, segmentIndex int) {
+	validateMaterial(&material, "SetSurfaceMaterial material")
+
+	w := getWorldLocked(chainId.world0)
+	chain := getChain(w, chainId)
+	if segmentIndex < 0 || len(chain.shapeIndices) <= segmentIndex {
+		panic("dbox2d: the chain segment index is out of range")
 	}
+	setShapeMaterial(&w.shapes[chain.shapeIndices[segmentIndex]], material)
+}
+
+// SetAllSurfaceMaterials changes the material of every chain segment. It
+// corresponds to b2Chain_SetAllSurfaceMaterials.
+func (chainId ChainId) SetAllSurfaceMaterials(material SurfaceMaterial) {
+	validateMaterial(&material, "SetAllSurfaceMaterials material")
 
 	w := getWorldLocked(chainId.world0)
 	chain := getChain(w, chainId)
 	for _, shapeIndex := range chain.shapeIndices {
-		w.shapes[shapeIndex].friction = friction
+		setShapeMaterial(&w.shapes[shapeIndex], material)
 	}
 }
 
-// GetFriction returns the first segment's friction. It corresponds to
-// b2Chain_GetFriction.
-func (chainId ChainId) GetFriction() Q {
+// GetSurfaceMaterial returns the material of one chain segment. It
+// corresponds to b2Chain_GetSurfaceMaterial.
+func (chainId ChainId) GetSurfaceMaterial(segmentIndex int) SurfaceMaterial {
 	w := getWorld(chainId.world0)
 	chain := getChain(w, chainId)
-	return w.shapes[chain.shapeIndices[0]].friction
-}
-
-// SetRestitution changes the restitution of every chain segment. It
-// corresponds to b2Chain_SetRestitution.
-func (chainId ChainId) SetRestitution(restitution Q) {
-	if !IsValidQ(restitution) {
-		panic("dbox2d: SetRestitution restitution is not valid")
+	if segmentIndex < 0 || len(chain.shapeIndices) <= segmentIndex {
+		panic("dbox2d: the chain segment index is out of range")
 	}
-
-	w := getWorldLocked(chainId.world0)
-	chain := getChain(w, chainId)
-	for _, shapeIndex := range chain.shapeIndices {
-		w.shapes[shapeIndex].restitution = restitution
-	}
-}
-
-// GetRestitution returns the first segment's restitution. It corresponds to
-// b2Chain_GetRestitution.
-func (chainId ChainId) GetRestitution() Q {
-	w := getWorld(chainId.world0)
-	chain := getChain(w, chainId)
-	return w.shapes[chain.shapeIndices[0]].restitution
-}
-
-// SetMaterial changes the user material id of every chain segment. It
-// corresponds to b2Chain_SetMaterial.
-func (chainId ChainId) SetMaterial(material int) {
-	w := getWorldLocked(chainId.world0)
-	chain := getChain(w, chainId)
-	for _, shapeIndex := range chain.shapeIndices {
-		w.shapes[shapeIndex].userMaterialId = material
-	}
-}
-
-// GetMaterial returns the first segment's user material id. It corresponds to
-// b2Chain_GetMaterial.
-func (chainId ChainId) GetMaterial() int {
-	w := getWorld(chainId.world0)
-	chain := getChain(w, chainId)
-	return w.shapes[chain.shapeIndices[0]].userMaterialId
+	return shapeMaterial(&w.shapes[chain.shapeIndices[segmentIndex]])
 }
 
 // SetUserData attaches application data to the shape. It corresponds to
@@ -1016,9 +1130,9 @@ func (shapeId ShapeId) GetSensorCapacity() int {
 	return len(w.sensors[s.sensorIndex].overlaps1)
 }
 
-// GetSensorOverlaps fills overlaps with current sensor overlaps. It
-// corresponds to b2Shape_GetSensorOverlaps in src/shape.c.
-func (shapeId ShapeId) GetSensorOverlaps(overlaps []ShapeId) int {
+// GetSensorData fills overlaps with the current sensor overlaps. It
+// corresponds to b2Shape_GetSensorData in src/shape.c.
+func (shapeId ShapeId) GetSensorData(overlaps []ShapeId) int {
 	if !shapeId.IsValid() {
 		return 0
 	}
@@ -1076,9 +1190,9 @@ func (shapeId ShapeId) TestPoint(point Vec2) bool {
 	}
 }
 
-// RayCast casts a world-space ray against the shape. It corresponds to
-// b2Shape_RayCast.
-func (shapeId ShapeId) RayCast(input *RayCastInput) CastOutput {
+// CastRay casts a world-space ray against the shape. It corresponds to
+// b2Shape_CastRay.
+func (shapeId ShapeId) CastRay(input *RayCastInput) CastOutput {
 	w := getWorld(shapeId.world0)
 	s := getShape(w, shapeId)
 	transform := getBodyTransform(w, s.bodyId)
@@ -1154,7 +1268,11 @@ func (shapeId ShapeId) GetRestitution() Q {
 // b2Shape_GetSurfaceMaterial.
 func (shapeId ShapeId) GetSurfaceMaterial() SurfaceMaterial {
 	w := getWorld(shapeId.world0)
-	s := getShape(w, shapeId)
+	return shapeMaterial(getShape(w, shapeId))
+}
+
+// shapeMaterial gathers the surface material of a shape.
+func shapeMaterial(s *shape) SurfaceMaterial {
 	return SurfaceMaterial{
 		Friction:          s.friction,
 		Restitution:       s.restitution,
@@ -1165,25 +1283,8 @@ func (shapeId ShapeId) GetSurfaceMaterial() SurfaceMaterial {
 	}
 }
 
-// SetMaterial sets the shape user material id. It corresponds to
-// b2Shape_SetMaterial.
-func (shapeId ShapeId) SetMaterial(material int) {
-	w := getWorldLocked(shapeId.world0)
-	getShape(w, shapeId).userMaterialId = material
-}
-
-// GetMaterial returns the shape user material id. It corresponds to
-// b2Shape_GetMaterial.
-func (shapeId ShapeId) GetMaterial() int {
-	w := getWorld(shapeId.world0)
-	return getShape(w, shapeId).userMaterialId
-}
-
-// SetSurfaceMaterial changes the shape surface material. It corresponds to
-// b2Shape_SetSurfaceMaterial.
-func (shapeId ShapeId) SetSurfaceMaterial(material SurfaceMaterial) {
-	w := getWorld(shapeId.world0)
-	s := getShape(w, shapeId)
+// setShapeMaterial scatters a surface material into a shape.
+func setShapeMaterial(s *shape, material SurfaceMaterial) {
 	s.friction = material.Friction
 	s.restitution = material.Restitution
 	s.rollingResistance = material.RollingResistance
@@ -1192,11 +1293,156 @@ func (shapeId ShapeId) SetSurfaceMaterial(material SurfaceMaterial) {
 	s.customColor = material.CustomColor
 }
 
+// SetUserMaterial sets the shape user material id. It corresponds to
+// b2Shape_SetUserMaterial.
+func (shapeId ShapeId) SetUserMaterial(material uint64) {
+	w := getWorldLocked(shapeId.world0)
+	getShape(w, shapeId).userMaterialId = material
+}
+
+// GetUserMaterial returns the shape user material id. It corresponds to
+// b2Shape_GetUserMaterial.
+func (shapeId ShapeId) GetUserMaterial() uint64 {
+	w := getWorld(shapeId.world0)
+	return getShape(w, shapeId).userMaterialId
+}
+
+// SetSurfaceMaterial changes the shape surface material. It corresponds to
+// b2Shape_SetSurfaceMaterial.
+func (shapeId ShapeId) SetSurfaceMaterial(material SurfaceMaterial) {
+	validateMaterial(&material, "SetSurfaceMaterial material")
+
+	w := getWorldLocked(shapeId.world0)
+	setShapeMaterial(getShape(w, shapeId), material)
+}
+
 // GetFilter returns the shape collision filter. It corresponds to
 // b2Shape_GetFilter.
 func (shapeId ShapeId) GetFilter() Filter {
 	w := getWorld(shapeId.world0)
 	return getShape(w, shapeId).filter
+}
+
+// airDensity is the density of air in kg/m^3. In 2D the shape has unit
+// depth.
+var airDensity = QMustParse("1.225")
+
+// ApplyWind applies a wind force to the body of the shape, using the density
+// of air. It considers the projected area of the shape in the wind direction
+// and the relative velocity of the shape. drag scales the force that opposes
+// the relative velocity, lift the force perpendicular to it. Only circles,
+// capsules and polygons on dynamic bodies feel the wind; a sleeping body
+// feels it only when wake is set. It corresponds to b2Shape_ApplyWind.
+func (shapeId ShapeId) ApplyWind(wind Vec2, drag, lift Q, wake bool) {
+	if !IsValidVec2(wind) || !IsValidQ(drag) || !IsValidQ(lift) {
+		panic("dbox2d: ApplyWind input is not valid")
+	}
+
+	w := getWorld(shapeId.world0)
+	s := getShape(w, shapeId)
+
+	shapeType := s.shapeType
+	if shapeType != CircleShape && shapeType != CapsuleShape && shapeType != PolygonShape {
+		return
+	}
+
+	b := &w.bodies[s.bodyId]
+	if b.bodyType != DynamicBody {
+		return
+	}
+
+	if b.setIndex >= firstSleepingSet && !wake {
+		return
+	}
+
+	if b.setIndex != awakeSet {
+		// Must wake for state to exist
+		wakeBody(w, b)
+	}
+
+	if b.setIndex != awakeSet {
+		panic("dbox2d: ApplyWind could not wake the body")
+	}
+
+	sim := getBodySim(w, b)
+	state := getBodyState(w, b)
+	transform := sim.transform
+	half := QHalf()
+
+	force := Vec2Zero()
+	torque := QZero()
+
+	centroid := s.localCentroid
+	lever := RotateVector(transform.Q, centroid.Sub(sim.localCenter))
+	shapeVelocity := state.linearVelocity.Add(CrossSV(state.angularVelocity, lever))
+	relativeVelocity := MulSub(wind, drag, shapeVelocity)
+	speed, direction := GetLengthAndNormalize(relativeVelocity)
+
+	switch shapeType {
+	case CircleShape:
+		radius := s.circle().Radius
+		projectedArea := QFromInt(2).Mul(radius)
+		force = direction.Mul(half.Mul(airDensity).Mul(projectedArea).Mul(speed).Mul(speed))
+		torque = Cross(lever, force)
+
+	case CapsuleShape:
+		c := s.capsule()
+		d := RotateVector(transform.Q, c.Center2.Sub(c.Center1))
+
+		radius := c.Radius
+		projectedArea := QFromInt(2).Mul(radius).Add(Cross(d, direction).Abs())
+
+		// Normal that opposes the wind
+		normal := LeftPerp(d.Normalize())
+		if QZero().Less(normal.Dot(direction)) {
+			normal = Neg(normal)
+		}
+
+		// portion of wind that is perpendicular to surface
+		liftDirection := CrossSV(Cross(normal, direction), direction)
+
+		forceMagnitude := half.Mul(airDensity).Mul(projectedArea).Mul(speed).Mul(speed)
+		force = MulAdd(direction, lift, liftDirection).Mul(forceMagnitude)
+
+		edgeLever := MulAdd(lever, radius, normal)
+		torque = Cross(edgeLever, force)
+
+	case PolygonShape:
+		// polygon radius is ignored for simplicity
+		poly := s.polygon()
+		count := poly.Count
+		v1 := poly.Vertices[count-1]
+		for i := 0; i < count; i++ {
+			v2 := poly.Vertices[i]
+			d := v2.Sub(v1)
+			edgeCenter := Lerp(v1, v2, half)
+			v1 = v2
+
+			d = RotateVector(transform.Q, d)
+
+			projectedArea := Cross(d, direction)
+			if !QZero().Less(projectedArea) {
+				// back facing
+				continue
+			}
+
+			normal := RightPerp(d.Normalize())
+
+			// portion of wind that is perpendicular to surface
+			liftDirection := CrossSV(Cross(normal, direction), direction)
+
+			forceMagnitude := half.Mul(airDensity).Mul(projectedArea).Mul(speed).Mul(speed)
+			f := MulAdd(direction, lift, liftDirection).Mul(forceMagnitude)
+
+			edgeLever := RotateVector(transform.Q, edgeCenter.Sub(sim.localCenter))
+
+			force = force.Add(f)
+			torque = torque.Add(Cross(edgeLever, f))
+		}
+	}
+
+	sim.force = sim.force.Add(force)
+	sim.torque = sim.torque.Add(torque)
 }
 
 // resetProxy destroys contacts and refreshes a shape proxy after a shape
@@ -1219,16 +1465,16 @@ func resetProxy(w *world, s *shape, wakeBodies, destroyProxy bool) {
 	transform := getBodyTransformQuick(w, b)
 	if s.proxyKey != nullIndex {
 		proxyType := proxyTypeOf(s.proxyKey)
-		updateShapeAABBs(s, transform, proxyType)
+		updateShapeAABBs(s, &w.fatAABBs[s.id], transform, proxyType)
 
 		if destroyProxy {
 			w.broadPhase.destroyProxy(s.proxyKey)
-			s.proxyKey = w.broadPhase.createProxy(proxyType, s.fatAABB, s.filter.CategoryBits, s.id, true)
+			s.proxyKey = w.broadPhase.createProxy(proxyType, w.fatAABBs[s.id], s.filter.CategoryBits, s.id, true)
 		} else {
-			w.broadPhase.moveProxy(s.proxyKey, s.fatAABB)
+			w.broadPhase.moveProxy(s.proxyKey, w.fatAABBs[s.id])
 		}
 	} else {
-		updateShapeAABBs(s, transform, b.bodyType)
+		updateShapeAABBs(s, &w.fatAABBs[s.id], transform, b.bodyType)
 	}
 
 	validateSolverSetsDebug(w)
@@ -1375,6 +1621,7 @@ func (shapeId ShapeId) SetCircle(circle *Circle) {
 	s := getShape(w, shapeId)
 	*s.circle() = *circle
 	s.shapeType = CircleShape
+	s.aabbMargin = computeShapeMargin(s)
 	resetProxy(w, s, true, true)
 }
 
@@ -1385,6 +1632,7 @@ func (shapeId ShapeId) SetCapsule(capsule *Capsule) {
 	s := getShape(w, shapeId)
 	*s.capsule() = *capsule
 	s.shapeType = CapsuleShape
+	s.aabbMargin = computeShapeMargin(s)
 	resetProxy(w, s, true, true)
 }
 
@@ -1395,6 +1643,35 @@ func (shapeId ShapeId) SetSegment(segment *Segment) {
 	s := getShape(w, shapeId)
 	*s.segment() = *segment
 	s.shapeType = SegmentShape
+	s.aabbMargin = computeShapeMargin(s)
+	resetProxy(w, s, true, true)
+}
+
+// SetChainSegment replaces the shape geometry with a chain segment that has
+// no parent chain. A segment owned by a chain cannot change, and a
+// degenerate segment is ignored. It corresponds to b2Shape_SetChainSegment.
+func (shapeId ShapeId) SetChainSegment(chainSegment *ChainSegment) {
+	if !isValidChainSegment(chainSegment) {
+		panic("dbox2d: the chain segment is not valid")
+	}
+
+	w := getWorldLocked(shapeId.world0)
+	s := getShape(w, shapeId)
+
+	// Cannot modify a chain segment that has a parent chain shape
+	if s.shapeType == ChainSegmentShape && s.chainSegment().ChainId != nullIndex {
+		panic("dbox2d: SetChainSegment cannot change a segment owned by a chain")
+	}
+
+	lengthSqr := chainSegment.Segment.Point1.DistanceSq(chainSegment.Segment.Point2)
+	if !linearSlop.Mul(linearSlop).Less(lengthSqr) {
+		return
+	}
+
+	*s.chainSegment() = *chainSegment
+	s.chainSegment().ChainId = nullIndex
+	s.shapeType = ChainSegmentShape
+	s.aabbMargin = computeShapeMargin(s)
 	resetProxy(w, s, true, true)
 }
 
@@ -1405,6 +1682,7 @@ func (shapeId ShapeId) SetPolygon(polygon *Polygon) {
 	s := getShape(w, shapeId)
 	*s.polygon() = *polygon
 	s.shapeType = PolygonShape
+	s.aabbMargin = computeShapeMargin(s)
 	resetProxy(w, s, true, true)
 }
 
@@ -1439,6 +1717,7 @@ func (shapeId ShapeId) GetContactData(data []ContactData) int {
 		if (c.shapeIdA == s.id || c.shapeIdB == s.id) && c.flags&contactTouchingFlag != 0 {
 			sA := &w.shapes[c.shapeIdA]
 			sB := &w.shapes[c.shapeIdB]
+			data[count].ContactId = contactIdOf(w, c)
 			data[count].ShapeIdA = ShapeId{index1: int32(sA.id) + 1, world0: shapeId.world0, generation: sA.generation}
 			data[count].ShapeIdB = ShapeId{index1: int32(sB.id) + 1, world0: shapeId.world0, generation: sB.generation}
 			data[count].Manifold = getContactSim(w, c).manifold
@@ -1450,16 +1729,16 @@ func (shapeId ShapeId) GetContactData(data []ContactData) int {
 	return count
 }
 
-// GetAABB returns the shape's current axis-aligned bounds. It corresponds to
-// b2Shape_GetAABB.
-func (shapeId ShapeId) GetAABB() AABB {
+// GetBounds returns the shape's current axis-aligned bounds. It corresponds to
+// b2Shape_GetBounds.
+func (shapeId ShapeId) GetBounds() AABB {
 	w := getWorld(shapeId.world0)
 	return getShape(w, shapeId).aabb
 }
 
-// GetMassData returns the shape mass, centroid and rotational inertia. It
-// corresponds to b2Shape_GetMassData.
-func (shapeId ShapeId) GetMassData() MassData {
+// ComputeMassData returns the shape mass, centroid and rotational inertia. It
+// corresponds to b2Shape_ComputeMassData.
+func (shapeId ShapeId) ComputeMassData() MassData {
 	w := getWorld(shapeId.world0)
 	return computeShapeMass(getShape(w, shapeId))
 }

@@ -290,7 +290,7 @@ func TestBroadPhasePairsMatchBruteForce(t *testing.T) {
 	for i := range count {
 		for j := i + 1; j < count; j++ {
 			sa, sb := &w.shapes[i], &w.shapes[j]
-			if !AABBOverlaps(sa.fatAABB, sb.fatAABB) || sa.bodyId == sb.bodyId {
+			if !AABBOverlaps(w.fatAABBs[sa.id], w.fatAABBs[sb.id]) || sa.bodyId == sb.bodyId {
 				continue
 			}
 			if !shouldBodiesCollide(w, &w.bodies[sa.bodyId], &w.bodies[sb.bodyId]) {

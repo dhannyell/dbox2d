@@ -50,6 +50,13 @@ func QMustParse(s string) Q { return fixed.Q32MustParse(s) }
 // representable range saturates to it; see IsValidQ.
 func QMaxValue() Q { return fixed.Q32MaxValue() }
 
+// qSubSum returns a - (b + c). The float mode rounds once in double; fixed
+// point is exact apart from saturation.
+func qSubSum(a, b, c Q) Q { return a.Sub(b.Add(c)) }
+
+// qAddSum returns a + (b + c).
+func qAddSum(a, b, c Q) Q { return a.Add(b.Add(c)) }
+
 // QMinValue returns the smallest scalar.
 func QMinValue() Q { return fixed.Q32MinValue() }
 

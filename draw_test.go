@@ -170,7 +170,7 @@ func createDrawScene(t testing.TB) WorldId {
 	bd = DefaultBodyDef()
 	bd.Type, bd.EnableSleep = DynamicBody, false
 	bd.Position, bd.Name = Vec2{X: QFromInt(-32), Y: QFromInt(3)}, "box"
-	bd.Rotation, bd.FixedRotation = MakeRot(QMustParse("0.1")), true
+	bd.Rotation, bd.MotionLocks = MakeRot(QMustParse("0.1")), MotionLocks{AngularZ: true}
 	CreatePolygonShape(CreateBody(w, &bd), &sd, &box)
 
 	slideSd := DefaultShapeDef()
@@ -396,7 +396,7 @@ func TestDrawRejectsLockedWorld(t *testing.T) {
 // callback, since the world is only actually locked while Step runs.
 func TestDrawRejectsLockedWorldDuringStep(t *testing.T) {
 	w := createTestWorld(t)
-	addDynamicBox(t, w, v2(0, 0))
+	addFilteredBox(t, w, v2(0, 0))
 	addDynamicBox(t, w, v2(1, 0))
 	draw := DefaultDebugDraw()
 	var message any

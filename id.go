@@ -34,6 +34,15 @@ type JointId struct {
 	generation uint16
 }
 
+// ContactId identifies a contact. Its zero value is null. The generation
+// advances each time a contact takes the slot, so a held id goes stale once
+// the contact is destroyed. It corresponds to b2ContactId.
+type ContactId struct {
+	index1     int32
+	world0     uint16
+	generation uint32
+}
+
 // IsNull reports whether the id references nothing.
 func (id WorldId) IsNull() bool { return id.index1 == 0 }
 
@@ -48,6 +57,9 @@ func (id ChainId) IsNull() bool { return id.index1 == 0 }
 
 // IsNull reports whether the id references nothing.
 func (id JointId) IsNull() bool { return id.index1 == 0 }
+
+// IsNull reports whether the id references nothing.
+func (id ContactId) IsNull() bool { return id.index1 == 0 }
 
 // StoreWorldId packs a world id into a uint32.
 func StoreWorldId(id WorldId) uint32 {
@@ -97,4 +109,16 @@ func StoreJointId(id JointId) uint64 {
 // LoadJointId unpacks a joint id from a uint64.
 func LoadJointId(x uint64) JointId {
 	return JointId{index1: int32(x >> 32), world0: uint16(x >> 16), generation: uint16(x)}
+}
+
+// StoreContactId packs a contact id into three uint32 values. It
+// corresponds to b2StoreContactId.
+func StoreContactId(id ContactId) [3]uint32 {
+	return [3]uint32{uint32(id.index1), uint32(id.world0), id.generation}
+}
+
+// LoadContactId unpacks a contact id from three uint32 values. It
+// corresponds to b2LoadContactId.
+func LoadContactId(values [3]uint32) ContactId {
+	return ContactId{index1: int32(values[0]), world0: uint16(values[1]), generation: values[2]}
 }

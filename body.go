@@ -2,7 +2,7 @@ package b2
 
 // body holds the organizational details that the solver does not use.
 type body struct {
-	name [32]byte
+	name [nameLength + 1]byte
 
 	userData any
 
@@ -37,6 +37,7 @@ type body struct {
 	inertia Q
 
 	sleepThreshold Q
+	safetyFactor   Q
 	sleepTime      Q
 
 	// bodyMoveIndex adjusts the fellAsleep flag in the body move array.
@@ -51,10 +52,11 @@ type body struct {
 	// BodyId fails validation.
 	generation uint16
 
-	enableSleep   bool
-	fixedRotation bool
-	isSpeedCapped bool
-	isMarked      bool
+	// flags holds the bodyFlags. The body copy is the master; the sim and
+	// the state copies follow through syncBodyFlags.
+	flags uint32
+
+	isMarked bool
 }
 
 // bodyState is the solver view of a body. Only awake dynamic and kinematic
@@ -63,7 +65,10 @@ type body struct {
 type bodyState struct {
 	linearVelocity  Vec2
 	angularVelocity Q
-	flags           int32
+
+	// flags holds the bodyFlags the solver reads: the locks and the speed
+	// cap.
+	flags uint32
 
 	// deltaPosition reduces round-off error far from the origin.
 	deltaPosition Vec2
@@ -113,13 +118,90 @@ type bodySim struct {
 	// bodyId is stable; the sim data moves between sets.
 	bodyId int
 
-	// isFast serves the debug draw.
-	isFast bool
+	// flags holds the bodyFlags.
+	flags uint32
+}
 
-	isBullet          bool
-	isSpeedCapped     bool
-	allowFastRotation bool
-	enlargeAABB       bool
+// The body flags. They correspond to b2BodyFlags in src/body.h.
+const (
+	// bodyLockLinearX fixes the translation along the x-axis.
+	bodyLockLinearX uint32 = 0x00000001
+
+	// bodyLockLinearY fixes the translation along the y-axis.
+	bodyLockLinearY uint32 = 0x00000002
+
+	// bodyLockAngularZ fixes the rotation.
+	bodyLockAngularZ uint32 = 0x00000004
+
+	// bodyIsFast serves the debug draw. Only on the body sim.
+	bodyIsFast uint32 = 0x00000008
+
+	// bodyIsBullet makes a dynamic body do a final continuous pass against
+	// every body type, but not other bullets.
+	bodyIsBullet uint32 = 0x00000010
+
+	// bodyIsSpeedCapped marks a body speed capped in the current step.
+	bodyIsSpeedCapped uint32 = 0x00000020
+
+	// bodyAllowFastRotation lifts the limit on angular velocity.
+	bodyAllowFastRotation uint32 = 0x00000080
+
+	// bodyEnlargeBulletBounds marks a bullet whose box must grow. Bullets
+	// do not follow the standard broad phase update.
+	bodyEnlargeBulletBounds uint32 = 0x00000100
+
+	// bodyDynamicFlag marks a dynamic body.
+	bodyDynamicFlag uint32 = 0x00000200
+
+	// bodyEnableSleep lets the body sleep.
+	bodyEnableSleep uint32 = 0x00000800
+
+	bodyAllLocks = bodyLockAngularZ | bodyLockLinearX | bodyLockLinearY
+
+	// bodyFixedRotation is set when the body has fixed rotation.
+	bodyFixedRotation = bodyLockAngularZ
+
+	// bodyTransientFlags are transient per time step. They may differ
+	// across the body, the sim and the state.
+	bodyTransientFlags = bodyIsSpeedCapped
+)
+
+// syncBodyFlags copies the body flags to the sim and the state when
+// something external changes them. It corresponds to b2SyncBodyFlags in
+// src/body.c.
+func syncBodyFlags(w *world, b *body) {
+	sim := getBodySim(w, b)
+
+	// Preserve the sim only flags: fast for the debug draw.
+	sim.flags = sim.flags&bodyIsFast | b.flags&^bodyTransientFlags
+
+	if state := getBodyState(w, b); state != nil {
+		state.flags = b.flags &^ bodyTransientFlags
+	}
+}
+
+// motionLockFlags packs the motion locks into body flags.
+func motionLockFlags(locks MotionLocks) uint32 {
+	var flags uint32
+	if locks.LinearX {
+		flags |= bodyLockLinearX
+	}
+	if locks.LinearY {
+		flags |= bodyLockLinearY
+	}
+	if locks.AngularZ {
+		flags |= bodyLockAngularZ
+	}
+	return flags
+}
+
+// setDynamicFlag keeps the dynamic flag in step with the body type.
+func setDynamicFlag(b *body) {
+	if b.bodyType == DynamicBody {
+		b.flags |= bodyDynamicFlag
+	} else {
+		b.flags &^= bodyDynamicFlag
+	}
 }
 
 // getBodyFullId returns a validated body from an id. It panics on an invalid
@@ -204,6 +286,9 @@ func CreateBody(worldId WorldId, def *BodyDef) BodyId {
 	if !IsValidQ(def.SleepThreshold) || def.SleepThreshold.Less(zero) {
 		panic("dbox2d: BodyDef.SleepThreshold is not valid")
 	}
+	if !IsValidQ(def.SafetyFactor) || def.SafetyFactor.Less(zero) {
+		panic("dbox2d: BodyDef.SafetyFactor is not valid")
+	}
 	if !IsValidQ(def.GravityScale) {
 		panic("dbox2d: BodyDef.GravityScale is not valid")
 	}
@@ -243,26 +328,40 @@ func CreateBody(worldId WorldId, def *BodyDef) BodyId {
 
 	bodyId := w.bodyIdPool.allocId()
 
+	flags := motionLockFlags(def.MotionLocks)
+	if def.IsBullet {
+		flags |= bodyIsBullet
+	}
+	if def.AllowFastRotation {
+		flags |= bodyAllowFastRotation
+	}
+	if def.Type == DynamicBody {
+		flags |= bodyDynamicFlag
+	}
+	if def.EnableSleep {
+		flags |= bodyEnableSleep
+	}
+
 	set := &w.solverSets[setId]
 	set.bodySims = append(set.bodySims, bodySim{
-		transform:         Transform{P: def.Position, Q: def.Rotation},
-		center:            def.Position,
-		rotation0:         def.Rotation,
-		center0:           def.Position,
-		minExtent:         Huge,
-		maxExtent:         QZero(),
-		linearDamping:     def.LinearDamping,
-		angularDamping:    def.AngularDamping,
-		gravityScale:      def.GravityScale,
-		bodyId:            bodyId,
-		isBullet:          def.IsBullet,
-		allowFastRotation: def.AllowFastRotation,
+		transform:      Transform{P: def.Position, Q: def.Rotation},
+		center:         def.Position,
+		rotation0:      def.Rotation,
+		center0:        def.Position,
+		minExtent:      Huge,
+		maxExtent:      QZero(),
+		linearDamping:  def.LinearDamping,
+		angularDamping: def.AngularDamping,
+		gravityScale:   def.GravityScale,
+		bodyId:         bodyId,
+		flags:          flags,
 	})
 
 	if setId == awakeSet {
 		state := identityBodyState()
 		state.linearVelocity = def.LinearVelocity
 		state.angularVelocity = def.AngularVelocity.Mul(tau)
+		state.flags = flags
 		set.bodyStates = append(set.bodyStates, state)
 	}
 
@@ -274,9 +373,9 @@ func CreateBody(worldId WorldId, def *BodyDef) BodyId {
 
 	b := &w.bodies[bodyId]
 
-	// the name keeps at most 31 bytes, as the reference does
-	b.name = [32]byte{}
-	copy(b.name[:31], def.Name)
+	// the name keeps at most nameLength bytes, as the reference does
+	b.name = [nameLength + 1]byte{}
+	copy(b.name[:nameLength], def.Name)
 
 	b.userData = def.UserData
 	b.setIndex = setId
@@ -297,11 +396,10 @@ func CreateBody(worldId WorldId, def *BodyDef) BodyId {
 	b.mass = QZero()
 	b.inertia = QZero()
 	b.sleepThreshold = def.SleepThreshold
+	b.safetyFactor = def.SafetyFactor
 	b.sleepTime = QZero()
 	b.bodyType = def.Type
-	b.enableSleep = def.EnableSleep
-	b.fixedRotation = def.FixedRotation
-	b.isSpeedCapped = false
+	b.flags = flags
 	b.isMarked = false
 
 	// dynamic and kinematic bodies that are enabled need a island
@@ -491,7 +589,7 @@ func updateBodyMassData(w *world, b *body) {
 		panic("dbox2d: the body inertia is negative")
 	}
 
-	if zero.Less(b.inertia) && !b.fixedRotation {
+	if zero.Less(b.inertia) && b.flags&bodyFixedRotation == 0 {
 		sim.invInertia = QOne().Div(b.inertia)
 	} else {
 		b.inertia = zero
@@ -546,6 +644,8 @@ func (bodyId BodyId) SetType(bodyType BodyType) {
 
 	if b.setIndex == disabledSet {
 		b.bodyType = bodyType
+		setDynamicFlag(b)
+		syncBodyFlags(w, b)
 		updateBodyMassData(w, b)
 		return
 	}
@@ -570,6 +670,7 @@ func (bodyId BodyId) SetType(bodyType BodyType) {
 	}
 
 	b.bodyType = bodyType
+	setDynamicFlag(b)
 
 	if originalType == StaticBody {
 		if b.setIndex != staticSet {
@@ -603,7 +704,7 @@ func (bodyId BodyId) SetType(bodyType BodyType) {
 			s := &w.shapes[shapeId]
 			shapeId = s.nextShapeId
 			destroyShapeProxy(s, &w.broadPhase)
-			createShapeProxy(s, &w.broadPhase, bodyType, transform, true)
+			createShapeProxy(w, s, bodyType, transform, true)
 		}
 	} else if bodyType == StaticBody {
 		if b.setIndex != awakeSet {
@@ -616,7 +717,7 @@ func (bodyId BodyId) SetType(bodyType BodyType) {
 		removeBodyFromIsland(w, b)
 
 		sim := &staticSolverSet.bodySims[b.localIndex]
-		sim.isFast = false
+		sim.flags &^= bodyIsFast | bodyTransientFlags
 
 		for jointKey := b.headJointKey; jointKey != nullIndex; {
 			jointId := jointKey >> 1
@@ -654,7 +755,7 @@ func (bodyId BodyId) SetType(bodyType BodyType) {
 			s := &w.shapes[shapeId]
 			shapeId = s.nextShapeId
 			destroyShapeProxy(s, &w.broadPhase)
-			createShapeProxy(s, &w.broadPhase, StaticBody, transform, true)
+			createShapeProxy(w, s, StaticBody, transform, true)
 		}
 	} else {
 		if originalType != DynamicBody && originalType != KinematicBody {
@@ -669,7 +770,7 @@ func (bodyId BodyId) SetType(bodyType BodyType) {
 			s := &w.shapes[shapeId]
 			shapeId = s.nextShapeId
 			destroyShapeProxy(s, &w.broadPhase)
-			createShapeProxy(s, &w.broadPhase, bodyType, transform, true)
+			createShapeProxy(w, s, bodyType, transform, true)
 		}
 	}
 
@@ -740,14 +841,17 @@ func (bodyId BodyId) SetTransform(position Vec2, rotation Rot) {
 
 	for shapeId := b.headShapeId; shapeId != nullIndex; shapeId = w.shapes[shapeId].nextShapeId {
 		s := &w.shapes[shapeId]
-		fatAABB := s.fatAABB
-		updateShapeAABBs(s, sim.transform, b.bodyType)
-		if AABBContains(fatAABB, s.aabb) {
-			s.fatAABB = fatAABB
-			continue
-		}
-		if s.proxyKey != nullIndex {
-			w.broadPhase.moveProxy(s.proxyKey, s.fatAABB)
+		aabb := computeFatShapeAABB(s, sim.transform, speculativeDistance)
+		s.aabb = aabb
+
+		if !AABBContains(w.fatAABBs[shapeId], aabb) {
+			fatAABB := fattenAABB(aabb, s.aabbMargin)
+			w.fatAABBs[shapeId] = fatAABB
+
+			// The body could be disabled
+			if s.proxyKey != nullIndex {
+				w.broadPhase.moveProxy(s.proxyKey, fatAABB)
+			}
 		}
 	}
 }
@@ -769,8 +873,15 @@ func (bodyId BodyId) SetTargetTransform(target Transform, timeStep Q) {
 	center2 := TransformPoint(target, sim.localCenter)
 	linearVelocity := center2.Sub(center1).Mul(invTimeStep)
 
+	if b.flags&bodyLockLinearX != 0 {
+		linearVelocity.X = zero
+	}
+	if b.flags&bodyLockLinearY != 0 {
+		linearVelocity.Y = zero
+	}
+
 	angularVelocity := zero
-	if !b.fixedRotation {
+	if b.flags&bodyLockAngularZ == 0 {
 		// D-004: the state stores radians.
 		deltaAngle := relativeAngle(sim.transform.Q, target.Q)
 		angularVelocity = angleRadians(deltaAngle).Mul(invTimeStep)
@@ -871,7 +982,7 @@ func (bodyId BodyId) SetLinearVelocity(linearVelocity Vec2) {
 func (bodyId BodyId) SetAngularVelocity(angularVelocity Q) {
 	w := getWorld(bodyId.world0)
 	b := getBodyFullId(w, bodyId)
-	if b.bodyType == StaticBody || b.fixedRotation {
+	if b.bodyType == StaticBody || b.flags&bodyLockAngularZ != 0 {
 		return
 	}
 	if !angularVelocity.Eq(QZero()) {
@@ -1017,20 +1128,57 @@ func (bodyId BodyId) GetRotationalInertia() Q {
 	return b.inertia
 }
 
-// GetLocalCenterOfMass returns the center of mass in local coordinates. It
-// corresponds to b2Body_GetLocalCenterOfMass.
-func (bodyId BodyId) GetLocalCenterOfMass() Vec2 {
+// GetLocalCenter returns the center of mass in local coordinates. It
+// corresponds to b2Body_GetLocalCenter.
+func (bodyId BodyId) GetLocalCenter() Vec2 {
 	w := getWorld(bodyId.world0)
 	b := getBodyFullId(w, bodyId)
 	return getBodySim(w, b).localCenter
 }
 
-// GetWorldCenterOfMass returns the center of mass in world coordinates. It
-// corresponds to b2Body_GetWorldCenterOfMass.
-func (bodyId BodyId) GetWorldCenterOfMass() Vec2 {
+// GetWorldCenter returns the center of mass in world coordinates. It
+// corresponds to b2Body_GetWorldCenter.
+func (bodyId BodyId) GetWorldCenter() Vec2 {
 	w := getWorld(bodyId.world0)
 	b := getBodyFullId(w, bodyId)
 	return getBodySim(w, b).center
+}
+
+// GetMinExtent returns the minimum distance from any point on the body
+// shapes to the center of mass. It corresponds to b2Body_GetMinExtent.
+func (bodyId BodyId) GetMinExtent() Q {
+	w := getWorld(bodyId.world0)
+	b := getBodyFullId(w, bodyId)
+	return getBodySim(w, b).minExtent
+}
+
+// GetMaxExtent returns the maximum distance from any point on the body
+// shapes to the center of mass. It corresponds to b2Body_GetMaxExtent.
+func (bodyId BodyId) GetMaxExtent() Q {
+	w := getWorld(bodyId.world0)
+	b := getBodyFullId(w, bodyId)
+	return getBodySim(w, b).maxExtent
+}
+
+// GetMaxExtentFromOrigin returns a conservative maximum distance from any
+// point on the body shapes to the body origin. It corresponds to
+// b2Body_GetMaxExtentFromOrigin.
+func (bodyId BodyId) GetMaxExtentFromOrigin() Q {
+	w := getWorld(bodyId.world0)
+	b := getBodyFullId(w, bodyId)
+	sim := getBodySim(w, b)
+	return sim.maxExtent.Add(sim.localCenter.Len())
+}
+
+// ClearForces clears the force and torque accumulated on the body. The
+// world step clears them anyway; call this only to drop forces applied
+// before the next step. It corresponds to b2Body_ClearForces.
+func (bodyId BodyId) ClearForces() {
+	w := getWorld(bodyId.world0)
+	b := getBodyFullId(w, bodyId)
+	sim := getBodySim(w, b)
+	sim.force = Vec2Zero()
+	sim.torque = QZero()
 }
 
 // GetMassData returns the body's mass, local center and rotational inertia.
@@ -1077,11 +1225,17 @@ func (bodyId BodyId) SetMassData(massData MassData) {
 	} else {
 		sim.invInertia = zero
 	}
+
+	// Motion locks take priority over mass data.
+	if b.flags&bodyFixedRotation != 0 {
+		b.inertia = zero
+		sim.invInertia = zero
+	}
 }
 
-// ApplyMassFromShapes recomputes mass data from the body's shapes. It
-// corresponds to b2Body_ApplyMassFromShapes.
-func (bodyId BodyId) ApplyMassFromShapes() {
+// UpdateMassFromShapes recomputes mass data from the body's shapes. It
+// corresponds to b2Body_UpdateMassFromShapes.
+func (bodyId BodyId) UpdateMassFromShapes() {
 	w := getWorldLocked(bodyId.world0)
 	b := getBodyFullId(w, bodyId)
 	updateBodyMassData(w, b)
@@ -1159,23 +1313,73 @@ func (bodyId BodyId) SetAwake(awake bool) {
 	}
 }
 
-// EnableSleep enables or disables sleeping. It corresponds to
-// b2Body_EnableSleep.
-func (bodyId BodyId) EnableSleep(enableSleep bool) {
+// EnableSleeping enables or disables sleeping. It corresponds to
+// b2Body_EnableSleeping.
+func (bodyId BodyId) EnableSleeping(enableSleep bool) {
 	w := getWorldLocked(bodyId.world0)
 	b := getBodyFullId(w, bodyId)
-	b.enableSleep = enableSleep
+	if enableSleep == (b.flags&bodyEnableSleep != 0) {
+		return
+	}
+	if enableSleep {
+		b.flags |= bodyEnableSleep
+	} else {
+		b.flags &^= bodyEnableSleep
+	}
+	syncBodyFlags(w, b)
 	if !enableSleep {
 		wakeBody(w, b)
 	}
 }
 
-// IsSleepEnabled reports whether the body may sleep. It corresponds to
-// b2Body_IsSleepEnabled.
-func (bodyId BodyId) IsSleepEnabled() bool {
+// IsSleepingEnabled reports whether the body may sleep. It corresponds to
+// b2Body_IsSleepingEnabled.
+func (bodyId BodyId) IsSleepingEnabled() bool {
 	w := getWorld(bodyId.world0)
 	b := getBodyFullId(w, bodyId)
-	return b.enableSleep
+	return b.flags&bodyEnableSleep != 0
+}
+
+// SetSafetyFactor changes the continuous collision safety factor. Smaller is
+// safer but can lead to hitching. It corresponds to b2Body_SetSafetyFactor.
+func (bodyId BodyId) SetSafetyFactor(safetyFactor Q) {
+	if !IsValidQ(safetyFactor) || safetyFactor.Less(QZero()) {
+		panic("dbox2d: SetSafetyFactor safetyFactor is not valid")
+	}
+	w := getWorld(bodyId.world0)
+	getBodyFullId(w, bodyId).safetyFactor = safetyFactor
+}
+
+// GetSafetyFactor returns the continuous collision safety factor. It
+// corresponds to b2Body_GetSafetyFactor.
+func (bodyId BodyId) GetSafetyFactor() Q {
+	w := getWorld(bodyId.world0)
+	return getBodyFullId(w, bodyId).safetyFactor
+}
+
+// WakeTouching wakes the bodies touching this body. It works for static
+// bodies. It corresponds to b2Body_WakeTouching.
+func (bodyId BodyId) WakeTouching() {
+	w := getWorldLocked(bodyId.world0)
+	b := getBodyFullId(w, bodyId)
+
+	contactKey := b.headContactKey
+	for contactKey != nullIndex {
+		contactId := contactKey >> 1
+		edgeIndex := contactKey & 1
+
+		c := &w.contacts[contactId]
+		shapeA := &w.shapes[c.shapeIdA]
+		shapeB := &w.shapes[c.shapeIdB]
+
+		if shapeA.bodyId == b.id {
+			wakeBody(w, &w.bodies[shapeB.bodyId])
+		} else {
+			wakeBody(w, &w.bodies[shapeA.bodyId])
+		}
+
+		contactKey = c.edges[edgeIndex].nextKey
+	}
 }
 
 // SetSleepThreshold changes the body's sleep threshold. It corresponds to
@@ -1274,7 +1478,7 @@ func (bodyId BodyId) Enable() {
 	for shapeId := b.headShapeId; shapeId != nullIndex; {
 		s := &w.shapes[shapeId]
 		shapeId = s.nextShapeId
-		createShapeProxy(s, &w.broadPhase, proxyType, transform, forcePairCreation)
+		createShapeProxy(w, s, proxyType, transform, forcePairCreation)
 	}
 
 	if setId != staticSet {
@@ -1319,26 +1523,47 @@ func (bodyId BodyId) Enable() {
 	mergeAwakeIslands(w)
 }
 
-// SetFixedRotation enables or disables body rotation. It corresponds to
-// b2Body_SetFixedRotation.
-func (bodyId BodyId) SetFixedRotation(flag bool) {
+// SetMotionLocks restricts the body movement. A lock zeroes the matching
+// velocity at the end of each sub-step; the angular lock also zeroes the
+// rotational inertia. It corresponds to b2Body_SetMotionLocks.
+func (bodyId BodyId) SetMotionLocks(locks MotionLocks) {
 	w := getWorldLocked(bodyId.world0)
+	newFlags := motionLockFlags(locks)
+
 	b := getBodyFullId(w, bodyId)
-	if b.fixedRotation != flag {
-		b.fixedRotation = flag
+	if b.flags&bodyAllLocks != newFlags {
+		b.flags &^= bodyAllLocks
+		b.flags |= newFlags
+
+		syncBodyFlags(w, b)
+
 		if state := getBodyState(w, b); state != nil {
-			state.angularVelocity = QZero()
+			if locks.LinearX {
+				state.linearVelocity.X = QZero()
+			}
+			if locks.LinearY {
+				state.linearVelocity.Y = QZero()
+			}
+			if locks.AngularZ {
+				state.angularVelocity = QZero()
+			}
 		}
+
+		// Motion locks can affect mass properties.
 		updateBodyMassData(w, b)
 	}
 }
 
-// IsFixedRotation reports whether body rotation is fixed. It corresponds to
-// b2Body_IsFixedRotation.
-func (bodyId BodyId) IsFixedRotation() bool {
+// GetMotionLocks returns the motion locks. It corresponds to
+// b2Body_GetMotionLocks.
+func (bodyId BodyId) GetMotionLocks() MotionLocks {
 	w := getWorld(bodyId.world0)
 	b := getBodyFullId(w, bodyId)
-	return b.fixedRotation
+	return MotionLocks{
+		LinearX:  b.flags&bodyLockLinearX != 0,
+		LinearY:  b.flags&bodyLockLinearY != 0,
+		AngularZ: b.flags&bodyLockAngularZ != 0,
+	}
 }
 
 // SetBullet changes whether the body is treated as a bullet. It corresponds
@@ -1346,7 +1571,16 @@ func (bodyId BodyId) IsFixedRotation() bool {
 func (bodyId BodyId) SetBullet(flag bool) {
 	w := getWorldLocked(bodyId.world0)
 	b := getBodyFullId(w, bodyId)
-	getBodySim(w, b).isBullet = flag
+	var newFlag uint32
+	if flag {
+		newFlag = bodyIsBullet
+	}
+	if b.flags&bodyIsBullet == newFlag {
+		return
+	}
+	b.flags &^= bodyIsBullet
+	b.flags |= newFlag
+	syncBodyFlags(w, b)
 }
 
 // IsBullet reports whether the body is treated as a bullet. It corresponds
@@ -1354,7 +1588,7 @@ func (bodyId BodyId) SetBullet(flag bool) {
 func (bodyId BodyId) IsBullet() bool {
 	w := getWorld(bodyId.world0)
 	b := getBodyFullId(w, bodyId)
-	return getBodySim(w, b).isBullet
+	return getBodySim(w, b).flags&bodyIsBullet != 0
 }
 
 // EnableContactEvents enables contact events on every body shape. It
@@ -1462,6 +1696,7 @@ func (bodyId BodyId) GetContactData(data []ContactData) int {
 		if c.flags&contactTouchingFlag != 0 {
 			sA := &w.shapes[c.shapeIdA]
 			sB := &w.shapes[c.shapeIdB]
+			data[count].ContactId = contactIdOf(w, c)
 			data[count].ShapeIdA = ShapeId{index1: int32(sA.id) + 1, world0: bodyId.world0, generation: sA.generation}
 			data[count].ShapeIdB = ShapeId{index1: int32(sB.id) + 1, world0: bodyId.world0, generation: sB.generation}
 			data[count].Manifold = getContactSim(w, c).manifold
@@ -1472,9 +1707,9 @@ func (bodyId BodyId) GetContactData(data []ContactData) int {
 	return count
 }
 
-// ComputeAABB returns the union of the body's shape bounds. It corresponds
-// to b2Body_ComputeAABB.
-func (bodyId BodyId) ComputeAABB() AABB {
+// ComputeBounds returns the union of the body's shape bounds. It corresponds
+// to b2Body_ComputeBounds.
+func (bodyId BodyId) ComputeBounds() AABB {
 	w := getWorld(bodyId.world0)
 	if w.locked {
 		return AABB{}
@@ -1505,13 +1740,13 @@ func (bodyId BodyId) GetUserData() any {
 	return getBodyFullId(w, bodyId).userData
 }
 
-// SetName stores up to 31 bytes of the body name. It corresponds to
+// SetName stores up to 10 bytes of the body name. It corresponds to
 // b2Body_SetName.
 func (bodyId BodyId) SetName(name string) {
 	w := getWorld(bodyId.world0)
 	b := getBodyFullId(w, bodyId)
-	b.name = [32]byte{}
-	copy(b.name[:31], name)
+	b.name = [nameLength + 1]byte{}
+	copy(b.name[:nameLength], name)
 }
 
 // GetName returns the stored body name. It corresponds to b2Body_GetName.

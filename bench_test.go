@@ -2015,7 +2015,7 @@ func newF64PyramidBroadPhase() *f64BroadPhase {
 		bp.trees[i] = newF64Tree()
 	}
 	// The fat bounds grow by the speculative distance and the margin.
-	grow := QToFloat64(speculativeDistance) + QToFloat64(aabbMargin)
+	grow := QToFloat64(speculativeDistance) + QToFloat64(maxAABBMargin)
 
 	rows := float64(pyramidRows)
 	ground := f64AABB{-rows - grow, -1 - grow, rows + grow, grow}
@@ -2208,7 +2208,7 @@ func BenchmarkStepBullets(b *testing.B) {
 
 	fast := 0
 	for i := range w.solverSets[awakeSet].bodySims {
-		if w.solverSets[awakeSet].bodySims[i].isFast {
+		if w.solverSets[awakeSet].bodySims[i].flags&bodyIsFast != 0 {
 			fast++
 		}
 	}

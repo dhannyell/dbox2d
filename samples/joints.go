@@ -1225,7 +1225,7 @@ func (s *FixedRotation) CreateScene() {
 	position := b2.Vec2{X: b2.QFromRatio(-25, 2), Y: b2.F(10)}
 	bodyDef := b2.DefaultBodyDef()
 	bodyDef.Type = b2.DynamicBody
-	bodyDef.FixedRotation = s.fixedRotation
+	bodyDef.MotionLocks.AngularZ = s.fixedRotation
 	box := b2.MakeBox(b2.QOne(), b2.QOne())
 
 	index := 0
@@ -1347,7 +1347,7 @@ func (s *FixedRotation) UpdateGui() {
 	if s.Context.Gui.Begin("Fixed Rotation", 10, s.Context.Camera.Height-height-50, 180, height) {
 		if s.Context.Gui.Checkbox("Fixed Rotation", &s.fixedRotation) {
 			for i := range fixedRotationCount {
-				s.bodyIDs[i].SetFixedRotation(s.fixedRotation)
+				s.bodyIDs[i].SetMotionLocks(b2.MotionLocks{AngularZ: s.fixedRotation})
 			}
 		}
 	}
@@ -1695,7 +1695,7 @@ func (s *UserConstraint) Step() {
 	// The angular velocity is turns/s; the cross terms need rad/s.
 	turnRadians := b2.Pi().Mul(b2.F(2))
 	omegaRad := omegaB.Mul(turnRadians)
-	pB := s.bodyId.GetWorldCenterOfMass()
+	pB := s.bodyId.GetWorldCenter()
 
 	for i := range localAnchors {
 		anchorA := b2.V2(3, 0)

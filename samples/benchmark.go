@@ -868,7 +868,7 @@ func NewCompound(ctx *SampleContext) Sample {
 					}
 				}
 
-				bodyID.ApplyMassFromShapes()
+				bodyID.UpdateMassFromShapes()
 			}
 		}
 	}
@@ -920,7 +920,7 @@ func NewKinematic(ctx *SampleContext) Sample {
 		}
 	}
 
-	bodyID.ApplyMassFromShapes()
+	bodyID.UpdateMassFromShapes()
 	return s
 }
 
@@ -1205,7 +1205,7 @@ func (s *Cast) Step() {
 			result.count = 0
 			traversalResult := s.WorldId.OverlapAABB(aabb, filter, func(shapeID b2.ShapeId) bool {
 				if result.count < len(result.points) {
-					result.points[result.count] = b2.AABBCenter(shapeID.GetAABB())
+					result.points[result.count] = b2.AABBCenter(shapeID.GetBounds())
 					result.count++
 				}
 				return true

@@ -519,7 +519,8 @@ func NewFootSensor(ctx *SampleContext) Sample {
 		}
 
 		chainDef := b2.DefaultChainDef()
-		chainDef.Points = points
+		chainDef.Points = points[1:19]
+		chainDef.Ghost1, chainDef.Ghost2 = points[0], points[19]
 		chainDef.Filter.CategoryBits = footGround
 		chainDef.Filter.MaskBits = footFoot | footPlayer
 		chainDef.IsLoop = false
@@ -531,7 +532,7 @@ func NewFootSensor(ctx *SampleContext) Sample {
 	{
 		bodyDef := b2.DefaultBodyDef()
 		bodyDef.Type = b2.DynamicBody
-		bodyDef.FixedRotation = true
+		bodyDef.MotionLocks.AngularZ = true
 		bodyDef.Position = b2.V2(0, 1)
 		s.playerId = b2.CreateBody(s.WorldId, &bodyDef)
 		shapeDef := b2.DefaultShapeDef()
@@ -585,10 +586,10 @@ func (s *FootSensor) Step() {
 
 	capacity := s.sensorId.GetSensorCapacity()
 	s.overlaps = append(s.overlaps[:0], make([]b2.ShapeId, capacity)...)
-	count := s.sensorId.GetSensorOverlaps(s.overlaps)
+	count := s.sensorId.GetSensorData(s.overlaps)
 	for i := range count {
 		shapeId := s.overlaps[i]
-		aabb := shapeId.GetAABB()
+		aabb := shapeId.GetBounds()
 		point := b2.AABBCenter(aabb)
 		s.Context.Draw.DrawPoint(point, b2.F(10), b2.ColorWhite)
 	}
@@ -740,7 +741,7 @@ func (s *ContactEvent) drawContactImpulses(shapeId, otherId, pairId b2.ShapeId, 
 			manifold := contactData[j].Manifold
 			normal := manifold.Normal
 
-			centerA := idA.GetBody().GetWorldCenterOfMass()
+			centerA := idA.GetBody().GetWorldCenter()
 			for k := range manifold.PointCount {
 				point := manifold.Points[k]
 				p1 := centerA.Add(point.AnchorA)
@@ -894,7 +895,7 @@ func (s *ContactEvent) Step() {
 
 	if destroyCount > 0 {
 		// Update mass just once
-		s.playerId.ApplyMassFromShapes()
+		s.playerId.UpdateMassFromShapes()
 	}
 
 	if s.Context.Settings.Hertz > 0 && !s.Context.Settings.Pause {
@@ -978,7 +979,7 @@ func NewPlatformer(ctx *SampleContext) Sample {
 	{
 		bodyDef := b2.DefaultBodyDef()
 		bodyDef.Type = b2.DynamicBody
-		bodyDef.FixedRotation = true
+		bodyDef.MotionLocks.AngularZ = true
 		bodyDef.LinearDamping = b2.QHalf()
 		bodyDef.Position = b2.V2(0, 1)
 		s.playerId = b2.CreateBody(s.WorldId, &bodyDef)
@@ -1393,7 +1394,7 @@ func (s *SensorTypes) printOverlaps(sensorShapeId b2.ShapeId, prefix string) {
 	s.overlaps = append(s.overlaps[:0], make([]b2.ShapeId, capacity)...)
 
 	// Get all overlaps and record the actual count
-	count := sensorShapeId.GetSensorOverlaps(s.overlaps)
+	count := sensorShapeId.GetSensorData(s.overlaps)
 	s.overlaps = s.overlaps[:count]
 
 	var buffer strings.Builder

@@ -266,7 +266,7 @@ func TestStepFillsTheProfile(t *testing.T) {
 func TestSetFrictionCallbackAffectsNextContact(t *testing.T) {
 	worldId := createTestWorld(t)
 	constant := QMustParse("0.75")
-	worldId.SetFrictionCallback(func(Q, int, Q, int) Q { return constant })
+	worldId.SetFrictionCallback(func(Q, uint64, Q, uint64) Q { return constant })
 	addDynamicCircle(t, worldId, v2(0, 0))
 	addDynamicCircle(t, worldId, v2(1, 0))
 	worldId.Step(stepDt(), 4)
@@ -577,7 +577,7 @@ func TestOverlapAABBReportsTheFatBounds(t *testing.T) {
 	expected := map[ShapeId]bool{}
 	for i := range w.shapes {
 		s := &w.shapes[i]
-		if s.id != nullIndex && AABBOverlaps(s.fatAABB, query) {
+		if s.id != nullIndex && AABBOverlaps(w.fatAABBs[s.id], query) {
 			expected[shapeIdOf(w, s)] = true
 		}
 	}
@@ -833,13 +833,27 @@ func TestCastMoverStopsAtTheWall(t *testing.T) {
 	requirePanic(t, func() { worldId.CastMover(&thin, v2(20, 0), DefaultQueryFilter()) })
 }
 
+// addFilteredBox adds a dynamic unit box that opts in to custom filtering.
+func addFilteredBox(t *testing.T, worldId WorldId, position Vec2) BodyId {
+	t.Helper()
+	bodyDef := DefaultBodyDef()
+	bodyDef.Type = DynamicBody
+	bodyDef.Position = position
+	bodyId := CreateBody(worldId, &bodyDef)
+	shapeDef := DefaultShapeDef()
+	shapeDef.EnableCustomFiltering = true
+	box := MakeSquare(QOne())
+	CreatePolygonShape(bodyId, &shapeDef, &box)
+	return bodyId
+}
+
 // TestCustomFilterRejectsPair locks down that a callback returning false
-// keeps the pair from ever becoming a contact.
+// keeps the pair from ever becoming a contact when one shape opts in.
 func TestCustomFilterRejectsPair(t *testing.T) {
 	worldId := createTestWorld(t)
 	worldId.SetCustomFilterCallback(func(ShapeId, ShapeId) bool { return false })
 
-	addDynamicBox(t, worldId, v2(0, 0))
+	addFilteredBox(t, worldId, v2(0, 0))
 	addDynamicBox(t, worldId, v2(0, 0))
 
 	dt := stepDt()
@@ -855,13 +869,35 @@ func TestCustomFilterRejectsPair(t *testing.T) {
 	}
 }
 
+// TestCustomFilterNeedsOptIn checks that the callback never runs for a pair
+// in which neither shape enables custom filtering.
+func TestCustomFilterNeedsOptIn(t *testing.T) {
+	worldId := createTestWorld(t)
+	calls := 0
+	worldId.SetCustomFilterCallback(func(ShapeId, ShapeId) bool {
+		calls++
+		return false
+	})
+
+	addDynamicBox(t, worldId, v2(0, 0))
+	addDynamicBox(t, worldId, v2(0, 0))
+	worldId.Step(stepDt(), 4)
+
+	if calls != 0 {
+		t.Errorf("the callback ran %d times without an opt-in", calls)
+	}
+	if got := worldId.GetCounters().ContactCount; got != 1 {
+		t.Errorf("contact count = %d, want 1", got)
+	}
+}
+
 // TestCustomFilterAcceptingKeepsWitness locks down that an always-true
 // callback does not perturb the simulation: the checksum of a scene run
 // with the callback matches the same scene run with no callback at all.
 func TestCustomFilterAcceptingKeepsWitness(t *testing.T) {
 	buildScene := func(worldId WorldId) {
-		addDynamicBox(t, worldId, v2(0, 5))
-		addDynamicBox(t, worldId, v2(0, 6))
+		addFilteredBox(t, worldId, v2(0, 5))
+		addFilteredBox(t, worldId, v2(0, 6))
 	}
 
 	dt := stepDt()

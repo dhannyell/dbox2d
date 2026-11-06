@@ -219,7 +219,7 @@ func (ctx *pairContext) flushCandidatePairs() {
 		}
 
 		// Custom user filter
-		if w.customFilterFcn != nil {
+		if (shapeA.enableCustomFiltering || shapeB.enableCustomFiltering) && w.customFilterFcn != nil {
 			idA := ShapeId{index1: int32(shapeIdA) + 1, world0: w.worldId, generation: shapeA.generation}
 			idB := ShapeId{index1: int32(shapeIdB) + 1, world0: w.worldId, generation: shapeB.generation}
 			if !w.customFilterFcn(idA, idB) {

@@ -77,7 +77,7 @@ func checksumShapeGeometry(h uint64, s *shape) uint64 {
 	}
 }
 
-func checksumShape(s *shape) uint64 {
+func checksumShape(w *world, s *shape) uint64 {
 	h := fnvOffsetBasis
 	h = fnvFold(h, uint64(s.shapeType))
 	h = checksumQ(h, s.density)
@@ -85,17 +85,19 @@ func checksumShape(s *shape) uint64 {
 	h = checksumQ(h, s.restitution)
 	h = checksumQ(h, s.rollingResistance)
 	h = checksumQ(h, s.tangentSpeed)
-	h = fnvFold(h, uint64(int64(s.userMaterialId)))
+	h = fnvFold(h, s.userMaterialId)
 	h = fnvFold(h, s.filter.CategoryBits)
 	h = fnvFold(h, s.filter.MaskBits)
 	h = fnvFold(h, uint64(int64(s.filter.GroupIndex)))
 	h = checksumAABB(h, s.aabb)
-	h = checksumAABB(h, s.fatAABB)
+	h = checksumQ(h, s.aabbMargin)
+	h = checksumAABB(h, w.fatAABBs[s.id])
 	h = checksumVec2(h, s.localCentroid)
 	h = checksumBool(h, s.enableSensorEvents)
 	h = checksumBool(h, s.enableContactEvents)
 	h = checksumBool(h, s.enableHitEvents)
 	h = checksumBool(h, s.enablePreSolveEvents)
+	h = checksumBool(h, s.enableCustomFiltering)
 	return checksumShapeGeometry(h, s)
 }
 
@@ -116,10 +118,9 @@ func checksumBody(w *world, b *body) uint64 {
 	h = checksumQ(h, b.mass)
 	h = checksumQ(h, b.inertia)
 	h = checksumQ(h, b.sleepThreshold)
+	h = checksumQ(h, b.safetyFactor)
 	h = checksumQ(h, b.sleepTime)
-	h = checksumBool(h, b.enableSleep)
-	h = checksumBool(h, b.fixedRotation)
-	h = checksumBool(h, b.isSpeedCapped)
+	h = fnvFold(h, uint64(b.flags))
 	h = checksumBool(h, b.isMarked)
 
 	// A pending island split changes the next step: it blocks sleep and
@@ -142,17 +143,13 @@ func checksumBody(w *world, b *body) uint64 {
 	h = checksumQ(h, sim.linearDamping)
 	h = checksumQ(h, sim.angularDamping)
 	h = checksumQ(h, sim.gravityScale)
-	h = checksumBool(h, sim.isFast)
-	h = checksumBool(h, sim.isBullet)
-	h = checksumBool(h, sim.isSpeedCapped)
-	h = checksumBool(h, sim.allowFastRotation)
-	h = checksumBool(h, sim.enlargeAABB)
+	h = fnvFold(h, uint64(sim.flags))
 
 	if b.setIndex == awakeSet {
 		state := &set.bodyStates[b.localIndex]
 		h = checksumVec2(h, state.linearVelocity)
 		h = checksumQ(h, state.angularVelocity)
-		h = fnvFold(h, uint64(int64(state.flags)))
+		h = fnvFold(h, uint64(state.flags))
 		h = checksumVec2(h, state.deltaPosition)
 		h = checksumRot(h, state.deltaRotation)
 	}
@@ -160,7 +157,7 @@ func checksumBody(w *world, b *body) uint64 {
 	var shapeSum uint64
 	shapeCount := 0
 	for shapeId := b.headShapeId; shapeId != nullIndex; shapeId = w.shapes[shapeId].nextShapeId {
-		shapeSum += checksumShape(&w.shapes[shapeId])
+		shapeSum += checksumShape(w, &w.shapes[shapeId])
 		shapeCount++
 	}
 	h = fnvFold(h, uint64(shapeCount))
@@ -211,7 +208,7 @@ func checksumContactEndpoint(w *world, shapeId int) uint64 {
 
 	h := fnvOffsetBasis
 	h = fnvFold(h, checksumBody(w, b))
-	return fnvFold(h, checksumShape(s))
+	return fnvFold(h, checksumShape(w, s))
 }
 
 func checksumContactOrientation(c *contact, cs *contactSim, endpointA, endpointB uint64, swap bool) uint64 {

@@ -110,7 +110,7 @@ func TestBodyGatherScatterW(t *testing.T) {
 		states[i] = bodyState{
 			linearVelocity:  Vec2{X: value(i, 0), Y: value(i, 1)},
 			angularVelocity: value(i, 2),
-			flags:           int32(i+1) * 0x01010101,
+			flags:           uint32(i+1) * 0x01010101,
 			deltaPosition:   Vec2{X: value(i, 3), Y: value(i, 4)},
 			deltaRotation:   Rot{Cos: value(i, 5), Sin: value(i, 6)},
 		}
@@ -403,7 +403,7 @@ func TestGatherBodiesSubstitutesIdentityForNull(t *testing.T) {
 		states[i] = bodyState{
 			linearVelocity:  Vec2{X: Q{v: 1.25 + float32(i)}, Y: Q{v: -2.5 - float32(i)}},
 			angularVelocity: Q{v: 0.125 * float32(i+1)},
-			flags:           int32(3 + i),
+			flags:           uint32(3 + i),
 			deltaPosition:   Vec2{X: Q{v: 0.5 + float32(i)}, Y: Q{v: -0.75 - float32(i)}},
 			deltaRotation:   Rot{Sin: Q{v: 0.1 + 0.01*float32(i)}, Cos: Q{v: 0.9 - 0.02*float32(i)}},
 		}
@@ -461,7 +461,7 @@ func TestScatterBodiesRestoresVelocities(t *testing.T) {
 		states[i] = bodyState{
 			linearVelocity:  Vec2{X: Q{v: 2.25 + float32(i)}, Y: Q{v: -3.5 - float32(i)}},
 			angularVelocity: Q{v: 0.0625 * float32(i+1)},
-			flags:           int32(7 + i),
+			flags:           uint32(7 + i),
 			deltaPosition:   Vec2{X: Q{v: 1.5 + float32(i)}, Y: Q{v: -1.75 - float32(i)}},
 			deltaRotation:   Rot{Sin: Q{v: 0.2 + 0.01*float32(i)}, Cos: Q{v: 0.8 - 0.02*float32(i)}},
 		}

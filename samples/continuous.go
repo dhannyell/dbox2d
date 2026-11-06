@@ -274,7 +274,7 @@ func (s *ChainDrop) launch() {
 	bodyDef.LinearVelocity = b2.Vec2{Y: FromFloat64(s.speed)}
 	bodyDef.Position = b2.Vec2{Y: b2.F(10).Add(FromFloat64(s.yOffset))}
 	bodyDef.Rotation = b2.MakeRot(b2.QFromRatio(1, 4))
-	bodyDef.FixedRotation = true
+	bodyDef.MotionLocks.AngularZ = true
 	s.bodyId = b2.CreateBody(s.WorldId, &bodyDef)
 
 	shapeDef := b2.DefaultShapeDef()
@@ -875,7 +875,7 @@ func NewPixelImperfect(ctx *SampleContext) Sample {
 		ballShapeDef.Material.Friction = b2.QZero()
 		b2.CreatePolygonShape(s.ballId, &ballShapeDef, &ballShape)
 		s.ballId.SetLinearVelocity(b2.V2(0, -5))
-		s.ballId.SetFixedRotation(true)
+		s.ballId.SetMotionLocks(b2.MotionLocks{AngularZ: true})
 	}
 	return s
 }
@@ -935,8 +935,8 @@ func NewRestitutionThreshold(ctx *SampleContext) Sample {
 		ballShapeDef.Material.Restitution = b2.QOne()
 		b2.CreateCircleShape(s.ballId, &ballShapeDef, &ballShape)
 
-		s.ballId.SetLinearVelocity(b2.V2(0.0, -2.9)) // Initial velocity
-		s.ballId.SetFixedRotation(true)              // Do not rotate a ball
+		s.ballId.SetLinearVelocity(b2.V2(0.0, -2.9))            // Initial velocity
+		s.ballId.SetMotionLocks(b2.MotionLocks{AngularZ: true}) // Do not rotate a ball
 	}
 	return s
 }

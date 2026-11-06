@@ -68,6 +68,10 @@ type world struct {
 	// shapes maps a shape id to the shape data.
 	shapes []shape
 
+	// fatAABBs holds the fat bounds of each shape, indexed by shape id. They
+	// live apart from the shapes for cache efficiency in the pair update.
+	fatAABBs []AABB
+
 	chainIdPool idPool
 
 	// chainShapes maps a chain id to the chain data.
@@ -163,13 +167,13 @@ type world struct {
 
 // defaultFrictionCallback is the geometric mean. It corresponds to
 // b2DefaultFrictionCallback in src/world.c.
-func defaultFrictionCallback(frictionA Q, _ int, frictionB Q, _ int) Q {
+func defaultFrictionCallback(frictionA Q, _ uint64, frictionB Q, _ uint64) Q {
 	return frictionA.Mul(frictionB).Sqrt()
 }
 
 // defaultRestitutionCallback is the maximum. It corresponds to
 // b2DefaultRestitutionCallback in src/world.c.
-func defaultRestitutionCallback(restitutionA Q, _ int, restitutionB Q, _ int) Q {
+func defaultRestitutionCallback(restitutionA Q, _ uint64, restitutionB Q, _ uint64) Q {
 	return restitutionA.Max(restitutionB)
 }
 
@@ -1039,6 +1043,10 @@ type taskContext struct {
 	// its capacity between steps.
 	pairKeys []uint64
 
+	// sensorHits holds the sensor crossings this worker's continuous sweeps
+	// found. It keeps its capacity between steps.
+	sensorHits []sensorHit
+
 	// splitIslandId is the sleepiest island with a pending split.
 	splitIslandId  int
 	splitSleepTime Q
@@ -1757,13 +1765,13 @@ func drawBodyColor(body *body, sim *bodySim, shape *shape) HexColor {
 	if shape.sensorIndex != nullIndex {
 		return ColorWheat
 	}
-	if sim.isBullet && body.setIndex == awakeSet {
+	if sim.flags&bodyIsBullet != 0 && body.setIndex == awakeSet {
 		return ColorTurquoise
 	}
-	if body.isSpeedCapped {
+	if body.flags&bodyIsSpeedCapped != 0 {
 		return ColorYellow
 	}
-	if sim.isFast {
+	if sim.flags&bodyIsFast != 0 {
 		return ColorSalmon
 	}
 	switch body.bodyType {
@@ -1794,7 +1802,7 @@ func drawWorldBounds(draw *DebugDraw, w *world) {
 			body := &w.bodies[sim.bodyId]
 			draw.DrawString(sim.center, strconv.Itoa(sim.bodyId), ColorWhite)
 			for shapeID := body.headShapeId; shapeID != nullIndex; shapeID = w.shapes[shapeID].nextShapeId {
-				drawAABB(draw, w.shapes[shapeID].fatAABB, ColorGold)
+				drawAABB(draw, w.fatAABBs[shapeID], ColorGold)
 			}
 		}
 	}
@@ -1949,7 +1957,7 @@ func (ctx *drawContext) drawQueryCallback(_ int, userData uint64) bool {
 		drawShape(draw, shape, sim.transform, drawBodyColor(body, sim, shape))
 	}
 	if draw.DrawBounds {
-		drawAABB(draw, shape.fatAABB, ColorGold)
+		drawAABB(draw, w.fatAABBs[shape.id], ColorGold)
 	}
 	return true
 }
@@ -2019,9 +2027,9 @@ func drawIslands(draw *DebugDraw, w *world) {
 		for bodyID := island.headBody; bodyID != nullIndex; bodyID = w.bodies[bodyID].islandNext {
 			for shapeID := w.bodies[bodyID].headShapeId; shapeID != nullIndex; shapeID = w.shapes[shapeID].nextShapeId {
 				if shapeCount == 0 {
-					bounds = w.shapes[shapeID].fatAABB
+					bounds = w.fatAABBs[shapeID]
 				} else {
-					bounds = AABBUnion(bounds, w.shapes[shapeID].fatAABB)
+					bounds = AABBUnion(bounds, w.fatAABBs[shapeID])
 				}
 				shapeCount++
 			}

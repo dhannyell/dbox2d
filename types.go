@@ -92,15 +92,16 @@ type Profile struct {
 	HitEvents           float64
 	Refit               float64
 	Bullets             float64
+	SensorHits          float64
 	SleepIslands        float64
 	Sensors             float64
 }
 
 // FrictionCallback mixes the friction values of two shapes.
-type FrictionCallback func(frictionA Q, userMaterialIdA int, frictionB Q, userMaterialIdB int) Q
+type FrictionCallback func(frictionA Q, userMaterialIdA uint64, frictionB Q, userMaterialIdB uint64) Q
 
 // RestitutionCallback mixes the restitution values of two shapes.
-type RestitutionCallback func(restitutionA Q, userMaterialIdA int, restitutionB Q, userMaterialIdB int) Q
+type RestitutionCallback func(restitutionA Q, userMaterialIdA uint64, restitutionB Q, userMaterialIdB uint64) Q
 
 // CustomFilterFcn decides whether two shapes may collide. It corresponds to
 // b2CustomFilterFcn; return false to reject the pair. With several workers
@@ -154,6 +155,18 @@ const (
 	BodyTypeCount = 3
 )
 
+// MotionLocks restrict the body movement. It corresponds to b2MotionLocks.
+type MotionLocks struct {
+	// Prevent translation along the x-axis.
+	LinearX bool
+
+	// Prevent translation along the y-axis.
+	LinearY bool
+
+	// Prevent rotation around the z-axis.
+	AngularZ bool
+}
+
 // BodyDef holds the data to construct a rigid body. It is a temporary bundle
 // of creation parameters; shapes come after construction.
 // Initialize it with DefaultBodyDef.
@@ -191,7 +204,15 @@ type BodyDef struct {
 	// Sleep speed threshold, default 0.05 meters per second.
 	SleepThreshold Q
 
-	// Optional body name for debugging, up to 31 bytes.
+	// Continuous collision safety factor. The solver only uses continuous
+	// collision when the body risks tunneling. If moving N meters risks
+	// tunneling, the body is fast once it moves more than SafetyFactor times
+	// N meters in one full time step. Non-dimensional. The recommended range
+	// is [0.01, 0.5]; the default 0.5 favors performance with a low
+	// tunneling risk.
+	SafetyFactor Q
+
+	// Optional body name for debugging, up to 10 bytes.
 	Name string
 
 	// Application data attached to the body.
@@ -203,8 +224,8 @@ type BodyDef struct {
 	// Whether the body starts awake.
 	IsAwake bool
 
-	// Prevent the body from rotating. Useful for characters.
-	FixedRotation bool
+	// Motion locks to restrict linear and angular movement.
+	MotionLocks MotionLocks
 
 	// Treat the body as a high speed object that performs continuous
 	// collision against dynamic and kinematic bodies, but not against other
@@ -229,6 +250,7 @@ func DefaultBodyDef() BodyDef {
 		Type:           StaticBody,
 		Rotation:       RotIdentity(),
 		SleepThreshold: defaultSleepThreshold,
+		SafetyFactor:   QHalf(),
 		GravityScale:   QOne(),
 		EnableSleep:    true,
 		IsAwake:        true,
@@ -332,7 +354,7 @@ type SurfaceMaterial struct {
 
 	// Application material identifier, returned with query results. The
 	// world does not use it.
-	UserMaterialId int
+	UserMaterialId uint64
 
 	// Custom debug draw color.
 	CustomColor uint32
@@ -359,6 +381,10 @@ type ShapeDef struct {
 
 	// Collision filtering data.
 	Filter Filter
+
+	// Enable custom filtering. Only one of the two shapes needs to enable
+	// it. See WorldId.SetCustomFilterCallback.
+	EnableCustomFiltering bool
 
 	// A sensor generates overlap events and never a collision response.
 	IsSensor bool
@@ -408,8 +434,18 @@ type ChainDef struct {
 	// Application data attached to the chain's segments.
 	UserData any
 
-	// An array of at least four points. The points are copied during creation.
+	// An array of at least 2 points (open chain) or 3 points (loop). The
+	// points are copied during creation.
 	Points []Vec2
+
+	// The ghost point before the first point of an open chain. It must be
+	// set: the default is an infinity sentinel that CreateChain rejects.
+	// Ignored for loops.
+	Ghost1 Vec2
+
+	// The ghost point after the last point of an open chain. It must be
+	// set like Ghost1. Ignored for loops.
+	Ghost2 Vec2
 
 	// One material for every segment, or one material shared by all segments.
 	Materials []SurfaceMaterial
@@ -431,6 +467,8 @@ type ChainDef struct {
 // b2DefaultChainDef.
 func DefaultChainDef() ChainDef {
 	return ChainDef{
+		Ghost1:        Vec2{X: qInfinity(), Y: qInfinity()},
+		Ghost2:        Vec2{X: qInfinity(), Y: qInfinity()},
 		Materials:     []SurfaceMaterial{DefaultSurfaceMaterial()},
 		Filter:        DefaultFilter(),
 		internalValue: secretCookie,
@@ -440,6 +478,10 @@ func DefaultChainDef() ChainDef {
 // ContactData reports the manifold of a touching contact on a body. It
 // corresponds to b2ContactData in include/box2d/types.h.
 type ContactData struct {
+	// ContactId identifies the contact. It may be held across steps but
+	// can become stale; check ContactId.IsValid before using it.
+	ContactId ContactId
+
 	// ShapeIdA is the first shape in the contact.
 	ShapeIdA ShapeId
 
@@ -458,9 +500,10 @@ type ContactBeginTouchEvent struct {
 	// ShapeIdB is the second shape.
 	ShapeIdB ShapeId
 
-	// Manifold is the initial contact manifold. The world records it
-	// before the solver runs, so every impulse is zero.
-	Manifold Manifold
+	// ContactId is the transient contact id. The world may destroy the
+	// contact when it is modified or simulated; check ContactId.IsValid
+	// before using it. ContactId.GetData returns the manifold.
+	ContactId ContactId
 }
 
 // ContactEndTouchEvent reports that two shapes stopped touching. Any
@@ -472,6 +515,9 @@ type ContactEndTouchEvent struct {
 
 	// ShapeIdB is the second shape. It may be destroyed; see IsValid.
 	ShapeIdB ShapeId
+
+	// ContactId is the contact. It may be destroyed; see IsValid.
+	ContactId ContactId
 }
 
 // ContactHitEvent reports that two shapes collided faster than the hit
@@ -483,6 +529,9 @@ type ContactHitEvent struct {
 
 	// ShapeIdB is the second shape.
 	ShapeIdB ShapeId
+
+	// ContactId is the contact. It may be destroyed; see IsValid.
+	ContactId ContactId
 
 	// Point is where the shapes hit at the start of the step. It is the
 	// mid-point between the two surfaces.

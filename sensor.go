@@ -5,16 +5,25 @@ import (
 	"slices"
 )
 
-// shapeRef identifies one sensor overlap. It corresponds to b2ShapeRef in
+// shapeRef identifies one sensor visitor. It corresponds to b2Visitor in
 // src/sensor.h.
 type shapeRef struct {
 	shapeId    int
 	generation uint16
 }
 
-// sensor stores the double-buffered overlaps of one sensor shape. It
-// corresponds to b2Sensor in src/sensor.h.
+// sensorHit records a shape that crossed a sensor during continuous
+// collision. It corresponds to b2SensorHit in src/sensor.h.
+type sensorHit struct {
+	sensorId  int
+	visitorId int
+}
+
+// sensor stores the double-buffered overlaps of one sensor shape and the
+// visitors that crossed it in the continuous stage. It corresponds to
+// b2Sensor in src/sensor.h.
 type sensor struct {
+	hits      []shapeRef
 	overlaps1 []shapeRef
 	overlaps2 []shapeRef
 	shapeId   int
@@ -54,6 +63,15 @@ func sensorQueryCallback(_ int, userData uint64, context *sensorQueryContext) bo
 	}
 	if !shouldShapesCollide(sensorShape.filter, otherShape.filter) {
 		return true
+	}
+
+	// Custom user filter
+	if (sensorShape.enableCustomFiltering || otherShape.enableCustomFiltering) && w.customFilterFcn != nil {
+		idA := ShapeId{index1: int32(sensorShape.id) + 1, world0: w.worldId, generation: sensorShape.generation}
+		idB := ShapeId{index1: int32(shapeId) + 1, world0: w.worldId, generation: otherShape.generation}
+		if !w.customFilterFcn(idA, idB) {
+			return true
+		}
 	}
 
 	otherTransform := getBodyTransformQuick(w, &w.bodies[otherShape.bodyId])
@@ -105,6 +123,12 @@ func sensorTask(startIndex, endIndex, workerIndex int, context *stepContext) {
 		s := &w.sensors[sensorIndex]
 		s.overlaps2 = s.overlaps2[:0]
 
+		// Append sensor hits
+		s.overlaps2 = append(s.overlaps2, s.hits...)
+
+		// Clear the hits
+		s.hits = s.hits[:0]
+
 		sensorShape := &w.shapes[s.shapeId]
 		if sensorShape.sensorIndex != sensorIndex {
 			panic("dbox2d: a sensor shape has the wrong sensor index")
@@ -122,15 +146,27 @@ func sensorTask(startIndex, endIndex, workerIndex int, context *stepContext) {
 				return sensorQueryCallback(proxyId, userData, &queryContext)
 			}
 
+			queryBounds := sensorShape.aabb
 			maskBits := sensorShape.filter.MaskBits
-			w.broadPhase.trees[StaticBody].overlapAABB(sensorShape.fatAABB, maskBits, callback)
-			w.broadPhase.trees[KinematicBody].overlapAABB(sensorShape.fatAABB, maskBits, callback)
-			w.broadPhase.trees[DynamicBody].overlapAABB(sensorShape.fatAABB, maskBits, callback)
+			w.broadPhase.trees[StaticBody].overlapAABB(queryBounds, maskBits, callback)
+			w.broadPhase.trees[KinematicBody].overlapAABB(queryBounds, maskBits, callback)
+			w.broadPhase.trees[DynamicBody].overlapAABB(queryBounds, maskBits, callback)
 		}
 
 		// slices.SortFunc keeps the step free of allocations; sort.Slice
 		// allocates its swapper on every call.
 		slices.SortFunc(s.overlaps2, cmpShapeRefs)
+
+		// Remove duplicates from overlaps2 (sorted). Duplicates are possible
+		// due to the hit events appended earlier.
+		uniqueCount := 0
+		for i := range s.overlaps2 {
+			if uniqueCount == 0 || s.overlaps2[i].shapeId != s.overlaps2[uniqueCount-1].shapeId {
+				s.overlaps2[uniqueCount] = s.overlaps2[i]
+				uniqueCount++
+			}
+		}
+		s.overlaps2 = s.overlaps2[:uniqueCount]
 
 		index1, index2 := 0, 0
 		changed := false

@@ -275,11 +275,11 @@ func (s *BodyType) Step() {
 	s.Base.Step()
 }
 
-func weebleFriction(b2.Q, int, b2.Q, int) b2.Q {
+func weebleFriction(b2.Q, uint64, b2.Q, uint64) b2.Q {
 	return b2.QFromRatio(1, 10)
 }
 
-func weebleRestitution(b2.Q, int, b2.Q, int) b2.Q {
+func weebleRestitution(b2.Q, uint64, b2.Q, uint64) b2.Q {
 	return b2.QOne()
 }
 

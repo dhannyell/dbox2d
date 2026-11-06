@@ -87,7 +87,9 @@ func wakeSolverSet(w *world, setIndex int) {
 		b.sleepTime = Q{}
 
 		awake.bodySims = append(awake.bodySims, *simSrc)
-		awake.bodyStates = append(awake.bodyStates, identityBodyState())
+		state := identityBodyState()
+		state.flags = b.flags
+		awake.bodyStates = append(awake.bodyStates, state)
 
 		// move non-touching contacts from disabled set to awake set
 		contactKey := b.headContactKey
@@ -233,6 +235,8 @@ func trySleepIsland(w *world, islandId int) {
 				panic("dbox2d: a body of the island is not awake in it")
 			}
 
+			b.flags &^= bodyTransientFlags
+
 			// Update the body move event to indicate this body fell asleep
 			// It could happen the body is forced asleep before it ever moves.
 			if b.bodyMoveIndex != nullIndex {
@@ -246,6 +250,7 @@ func trySleepIsland(w *world, islandId int) {
 
 			awakeBodyIndex := b.localIndex
 			awakeSim := &awake.bodySims[awakeBodyIndex]
+			awakeSim.flags &^= bodyTransientFlags
 
 			// move body sim to sleep set
 			sleepBodyIndex := len(sleepSet.bodySims)
@@ -561,6 +566,10 @@ func transferBody(w *world, targetSet, sourceSet *solverSet, b *body) {
 	targetIndex := len(targetSet.bodySims)
 	targetSet.bodySims = append(targetSet.bodySims, sourceSim)
 
+	// Clear transient body flags
+	b.flags &^= bodyTransientFlags
+	targetSet.bodySims[targetIndex].flags &^= bodyIsFast | bodyTransientFlags
+
 	// Remove body sim from solver set that owns it
 	var movedIndex int
 	sourceSet.bodySims, movedIndex = removeSwapNoClear(sourceSet.bodySims, sourceIndex)
@@ -577,7 +586,9 @@ func transferBody(w *world, targetSet, sourceSet *solverSet, b *body) {
 	if sourceSet.setIndex == awakeSet {
 		sourceSet.bodyStates, _ = removeSwapNoClear(sourceSet.bodyStates, sourceIndex)
 	} else if targetSet.setIndex == awakeSet {
-		targetSet.bodyStates = append(targetSet.bodyStates, identityBodyState())
+		state := identityBodyState()
+		state.flags = b.flags
+		targetSet.bodyStates = append(targetSet.bodyStates, state)
 	}
 
 	b.setIndex = targetSet.setIndex

@@ -221,7 +221,7 @@ func collideTask(startIndex, endIndex, workerIndex int, context *stepContext) {
 		shapeB := &shapes[cs.shapeIdB]
 
 		// Do proxies still overlap?
-		overlap := AABBOverlaps(shapeA.fatAABB, shapeB.fatAABB)
+		overlap := AABBOverlaps(w.fatAABBs[shapeA.id], w.fatAABBs[shapeB.id])
 		if !overlap {
 			cs.simFlags |= simDisjoint
 			cs.simFlags &^= simTouchingFlag
@@ -466,7 +466,7 @@ func collide(context *stepContext) {
 				}
 
 				if flags&contactEnableContactEvents != 0 {
-					event := ContactBeginTouchEvent{ShapeIdA: shapeIdA, ShapeIdB: shapeIdB, Manifold: cs.manifold}
+					event := ContactBeginTouchEvent{ShapeIdA: shapeIdA, ShapeIdB: shapeIdB, ContactId: contactIdOf(w, c)}
 					w.contactBeginEvents = append(w.contactBeginEvents, event)
 				}
 
@@ -497,7 +497,7 @@ func collide(context *stepContext) {
 				c.flags &^= contactTouchingFlag
 
 				if c.flags&contactEnableContactEvents != 0 {
-					event := ContactEndTouchEvent{ShapeIdA: shapeIdA, ShapeIdB: shapeIdB}
+					event := ContactEndTouchEvent{ShapeIdA: shapeIdA, ShapeIdB: shapeIdB, ContactId: contactIdOf(w, c)}
 					w.contactEndEvents[endEventArrayIndex] = append(w.contactEndEvents[endEventArrayIndex], event)
 				}
 

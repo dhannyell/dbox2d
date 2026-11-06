@@ -685,7 +685,7 @@ func (h *Human) SetScale(scale Q) {
 			}
 		}
 
-		bone.bodyId.ApplyMassFromShapes()
+		bone.bodyId.UpdateMassFromShapes()
 	}
 
 	h.scale = scale
