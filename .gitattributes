@@ -8,3 +8,7 @@
 *.sh text eol=lf
 
 *.ttf binary
+
+# This branch is a vendored copy of the upstream source, kept for reference
+# only. GitHub must not count it in the language statistics of the module.
+* linguist-vendored
