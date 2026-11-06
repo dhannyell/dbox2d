@@ -238,10 +238,10 @@ func TestNormalizeRotKeepsAZeroRotation(t *testing.T) {
 	if got != (b2.Rot{}) {
 		t.Errorf("NormalizeRot of a zero rotation = %v, want the zero rotation", got)
 	}
-	if b2.IsValidRotation(got) {
+	if b2.IsValidRot(got) {
 		t.Errorf("IsValidRotation accepted a zero rotation")
 	}
-	if !b2.IsValidRotation(b2.RotIdentity()) {
+	if !b2.IsValidRot(b2.RotIdentity()) {
 		t.Errorf("IsValidRotation rejected the identity")
 	}
 }

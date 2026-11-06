@@ -548,11 +548,11 @@ func TestTreeShapeCastClipsTheSweep(t *testing.T) {
 	stats := tree.shapeCast(&input, DefaultMaskBits, func(sub *ShapeCastInput, proxyId int, userData uint64) Q {
 		order = append(order, userData)
 		leaf := MakeOffsetBox(QOne(), QOne(), AABBCenter(tree.getAABB(proxyId)), RotIdentity())
-		out := ShapeCastPolygon(&ShapeCastInput{
+		out := CastShapePolygon(&leaf, &ShapeCastInput{
 			Proxy:       sub.Proxy,
 			Translation: sub.Translation,
 			MaxFraction: sub.MaxFraction,
-		}, &leaf)
+		})
 		if !out.Hit {
 			t.Fatalf("the sweep reached leaf %d without a hit", userData)
 		}

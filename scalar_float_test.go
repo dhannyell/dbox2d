@@ -273,10 +273,21 @@ func TestQParsingAndPresentation(t *testing.T) {
 	}
 }
 
-// TestUnwindAngleMatchesRemainder pins the inline cases of unwindAngle to
-// the float64 remainder they replace, across the edges and a random sweep.
+// TestUnwindAngleMatchesRemainder checks the v3.2 unwindAngle against the
+// remainder by two pi of v3.1, across the edges and a random sweep. They
+// agree except where v3.2 differs by design: the clamp to one million turns
+// an infinity into a finite angle, and an exact multiple of two pi below
+// zero gives a positive zero.
 func TestUnwindAngleMatchesRemainder(t *testing.T) {
 	want := func(v float32) float32 {
+		switch {
+		case math.IsInf(float64(v), 1):
+			v = 1e6
+		case math.IsInf(float64(v), -1):
+			v = -1e6
+		case v == -floatTau.v:
+			return 0
+		}
 		return float32(math.Remainder(float64(v), float64(floatTau.v)))
 	}
 	edges := []float32{0, floatPi.v, -floatPi.v, floatTau.v, -floatTau.v, floatThreePi, -floatThreePi,

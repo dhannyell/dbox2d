@@ -191,7 +191,6 @@ func checksumManifold(h uint64, m *Manifold, swap bool) uint64 {
 		}
 
 		pointHash := fnvOffsetBasis
-		pointHash = checksumVec2(pointHash, p.Point)
 		pointHash = checksumVec2(pointHash, anchorA)
 		pointHash = checksumVec2(pointHash, anchorB)
 		pointHash = checksumQ(pointHash, p.Separation)

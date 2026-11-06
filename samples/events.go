@@ -740,10 +740,12 @@ func (s *ContactEvent) drawContactImpulses(shapeId, otherId, pairId b2.ShapeId, 
 			manifold := contactData[j].Manifold
 			normal := manifold.Normal
 
+			centerA := idA.GetBody().GetWorldCenterOfMass()
 			for k := range manifold.PointCount {
 				point := manifold.Points[k]
-				s.Context.Draw.DrawSegment(point.Point, b2.MulAdd(point.Point, point.TotalNormalImpulse, normal), color)
-				s.Context.Draw.DrawPoint(point.Point, b2.F(10), b2.ColorWhite)
+				p1 := centerA.Add(point.AnchorA)
+				s.Context.Draw.DrawSegment(p1, b2.MulAdd(p1, point.TotalNormalImpulse, normal), color)
+				s.Context.Draw.DrawPoint(p1, b2.F(10), b2.ColorWhite)
 			}
 		}
 	}

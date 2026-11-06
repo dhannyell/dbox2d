@@ -28,7 +28,7 @@ func TestCollideCirclesMatchesTheReference(t *testing.T) {
 	xfA := b2.TransformIdentity()
 	xfB := b2.Transform{P: vecQ("1.5", "0"), Q: b2.RotIdentity()}
 
-	manifold := b2.CollideCircles(&circleA, xfA, &circleB, xfB)
+	manifold := b2.CollideCircles(&circleA, &circleB, b2.InvMulTransforms(xfA, xfB))
 	if manifold.PointCount != 1 {
 		t.Fatalf("pointCount %d, want 1", manifold.PointCount)
 	}
@@ -48,7 +48,7 @@ func TestCollideCirclesMatchesTheReference(t *testing.T) {
 
 	// A separated pair beyond the speculative distance has no manifold.
 	xfB.P = vec(3, 0)
-	manifold = b2.CollideCircles(&circleA, xfA, &circleB, xfB)
+	manifold = b2.CollideCircles(&circleA, &circleB, b2.InvMulTransforms(xfA, xfB))
 	if manifold.PointCount != 0 {
 		t.Fatalf("separated circles produced %d points", manifold.PointCount)
 	}
@@ -59,11 +59,10 @@ func TestCollideCirclesMatchesTheReference(t *testing.T) {
 func TestCollideCapsuleAndCircleRegions(t *testing.T) {
 	quarter := b2.QMustParse("0.25")
 	capsuleA := b2.Capsule{Center1: vec(-1, 0), Center2: vec(1, 0), Radius: quarter}
-	xf := b2.TransformIdentity()
 
 	// Interior region: the closest point is the projection onto the axis.
 	circleB := b2.Circle{Center: vecQ("0", "0.4"), Radius: quarter}
-	manifold := b2.CollideCapsuleAndCircle(&capsuleA, xf, &circleB, xf)
+	manifold := b2.CollideCapsuleAndCircle(&capsuleA, &circleB, b2.TransformIdentity())
 	if manifold.PointCount != 1 {
 		t.Fatalf("interior: pointCount %d, want 1", manifold.PointCount)
 	}
@@ -77,7 +76,7 @@ func TestCollideCapsuleAndCircleRegions(t *testing.T) {
 
 	// The p1 region: the closest point clamps to the first center.
 	circleB.Center = vecQ("-1.4", "0")
-	manifold = b2.CollideCapsuleAndCircle(&capsuleA, xf, &circleB, xf)
+	manifold = b2.CollideCapsuleAndCircle(&capsuleA, &circleB, b2.TransformIdentity())
 	if manifold.PointCount != 1 {
 		t.Fatalf("p1 region: pointCount %d, want 1", manifold.PointCount)
 	}
@@ -87,7 +86,7 @@ func TestCollideCapsuleAndCircleRegions(t *testing.T) {
 
 	// The p2 region, past the speculative distance: no manifold.
 	circleB.Center = vec(2, 0)
-	manifold = b2.CollideCapsuleAndCircle(&capsuleA, xf, &circleB, xf)
+	manifold = b2.CollideCapsuleAndCircle(&capsuleA, &circleB, b2.TransformIdentity())
 	if manifold.PointCount != 0 {
 		t.Fatalf("far p2 region produced %d points", manifold.PointCount)
 	}
@@ -98,11 +97,10 @@ func TestCollideCapsuleAndCircleRegions(t *testing.T) {
 // the Q form of the FLT_EPSILON guard. See D-012.
 func TestCollidePolygonAndCircleRegions(t *testing.T) {
 	square := b2.MakeSquare(b2.QOne())
-	xf := b2.TransformIdentity()
 
 	// Face region: the circle floats over the top edge.
 	circleB := b2.Circle{Center: vecQ("0.2", "1.2"), Radius: b2.QHalf()}
-	manifold := b2.CollidePolygonAndCircle(&square, xf, &circleB, xf)
+	manifold := b2.CollidePolygonAndCircle(&square, &circleB, b2.TransformIdentity())
 	if manifold.PointCount != 1 {
 		t.Fatalf("face: pointCount %d, want 1", manifold.PointCount)
 	}
@@ -119,7 +117,7 @@ func TestCollidePolygonAndCircleRegions(t *testing.T) {
 	// Vertex region: the center sits diagonally past the (1, 1) corner and
 	// the separation is positive, so the guard admits the vertex normal.
 	circleB.Center = vecQ("1.3", "1.3")
-	manifold = b2.CollidePolygonAndCircle(&square, xf, &circleB, xf)
+	manifold = b2.CollidePolygonAndCircle(&square, &circleB, b2.TransformIdentity())
 	if manifold.PointCount != 1 {
 		t.Fatalf("vertex: pointCount %d, want 1", manifold.PointCount)
 	}
@@ -136,7 +134,7 @@ func TestCollidePolygonAndCircleRegions(t *testing.T) {
 	// A center exactly on the corner has zero separation: the guard sends
 	// it down the face branch, the same side the reference takes for zero.
 	circleB.Center = vec(1, 1)
-	manifold = b2.CollidePolygonAndCircle(&square, xf, &circleB, xf)
+	manifold = b2.CollidePolygonAndCircle(&square, &circleB, b2.TransformIdentity())
 	if manifold.PointCount != 1 {
 		t.Fatalf("corner: pointCount %d, want 1", manifold.PointCount)
 	}
@@ -154,9 +152,8 @@ func TestCollideCapsulesClipsTwoPoints(t *testing.T) {
 	quarter := b2.QMustParse("0.25")
 	capsuleA := b2.Capsule{Center1: vec(-1, 0), Center2: vec(1, 0), Radius: quarter}
 	capsuleB := b2.Capsule{Center1: vecQ("-0.5", "0.3"), Center2: vecQ("1.5", "0.3"), Radius: quarter}
-	xf := b2.TransformIdentity()
 
-	manifold := b2.CollideCapsules(&capsuleA, xf, &capsuleB, xf)
+	manifold := b2.CollideCapsules(&capsuleA, &capsuleB, b2.TransformIdentity())
 	if manifold.PointCount != 2 {
 		t.Fatalf("pointCount %d, want 2", manifold.PointCount)
 	}
@@ -189,10 +186,10 @@ func TestCollideCapsulesKeepsStableIds(t *testing.T) {
 	capsuleB := b2.Capsule{Center1: vecQ("-0.5", "0.3"), Center2: vecQ("1.5", "0.3"), Radius: quarter}
 	xf := b2.TransformIdentity()
 
-	first := b2.CollideCapsules(&capsuleA, xf, &capsuleB, xf)
+	first := b2.CollideCapsules(&capsuleA, &capsuleB, b2.TransformIdentity())
 
 	moved := b2.Transform{P: vecQ("0.125", "-0.03125"), Q: b2.RotIdentity()}
-	second := b2.CollideCapsules(&capsuleA, xf, &capsuleB, moved)
+	second := b2.CollideCapsules(&capsuleA, &capsuleB, b2.InvMulTransforms(xf, moved))
 
 	if first.PointCount != 2 || second.PointCount != 2 {
 		t.Fatalf("pointCounts (%d, %d), want (2, 2)", first.PointCount, second.PointCount)
@@ -213,9 +210,8 @@ func TestCollideCapsulesFallsBackOnCoincidentClosestPoints(t *testing.T) {
 	quarter := b2.QMustParse("0.25")
 	capsuleA := b2.Capsule{Center1: vec(-1, 0), Center2: vec(1, 0), Radius: quarter}
 	capsuleB := b2.Capsule{Center1: vec(1, 0), Center2: vec(3, 0), Radius: quarter}
-	xf := b2.TransformIdentity()
 
-	manifold := b2.CollideCapsules(&capsuleA, xf, &capsuleB, xf)
+	manifold := b2.CollideCapsules(&capsuleA, &capsuleB, b2.TransformIdentity())
 	if manifold.PointCount != 1 {
 		t.Fatalf("pointCount %d, want 1", manifold.PointCount)
 	}
@@ -248,8 +244,7 @@ func TestCollideCapsulesRejectsADegenerateCapsule(t *testing.T) {
 
 	point := b2.Capsule{Center1: vec(1, 1), Center2: vec(1, 1), Radius: b2.QHalf()}
 	sane := b2.Capsule{Center1: vec(-1, 0), Center2: vec(1, 0), Radius: b2.QHalf()}
-	xf := b2.TransformIdentity()
-	b2.CollideCapsules(&point, xf, &sane, xf)
+	b2.CollideCapsules(&point, &sane, b2.TransformIdentity())
 }
 
 // makeIdWant mirrors B2_MAKE_ID of the reference for the test expectations.
@@ -262,18 +257,17 @@ func makeIdWant(a, b int) uint16 {
 func TestSegmentCollidersMatchTheirCapsuleForm(t *testing.T) {
 	segment := b2.Segment{Point1: vec(-1, 0), Point2: vec(1, 0)}
 	capsule := b2.Capsule{Center1: vec(-1, 0), Center2: vec(1, 0)}
-	xf := b2.TransformIdentity()
 
 	circle := b2.Circle{Center: vecQ("0", "0.2"), Radius: quarterQ()}
-	got := b2.CollideSegmentAndCircle(&segment, xf, &circle, xf)
-	want := b2.CollideCapsuleAndCircle(&capsule, xf, &circle, xf)
+	got := b2.CollideSegmentAndCircle(&segment, &circle, b2.TransformIdentity())
+	want := b2.CollideCapsuleAndCircle(&capsule, &circle, b2.TransformIdentity())
 	if got != want {
 		t.Fatalf("segment vs circle differs from its capsule form")
 	}
 
 	other := b2.Capsule{Center1: vecQ("-0.5", "0.25"), Center2: vecQ("1.5", "0.25"), Radius: quarterQ()}
-	gotC := b2.CollideSegmentAndCapsule(&segment, xf, &other, xf)
-	wantC := b2.CollideCapsules(&capsule, xf, &other, xf)
+	gotC := b2.CollideSegmentAndCapsule(&segment, &other, b2.TransformIdentity())
+	wantC := b2.CollideCapsules(&capsule, &other, b2.TransformIdentity())
 	if gotC != wantC {
 		t.Fatalf("segment vs capsule differs from its capsule form")
 	}
@@ -291,19 +285,18 @@ func TestCollideChainSegmentAndCircleIsOneSided(t *testing.T) {
 		Segment: b2.Segment{Point1: vec(-1, 0), Point2: vec(1, 0)},
 		Ghost2:  vec(2, 0),
 	}
-	xf := b2.TransformIdentity()
 
 	// The normal points to the right of p1->p2, which is downward. A circle
 	// above the segment does not collide.
 	circle := b2.Circle{Center: vecQ("0", "0.5"), Radius: b2.QMustParse("0.4")}
-	manifold := b2.CollideChainSegmentAndCircle(&segment, xf, &circle, xf)
+	manifold := b2.CollideChainSegmentAndCircle(&segment, &circle, b2.TransformIdentity())
 	if manifold.PointCount != 0 {
 		t.Fatalf("left side produced %d points", manifold.PointCount)
 	}
 
 	// Interior region below the segment.
 	circle.Center = vecQ("0", "-0.35")
-	manifold = b2.CollideChainSegmentAndCircle(&segment, xf, &circle, xf)
+	manifold = b2.CollideChainSegmentAndCircle(&segment, &circle, b2.TransformIdentity())
 	if manifold.PointCount != 1 {
 		t.Fatalf("interior: pointCount %d, want 1", manifold.PointCount)
 	}
@@ -318,7 +311,7 @@ func TestCollideChainSegmentAndCircleIsOneSided(t *testing.T) {
 	// Behind point1 with a collinear previous edge: the previous segment
 	// owns the region and this one yields.
 	circle.Center = vecQ("-1.2", "-0.1")
-	manifold = b2.CollideChainSegmentAndCircle(&segment, xf, &circle, xf)
+	manifold = b2.CollideChainSegmentAndCircle(&segment, &circle, b2.TransformIdentity())
 	if manifold.PointCount != 0 {
 		t.Fatalf("previous-edge region produced %d points", manifold.PointCount)
 	}
@@ -328,7 +321,7 @@ func TestCollideChainSegmentAndCircleIsOneSided(t *testing.T) {
 	bent := segment
 	bent.Ghost1 = vec(-2, 1)
 	circle.Center = vecQ("-1", "-0.3")
-	manifold = b2.CollideChainSegmentAndCircle(&bent, xf, &circle, xf)
+	manifold = b2.CollideChainSegmentAndCircle(&bent, &circle, b2.TransformIdentity())
 	if manifold.PointCount != 1 {
 		t.Fatalf("p1 region: pointCount %d, want 1", manifold.PointCount)
 	}
@@ -345,7 +338,7 @@ func TestCollidePolygonsClipsOverlappingBoxes(t *testing.T) {
 	xfA := b2.TransformIdentity()
 	xfB := b2.Transform{P: vecQ("0", "1.5"), Q: b2.RotIdentity()}
 
-	manifold := b2.CollidePolygons(&boxA, xfA, &boxB, xfB)
+	manifold := b2.CollidePolygons(&boxA, &boxB, b2.InvMulTransforms(xfA, xfB))
 	if manifold.PointCount != 2 {
 		t.Fatalf("pointCount %d, want 2", manifold.PointCount)
 	}
@@ -379,7 +372,7 @@ func TestCollidePolygonsClipsThePartialOverlap(t *testing.T) {
 	xfA := b2.TransformIdentity()
 	xfB := b2.Transform{P: vecQ("0.75", "1.25"), Q: b2.RotIdentity()}
 
-	manifold := b2.CollidePolygons(&boxA, xfA, &boxB, xfB)
+	manifold := b2.CollidePolygons(&boxA, &boxB, b2.InvMulTransforms(xfA, xfB))
 	if manifold.PointCount != 2 {
 		t.Fatalf("pointCount %d, want 2", manifold.PointCount)
 	}
@@ -412,7 +405,7 @@ func TestCollidePolygonsFindsTheVertexVertexContact(t *testing.T) {
 	offset := b2.QFromInt(2).Add(b2.QMustParse("0.0078125"))
 	xfB := b2.Transform{P: b2.Vec2{X: offset, Y: offset}, Q: b2.RotIdentity()}
 
-	manifold := b2.CollidePolygons(&boxA, xfA, &boxB, xfB)
+	manifold := b2.CollidePolygons(&boxA, &boxB, b2.InvMulTransforms(xfA, xfB))
 	if manifold.PointCount != 1 {
 		t.Fatalf("pointCount %d, want 1", manifold.PointCount)
 	}
@@ -446,7 +439,7 @@ func TestCollidePolygonsRejectsTheSpeculativeGap(t *testing.T) {
 	xfA := b2.TransformIdentity()
 	xfB := b2.Transform{P: vecQ("0", "2.125"), Q: b2.RotIdentity()}
 
-	manifold := b2.CollidePolygons(&boxA, xfA, &boxB, xfB)
+	manifold := b2.CollidePolygons(&boxA, &boxB, b2.InvMulTransforms(xfA, xfB))
 	if manifold.PointCount != 0 {
 		t.Fatalf("separated boxes produced %d points", manifold.PointCount)
 	}
@@ -462,7 +455,7 @@ func TestCollidePolygonAndCapsuleClipsTheEndCap(t *testing.T) {
 	xfA := b2.TransformIdentity()
 	xfB := b2.Transform{P: vecQ("0", "1.625"), Q: b2.RotIdentity()}
 
-	manifold := b2.CollidePolygonAndCapsule(&boxA, xfA, &capsuleB, xfB)
+	manifold := b2.CollidePolygonAndCapsule(&boxA, &capsuleB, b2.InvMulTransforms(xfA, xfB))
 	if manifold.PointCount != 2 {
 		t.Fatalf("pointCount %d, want 2", manifold.PointCount)
 	}
@@ -491,7 +484,7 @@ func TestCollideSegmentAndPolygonMatchesTheGround(t *testing.T) {
 	xfA := b2.TransformIdentity()
 	xfB := b2.Transform{P: vecQ("0", "0.75"), Q: b2.RotIdentity()}
 
-	manifold := b2.CollideSegmentAndPolygon(&segmentA, xfA, &boxB, xfB)
+	manifold := b2.CollideSegmentAndPolygon(&segmentA, &boxB, b2.InvMulTransforms(xfA, xfB))
 	if manifold.PointCount != 2 {
 		t.Fatalf("pointCount %d, want 2", manifold.PointCount)
 	}
@@ -525,8 +518,7 @@ func TestCollideSegmentAndPolygonRejectsADegenerateSegment(t *testing.T) {
 
 	segmentA := b2.Segment{Point1: vec(1, 1), Point2: vec(1, 1)}
 	boxB := b2.MakeBox(b2.QOne(), b2.QOne())
-	xf := b2.TransformIdentity()
-	b2.CollideSegmentAndPolygon(&segmentA, xf, &boxB, xf)
+	b2.CollideSegmentAndPolygon(&segmentA, &boxB, b2.TransformIdentity())
 }
 
 // TestCollideChainSegmentAndPolygonMatchesTheReference covers the face
@@ -547,7 +539,7 @@ func TestCollideChainSegmentAndPolygonMatchesTheReference(t *testing.T) {
 		var cache b2.SimplexCache
 		box := b2.MakeBox(half, half)
 		xfB := b2.Transform{P: vecQ("0", "-0.4"), Q: b2.RotIdentity()}
-		manifold := b2.CollideChainSegmentAndPolygon(&segment, xf, &box, xfB, &cache)
+		manifold := b2.CollideChainSegmentAndPolygon(&segment, &box, b2.InvMulTransforms(xf, xfB), &cache)
 		if manifold.PointCount != 2 {
 			t.Fatalf("pointCount %d, want 2", manifold.PointCount)
 		}
@@ -566,7 +558,7 @@ func TestCollideChainSegmentAndPolygonMatchesTheReference(t *testing.T) {
 		var cache b2.SimplexCache
 		box := b2.MakeBox(half, half)
 		xfB := b2.Transform{P: vecQ("0", "0.4"), Q: b2.RotIdentity()}
-		manifold := b2.CollideChainSegmentAndPolygon(&segment, xf, &box, xfB, &cache)
+		manifold := b2.CollideChainSegmentAndPolygon(&segment, &box, b2.InvMulTransforms(xf, xfB), &cache)
 		if manifold.PointCount != 0 {
 			t.Fatalf("ghost side produced %d points", manifold.PointCount)
 		}
@@ -576,7 +568,7 @@ func TestCollideChainSegmentAndPolygonMatchesTheReference(t *testing.T) {
 		var cache b2.SimplexCache
 		capsule := b2.Capsule{Center1: vecQ("-0.5", "0"), Center2: vecQ("0.5", "0"), Radius: b2.QMustParse("0.25")}
 		xfB := b2.Transform{P: vecQ("0", "-0.2"), Q: b2.RotIdentity()}
-		manifold := b2.CollideChainSegmentAndCapsule(&segment, xf, &capsule, xfB, &cache)
+		manifold := b2.CollideChainSegmentAndCapsule(&segment, &capsule, b2.InvMulTransforms(xf, xfB), &cache)
 		if manifold.PointCount != 2 {
 			t.Fatalf("pointCount %d, want 2", manifold.PointCount)
 		}
@@ -597,7 +589,7 @@ func TestCollideChainSegmentAndPolygonMatchesTheReference(t *testing.T) {
 		diamond := b2.MakeOffsetBox(half, half, vec(0, 0), b2.MakeRot(b2.QFromRatio(1, 8)))
 		diamond.Radius = b2.QMustParse("0.3")
 		xfB := b2.Transform{P: vecQ("1.118", "-0.994"), Q: b2.RotIdentity()}
-		manifold := b2.CollideChainSegmentAndPolygon(&bent, xf, &diamond, xfB, &cache)
+		manifold := b2.CollideChainSegmentAndPolygon(&bent, &diamond, b2.InvMulTransforms(xf, xfB), &cache)
 		if manifold.PointCount != 1 {
 			t.Fatalf("pointCount %d, want 1", manifold.PointCount)
 		}

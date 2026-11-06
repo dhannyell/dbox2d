@@ -58,14 +58,13 @@ func sensorQueryCallback(_ int, userData uint64, context *sensorQueryContext) bo
 
 	otherTransform := getBodyTransformQuick(w, &w.bodies[otherShape.bodyId])
 	input := DistanceInput{
-		ProxyA:     makeShapeDistanceProxy(sensorShape),
-		ProxyB:     makeShapeDistanceProxy(otherShape),
-		TransformA: context.transform,
-		TransformB: otherTransform,
-		UseRadii:   true,
+		ProxyA:    makeShapeDistanceProxy(sensorShape),
+		ProxyB:    makeShapeDistanceProxy(otherShape),
+		Transform: InvMulTransforms(context.transform, otherTransform),
+		UseRadii:  true,
 	}
 	var cache SimplexCache
-	output := ShapeDistance(&input, &cache, nil)
+	output := ComputeShapeDistance(&input, &cache, nil)
 
 	// D-012: the sensor guard reads the scalar mode; see DIVERGENCES.md.
 	if !sensorOverlaps(output.Distance) {

@@ -547,7 +547,7 @@ func (ctx *continuousContext) queryCallback(_ int, userData uint64) bool {
 	hitFraction := ctx.fraction
 
 	didHit := false
-	output := TimeOfImpact(&input)
+	output := ComputeTimeOfImpact(&input)
 	if zero.Less(output.Fraction) && output.Fraction.Less(ctx.fraction) {
 		hitFraction = output.Fraction
 		didHit = true
@@ -558,7 +558,7 @@ func (ctx *continuousContext) queryCallback(_ int, userData uint64) bool {
 		radius := oneQuarter.Mul(extent.minExtent)
 		centroidPoint := [1]Vec2{centroid}
 		input.ProxyB = MakeProxy(centroidPoint[:], radius)
-		output = TimeOfImpact(&input)
+		output = ComputeTimeOfImpact(&input)
 		if zero.Less(output.Fraction) && output.Fraction.Less(ctx.fraction) {
 			hitFraction = output.Fraction
 			didHit = true
@@ -1301,7 +1301,7 @@ func solve(w *world, context *stepContext) {
 				event := ContactHitEvent{}
 				event.ApproachSpeed = threshold
 
-				hit := false
+				var bestPoint *ManifoldPoint
 				pointCount := cs.manifold.PointCount
 				for k := range pointCount {
 					mp := &cs.manifold.Points[k]
@@ -1310,13 +1310,23 @@ func solve(w *world, context *stepContext) {
 					// Need to check total impulse because the point may be speculative and not colliding
 					if event.ApproachSpeed.Less(approachSpeed) && zero.Less(mp.TotalNormalImpulse) {
 						event.ApproachSpeed = approachSpeed
-						event.Point = mp.Point
-						hit = true
+						bestPoint = mp
 					}
 				}
 
-				if hit {
+				if bestPoint != nil {
 					event.Normal = cs.manifold.Normal
+
+					// The world point comes from a body center of mass and the
+					// matching anchor. A static body has not moved, so prefer
+					// it when a moving body strikes the world.
+					bodyA := &w.bodies[w.shapes[cs.shapeIdA].bodyId]
+					bodyB := &w.bodies[w.shapes[cs.shapeIdB].bodyId]
+					if bodyA.bodyType != StaticBody && bodyB.bodyType == StaticBody {
+						event.Point = getBodySim(w, bodyB).center.Add(bestPoint.AnchorB)
+					} else {
+						event.Point = getBodySim(w, bodyA).center.Add(bestPoint.AnchorA)
+					}
 					event.ShapeIdA = shapeIdOf(w, &w.shapes[cs.shapeIdA])
 					event.ShapeIdB = shapeIdOf(w, &w.shapes[cs.shapeIdB])
 					w.contactHitEvents = append(w.contactHitEvents, event)

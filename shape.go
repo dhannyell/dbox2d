@@ -224,12 +224,11 @@ func CreateCircleShape(bodyId BodyId, def *ShapeDef, circle *Circle) ShapeId {
 }
 
 // CreateCapsuleShape creates a capsule shape on a body. A capsule shorter
-// than the linear slop becomes a circle at its midpoint.
+// than the linear slop is not created and the null ShapeId is returned.
 func CreateCapsuleShape(bodyId BodyId, def *ShapeDef, capsule *Capsule) ShapeId {
 	lengthSqr := capsule.Center1.DistanceSq(capsule.Center2)
 	if !linearSlop.Mul(linearSlop).Less(lengthSqr) {
-		circle := Circle{Center: Lerp(capsule.Center1, capsule.Center2, QHalf()), Radius: capsule.Radius}
-		return createShape(bodyId, def, &circle, CircleShape)
+		return ShapeId{}
 	}
 
 	return createShape(bodyId, def, capsule, CapsuleShape)
@@ -528,15 +527,15 @@ func destroyShapeProxy(s *shape, bp *broadPhase) {
 func computeShapeAABB(s *shape, xf Transform) AABB {
 	switch s.shapeType {
 	case CapsuleShape:
-		return ComputeCapsuleAABB(s.capsule(), xf)
+		return ComputeCapsuleBounds(s.capsule(), xf)
 	case CircleShape:
-		return ComputeCircleAABB(s.circle(), xf)
+		return ComputeCircleBounds(s.circle(), xf)
 	case PolygonShape:
-		return ComputePolygonAABB(s.polygon(), xf)
+		return ComputePolygonBounds(s.polygon(), xf)
 	case SegmentShape:
-		return ComputeSegmentAABB(s.segment(), xf)
+		return ComputeSegmentBounds(s.segment(), xf)
 	case ChainSegmentShape:
-		return ComputeSegmentAABB(&s.chainSegment().Segment, xf)
+		return ComputeSegmentBounds(&s.chainSegment().Segment, xf)
 	default:
 		panic("dbox2d: unknown shape type")
 	}
@@ -711,15 +710,15 @@ func rayCastShape(input *RayCastInput, s *shape, transform Transform) CastOutput
 	var output CastOutput
 	switch s.shapeType {
 	case CapsuleShape:
-		output = RayCastCapsule(&localInput, s.capsule())
+		output = CastRayCapsule(s.capsule(), &localInput)
 	case CircleShape:
-		output = RayCastCircle(&localInput, s.circle())
+		output = CastRayCircle(s.circle(), &localInput)
 	case PolygonShape:
-		output = RayCastPolygon(&localInput, s.polygon())
+		output = CastRayPolygon(s.polygon(), &localInput)
 	case SegmentShape:
-		output = RayCastSegment(&localInput, s.segment(), false)
+		output = CastRaySegment(s.segment(), &localInput, false)
 	case ChainSegmentShape:
-		output = RayCastSegment(&localInput, &s.chainSegment().Segment, true)
+		output = CastRaySegment(&s.chainSegment().Segment, &localInput, true)
 	default:
 		return output
 	}
@@ -732,6 +731,11 @@ func rayCastShape(input *RayCastInput, s *shape, transform Transform) CastOutput
 // shapeCastShape casts a proxy in world space against a shape at a
 // transform. It corresponds to b2ShapeCastShape in src/shape.c.
 func shapeCastShape(input *ShapeCastInput, s *shape, transform Transform) CastOutput {
+	var output CastOutput
+	if input.Proxy.Count == 0 {
+		return output
+	}
+
 	localInput := *input
 
 	for i := range localInput.Proxy.Count {
@@ -740,18 +744,31 @@ func shapeCastShape(input *ShapeCastInput, s *shape, transform Transform) CastOu
 
 	localInput.Translation = InvRotateVector(transform.Q, input.Translation)
 
-	var output CastOutput
 	switch s.shapeType {
 	case CapsuleShape:
-		output = ShapeCastCapsule(&localInput, s.capsule())
+		output = CastShapeCapsule(s.capsule(), &localInput)
 	case CircleShape:
-		output = ShapeCastCircle(&localInput, s.circle())
+		output = CastShapeCircle(s.circle(), &localInput)
 	case PolygonShape:
-		output = ShapeCastPolygon(&localInput, s.polygon())
+		output = CastShapePolygon(s.polygon(), &localInput)
 	case SegmentShape:
-		output = ShapeCastSegment(&localInput, s.segment())
+		output = CastShapeSegment(s.segment(), &localInput)
 	case ChainSegmentShape:
-		output = ShapeCastSegment(&localInput, &s.chainSegment().Segment)
+		// A cast that starts behind a chain segment misses it (v3.2 fcc60b7).
+		approximateCentroid := localInput.Proxy.Points[0]
+		for i := 1; i < localInput.Proxy.Count; i++ {
+			approximateCentroid = approximateCentroid.Add(localInput.Proxy.Points[i])
+		}
+		approximateCentroid = approximateCentroid.Mul(QOne().Div(QFromInt(localInput.Proxy.Count)))
+
+		segment := &s.chainSegment().Segment
+		edge := segment.Point2.Sub(segment.Point1)
+		r := approximateCentroid.Sub(segment.Point1)
+		if Cross(r, edge).Less(QZero()) {
+			return output
+		}
+
+		output = CastShapeSegment(segment, &localInput)
 	default:
 		return output
 	}
@@ -1042,20 +1059,19 @@ func (shapeId ShapeId) TestPoint(point Vec2) bool {
 
 	switch s.shapeType {
 	case CapsuleShape:
-		return PointInCapsule(localPoint, s.capsule())
+		return PointInCapsule(s.capsule(), localPoint)
 	case CircleShape:
-		return PointInCircle(localPoint, s.circle())
+		return PointInCircle(s.circle(), localPoint)
 	case PolygonShape:
 		zero := QZero()
 		input := DistanceInput{
-			ProxyA:     MakeProxy(s.polygon().Vertices[:s.polygon().Count], zero),
-			ProxyB:     MakeProxy([]Vec2{localPoint}, zero),
-			TransformA: TransformIdentity(),
-			TransformB: TransformIdentity(),
-			UseRadii:   false,
+			ProxyA:    MakeProxy(s.polygon().Vertices[:s.polygon().Count], zero),
+			ProxyB:    MakeProxy([]Vec2{localPoint}, zero),
+			Transform: TransformIdentity(),
+			UseRadii:  false,
 		}
 		cache := SimplexCache{}
-		output := ShapeDistance(&input, &cache, nil)
+		output := ComputeShapeDistance(&input, &cache, nil)
 		return !s.polygon().Radius.Less(output.Distance)
 	default:
 		return false
@@ -1458,14 +1474,17 @@ func (shapeId ShapeId) GetClosestPoint(target Vec2) Vec2 {
 	b := &w.bodies[s.bodyId]
 	transform := getBodyTransformQuick(w, b)
 
+	// The target rides in as the frame of proxy B, so the relative pose is
+	// differenced before the query.
 	zero := QZero()
+	targetTransform := Transform{P: target, Q: RotIdentity()}
 	input := DistanceInput{
-		ProxyA:     makeShapeDistanceProxy(s),
-		ProxyB:     MakeProxy([]Vec2{target}, zero),
-		TransformA: transform,
-		TransformB: TransformIdentity(),
-		UseRadii:   true,
+		ProxyA:    makeShapeDistanceProxy(s),
+		ProxyB:    MakeProxy([]Vec2{Vec2Zero()}, zero),
+		Transform: InvMulTransforms(transform, targetTransform),
+		UseRadii:  true,
 	}
 	cache := SimplexCache{}
-	return ShapeDistance(&input, &cache, nil).PointA
+	output := ComputeShapeDistance(&input, &cache, nil)
+	return TransformPoint(transform, output.PointA)
 }

@@ -1383,9 +1383,8 @@ func (s *ShapeDistance) Step() {
 		start := time.Now()
 		for i := range shapeDistanceCount {
 			cache := b2.SimplexCache{}
-			input.TransformA = s.transformAs[i]
-			input.TransformB = s.transformBs[i]
-			s.outputs[i] = b2.ShapeDistance(&input, &cache, nil)
+			input.Transform = b2.InvMulTransforms(s.transformAs[i], s.transformBs[i])
+			s.outputs[i] = b2.ComputeShapeDistance(&input, &cache, nil)
 			totalIterations += s.outputs[i].Iterations
 		}
 		ms := time.Since(start).Seconds() * 1000
@@ -1402,10 +1401,14 @@ func (s *ShapeDistance) Step() {
 	output := s.outputs[s.drawIndex]
 	s.Context.Draw.DrawSolidPolygon(xfA, s.polygonA.Vertices[:s.polygonA.Count], s.polygonA.Radius, b2.ColorBox2DGreen)
 	s.Context.Draw.DrawSolidPolygon(xfB, s.polygonB.Vertices[:s.polygonB.Count], s.polygonB.Radius, b2.ColorBox2DBlue)
-	s.Context.Draw.DrawSegment(output.PointA, output.PointB, b2.ColorDimGray)
-	s.Context.Draw.DrawPoint(output.PointA, b2.F(10), b2.ColorWhite)
-	s.Context.Draw.DrawPoint(output.PointB, b2.F(10), b2.ColorWhite)
-	s.Context.Draw.DrawSegment(output.PointA, b2.MulAdd(output.PointA, b2.QHalf(), output.Normal), b2.ColorYellow)
+	// The query returns frame A results; project to world for drawing.
+	worldPointA := b2.TransformPoint(xfA, output.PointA)
+	worldPointB := b2.TransformPoint(xfA, output.PointB)
+	worldNormal := b2.RotateVector(xfA.Q, output.Normal)
+	s.Context.Draw.DrawSegment(worldPointA, worldPointB, b2.ColorDimGray)
+	s.Context.Draw.DrawPoint(worldPointA, b2.F(10), b2.ColorWhite)
+	s.Context.Draw.DrawPoint(worldPointB, b2.F(10), b2.ColorWhite)
+	s.Context.Draw.DrawSegment(worldPointA, b2.MulAdd(worldPointA, b2.QHalf(), worldNormal), b2.ColorYellow)
 	s.DrawTextLine("distance = %s", output.Distance)
 
 	s.Base.Step()

@@ -96,21 +96,22 @@ func TestTriangleMassMatchesTheReference(t *testing.T) {
 	if data.Center != pt("1", "1") {
 		t.Errorf("center = %v, want (1, 1)", data.Center)
 	}
-	if want := b2.QMustParse("13.5"); !data.RotationalInertia.Eq(want) {
+	// About the center of mass since v3.2: 13.5 about the origin less 4.5 * 2.
+	if want := b2.QMustParse("4.5"); !data.RotationalInertia.Eq(want) {
 		t.Errorf("rotational inertia = %v, want %v", data.RotationalInertia, want)
 	}
 }
 
-// TestComputePolygonAABBContainsTheVertices guards the box that the
+// TestComputePolygonBoundsContainsTheVertices guards the box that the
 // broadphase stores. A rotated box still needs every vertex inside.
-func TestComputePolygonAABBContainsTheVertices(t *testing.T) {
+func TestComputePolygonBoundsContainsTheVertices(t *testing.T) {
 	box := b2.MakeBox(b2.QOne(), b2.QHalf())
 	xf := b2.Transform{
 		P: pt("2", "3"),
 		Q: b2.MakeRot(b2.QMustParse("0.125")),
 	}
 
-	aabb := b2.ComputePolygonAABB(&box, xf)
+	aabb := b2.ComputePolygonBounds(&box, xf)
 
 	for i := range box.Count {
 		v := b2.TransformPoint(xf, box.Vertices[i])
@@ -158,21 +159,21 @@ func TestTransformedBoxesMatchAQuarterTurn(t *testing.T) {
 // the surface counts as inside, for the circle and for the capsule.
 func TestPointTestsIncludeTheBoundary(t *testing.T) {
 	circle := b2.Circle{Radius: b2.QFromInt(2)}
-	if !b2.PointInCircle(pt("2", "0"), &circle) {
+	if !b2.PointInCircle(&circle, pt("2", "0")) {
 		t.Errorf("a point on the circle surface is outside")
 	}
-	if b2.PointInCircle(pt("2.001", "0"), &circle) {
+	if b2.PointInCircle(&circle, pt("2.001", "0")) {
 		t.Errorf("a point beyond the circle surface is inside")
 	}
 
 	capsule := b2.Capsule{Center1: pt("-1", "0"), Center2: pt("1", "0"), Radius: b2.QHalf()}
-	if !b2.PointInCapsule(pt("0", "0.5"), &capsule) {
+	if !b2.PointInCapsule(&capsule, pt("0", "0.5")) {
 		t.Errorf("a point on the capsule side is outside")
 	}
-	if !b2.PointInCapsule(pt("1.5", "0"), &capsule) {
+	if !b2.PointInCapsule(&capsule, pt("1.5", "0")) {
 		t.Errorf("a point on the capsule cap is outside")
 	}
-	if b2.PointInCapsule(pt("1.501", "0"), &capsule) {
+	if b2.PointInCapsule(&capsule, pt("1.501", "0")) {
 		t.Errorf("a point beyond the capsule cap is inside")
 	}
 }
@@ -183,7 +184,7 @@ func TestRayCastCircleHitsTheNearSurface(t *testing.T) {
 	circle := b2.Circle{Radius: b2.QOne()}
 	input := ray(pt("-3", "0"), pt("6", "0"))
 
-	output := b2.RayCastCircle(&input, &circle)
+	output := b2.CastRayCircle(&circle, &input)
 
 	if !output.Hit {
 		t.Fatalf("the ray misses the circle")
@@ -201,7 +202,7 @@ func TestRayCastCircleHitsTheNearSurface(t *testing.T) {
 
 	// A ray that passes beside the circle reports no hit.
 	miss := ray(pt("-3", "2"), pt("6", "0"))
-	if b2.RayCastCircle(&miss, &circle).Hit {
+	if b2.CastRayCircle(&circle, &miss).Hit {
 		t.Errorf("a ray that passes beside the circle reports a hit")
 	}
 }
@@ -212,15 +213,15 @@ func TestRayCastSegmentSkipsTheLeftSide(t *testing.T) {
 	segment := b2.Segment{Point1: pt("-1", "0"), Point2: pt("1", "0")}
 
 	fromAbove := ray(pt("0", "1"), pt("0", "-2"))
-	if b2.RayCastSegment(&fromAbove, &segment, true).Hit {
+	if b2.CastRaySegment(&segment, &fromAbove, true).Hit {
 		t.Errorf("the one-sided segment accepts a ray from the left side")
 	}
-	if !b2.RayCastSegment(&fromAbove, &segment, false).Hit {
+	if !b2.CastRaySegment(&segment, &fromAbove, false).Hit {
 		t.Errorf("the two-sided segment rejects a ray from the left side")
 	}
 
 	fromBelow := ray(pt("0", "-1"), pt("0", "2"))
-	output := b2.RayCastSegment(&fromBelow, &segment, true)
+	output := b2.CastRaySegment(&segment, &fromBelow, true)
 	if !output.Hit {
 		t.Fatalf("the one-sided segment rejects a ray from the right side")
 	}
@@ -239,7 +240,7 @@ func TestRayCastPolygonHitsABoxFace(t *testing.T) {
 	box := b2.MakeBox(b2.QOne(), b2.QOne())
 	input := ray(pt("-3", "0"), pt("6", "0"))
 
-	output := b2.RayCastPolygon(&input, &box)
+	output := b2.CastRayPolygon(&box, &input)
 
 	if !output.Hit {
 		t.Fatalf("the ray misses the box")
@@ -257,7 +258,7 @@ func TestRayCastPolygonHitsABoxFace(t *testing.T) {
 
 	// A ray that starts inside reports the origin and a zero fraction.
 	inside := ray(pt("0", "0"), pt("6", "0"))
-	if output := b2.RayCastPolygon(&inside, &box); !output.Hit || !output.Fraction.Eq(b2.QZero()) {
+	if output := b2.CastRayPolygon(&box, &inside); !output.Hit || !output.Fraction.Eq(b2.QZero()) {
 		t.Errorf("initial overlap = %+v, want a hit with a zero fraction", output)
 	}
 }
@@ -286,11 +287,11 @@ func TestRayCastCapsuleDegenerateCases(t *testing.T) {
 	point := b2.Capsule{Center1: pt("0", "0"), Center2: pt("0", "0"), Radius: radius}
 	input := ray(pt("-2", "0"), pt("4", "0"))
 
-	output := b2.RayCastCapsule(&input, &point)
+	output := b2.CastRayCapsule(&point, &input)
 
 	// The delegation target gives the oracle, and the literal values pin it.
 	circle := b2.Circle{Center: pt("0", "0"), Radius: radius}
-	viaCircle := b2.RayCastCircle(&input, &circle)
+	viaCircle := b2.CastRayCircle(&circle, &input)
 	if output != viaCircle {
 		t.Errorf("capsule cast = %+v, circle cast = %+v", output, viaCircle)
 	}
@@ -311,7 +312,7 @@ func TestRayCastCapsuleDegenerateCases(t *testing.T) {
 	// determinant is exactly zero.
 	capsule := b2.Capsule{Center1: pt("-1", "0"), Center2: pt("1", "0"), Radius: b2.QMustParse("0.25")}
 	beside := ray(pt("-2", "1"), pt("4", "0"))
-	if b2.RayCastCapsule(&beside, &capsule).Hit {
+	if b2.CastRayCapsule(&capsule, &beside).Hit {
 		t.Errorf("a parallel ray outside the capsule reports a hit")
 	}
 }
@@ -445,9 +446,9 @@ func TestShapeAABBsMatchTheReference(t *testing.T) {
 		got          b2.AABB
 		lower, upper b2.Vec2
 	}{
-		{"circle", b2.ComputeCircleAABB(&circle, xf), pt("1.25", "1.75"), pt("1.75", "2.25")},
-		{"capsule", b2.ComputeCapsuleAABB(&capsule, xf), pt("0.25", "1.75"), pt("1.75", "2.25")},
-		{"segment", b2.ComputeSegmentAABB(&segment, xf), pt("1", "1"), pt("3", "3")},
+		{"circle", b2.ComputeCircleBounds(&circle, xf), pt("1.25", "1.75"), pt("1.75", "2.25")},
+		{"capsule", b2.ComputeCapsuleBounds(&capsule, xf), pt("0.25", "1.75"), pt("1.75", "2.25")},
+		{"segment", b2.ComputeSegmentBounds(&segment, xf), pt("1", "1"), pt("3", "3")},
 	}
 
 	for _, c := range cases {
@@ -479,11 +480,11 @@ func TestShapeCastsReachTheNearSurface(t *testing.T) {
 		got   b2.CastOutput
 		exact string
 	}{
-		{"circle", b2.ShapeCastCircle(&input, &circle), "0.2"},
-		{"capsule", b2.ShapeCastCapsule(&input, &capsule), "0.15"},
-		{"segment", b2.ShapeCastSegment(&input, &segment), "0.2"},
-		{"polygon", b2.ShapeCastPolygon(&input, &box), "0.2"},
-		{"rounded polygon ray", b2.RayCastPolygon(&b2.RayCastInput{Origin: pt("-3", "0"), Translation: pt("10", "0"), MaxFraction: one}, &rounded), "0.2"},
+		{"circle", b2.CastShapeCircle(&circle, &input), "0.2"},
+		{"capsule", b2.CastShapeCapsule(&capsule, &input), "0.15"},
+		{"segment", b2.CastShapeSegment(&segment, &input), "0.2"},
+		{"polygon", b2.CastShapePolygon(&box, &input), "0.2"},
+		{"rounded polygon ray", b2.CastRayPolygon(&rounded, &b2.RayCastInput{Origin: pt("-3", "0"), Translation: pt("10", "0"), MaxFraction: one}), "0.2"},
 	}
 
 	for _, c := range cases {

@@ -156,7 +156,7 @@ func prepareWeldJoint(base *jointSim, context *stepContext) {
 	joint.anchorA = RotateVector(qA, base.localOriginAnchorA.Sub(bodySimA.localCenter))
 	joint.anchorB = RotateVector(qB, base.localOriginAnchorB.Sub(bodySimB.localCenter))
 	joint.deltaCenter = bodySimB.center.Sub(bodySimA.center)
-	joint.deltaAngle = relativeAngle(qB, qA).Sub(joint.referenceAngle)
+	joint.deltaAngle = relativeAngle(qA, qB).Sub(joint.referenceAngle)
 	joint.deltaAngle = unwindAngle(joint.deltaAngle)
 
 	zero := QZero()
@@ -246,7 +246,7 @@ func solveWeldJoint(base *jointSim, context *stepContext, useBias bool) {
 		massScale := one
 		impulseScale := zero
 		if useBias || zero.Less(joint.angularHertz) {
-			C := angleRadians(relativeAngle(stateB.deltaRotation, stateA.deltaRotation).Add(joint.deltaAngle))
+			C := angleRadians(relativeAngle(stateA.deltaRotation, stateB.deltaRotation).Add(joint.deltaAngle))
 			bias = joint.angularSoftness.biasRate.Mul(C)
 			massScale = joint.angularSoftness.massScale
 			impulseScale = joint.angularSoftness.impulseScale

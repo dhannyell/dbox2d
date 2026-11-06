@@ -212,7 +212,7 @@ func preparePrismaticJoint(base *jointSim, context *stepContext) {
 	joint.anchorB = RotateVector(qB, base.localOriginAnchorB.Sub(bodySimB.localCenter))
 	joint.axisA = RotateVector(qA, joint.localAxisA)
 	joint.deltaCenter = bodySimB.center.Sub(bodySimA.center)
-	joint.deltaAngle = relativeAngle(qB, qA).Sub(joint.referenceAngle)
+	joint.deltaAngle = relativeAngle(qA, qB).Sub(joint.referenceAngle)
 	joint.deltaAngle = unwindAngle(joint.deltaAngle)
 
 	rA := joint.anchorA
@@ -458,7 +458,7 @@ func solvePrismaticJoint(base *jointSim, context *stepContext, useBias bool) {
 		if useBias {
 			var C Vec2
 			C.X = perpA.Dot(d)
-			C.Y = angleRadians(relativeAngle(stateB.deltaRotation, stateA.deltaRotation).Add(joint.deltaAngle))
+			C.Y = angleRadians(relativeAngle(stateA.deltaRotation, stateB.deltaRotation).Add(joint.deltaAngle))
 
 			bias = C.Mul(base.constraintSoftness.biasRate)
 			massScale = base.constraintSoftness.massScale

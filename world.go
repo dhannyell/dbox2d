@@ -1343,12 +1343,11 @@ func (worldId WorldId) OverlapShape(proxy *ShapeProxy, filter QueryFilter, fcn O
 		var input DistanceInput
 		input.ProxyA = *proxy
 		input.ProxyB = makeShapeDistanceProxy(s)
-		input.TransformA = TransformIdentity()
-		input.TransformB = transform
+		input.Transform = transform
 		input.UseRadii = true
 
 		var cache SimplexCache
-		output := ShapeDistance(&input, &cache, nil)
+		output := ComputeShapeDistance(&input, &cache, nil)
 
 		if tolerance.Less(output.Distance) {
 			return true
@@ -1616,14 +1615,13 @@ func (ctx *explosionContext) explosionCallback(_ int, userData uint64) bool {
 	one := QOne()
 
 	input := DistanceInput{
-		ProxyA:     makeShapeDistanceProxy(s),
-		ProxyB:     MakeProxy([]Vec2{ctx.position}, zero),
-		TransformA: transform,
-		TransformB: TransformIdentity(),
-		UseRadii:   true,
+		ProxyA:    makeShapeDistanceProxy(s),
+		ProxyB:    MakeProxy([]Vec2{ctx.position}, zero),
+		Transform: InvMulTransforms(transform, TransformIdentity()),
+		UseRadii:  true,
 	}
 	cache := SimplexCache{}
-	output := ShapeDistance(&input, &cache, nil)
+	output := ComputeShapeDistance(&input, &cache, nil)
 
 	if output.Distance.Greater(ctx.radius.Add(ctx.falloff)) {
 		return true
@@ -1634,7 +1632,9 @@ func (ctx *explosionContext) explosionCallback(_ int, userData uint64) bool {
 		return true
 	}
 
-	closestPoint := output.PointA
+	// The distance runs in the frame of the shape; the explosion still works
+	// in world space until the v3.2 local-frame explosion is ported.
+	closestPoint := TransformPoint(transform, output.PointA)
 	// D-012: the reference's exact zero-distance check.
 	if output.Distance.Eq(zero) {
 		closestPoint = TransformPoint(transform, getShapeCentroid(s))
@@ -1842,47 +1842,57 @@ func drawNumber(value Q, places int) string {
 	return text
 }
 
-func drawContactManifold(draw *DebugDraw, manifold *Manifold, colorIndex int, bounded bool) {
+func drawContactManifold(draw *DebugDraw, w *world, cs *contactSim, colorIndex int, bounded bool) {
+	bodyA := &w.bodies[w.shapes[cs.shapeIdA].bodyId]
+	drawManifoldPoints(draw, &cs.manifold, getBodySim(w, bodyA).center, colorIndex, bounded)
+}
+
+// drawManifoldPoints draws the points of a manifold whose anchors A are
+// relative to centerA, the center of mass of body A.
+func drawManifoldPoints(draw *DebugDraw, manifold *Manifold, centerA Vec2, colorIndex int, bounded bool) {
 	axisScale := QMustParse("0.3")
 	for pointIndex := range manifold.PointCount {
 		point := &manifold.Points[pointIndex]
+		// The world point is rebuilt from the center of body A and the
+		// anchor, as the reference draw does.
+		p := centerA.Add(point.AnchorA)
 		if draw.DrawGraphColors {
 			size := QFromInt(5)
 			if colorIndex == overflowIndex {
 				size = QMustParse("7.5")
 			}
-			draw.DrawPoint(point.Point, size, graphColors[colorIndex])
+			draw.DrawPoint(p, size, graphColors[colorIndex])
 		} else if linearSlop.Less(point.Separation) {
 			color := ColorLightGray
 			if bounded {
 				color = ColorGainsboro
 			}
-			draw.DrawPoint(point.Point, QFromInt(5), color)
+			draw.DrawPoint(p, QFromInt(5), color)
 		} else if point.Persisted {
-			draw.DrawPoint(point.Point, QFromInt(5), ColorBlue)
+			draw.DrawPoint(p, QFromInt(5), ColorBlue)
 		} else {
-			draw.DrawPoint(point.Point, QFromInt(10), ColorGreen)
+			draw.DrawPoint(p, QFromInt(10), ColorGreen)
 		}
 		if draw.DrawContactNormals {
-			draw.DrawSegment(point.Point, MulAdd(point.Point, axisScale, manifold.Normal), ColorDimGray)
+			draw.DrawSegment(p, MulAdd(p, axisScale, manifold.Normal), ColorDimGray)
 		} else if draw.DrawContactImpulses {
 			impulse, places := point.TotalNormalImpulse, 2
 			if bounded {
 				impulse, places = point.NormalImpulse, 1
 			}
-			draw.DrawSegment(point.Point, MulAdd(point.Point, impulse, manifold.Normal), ColorMagenta)
-			draw.DrawString(point.Point, drawNumber(impulse.Mul(QFromInt(1000)), places), ColorWhite)
+			draw.DrawSegment(p, MulAdd(p, impulse, manifold.Normal), ColorMagenta)
+			draw.DrawString(p, drawNumber(impulse.Mul(QFromInt(1000)), places), ColorWhite)
 		}
 		if draw.DrawContactFeatures {
-			draw.DrawString(point.Point, strconv.Itoa(int(point.Id)), ColorOrange)
+			draw.DrawString(p, strconv.Itoa(int(point.Id)), ColorOrange)
 		}
 		if draw.DrawFrictionImpulses {
-			draw.DrawSegment(point.Point, MulAdd(point.Point, point.TangentImpulse, RightPerp(manifold.Normal)), ColorYellow)
+			draw.DrawSegment(p, MulAdd(p, point.TangentImpulse, RightPerp(manifold.Normal)), ColorYellow)
 			impulse, places := point.TangentImpulse, 2
 			if bounded {
 				impulse, places = impulse.Mul(QFromInt(1000)), 1
 			}
-			draw.DrawString(point.Point, drawNumber(impulse, places), ColorWhite)
+			draw.DrawString(p, drawNumber(impulse, places), ColorWhite)
 		}
 	}
 }
@@ -1890,7 +1900,7 @@ func drawContactManifold(draw *DebugDraw, manifold *Manifold, colorIndex int, bo
 func drawContacts(draw *DebugDraw, w *world) {
 	for colorIndex := range w.constraintGraph.colors {
 		for i := range w.constraintGraph.colors[colorIndex].contactSims {
-			drawContactManifold(draw, &w.constraintGraph.colors[colorIndex].contactSims[i].manifold, colorIndex, false)
+			drawContactManifold(draw, w, &w.constraintGraph.colors[colorIndex].contactSims[i], colorIndex, false)
 		}
 	}
 }
@@ -1962,7 +1972,7 @@ func drawWithBounds(draw *DebugDraw, w *world) {
 						continue
 					}
 					cs := &w.constraintGraph.colors[contact.colorIndex].contactSims[contact.localIndex]
-					drawContactManifold(draw, &cs.manifold, contact.colorIndex, true)
+					drawContactManifold(draw, w, cs, contact.colorIndex, true)
 					ctx.contactSet.setBit(contactID)
 				}
 			}

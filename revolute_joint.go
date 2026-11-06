@@ -8,7 +8,7 @@ func drawRevoluteJoint(draw *DebugDraw, base *jointSim, transformA, transformB T
 	joint := base.revolute()
 	pA := TransformPoint(transformA, base.localOriginAnchorA)
 	pB := TransformPoint(transformB, base.localOriginAnchorB)
-	angle := RelativeAngle(transformB.Q, transformA.Q)
+	angle := RelativeAngle(transformA.Q, transformB.Q)
 	rot := MakeRot(angle)
 	pC := pB.Add(Vec2{X: drawSize.Mul(rot.Cos), Y: drawSize.Mul(rot.Sin)})
 	draw.DrawCircle(pB, drawSize, ColorGray)
@@ -74,7 +74,7 @@ func (jointId JointId) GetAngle() Q {
 	joint := getJointSimCheckType(w, jointId, RevoluteJoint)
 	transformA := getBodyTransform(w, joint.bodyIdA)
 	transformB := getBodyTransform(w, joint.bodyIdB)
-	angle := relativeAngle(transformB.Q, transformA.Q).Sub(joint.revolute().referenceAngle)
+	angle := relativeAngle(transformA.Q, transformB.Q).Sub(joint.revolute().referenceAngle)
 	return angleToTurns(unwindAngle(angle))
 }
 
@@ -261,7 +261,7 @@ func prepareRevoluteJoint(base *jointSim, context *stepContext) {
 	joint.anchorA = RotateVector(bodySimA.transform.Q, base.localOriginAnchorA.Sub(bodySimA.localCenter))
 	joint.anchorB = RotateVector(bodySimB.transform.Q, base.localOriginAnchorB.Sub(bodySimB.localCenter))
 	joint.deltaCenter = bodySimB.center.Sub(bodySimA.center)
-	joint.deltaAngle = relativeAngle(bodySimB.transform.Q, bodySimA.transform.Q)
+	joint.deltaAngle = relativeAngle(bodySimA.transform.Q, bodySimB.transform.Q)
 
 	zero := QZero()
 	k := iA.Add(iB)
@@ -349,7 +349,7 @@ func solveRevoluteJoint(base *jointSim, context *stepContext, useBias bool) {
 
 	// Solve spring.
 	if joint.enableSpring && !fixedRotation {
-		jointAngle := relativeAngle(stateB.deltaRotation, stateA.deltaRotation).Add(joint.deltaAngle)
+		jointAngle := relativeAngle(stateA.deltaRotation, stateB.deltaRotation).Add(joint.deltaAngle)
 		jointAngleDelta := unwindAngle(jointAngle.Sub(joint.targetAngle))
 
 		C := angleRadians(jointAngleDelta)
@@ -379,7 +379,7 @@ func solveRevoluteJoint(base *jointSim, context *stepContext, useBias bool) {
 	}
 
 	if joint.enableLimit && !fixedRotation {
-		jointAngle := relativeAngle(dqB, dqA).Add(joint.deltaAngle).Sub(joint.referenceAngle)
+		jointAngle := relativeAngle(dqA, dqB).Add(joint.deltaAngle).Sub(joint.referenceAngle)
 		jointAngle = unwindAngle(jointAngle)
 
 		// Lower limit

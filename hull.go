@@ -96,7 +96,7 @@ func ComputeHull(points []Vec2) Hull {
 	// Also compute the bounding box for later.
 	var ps [MaxPolygonVertices]Vec2
 	n := 0
-	tolSqr := QFromInt(16).Mul(linearSlop).Mul(linearSlop)
+	tolSqr := QHalf().Mul(QHalf()).Mul(linearSlop).Mul(linearSlop) // v3.2: 0.25 * slop^2
 	for i := range count {
 		aabb.LowerBound = Min(aabb.LowerBound, points[i])
 		aabb.UpperBound = Max(aabb.UpperBound, points[i])
@@ -104,8 +104,8 @@ func ComputeHull(points []Vec2) Hull {
 		vi := points[i]
 
 		unique := true
-		for j := range i {
-			vj := points[j]
+		for j := range n {
+			vj := ps[j]
 
 			distSqr := vi.DistanceSq(vj)
 			if distSqr.Less(tolSqr) {

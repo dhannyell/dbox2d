@@ -83,7 +83,7 @@ func prepareMotorJoint(base *jointSim, context *stepContext) {
 	joint.anchorA = RotateVector(bodySimA.transform.Q, base.localOriginAnchorA.Sub(bodySimA.localCenter))
 	joint.anchorB = RotateVector(bodySimB.transform.Q, base.localOriginAnchorB.Sub(bodySimB.localCenter))
 	joint.deltaCenter = bodySimB.center.Sub(bodySimA.center).Sub(joint.linearOffset)
-	joint.deltaAngle = relativeAngle(bodySimB.transform.Q, bodySimA.transform.Q).Sub(joint.angularOffset)
+	joint.deltaAngle = relativeAngle(bodySimA.transform.Q, bodySimB.transform.Q).Sub(joint.angularOffset)
 
 	rA := joint.anchorA
 	rB := joint.anchorB
@@ -163,7 +163,7 @@ func solveMotorJoint(base *jointSim, context *stepContext, _ bool) {
 
 	// angular constraint
 	{
-		angularSeparation := relativeAngle(bodyB.deltaRotation, bodyA.deltaRotation).Add(joint.deltaAngle)
+		angularSeparation := relativeAngle(bodyA.deltaRotation, bodyB.deltaRotation).Add(joint.deltaAngle)
 		angularSeparation = unwindAngle(angularSeparation)
 
 		angularBias := context.invH.Mul(joint.correctionFactor).Mul(angleRadians(angularSeparation))

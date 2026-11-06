@@ -735,7 +735,7 @@ func (jointId JointId) GetAngularSeparation() Q {
 
 	xfA := getBodyTransform(w, j.edges[0].bodyId)
 	xfB := getBodyTransform(w, j.edges[1].bodyId)
-	relative := relativeAngle(xfB.Q, xfA.Q)
+	relative := relativeAngle(xfA.Q, xfB.Q)
 	zero := QZero()
 
 	switch j.jointType {

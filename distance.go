@@ -3,7 +3,7 @@ package b2
 // SegmentDistance computes the closest points of two line segments,
 // clamping at the end points when needed. It follows Ericson 5.1.9 and
 // corresponds to b2SegmentDistance in src/distance.c.
-func SegmentDistance(p1, q1, p2, q2 Vec2) SegmentDistanceResult {
+func ComputeSegmentDistance(p1, q1, p2, q2 Vec2) SegmentDistanceResult {
 	var result SegmentDistanceResult
 
 	zero := QZero()
@@ -188,13 +188,15 @@ func makeSimplexFromCache(cache *SimplexCache, proxyA, proxyB *ShapeProxy) Simpl
 
 // makeSimplexCache stores the simplex indices for the next call. It
 // corresponds to b2MakeSimplexCache in src/distance.c.
-func makeSimplexCache(cache *SimplexCache, simplex *Simplex) {
+func makeSimplexCache(simplex *Simplex) SimplexCache {
+	var cache SimplexCache
 	cache.Count = uint16(simplex.Count)
 	vertices := [3]*SimplexVertex{&simplex.V1, &simplex.V2, &simplex.V3}
 	for i := range simplex.Count {
 		cache.IndexA[i] = uint8(vertices[i].IndexA)
 		cache.IndexB[i] = uint8(vertices[i].IndexB)
 	}
+	return cache
 }
 
 // computeSimplexWitnessPoints returns the closest points on A and on B for
@@ -407,16 +409,17 @@ func solveSimplex3(s *Simplex) Vec2 {
 // debugging; pass nil to skip it. It corresponds to b2ShapeDistance in
 // src/distance.c, https://box2d.org/files/ErinCatto_GJK_GDC2010.pdf.
 //
-// The reference stops on a search direction shorter than FLT_EPSILON;
-// the port stops on a squared length of exactly zero (D-012).
-func ShapeDistance(input *DistanceInput, cache *SimplexCache, simplexes []Simplex) DistanceOutput {
+// The query runs in frame A, so the points and the normal of the output are
+// in frame A. The reference stops on a squared search direction below
+// 1000 * FLT_MIN; the fixed port stops on exactly zero (D-012).
+func ComputeShapeDistance(input *DistanceInput, cache *SimplexCache, simplexes []Simplex) DistanceOutput {
 	zero := QZero()
 
 	if input.ProxyA.Count <= 0 || input.ProxyB.Count <= 0 {
-		panic("dbox2d: ShapeDistance needs at least one point per proxy")
+		panic("dbox2d: ComputeShapeDistance needs at least one point per proxy")
 	}
 	if input.ProxyA.Radius.Less(zero) || input.ProxyB.Radius.Less(zero) {
-		panic("dbox2d: ShapeDistance needs non-negative radii")
+		panic("dbox2d: ComputeShapeDistance needs non-negative radii")
 	}
 
 	var output DistanceOutput
@@ -427,7 +430,7 @@ func ShapeDistance(input *DistanceInput, cache *SimplexCache, simplexes []Simple
 	// This is still a performance gain at 8 points.
 	var localProxyB ShapeProxy
 	{
-		transform := InvMulTransforms(input.TransformA, input.TransformB)
+		transform := input.Transform
 		localProxyB.Count = input.ProxyB.Count
 		localProxyB.Radius = input.ProxyB.Radius
 		for i := range localProxyB.Count {
@@ -481,9 +484,11 @@ func ShapeDistance(input *DistanceInput, cache *SimplexCache, simplexes []Simple
 		// If we have 3 points, then the origin is in the corresponding triangle.
 		if simplex.Count == 3 {
 			// Overlap
+			*cache = makeSimplexCache(&simplex)
 			localPointA, localPointB := computeSimplexWitnessPoints(&simplex)
-			output.PointA = TransformPoint(input.TransformA, localPointA)
-			output.PointB = TransformPoint(input.TransformA, localPointB)
+			output.Distance = zero
+			output.PointA = localPointA
+			output.PointB = localPointB
 			return output
 		}
 
@@ -493,17 +498,20 @@ func ShapeDistance(input *DistanceInput, cache *SimplexCache, simplexes []Simple
 		}
 
 		// Ensure the search direction is numerically fit.
-		if belowEpsilonSq(d.Dot(d)) {
+		if belowNormalizeFloor(d.Dot(d)) {
 			// This is unlikely but could lead to bad cycling.
 			// The branch predictor seems to make this check have low cost.
 
 			// The origin is probably contained by a line segment
 			// or triangle. Thus the shapes are overlapped.
 
+			*cache = makeSimplexCache(&simplex)
+
 			// Must return overlap due to invalid normal.
 			localPointA, localPointB := computeSimplexWitnessPoints(&simplex)
-			output.PointA = TransformPoint(input.TransformA, localPointA)
-			output.PointB = TransformPoint(input.TransformA, localPointB)
+			output.Distance = zero
+			output.PointA = localPointA
+			output.PointB = localPointB
 			return output
 		}
 
@@ -545,26 +553,25 @@ func ShapeDistance(input *DistanceInput, cache *SimplexCache, simplexes []Simple
 		simplexIndex++
 	}
 
-	// Prepare output
+	// Prepare output in frame A
 	normal := nonUnitNormal.Normalize()
 	if !IsNormalized(normal) {
 		panic("dbox2d: the GJK normal did not normalize")
 	}
-	normal = RotateVector(input.TransformA.Q, normal)
 
 	localPointA, localPointB := computeSimplexWitnessPoints(&simplex)
 	output.Normal = normal
 	output.Distance = localPointA.Distance(localPointB)
-	output.PointA = TransformPoint(input.TransformA, localPointA)
-	output.PointB = TransformPoint(input.TransformA, localPointB)
+	output.PointA = localPointA
+	output.PointB = localPointB
 	output.Iterations = iteration
 	output.SimplexCount = simplexIndex
 
 	// Cache the simplex
-	makeSimplexCache(cache, &simplex)
+	*cache = makeSimplexCache(&simplex)
 
 	// Apply radii if requested
-	if input.UseRadii && linearSlopTenth.Less(output.Distance) {
+	if input.UseRadii {
 		radiusA := input.ProxyA.Radius
 		radiusB := input.ProxyB.Radius
 		output.Distance = zero.Max(output.Distance.Sub(radiusA).Sub(radiusB))
@@ -581,8 +588,9 @@ func ShapeDistance(input *DistanceInput, cache *SimplexCache, simplexes []Simple
 // advancement and reports the hit point, the normal and the fraction of
 // the translation. Shapes that start in contact report a hit at a zero
 // fraction unless the input allows an encroach. It corresponds to
-// b2ShapeCast in src/distance.c.
-func ShapeCast(input *ShapeCastPairInput) CastOutput {
+// b2CastShape in src/distance.c. The cast runs in frame A, so the point and
+// the normal of the output are in frame A.
+func CastShape(input *ShapeCastPairInput) CastOutput {
 	zero := QZero()
 
 	// Compute tolerance
@@ -602,9 +610,11 @@ func ShapeCast(input *ShapeCastPairInput) CastOutput {
 	var distanceInput DistanceInput
 	distanceInput.ProxyA = input.ProxyA
 	distanceInput.ProxyB = input.ProxyB
-	distanceInput.TransformA = input.TransformA
-	distanceInput.TransformB = input.TransformB
 	distanceInput.UseRadii = false
+
+	// The whole cast runs in frame A. The relative pose of B advances each
+	// iteration, which keeps the math near the local origin.
+	distanceInput.Transform = input.Transform
 
 	delta2 := input.TranslationB
 	var output CastOutput
@@ -613,7 +623,7 @@ func ShapeCast(input *ShapeCastPairInput) CastOutput {
 	for iteration := 0; iteration < maxIterations; iteration++ {
 		output.Iterations++
 
-		distanceOutput := ShapeDistance(&distanceInput, &cache, nil)
+		distanceOutput := ComputeShapeDistance(&distanceInput, &cache, nil)
 
 		if distanceOutput.Distance.Less(target.Add(tolerance)) {
 			if iteration == 0 {
@@ -663,7 +673,7 @@ func ShapeCast(input *ShapeCastPairInput) CastOutput {
 			return output
 		}
 
-		distanceInput.TransformB.P = MulAdd(input.TransformB.P, fraction, delta2)
+		distanceInput.Transform.P = MulAdd(input.Transform.P, fraction, delta2)
 	}
 
 	// Failure!
@@ -867,12 +877,21 @@ func evaluateSeparation(f *separationFunction, indexA, indexB int, t Q) Q {
 	}
 }
 
-// TimeOfImpact computes the largest fraction of the sweeps at which the
+// averagedHitPoint returns the midpoint of the two witness points pushed out
+// to the proxy surfaces, and the normal. It is the averaged hit point of
+// b2ComputeTimeOfImpact in src/distance.c.
+func averagedHitPoint(proxyA, proxyB *ShapeProxy, worldPointA, worldPointB, worldNormal Vec2) (Vec2, Vec2) {
+	pA := MulAdd(worldPointA, proxyA.Radius, worldNormal)
+	pB := MulAdd(worldPointB, proxyB.Radius.Neg(), worldNormal)
+	return Lerp(pA, pB, QHalf()), worldNormal
+}
+
+// ComputeTimeOfImpact computes the largest fraction of the sweeps at which the
 // two proxies stay separated by the target. It uses the local separating
 // axis method, so it may miss some intermediate, non-tunneling
 // collisions. The reference counters under B2_SNOOP_TOI_COUNTERS are not
-// ported. It corresponds to b2TimeOfImpact in src/distance.c.
-func TimeOfImpact(input *TOIInput) TOIOutput {
+// ported. It corresponds to b2ComputeTimeOfImpact in src/distance.c.
+func ComputeTimeOfImpact(input *TOIInput) TOIOutput {
 	zero := QZero()
 
 	var output TOIOutput
@@ -911,14 +930,16 @@ func TimeOfImpact(input *TOIInput) TOIOutput {
 	// The outer loop progressively attempts to compute new separating axes.
 	// This loop terminates when an axis is repeated (no progress is made).
 	for {
+		// Get the distance between shapes. We can also use the results to get a separating axis.
 		xfA := GetSweepTransform(&sweepA, t1)
 		xfB := GetSweepTransform(&sweepB, t1)
+		distanceInput.Transform = InvMulTransforms(xfA, xfB)
+		distanceOutput := ComputeShapeDistance(&distanceInput, &cache, nil)
 
-		// Get the distance between shapes. We can also use the results
-		// to get a separating axis.
-		distanceInput.TransformA = xfA
-		distanceInput.TransformB = xfB
-		distanceOutput := ShapeDistance(&distanceInput, &cache, nil)
+		// The distance query runs in frame A, project the witness data back to world
+		worldNormal := RotateVector(xfA.Q, distanceOutput.Normal)
+		worldPointA := TransformPoint(xfA, distanceOutput.PointA)
+		worldPointB := TransformPoint(xfA, distanceOutput.PointB)
 
 		distanceIterations++
 
@@ -931,8 +952,9 @@ func TimeOfImpact(input *TOIInput) TOIOutput {
 		}
 
 		if !target.Add(tolerance).Less(distanceOutput.Distance) {
-			// Victory!
+			// Success!
 			output.State = TOIStateHit
+			output.Point, output.Normal = averagedHitPoint(proxyA, proxyB, worldPointA, worldPointB, worldNormal)
 			output.Fraction = t1
 			break
 		}
@@ -979,8 +1001,9 @@ func TimeOfImpact(input *TOIInput) TOIOutput {
 
 			// Check for touching
 			if !target.Add(tolerance).Less(s1) {
-				// Victory! t1 should hold the TOI (could be 0.0).
+				// Success! t1 should hold the TOI (could be 0.0).
 				output.State = TOIStateHit
+				output.Point, output.Normal = averagedHitPoint(proxyA, proxyB, worldPointA, worldPointB, worldNormal)
 				output.Fraction = t1
 				done = true
 				break
@@ -990,10 +1013,10 @@ func TimeOfImpact(input *TOIInput) TOIOutput {
 			rootIterationCount := 0
 			a1, a2 := t1, t2
 			for {
-				// Use a mix of the secant rule and bisection.
+				// Use a mix of false position and bisection.
 				var t Q
 				if rootIterationCount&1 == 1 {
-					// Secant rule to improve convergence.
+					// False position to improve convergence.
 					t = a1.Add(target.Sub(s1).Mul(a2.Sub(a1)).Div(s2.Sub(s1)))
 				} else {
 					// Bisection to guarantee progress.
@@ -1038,6 +1061,7 @@ func TimeOfImpact(input *TOIInput) TOIOutput {
 		if distanceIterations == maxIterations {
 			// Root finder got stuck. Semi-victory.
 			output.State = TOIStateFailed
+			output.Point, output.Normal = averagedHitPoint(proxyA, proxyB, worldPointA, worldPointB, worldNormal)
 			output.Fraction = t1
 			break
 		}

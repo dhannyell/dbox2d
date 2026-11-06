@@ -19,7 +19,7 @@ func TestRayCastCapsuleHitsTheSide(t *testing.T) {
 	origin := target.Sub(translation.Mul(wantFraction))
 	input := ray(origin, translation)
 
-	output := b2.RayCastCapsule(&input, &capsule)
+	output := b2.CastRayCapsule(&capsule, &input)
 
 	if !output.Hit {
 		t.Fatalf("the ray misses the capsule")

@@ -73,7 +73,7 @@ func angleToTurns(a Q) Q { return a }
 func angleRadians(a Q) Q { return a.Mul(tau) }
 
 // relativeAngle returns the angle of b relative to a, in the angle unit.
-func relativeAngle(b, a Rot) Q { return RelativeAngle(b, a) }
+func relativeAngle(a, b Rot) Q { return RelativeAngle(a, b) }
 
 // unwindAngle reduces an angle in the angle unit to half a turn.
 func unwindAngle(a Q) Q { return UnwindAngle(a) }
@@ -107,6 +107,10 @@ func belowEpsilon(x Q) bool { return x.Eq(QZero()) }
 // belowEpsilonSq reports whether a squared length is below fixed-point
 // rounding noise.
 func belowEpsilonSq(x Q) bool { return x.Eq(QZero()) }
+
+// belowNormalizeFloor reports whether a squared length is zero. The float
+// floor of 1000 * FLT_MIN is far below one raw unit (D-012).
+func belowNormalizeFloor(x Q) bool { return x.Eq(QZero()) }
 
 // sensorOverlaps reports whether a sensor overlap distance is below the
 // fixed-point format's rounding noise.
@@ -338,4 +342,10 @@ func storeImpulses32(context *stepContext) {
 		color := &context.graph.colors[i]
 		storeImpulseRange32(0, len(color.contacts32), color.contacts32, color.contactConstraints32)
 	}
+}
+
+// getLengthAndNormalize returns the length and the fixed-point Normalize.
+// The fixed format has no floor below one raw unit (D-012).
+func getLengthAndNormalize(v Vec2) (Q, Vec2) {
+	return v.Len(), v.Normalize()
 }

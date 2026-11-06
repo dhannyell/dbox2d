@@ -54,12 +54,19 @@ func IsValidVec2(v Vec2) bool {
 	return IsValidQ(v.X) && IsValidQ(v.Y)
 }
 
-// IsValidRotation reports whether q is a usable and normalized rotation.
-func IsValidRotation(q Rot) bool {
+// IsValidRot reports whether q is a usable and normalized rotation. It
+// corresponds to b2IsValidRot.
+func IsValidRot(q Rot) bool {
 	if !IsValidQ(q.Sin) || !IsValidQ(q.Cos) {
 		return false
 	}
 	return IsNormalizedRot(q)
+}
+
+// IsValidTransform reports whether t has a usable position and a valid
+// rotation. It corresponds to b2IsValidTransform.
+func IsValidTransform(t Transform) bool {
+	return IsValidVec2(t.P) && IsValidRot(t.Q)
 }
 
 // IsValidPlane reports whether a has a unit normal and a usable offset.
@@ -158,9 +165,10 @@ func IsNormalized(a Vec2) bool {
 }
 
 // GetLengthAndNormalize returns the length of v and the unit vector with the
-// same direction. The zero vector returns a zero length and the zero vector.
+// same direction. A vector Normalize sends to zero returns a zero length and
+// the zero vector.
 func GetLengthAndNormalize(v Vec2) (Q, Vec2) {
-	return v.Len(), v.Normalize()
+	return getLengthAndNormalize(v)
 }
 
 // NormalizeRot rescales q to unit length.
@@ -286,13 +294,28 @@ func InvMulRot(q, r Rot) Rot {
 	}
 }
 
-// RelativeAngle returns the angle of b relative to a, in turns.
-func RelativeAngle(b, a Rot) Q {
+// RelativeAngle returns the angle of b relative to a, b - a, in turns. The
+// arguments follow b2RelativeAngle(a, b) of v3.2.
+func RelativeAngle(a, b Rot) Q {
 	// sin(b - a) = bs * ac - bc * as
 	// cos(b - a) = bc * ac + bs * as
-	s := b.Sin.Mul(a.Cos).Sub(b.Cos.Mul(a.Sin))
-	c := b.Cos.Mul(a.Cos).Add(b.Sin.Mul(a.Sin))
+	s := a.Cos.Mul(b.Sin).Sub(a.Sin.Mul(b.Cos))
+	c := a.Cos.Mul(b.Cos).Add(a.Sin.Mul(b.Sin))
 	return atan2Turns(s, c)
+}
+
+// InvertRot returns the inverse rotation. It corresponds to b2InvertRot.
+func InvertRot(a Rot) Rot {
+	return Rot{Cos: a.Cos, Sin: a.Sin.Neg()}
+}
+
+// MakeRotFromUnitVector returns the rotation whose cosine and sine are the
+// components of a unit vector. It corresponds to b2MakeRotFromUnitVector.
+func MakeRotFromUnitVector(unitVector Vec2) Rot {
+	if !IsNormalized(unitVector) {
+		panic("dbox2d: MakeRotFromUnitVector needs a unit vector")
+	}
+	return Rot{Cos: unitVector.X, Sin: unitVector.Y}
 }
 
 // UnwindAngle reduces an angle in turns to the range [-0.5, 0.5]. One turn

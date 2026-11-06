@@ -698,10 +698,12 @@ func BenchmarkCollidePolygonsQ(b *testing.B) {
 	xfA := TransformIdentity()
 	xfB := Transform{P: Vec2{Y: QMustParse("1.5")}, Q: RotIdentity()}
 
-	var result Manifold
+	xf := InvMulTransforms(xfA, xfB)
+
+	var result LocalManifold
 	b.ResetTimer()
 	for range b.N {
-		result = CollidePolygons(&boxA, xfA, &boxB, xfB)
+		result = CollidePolygons(&boxA, &boxB, xf)
 	}
 	runtime.KeepAlive(result)
 	if result.PointCount == 0 {
@@ -2044,11 +2046,10 @@ func benchDistanceInput() DistanceInput {
 	box := MakeSquare(QOne())
 	proxy := MakeProxy(box.Vertices[:box.Count], QZero())
 	return DistanceInput{
-		ProxyA:     proxy,
-		ProxyB:     proxy,
-		TransformA: TransformIdentity(),
-		TransformB: Transform{P: Vec2{X: QFromInt(3), Y: QHalf()}, Q: MakeRot(QFromRatio(1, 8))},
-		UseRadii:   true,
+		ProxyA:    proxy,
+		ProxyB:    proxy,
+		Transform: Transform{P: Vec2{X: QFromInt(3), Y: QHalf()}, Q: MakeRot(QFromRatio(1, 8))},
+		UseRadii:  true,
 	}
 }
 
@@ -2061,7 +2062,7 @@ func BenchmarkShapeDistanceQ(b *testing.B) {
 	b.ResetTimer()
 	for range b.N {
 		var cache SimplexCache
-		result = ShapeDistance(&input, &cache, nil)
+		result = ComputeShapeDistance(&input, &cache, nil)
 	}
 	runtime.KeepAlive(result)
 	if !QHalf().Less(result.Distance) {
@@ -2073,7 +2074,7 @@ func BenchmarkShapeDistanceQ(b *testing.B) {
 func BenchmarkShapeDistanceF64(b *testing.B) {
 	input := benchDistanceInput()
 	pa, pb := proxyToF64(&input.ProxyA), proxyToF64(&input.ProxyB)
-	xfA, xfB := transformToF64(input.TransformA), transformToF64(input.TransformB)
+	xfA, xfB := transformToF64(TransformIdentity()), transformToF64(input.Transform)
 
 	var result f64DistanceOutput
 	b.ReportAllocs()
@@ -2112,7 +2113,7 @@ func BenchmarkTimeOfImpactQ(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
-		result = TimeOfImpact(&input)
+		result = ComputeTimeOfImpact(&input)
 	}
 	runtime.KeepAlive(result)
 	if result.State != TOIStateHit {

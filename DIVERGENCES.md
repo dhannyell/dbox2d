@@ -185,7 +185,9 @@ Numbering is sequential from `D-001` and never reused.
 - Behaviour: segment degeneracy, zero search direction, coincident closest
   points, clipping spans, sensor overlap, and explosion direction use exact
   zero tests in fixed mode. Nonzero values take the regular path; float mode
-  keeps the reference epsilon checks.
+  keeps the reference epsilon checks. Since v3.2 the `Normalize` and
+  `GetLengthAndNormalize` floor and the GJK stop test are `1000 * FLT_MIN`
+  in float mode (`belowNormalizeFloor`); fixed mode tests for exact zero.
 - Test: `TestSegmentDistanceHandlesDegenerateSegments`,
   `TestSensorTouchingEdgeIsNotOverlap`, and
   `TestExplodeImpulseByDistance`

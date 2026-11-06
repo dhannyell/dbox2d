@@ -478,7 +478,7 @@ func TestDrawPreservesSimulationAndCallbackOrder(t *testing.T) {
 
 func TestDrawContactDiagnosticsMatchReferenceUnits(t *testing.T) {
 	m := Manifold{Normal: Vec2{Y: QOne()}, PointCount: 1}
-	m.Points[0] = ManifoldPoint{Point: v2(2, 3), NormalImpulse: QMustParse("0.125"), TotalNormalImpulse: QHalf(), TangentImpulse: QMustParse("-0.25"), Id: 123}
+	m.Points[0] = ManifoldPoint{NormalImpulse: QMustParse("0.125"), TotalNormalImpulse: QHalf(), TangentImpulse: QMustParse("-0.25"), Id: 123}
 	for _, tc := range []struct {
 		bounded          bool
 		end              float64
@@ -489,7 +489,7 @@ func TestDrawContactDiagnosticsMatchReferenceUnits(t *testing.T) {
 	} {
 		draw, calls := recordDraw()
 		draw.DrawGraphColors, draw.DrawContactImpulses, draw.DrawContactFeatures, draw.DrawFrictionImpulses = true, true, true, true
-		drawContactManifold(draw, &m, overflowIndex, tc.bounded)
+		drawManifoldPoints(draw, &m, v2(2, 3), overflowIndex, tc.bounded)
 		if len(*calls) != 6 {
 			t.Fatalf("diagnostic callbacks = %+v", *calls)
 		}
@@ -507,7 +507,7 @@ func TestDrawContactDiagnosticsMatchReferenceUnits(t *testing.T) {
 		}
 		*calls = nil
 		draw.DrawContactNormals = true
-		drawContactManifold(draw, &m, overflowIndex, tc.bounded)
+		drawManifoldPoints(draw, &m, v2(2, 3), overflowIndex, tc.bounded)
 		if len(*calls) != 5 || (*calls)[1].color != ColorDimGray {
 			t.Fatalf("normals must take precedence over impulses: %+v", *calls)
 		}

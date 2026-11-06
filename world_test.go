@@ -455,14 +455,19 @@ func TestBodyMassComesFromItsShapes(t *testing.T) {
 	centerBefore := getBodySim(w, b).center
 	velocityBefore := getBodyState(w, b).linearVelocity
 
-	// A degenerate capsule welds into a circle at its midpoint.
+	// Since v3.2 a degenerate capsule is not created: the null id comes back
+	// and the mass is unchanged.
 	capsule := Capsule{Center1: v2(2, 0), Center2: v2(2, 0), Radius: QOne()}
-	weldedId := CreateCapsuleShape(bodyId, &shapeDef, &capsule)
-
-	welded := getShape(w, weldedId)
-	if welded.shapeType != CircleShape {
-		t.Fatalf("the welded capsule has type %d, want CircleShape", welded.shapeType)
+	if id := CreateCapsuleShape(bodyId, &shapeDef, &capsule); id != (ShapeId{}) {
+		t.Fatalf("degenerate capsule id = %v, want the null id", id)
 	}
+	if !bodyId.GetMass().Eq(wantBox.Mass) {
+		t.Fatalf("mass after the degenerate capsule = %v, want %v", bodyId.GetMass(), wantBox.Mass)
+	}
+
+	circle := Circle{Center: v2(2, 0), Radius: QOne()}
+	weldedId := CreateCircleShape(bodyId, &shapeDef, &circle)
+	welded := getShape(w, weldedId)
 
 	wantCircle := ComputeCircleMass(welded.circle(), shapeDef.Density)
 	wantTotal := wantBox.Mass.Add(wantCircle.Mass)
@@ -745,9 +750,9 @@ func TestShapeQueriesMatchBruteForce(t *testing.T) {
 			}
 			transform := getBodyTransformQuick(w, &w.bodies[s.bodyId])
 
-			input := DistanceInput{ProxyA: proxy, ProxyB: makeShapeDistanceProxy(s), TransformA: TransformIdentity(), TransformB: transform, UseRadii: true}
+			input := DistanceInput{ProxyA: proxy, ProxyB: makeShapeDistanceProxy(s), Transform: transform, UseRadii: true}
 			var cache SimplexCache
-			if out := ShapeDistance(&input, &cache, nil); !tolerance.Less(out.Distance) {
+			if out := ComputeShapeDistance(&input, &cache, nil); !tolerance.Less(out.Distance) {
 				wantOverlap[shapeIdOf(w, s)] = true
 			}
 

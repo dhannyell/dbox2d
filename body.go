@@ -185,7 +185,7 @@ func CreateBody(worldId WorldId, def *BodyDef) BodyId {
 	if !IsValidVec2(def.Position) {
 		panic("dbox2d: BodyDef.Position is not valid")
 	}
-	if !IsValidRotation(def.Rotation) {
+	if !IsValidRot(def.Rotation) {
 		panic("dbox2d: BodyDef.Rotation is not valid")
 	}
 	if !IsValidVec2(def.LinearVelocity) {
@@ -456,7 +456,6 @@ func updateBodyMassData(w *world, b *body) {
 		massData := computeShapeMass(s)
 		b.mass = b.mass.Add(massData.Mass)
 		localCenter = MulAdd(localCenter, massData.Mass, massData.Center)
-		b.inertia = b.inertia.Add(massData.RotationalInertia)
 	}
 
 	// Compute center of mass.
@@ -465,12 +464,34 @@ func updateBodyMassData(w *world, b *body) {
 		localCenter = localCenter.Mul(sim.invMass)
 	}
 
-	if zero.Less(b.inertia) && !b.fixedRotation {
-		// Center the inertia about the center of mass.
-		b.inertia = b.inertia.Sub(b.mass.Mul(localCenter.Dot(localCenter)))
-		if !zero.Less(b.inertia) {
-			panic("dbox2d: the centered inertia is not positive")
+	// Second loop to accumulate the rotational inertia about the center of
+	// mass. The reference keeps the mass data of the first loop in a stack
+	// buffer; the port computes it again, which gives the same values.
+	shapeId = b.headShapeId
+	for shapeId != nullIndex {
+		s := &w.shapes[shapeId]
+		shapeId = s.nextShapeId
+
+		if s.density.Eq(zero) {
+			continue
 		}
+
+		massData := computeShapeMass(s)
+		if massData.Mass.Eq(zero) {
+			continue
+		}
+
+		// Shift to center of mass. This is safe because it can only increase.
+		offset := localCenter.Sub(massData.Center)
+		inertia := massData.RotationalInertia.Add(massData.Mass.Mul(offset.Dot(offset)))
+		b.inertia = b.inertia.Add(inertia)
+	}
+
+	if b.inertia.Less(zero) {
+		panic("dbox2d: the body inertia is negative")
+	}
+
+	if zero.Less(b.inertia) && !b.fixedRotation {
 		sim.invInertia = QOne().Div(b.inertia)
 	} else {
 		b.inertia = zero
@@ -702,7 +723,7 @@ func (bodyId BodyId) SetTransform(position Vec2, rotation Rot) {
 	if !IsValidVec2(position) {
 		panic("dbox2d: SetTransform position is not valid")
 	}
-	if !IsValidRotation(rotation) {
+	if !IsValidRot(rotation) {
 		panic("dbox2d: SetTransform rotation is not valid")
 	}
 	w := getWorld(bodyId.world0)
@@ -751,7 +772,7 @@ func (bodyId BodyId) SetTargetTransform(target Transform, timeStep Q) {
 	angularVelocity := zero
 	if !b.fixedRotation {
 		// D-004: the state stores radians.
-		deltaAngle := relativeAngle(target.Q, sim.transform.Q)
+		deltaAngle := relativeAngle(sim.transform.Q, target.Q)
 		angularVelocity = angleRadians(deltaAngle).Mul(invTimeStep)
 	}
 

@@ -1296,7 +1296,7 @@ func TestStepWeldsTwoBoxes(t *testing.T) {
 	}
 	simA := getBodySim(w, bodyA)
 	simB := getBodySim(w, bodyB)
-	angle := RelativeAngle(simB.transform.Q, simA.transform.Q).Abs()
+	angle := RelativeAngle(simA.transform.Q, simB.transform.Q).Abs()
 	if !angle.Less(QMustParse("0.0001")) {
 		t.Errorf("the relative angle is %v turn, want below 1e-4", angle)
 	}
