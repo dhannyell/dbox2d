@@ -96,7 +96,6 @@ func checksumShape(s *shape) uint64 {
 	h = checksumBool(h, s.enableContactEvents)
 	h = checksumBool(h, s.enableHitEvents)
 	h = checksumBool(h, s.enablePreSolveEvents)
-	h = checksumBool(h, s.enlargedAABB)
 	return checksumShapeGeometry(h, s)
 }
 

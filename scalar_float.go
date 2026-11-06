@@ -101,6 +101,10 @@ func QMaxValue() Q { return Q{math.MaxFloat32} }
 // QMinValue returns the smallest finite float32 scalar.
 func QMinValue() Q { return Q{-math.MaxFloat32} }
 
+// qInfinity returns positive infinity. The tree seeds its empty nodes with
+// it, as b2MakeEmptyNode does with INFINITY.
+func qInfinity() Q { return Q{float32(math.Inf(1))} }
+
 // RotIdentity returns the rotation by zero turns.
 func RotIdentity() Rot { return Rot{Sin: QZero(), Cos: QOne()} }
 

@@ -192,19 +192,18 @@ Numbering is sequential from `D-001` and never reused.
   `TestSensorTouchingEdgeIsNotOverlap`, and
   `TestExplodeImpulseByDistance`
 
-### D-013 The pairs of a moved proxy are sorted by shape id
+### D-013 The pairs of a moved proxy are sorted by shape id (retired)
 
-- File: `broad_phase.go` (upstream `b2PairQueryCallback`)
-- Tier: T2
-- Reason: the reference's tree-walk order depends on tree topology and can
-  change contact creation order.
-- Behaviour: new pairs for one moved proxy are appended and sorted by
-  `(shapeIdA, shapeIdB)`; moved proxies retain move-buffer order. The default
-  therefore remains independent of equivalent tree topology. The
-  `dbox2d_upstream_pairs` tag restores reference prepend order and gives up
-  that independence.
-- Test: `TestBroadPhasePairsAreSortedByShapeId`,
-  `TestChecksumIgnoresTheTreeTopology`, and `TestConformance`
+- File: `broad_phase.go` (upstream `b2UpdateBroadPhasePairs`)
+- Tier: none since v1.1.0
+- Retired: Box2D v3.2.0 radix-sorts every new pair by its shape pair key
+  before it creates the contacts, so the reference order no longer depends on
+  the tree topology. The port follows that order and the
+  `dbox2d_upstream_pairs` tag is gone. Up to v1.0.0 the port sorted the pairs
+  of each moved proxy by `(shapeIdA, shapeIdB)` while the reference followed
+  the tree walk.
+- Test: `TestBroadPhasePairsAreSortedByShapeId` and
+  `TestChecksumIgnoresTheTreeTopology`
 
 ### D-014 A callback with a context becomes a closure
 
@@ -285,9 +284,9 @@ Numbering is sequential from `D-001` and never reused.
 - Behaviour: frozen traces cover 17 collision/function files and 8 scene files.
   The generator uses the pinned reference without SIMD or FMA. Float function
   traces are exact except for the documented `make_rot` budget; fixed traces
-  use absolute budgets. Float scene traces match bit for bit with
-  `dbox2d_upstream_pairs`; the default sorted-pair build is checked with
-  step-one budgets and diagnostic later hashes. Fixed scene traces use
+  use absolute budgets. Up to v1.0.0 float scene traces matched bit for bit
+  under the retired `dbox2d_upstream_pairs` tag (D-013); the v3.2 scene traces
+  return in migration phase 5. Fixed scene traces use
   fixed-mode budgets and saturation gates. The traces also caught two port
   bugs: colored contacts used `maxContactPushSpeed` instead of `contactSpeed`,
   and grouped the normal-impulse expression differently from the reference.

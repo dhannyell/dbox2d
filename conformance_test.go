@@ -28,6 +28,11 @@ type conformanceToleranceConfig struct {
 	hashSteps int
 }
 
+// conformanceScenesBitExact gates every scene to the exact hash in float
+// mode. The scene traces stay at v3.1.1 until phase 5 of the v3.2
+// migration, so the gate is off.
+const conformanceScenesBitExact = false
+
 // conformanceTolerance defines the per-trace conformance budgets.
 // Function traces use ulps in float mode and abs in fixed mode.
 // Scene step 1 uses abs in fixed mode and absFloat in float mode.
@@ -55,7 +60,7 @@ var conformanceTolerance = map[string]conformanceToleranceConfig{
 	"many_pyramids.txt":                     {},                                 // no step-1 dump; count and hash only
 	"rain.txt":                              {abs: 4e-5, hashSteps: 171},        // precision; exact at step 1 and hash equal through step 171 in float mode
 	"smash.txt":                             {hashSteps: 69},                    // no step-1 dump; count and hash only; hash equal through step 69 in float mode
-	"spinner.txt":                           {abs: 1e-2, absFloat: 1e-2},        // D-013: the colored set of the bar contacts differs
+	"spinner.txt":                           {abs: 1e-2, absFloat: 1e-2},        // v3.1.1 trace: the colored set of the bar contacts differs (D-013, retired)
 	"tumbler.txt":                           {abs: 2e-5, hashSteps: 6},          // precision; exact at step 1 and hash equal through step 6 in float mode
 }
 
@@ -841,9 +846,8 @@ func runConformanceSceneTrace(t *testing.T, name, path string, floatMode bool) {
 	}
 
 	tolerance := conformanceTolerance[name]
-	if floatMode && UpstreamPairOrder() {
-		// D-013: with the pair order of the reference, float mode matches every
-		// scene bit for bit.
+	if floatMode && conformanceScenesBitExact {
+		// Float mode matches every scene bit for bit.
 		tolerance.absFloat = 0
 		tolerance.hashSteps = len(trace.steps)
 	}

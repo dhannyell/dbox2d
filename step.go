@@ -376,12 +376,6 @@ func removeNonTouchingContact(w *world, setIndex, localIndex int) {
 func collide(context *stepContext) {
 	w := context.world
 
-	// Start the rebuild before the contact count is known, matching the reference.
-	// Even worlds with no contacts still need their trees rebuilt, and starting
-	// here lets the work overlap the narrow phase and solve.
-	w.taskCount++
-	w.treeTask.begin(w)
-
 	graphColors := &w.constraintGraph.colors
 	contactCount := 0
 	for i := range graphColorCount {

@@ -2,45 +2,72 @@ package b2
 
 import (
 	"math/rand"
+	"slices"
 	"testing"
 )
 
-// TestTreeInsertKeepsTheInvariants pins the growth path: a hundred proxies
-// pass validate and the pool grew past its first sixteen nodes.
-func TestTreeInsertKeepsTheInvariants(t *testing.T) {
-	tree := createTree()
+// gridTree fills a tree with a ten by ten grid of two unit boxes and
+// returns the proxy ids.
+func gridTree(tree *dynamicTree) []int {
 	ids := make([]int, 0, 100)
 	for i := range 100 {
 		x := (i % 10) * 3
 		y := (i / 10) * 3
-		id := tree.createProxy(box(x, y, x+2, y+2), DefaultCategoryBits, uint64(i))
-		ids = append(ids, id)
+		ids = append(ids, tree.createProxy(box(x, y, x+2, y+2), DefaultCategoryBits, uint64(i)))
 	}
+	return ids
+}
+
+// countLeaves counts the leaves that overlap the box.
+func countLeaves(tree *dynamicTree, aabb AABB) int {
+	n := 0
+	tree.overlapAABB(aabb, DefaultMaskBits, func(int, uint64) bool { n++; return true })
+	return n
+}
+
+// TestTreeInsertKeepsTheInvariants pins the growth path: a hundred proxies
+// pass validate, the nodes are dense pairs, and the proxy pool grew past
+// its first sixteen entries.
+func TestTreeInsertKeepsTheInvariants(t *testing.T) {
+	tree := createTree(16)
+	ids := gridTree(&tree)
 	tree.validate()
 
-	if tree.getProxyCount() != 100 || tree.nodeCount != 199 {
-		t.Fatalf("100 proxies gave %d proxies and %d nodes, want 100 and 199", tree.getProxyCount(), tree.nodeCount)
+	// n leaves give 2n - 1 nodes plus the empty node beside the root.
+	if tree.getProxyCount() != 100 || tree.nodeEnd != 200 {
+		t.Fatalf("100 proxies gave %d proxies and node end %d, want 100 and 200", tree.getProxyCount(), tree.nodeEnd)
 	}
-	if len(tree.nodes) <= 16 {
-		t.Errorf("the pool did not grow past 16 nodes")
+	if len(tree.proxies) <= 16 {
+		t.Errorf("the proxy pool did not grow past 16 entries")
 	}
 	if tree.getUserData(ids[42]) != 42 {
 		t.Errorf("proxy 42 lost its user data")
+	}
+	if !tree.nodes[rootNode+1].isEmpty() {
+		t.Errorf("the node beside the root is not empty")
 	}
 
 	for _, id := range ids {
 		tree.destroyProxy(id)
 	}
 	tree.validate()
-	if tree.getProxyCount() != 0 || tree.nodeCount != 0 || tree.root != nullIndex {
+	if tree.getProxyCount() != 0 || !tree.nodes[rootNode].isEmpty() {
 		t.Errorf("the tree is not empty after every destroy")
+	}
+
+	// The freed pairs are reused before the bump pointer moves.
+	end := tree.nodeEnd
+	gridTree(&tree)
+	tree.validate()
+	if tree.nodeEnd != end {
+		t.Errorf("the reinsert moved the node end from %d to %d", end, tree.nodeEnd)
 	}
 }
 
 // TestTreeRemoveLeafRestoresTheHeight pins removeLeaf: with three leaves the
 // height is two, and removing the lone leaf under the root brings it to one.
 func TestTreeRemoveLeafRestoresTheHeight(t *testing.T) {
-	tree := createTree()
+	tree := createTree(16)
 	a := tree.createProxy(box(0, 0, 1, 1), DefaultCategoryBits, 0)
 	b := tree.createProxy(box(10, 10, 11, 11), DefaultCategoryBits, 1)
 	c := tree.createProxy(box(1, 0, 2, 1), DefaultCategoryBits, 2)
@@ -68,93 +95,14 @@ func TestTreeRemoveLeafRestoresTheHeight(t *testing.T) {
 // TestTreeFindBestSiblingPicksTheCheapest pins the three leaf case computed
 // by hand: the root costs 44, the near leaf 6, the far leaf 42.
 func TestTreeFindBestSiblingPicksTheCheapest(t *testing.T) {
-	tree := createTree()
+	tree := createTree(16)
 	a := tree.createProxy(box(0, 0, 1, 1), DefaultCategoryBits, 0)
 	tree.createProxy(box(10, 10, 11, 11), DefaultCategoryBits, 1)
 
-	if got := findBestSibling(&tree, box(1, 0, 2, 1)); got != a {
-		t.Errorf("the best sibling is node %d, want the near leaf %d", got, a)
+	near := int(tree.proxies[a].node)
+	if got := findBestSibling(&tree, box(1, 0, 2, 1)); got != near {
+		t.Errorf("the best sibling is node %d, want the near leaf %d", got, near)
 	}
-}
-
-// TestTreeRotateNodesLowersTheCost pins the leaf/internal case of the
-// reference: A(B, C(F, G)) with B beside F swaps B and G under C.
-func TestTreeRotateNodesLowersTheCost(t *testing.T) {
-	tree := createTree()
-	iA := allocateNode(&tree)
-	iB := allocateNode(&tree)
-	iC := allocateNode(&tree)
-	iF := allocateNode(&tree)
-	iG := allocateNode(&tree)
-
-	leaf := func(i int, aabb AABB) {
-		tree.nodes[i].aabb = aabb
-		tree.nodes[i].flags = allocatedNode | leafNode
-	}
-	leaf(iB, box(0, 0, 2, 2))
-	leaf(iF, box(1, 1, 3, 3))
-	leaf(iG, box(20, 20, 22, 22))
-
-	tree.nodes[iC].child1, tree.nodes[iC].child2 = int32(iF), int32(iG)
-	tree.nodes[iC].aabb = box(1, 1, 22, 22)
-	tree.nodes[iC].height = 1
-	tree.nodes[iF].parent, tree.nodes[iG].parent = int32(iC), int32(iC)
-
-	tree.nodes[iA].child1, tree.nodes[iA].child2 = int32(iB), int32(iC)
-	tree.nodes[iA].aabb = box(0, 0, 22, 22)
-	tree.nodes[iA].height = 2
-	tree.nodes[iB].parent, tree.nodes[iC].parent = int32(iA), int32(iA)
-	tree.root = iA
-	tree.proxyCount = 3
-	tree.validate()
-
-	costBefore := perimeter(tree.nodes[iC].aabb)
-	rotateNodes(&tree, iA)
-	tree.validate()
-
-	if int(tree.nodes[iA].child1) != iG || int(tree.nodes[iC].child2) != iB {
-		t.Fatalf("the rotation did not swap B and G")
-	}
-	costAfter := perimeter(tree.nodes[iC].aabb)
-	if !costAfter.Less(costBefore) {
-		t.Errorf("the rotation raised the cost of C from %v to %v", costBefore, costAfter)
-	}
-	if want := box(0, 0, 3, 3); tree.nodes[iC].aabb != want {
-		t.Errorf("C covers %v, want %v", tree.nodes[iC].aabb, want)
-	}
-}
-
-// TestTreeEnlargeProxyStopsAtTheContainingAncestor pins enlargeProxy: the
-// leaf and its parent grow, the root already contains the new box and keeps
-// its bounds, and every ancestor carries the enlarged flag.
-func TestTreeEnlargeProxyStopsAtTheContainingAncestor(t *testing.T) {
-	tree := createTree()
-	a := tree.createProxy(box(0, 0, 1, 1), DefaultCategoryBits, 0)
-	tree.createProxy(box(1, 0, 2, 1), DefaultCategoryBits, 1)
-	tree.createProxy(box(10, 10, 11, 11), DefaultCategoryBits, 2)
-	tree.validateNoEnlarged()
-
-	rootBefore := tree.getRootBounds()
-	parent := int(tree.nodes[a].parent)
-
-	tree.enlargeProxy(a, box(0, 0, 1, 3))
-	tree.validate()
-
-	if got := tree.getAABB(a); got != box(0, 0, 1, 3) {
-		t.Errorf("the leaf covers %v, want the new box", got)
-	}
-	if !AABBContains(tree.nodes[parent].aabb, box(0, 0, 1, 3)) {
-		t.Errorf("the parent did not grow")
-	}
-	if tree.getRootBounds() != rootBefore {
-		t.Errorf("the root grew although it contained the new box")
-	}
-	for i := parent; i != nullIndex; i = int(tree.nodes[i].parent) {
-		if tree.nodes[i].flags&enlargedNode == 0 {
-			t.Errorf("ancestor %d is not flagged as enlarged", i)
-		}
-	}
-	requirePanic(t, func() { tree.validateNoEnlarged() })
 }
 
 // TestTreeSeedNeverWins extends D-009 to the sibling search: when both
@@ -165,7 +113,7 @@ func TestTreeSeedNeverWins(t *testing.T) {
 		t.Fatalf("the widest proxy box reaches the seed")
 	}
 
-	tree := createTree()
+	tree := createTree(16)
 	near := []int{
 		tree.createProxy(box(0, 0, 4, 4), DefaultCategoryBits, 0),
 		tree.createProxy(box(0, 0, 4, 4), DefaultCategoryBits, 1),
@@ -178,24 +126,117 @@ func TestTreeSeedNeverWins(t *testing.T) {
 	}
 
 	got := findBestSibling(&tree, box(1, 1, 2, 2))
-	nearParent := int(tree.nodes[near[0]].parent)
-	if got != nearParent && got != near[0] && got != near[1] {
+	n0, n1 := int(tree.proxies[near[0]].node), int(tree.proxies[near[1]].node)
+	nearParent := int(tree.parents[n0])
+	if got != nearParent && got != n0 && got != n1 {
 		t.Errorf("the best sibling is node %d, outside the near cluster", got)
 	}
 }
 
+// TestTreeEnlargeProxyMarksThePath pins enlargeProxy: the leaf and its
+// parent grow, the root already contains the new box and keeps its bounds,
+// and every ancestor carries the moved flag until clearMoved.
+func TestTreeEnlargeProxyMarksThePath(t *testing.T) {
+	tree := createTree(16)
+	a := tree.createProxy(box(0, 0, 1, 1), DefaultCategoryBits, 0)
+	tree.createProxy(box(1, 0, 2, 1), DefaultCategoryBits, 1)
+	tree.createProxy(box(10, 10, 11, 11), DefaultCategoryBits, 2)
+	tree.validateNoMoved()
+
+	rootBefore := tree.getRootBounds()
+	leaf := int(tree.proxies[a].node)
+	parent := int(tree.parents[leaf])
+
+	tree.enlargeProxy(a, box(0, 0, 1, 3))
+	tree.validate()
+
+	if got := tree.getProxyBounds(a); got != box(0, 0, 1, 3) {
+		t.Errorf("the leaf covers %v, want the new box", got)
+	}
+	if !AABBContains(tree.nodes[parent].aabb, box(0, 0, 1, 3)) {
+		t.Errorf("the parent did not grow")
+	}
+	if tree.getRootBounds() != rootBefore {
+		t.Errorf("the root grew although it contained the new box")
+	}
+	for i := leaf; i != nullIndex; i = int(tree.parents[i]) {
+		if !tree.nodes[i].isMoved() {
+			t.Errorf("node %d on the path is not flagged as moved", i)
+		}
+	}
+	if got := tree.gatherMovedProxies(nil); !slices.Equal(got, []int{a}) {
+		t.Errorf("the moved proxies are %v, want [%d]", got, a)
+	}
+	requirePanic(t, func() { tree.validateNoMoved() })
+	requirePanic(t, func() { tree.enlargeProxy(a, box(0, 0, 1, 2)) })
+
+	tree.clearMoved()
+	tree.validateNoMoved()
+}
+
+// TestTreeMarkProxyMovedRefits pins the moved path the solver takes:
+// markProxyMoved writes the leaf box and flags the ancestors, refit grows
+// the internal boxes, and gather finds exactly the marked proxies. The
+// sweep refit runs on a rebuilt tree and the subtree refit on an
+// unordered one.
+func TestTreeMarkProxyMovedRefits(t *testing.T) {
+	for _, ordered := range []bool{true, false} {
+		tree := createTree(16)
+		ids := gridTree(&tree)
+		tree.rebuild(true)
+		if !tree.dfsOrdered {
+			t.Fatalf("the rebuild left the tree unordered")
+		}
+		tree.dfsOrdered = ordered
+
+		moved := []int{ids[3], ids[57], ids[99]}
+		for k, id := range moved {
+			aabb := tree.getProxyBounds(id)
+			aabb.UpperBound = aabb.UpperBound.Add(v2(40+k, 40))
+			tree.markProxyMoved(id, aabb)
+		}
+		if !tree.needsRebuild() {
+			t.Errorf("ordered %v: the marked tree does not need a rebuild", ordered)
+		}
+
+		tree.refit()
+		tree.validate()
+
+		if want := box(0, 0, 71, 69); tree.getRootBounds() != want {
+			t.Errorf("ordered %v: the root covers %v, want %v", ordered, tree.getRootBounds(), want)
+		}
+		got := tree.gatherMovedProxies(nil)
+		slices.Sort(got)
+		want := slices.Clone(moved)
+		slices.Sort(want)
+		if !slices.Equal(got, want) {
+			t.Errorf("ordered %v: the moved proxies are %v, want %v", ordered, got, want)
+		}
+		if n := countLeaves(&tree, box(45, 40, 46, 41)); n != 3 {
+			t.Errorf("ordered %v: the grown corner finds %d leaves, want 3", ordered, n)
+		}
+
+		tree.clearMoved()
+		tree.validateNoMoved()
+		if tree.hasMoved() || len(tree.gatherMovedProxies(nil)) != 0 {
+			t.Errorf("ordered %v: clearMoved left flags behind", ordered)
+		}
+	}
+}
+
 // TestTreeMoveProxyAndCategoryBits pins the two leaf updates: moveProxy
-// reinserts the leaf under the new box, and setCategoryBits refreshes the
-// bits of every ancestor.
+// reinserts the leaf under the new box, and setCategoryBits writes the
+// proxy, which the query mask reads.
 func TestTreeMoveProxyAndCategoryBits(t *testing.T) {
-	tree := createTree()
+	tree := createTree(16)
 	a := tree.createProxy(box(0, 0, 1, 1), 1, 0)
 	tree.createProxy(box(1, 0, 2, 1), 2, 1)
 	tree.createProxy(box(10, 10, 11, 11), 4, 2)
 
 	tree.moveProxy(a, box(11, 10, 12, 11))
 	tree.validate()
-	if got := tree.getAABB(a); got != box(11, 10, 12, 11) {
+	tree.validateNoMoved()
+	if got := tree.getProxyBounds(a); got != box(11, 10, 12, 11) {
 		t.Errorf("the moved leaf covers %v", got)
 	}
 	if want := box(1, 0, 12, 11); tree.getRootBounds() != want {
@@ -207,21 +248,23 @@ func TestTreeMoveProxyAndCategoryBits(t *testing.T) {
 	if tree.getCategoryBits(a) != 8 {
 		t.Errorf("the leaf bits are %d, want 8", tree.getCategoryBits(a))
 	}
-	if bits := tree.nodes[tree.root].categoryBits; bits != 2|4|8 {
-		t.Errorf("the root bits are %d, want 14", bits)
+	n := 0
+	tree.overlapAABB(box(0, 0, 20, 20), 8, func(int, uint64) bool { n++; return true })
+	if n != 1 {
+		t.Errorf("the mask 8 found %d leaves, want 1", n)
 	}
 
 	destroyTree(&tree)
-	if tree.nodes != nil || tree.nodeCount != 0 {
+	if tree.nodes != nil || tree.proxyCount != 0 {
 		t.Errorf("destroyTree left nodes behind")
 	}
 }
 
-// TestTreeQueryReportsTheOverlaps pins query: the callback sees exactly the
-// leaves that overlap the box and pass the mask, and a false return stops
-// the walk after one leaf.
-func TestTreeQueryReportsTheOverlaps(t *testing.T) {
-	tree := createTree()
+// TestTreeOverlapReportsTheOverlaps pins overlapAABB: the callback sees
+// exactly the leaves that overlap the box and pass the mask, and a false
+// return stops the walk after one leaf. overlapAABBAll skips the mask.
+func TestTreeOverlapReportsTheOverlaps(t *testing.T) {
+	tree := createTree(16)
 	for i := range 10 {
 		bits := uint64(1)
 		if i%2 == 1 {
@@ -231,7 +274,7 @@ func TestTreeQueryReportsTheOverlaps(t *testing.T) {
 	}
 
 	seen := map[uint64]bool{}
-	stats := tree.query(box(4, 1, 13, 1), DefaultMaskBits, func(proxyId int, userData uint64) bool {
+	stats := tree.overlapAABB(box(4, 1, 13, 1), DefaultMaskBits, func(proxyId int, userData uint64) bool {
 		if tree.getUserData(proxyId) != userData {
 			t.Errorf("proxy %d reports user data %d", proxyId, userData)
 		}
@@ -248,22 +291,29 @@ func TestTreeQueryReportsTheOverlaps(t *testing.T) {
 	}
 
 	odd := 0
-	tree.query(box(0, 0, 30, 2), 2, func(int, uint64) bool { odd++; return true })
+	tree.overlapAABB(box(0, 0, 30, 2), 2, func(int, uint64) bool { odd++; return true })
 	if odd != 5 {
 		t.Errorf("the mask let %d leaves through, want 5", odd)
 	}
 
-	stats = tree.query(box(0, 0, 30, 2), DefaultMaskBits, func(int, uint64) bool { return false })
+	all := 0
+	tree.overlapAABBAll(box(0, 0, 30, 2), func(int, uint64) bool { all++; return true })
+	if all != 10 {
+		t.Errorf("overlapAABBAll found %d leaves, want 10", all)
+	}
+
+	stats = tree.overlapAABB(box(0, 0, 30, 2), DefaultMaskBits, func(int, uint64) bool { return false })
 	if stats.leafVisits != 1 {
 		t.Errorf("a false return let the query visit %d leaves", stats.leafVisits)
 	}
 }
 
-// TestTreeRayCastClipsTheRay pins rayCast: leaves come nearest first, a
-// clipped fraction hides the farther leaves, and a zero return stops the
-// cast.
-func TestTreeRayCastClipsTheRay(t *testing.T) {
-	tree := createTree()
+// TestTreeCastRayClipsTheRay pins castRay: every leaf on the ray is
+// reached, a clipped fraction hides the leaves outside the pair of the
+// hit, and a zero return stops the cast. Both leaves of a pair are
+// reported before the clip applies, as in the reference.
+func TestTreeCastRayClipsTheRay(t *testing.T) {
+	tree := createTree(16)
 	for i := range 5 {
 		tree.createProxy(box(i*10, 0, i*10+2, 2), DefaultCategoryBits, uint64(i))
 	}
@@ -271,39 +321,41 @@ func TestTreeRayCastClipsTheRay(t *testing.T) {
 	input := RayCastInput{Origin: v2(-5, 1), Translation: v2(100, 0), MaxFraction: QOne()}
 
 	var order []uint64
-	tree.rayCast(&input, DefaultMaskBits, func(sub *RayCastInput, proxyId int, userData uint64) Q {
+	tree.castRay(&input, DefaultMaskBits, func(sub *RayCastInput, proxyId int, userData uint64) Q {
 		order = append(order, userData)
 		return sub.MaxFraction
 	})
-	if len(order) != 5 || order[0] != 0 || order[4] != 4 {
-		t.Errorf("the cast visited %v, want the leaves nearest first", order)
+	sorted := slices.Clone(order)
+	slices.Sort(sorted)
+	if !slices.Equal(sorted, []uint64{0, 1, 2, 3, 4}) {
+		t.Errorf("the cast visited %v, want every leaf once", order)
 	}
 
 	order = order[:0]
-	stats := tree.rayCast(&input, DefaultMaskBits, func(sub *RayCastInput, proxyId int, userData uint64) Q {
+	stats := tree.castRay(&input, DefaultMaskBits, func(sub *RayCastInput, proxyId int, userData uint64) Q {
 		order = append(order, userData)
 		p2 := MulAdd(sub.Origin, sub.MaxFraction, sub.Translation)
-		out := aabbRayCast(tree.getAABB(proxyId), sub.Origin, p2)
+		out := aabbRayCast(tree.getProxyBounds(proxyId), sub.Origin, p2)
 		if !out.Hit {
-			t.Fatalf("the ray reached leaf %d without a hit", userData)
+			return QFromInt(-1)
 		}
 		return out.Fraction.Mul(sub.MaxFraction)
 	})
-	if len(order) != 1 || order[0] != 0 {
-		t.Errorf("the clipped cast visited %v, want only the first leaf", order)
+	if len(order) == 0 || len(order) > 2 || !slices.Contains(order, 0) {
+		t.Errorf("the clipped cast visited %v, want the first leaf and at most its sibling", order)
 	}
-	if stats.leafVisits != 1 {
+	if stats.leafVisits != len(order) {
 		t.Errorf("the clipped cast counts %d leaf visits", stats.leafVisits)
 	}
 
 	visits := 0
-	tree.rayCast(&input, DefaultMaskBits, func(*RayCastInput, int, uint64) Q { visits++; return QZero() })
+	tree.castRay(&input, DefaultMaskBits, func(*RayCastInput, int, uint64) Q { visits++; return QZero() })
 	if visits != 1 {
 		t.Errorf("a zero return let the cast visit %d leaves", visits)
 	}
 
 	visits = 0
-	tree.rayCast(&input, 2, func(*RayCastInput, int, uint64) Q { visits++; return QOne() })
+	tree.castRay(&input, 2, func(*RayCastInput, int, uint64) Q { visits++; return QOne() })
 	if visits != 0 {
 		t.Errorf("the mask let %d leaves through", visits)
 	}
@@ -370,37 +422,34 @@ func TestTreePartitionSAHPicksTheCheapestPlane(t *testing.T) {
 }
 
 // TestTreeRebuildKeepsEveryLeaf pins rebuild: a partial build after some
-// enlargements and a full build both keep the proxies, clear the enlarged
-// flags, pass validate and find the same leaves.
+// moves and a full build both keep the proxies, clear the moved flags,
+// restore the order, pass validate and find the same leaves.
 func TestTreeRebuildKeepsEveryLeaf(t *testing.T) {
-	tree := createTree()
-	ids := make([]int, 0, 100)
-	for i := range 100 {
-		x := (i % 10) * 3
-		y := (i / 10) * 3
-		ids = append(ids, tree.createProxy(box(x, y, x+2, y+2), DefaultCategoryBits, uint64(i)))
-	}
+	tree := createTree(16)
+	ids := gridTree(&tree)
 
 	for i := 0; i < 100; i += 7 {
-		aabb := tree.getAABB(ids[i])
+		aabb := tree.getProxyBounds(ids[i])
 		aabb.UpperBound = aabb.UpperBound.Add(v2(2, 2))
-		tree.enlargeProxy(ids[i], aabb)
+		tree.markProxyMoved(ids[i], aabb)
 	}
+	tree.refit()
 
-	count := func() int {
-		n := 0
-		tree.query(box(-1, -1, 40, 40), DefaultMaskBits, func(int, uint64) bool { n++; return true })
-		return n
-	}
-
+	all := box(-1, -1, 40, 40)
 	leaves := tree.rebuild(false)
 	tree.validate()
-	tree.validateNoEnlarged()
+	tree.validateNoMoved()
 	if leaves <= 0 || leaves > 100 {
 		t.Errorf("the partial rebuild took %d leaves", leaves)
 	}
-	if tree.getProxyCount() != 100 || tree.nodeCount != 199 || count() != 100 {
-		t.Errorf("the partial rebuild lost proxies: %d proxies, %d nodes, %d found", tree.getProxyCount(), tree.nodeCount, count())
+	if tree.getProxyCount() != 100 || tree.nodeEnd != 200 || countLeaves(&tree, all) != 100 {
+		t.Errorf("the partial rebuild lost proxies: %d proxies, node end %d, %d found", tree.getProxyCount(), tree.nodeEnd, countLeaves(&tree, all))
+	}
+	if !tree.dfsOrdered {
+		t.Errorf("the partial rebuild left the tree unordered")
+	}
+	if tree.rebuild(false) != 0 {
+		t.Errorf("a clean ordered tree rebuilt again")
 	}
 
 	heightBefore := tree.getHeight()
@@ -411,27 +460,34 @@ func TestTreeRebuildKeepsEveryLeaf(t *testing.T) {
 	if tree.getHeight() > 8 || tree.getHeight() > heightBefore {
 		t.Errorf("the full rebuild has height %d, before %d", tree.getHeight(), heightBefore)
 	}
-	if count() != 100 || tree.getUserData(ids[42]) != 42 {
+	if countLeaves(&tree, all) != 100 || tree.getUserData(ids[42]) != 42 {
 		t.Errorf("the full rebuild lost proxies")
+	}
+	for _, id := range ids {
+		node := int(tree.proxies[id].node)
+		if !tree.nodes[node].isLeaf() || tree.nodes[node].proxyId() != id {
+			t.Fatalf("proxy %d does not point at its leaf", id)
+		}
 	}
 
 	// The scratch is sized once and the second build reuses it.
-	if cap := len(tree.leafIndices); cap != 150 {
-		t.Errorf("the rebuild scratch holds %d entries, want 150", cap)
+	if n := len(tree.leafIndices); n != 150 {
+		t.Errorf("the rebuild scratch holds %d entries, want 150", n)
 	}
 
-	empty := createTree()
+	empty := createTree(16)
 	if empty.rebuild(true) != 0 {
 		t.Errorf("an empty tree rebuilt leaves")
 	}
 }
 
-// TestTreeQueryMatchesBruteForce compares query with the enumeration of
-// a hundred random boxes: the same leaves for every box and mask.
-func TestTreeQueryMatchesBruteForce(t *testing.T) {
+// TestTreeOverlapMatchesBruteForce compares overlapAABB with the
+// enumeration of a hundred random boxes: the same leaves for every box and
+// mask.
+func TestTreeOverlapMatchesBruteForce(t *testing.T) {
 	rng := rand.New(rand.NewSource(1))
 	const count = 100
-	tree := createTree()
+	tree := createTree(16)
 	boxes := make([]AABB, count)
 	categories := make([]uint64, count)
 	for i := range count {
@@ -454,7 +510,7 @@ func TestTreeQueryMatchesBruteForce(t *testing.T) {
 			}
 		}
 		got := map[uint64]bool{}
-		tree.query(query, mask, func(_ int, userData uint64) bool {
+		tree.overlapAABB(query, mask, func(_ int, userData uint64) bool {
 			if got[userData] {
 				t.Fatalf("query reported leaf %d twice", userData)
 			}
@@ -473,16 +529,16 @@ func TestTreeQueryMatchesBruteForce(t *testing.T) {
 	destroyTree(&tree)
 }
 
-// TestTreeShapeCastMatchesBruteForce sweeps a small box through a hundred
+// TestTreeCastBoxMatchesBruteForce sweeps a small box through a hundred
 // random boxes. The tree prunes by the swept bounds and by the separating
 // axis of the sweep, so it may report a leaf the sweep only nears, but it
 // must report every leaf the swept box touches, and every reported leaf
 // must overlap the swept bounds and pass the mask. The oracle grows each
 // leaf by the box and casts the center through it.
-func TestTreeShapeCastMatchesBruteForce(t *testing.T) {
+func TestTreeCastBoxMatchesBruteForce(t *testing.T) {
 	rng := rand.New(rand.NewSource(1))
 	const count = 100
-	tree := createTree()
+	tree := createTree(16)
 	boxes := make([]AABB, count)
 	categories := make([]uint64, count)
 	for i := range count {
@@ -495,13 +551,11 @@ func TestTreeShapeCastMatchesBruteForce(t *testing.T) {
 
 	for range 50 {
 		x, y := rng.Intn(60), rng.Intn(60)
-		unit := MakeBox(QOne(), QOne())
-		proxy := MakeOffsetProxy(unit.Vertices[:unit.Count], QZero(), v2(x, y), RotIdentity())
 		translation := v2(rng.Intn(41)-20, rng.Intn(41)-20)
 		mask := uint64(rng.Intn(8))
-		input := ShapeCastInput{Proxy: proxy, Translation: translation, MaxFraction: QOne()}
-
 		start := box(x-1, y-1, x+1, y+1)
+		input := BoxCastInput{Box: start, Translation: translation, MaxFraction: QOne()}
+
 		swept := AABBUnion(start, AABB{LowerBound: start.LowerBound.Add(translation), UpperBound: start.UpperBound.Add(translation)})
 
 		want := map[uint64]bool{}
@@ -513,7 +567,7 @@ func TestTreeShapeCastMatchesBruteForce(t *testing.T) {
 			}
 		}
 		got := map[uint64]bool{}
-		tree.shapeCast(&input, mask, func(sub *ShapeCastInput, _ int, userData uint64) Q {
+		tree.castBox(&input, mask, func(sub *BoxCastInput, _ int, userData uint64) Q {
 			if got[userData] {
 				t.Fatalf("the cast reported leaf %d twice", userData)
 			}
@@ -532,34 +586,33 @@ func TestTreeShapeCastMatchesBruteForce(t *testing.T) {
 	destroyTree(&tree)
 }
 
-// TestTreeShapeCastClipsTheSweep checks that a callback that returns the
-// hit fraction shortens the sweep so later leaves stay unvisited.
-func TestTreeShapeCastClipsTheSweep(t *testing.T) {
-	tree := createTree()
+// TestTreeCastBoxClipsTheSweep checks that a callback that returns the
+// hit fraction shortens the sweep so the leaves outside the pair of the
+// hit stay unvisited.
+func TestTreeCastBoxClipsTheSweep(t *testing.T) {
+	tree := createTree(16)
 	for i := range 5 {
 		tree.createProxy(box(i*10, 0, i*10+2, 2), DefaultCategoryBits, uint64(i))
 	}
 
-	unit := MakeBox(QHalf(), QHalf())
-	proxy := MakeOffsetProxy(unit.Vertices[:unit.Count], QZero(), v2(-5, 1), RotIdentity())
-	input := ShapeCastInput{Proxy: proxy, Translation: v2(100, 0), MaxFraction: QOne()}
+	start := box(-6, 0, -4, 2)
+	input := BoxCastInput{Box: start, Translation: v2(100, 0), MaxFraction: QOne()}
+	center := AABBCenter(start)
 
 	var order []uint64
-	stats := tree.shapeCast(&input, DefaultMaskBits, func(sub *ShapeCastInput, proxyId int, userData uint64) Q {
+	stats := tree.castBox(&input, DefaultMaskBits, func(sub *BoxCastInput, proxyId int, userData uint64) Q {
 		order = append(order, userData)
-		leaf := MakeOffsetBox(QOne(), QOne(), AABBCenter(tree.getAABB(proxyId)), RotIdentity())
-		out := CastShapePolygon(&leaf, &ShapeCastInput{
-			Proxy:       sub.Proxy,
-			Translation: sub.Translation,
-			MaxFraction: sub.MaxFraction,
-		})
+		leaf := tree.getProxyBounds(proxyId)
+		grown := AABB{LowerBound: leaf.LowerBound.Sub(v2(1, 1)), UpperBound: leaf.UpperBound.Add(v2(1, 1))}
+		p2 := MulAdd(center, sub.MaxFraction, sub.Translation)
+		out := aabbRayCast(grown, center, p2)
 		if !out.Hit {
-			t.Fatalf("the sweep reached leaf %d without a hit", userData)
+			return QFromInt(-1)
 		}
-		return out.Fraction
+		return out.Fraction.Mul(sub.MaxFraction)
 	})
-	if len(order) != 1 || order[0] != 0 || stats.leafVisits != 1 {
-		t.Errorf("the clipped sweep visited %v, want only the first leaf", order)
+	if len(order) == 0 || len(order) > 2 || !slices.Contains(order, 0) || stats.leafVisits != len(order) {
+		t.Errorf("the clipped sweep visited %v, want the first leaf and at most its sibling", order)
 	}
 	destroyTree(&tree)
 }

@@ -41,7 +41,6 @@ type shape struct {
 	enableContactEvents  bool
 	enableHitEvents      bool
 	enablePreSolveEvents bool
-	enlargedAABB         bool
 }
 
 // shapeGeometry is the storage of the geometry union: the largest of the
@@ -147,7 +146,6 @@ func createShapeInternal(w *world, b *body, transform Transform, def *ShapeDef, 
 	s.filter = def.Filter
 	s.userData = def.UserData
 	s.customColor = def.Material.CustomColor
-	s.enlargedAABB = false
 	s.enableSensorEvents = def.EnableSensorEvents
 	s.enableContactEvents = def.EnableContactEvents
 	s.enableHitEvents = def.EnableHitEvents

@@ -356,13 +356,6 @@ func (s *CollisionShapeDistance) Step() {
 	}
 }
 
-// The update modes of the Dynamic Tree sample.
-const (
-	updateIncremental = iota
-	updateFullRebuild
-	updatePartialRebuild
-)
-
 type treeProxy struct {
 	box        b2.AABB
 	fatBox     b2.AABB
@@ -384,7 +377,6 @@ type DynamicTree struct {
 	columnCount int
 	proxies     []treeProxy
 	timeStamp   int
-	updateType  int
 
 	fill         float64
 	moveFraction float64
@@ -421,7 +413,6 @@ func NewDynamicTree(ctx *SampleContext) Sample {
 	s.columnCount = 1000
 	s.buildTree()
 	s.timeStamp = 0
-	s.updateType = updateIncremental
 
 	s.validate = true
 	return s
@@ -444,7 +435,7 @@ func (s *DynamicTree) buildTree() {
 
 	y := b2.F(-4)
 
-	s.tree = b2.NewDynamicTree()
+	s.tree = b2.NewDynamicTree(16)
 
 	aabbMargin := b2.Vec2{X: b2.QFromRatio(1, 10), Y: b2.QFromRatio(1, 10)}
 
@@ -519,21 +510,6 @@ func (s *DynamicTree) UpdateGui() {
 	gui.SliderFloat("move", &s.moveFraction, 0, 1)
 	gui.SliderFloat("delta", &s.moveDelta, 0, 1)
 
-	if gui.RadioButton("Incremental", s.updateType == updateIncremental) {
-		s.updateType = updateIncremental
-		changed = true
-	}
-
-	if gui.RadioButton("Full Rebuild", s.updateType == updateFullRebuild) {
-		s.updateType = updateFullRebuild
-		changed = true
-	}
-
-	if gui.RadioButton("Partial Rebuild", s.updateType == updatePartialRebuild) {
-		s.updateType = updatePartialRebuild
-		changed = true
-	}
-
 	gui.Text("mouse button 1: ray cast")
 	gui.Text("mouse button 1 + shift: query")
 
@@ -588,7 +564,7 @@ func (s *DynamicTree) Step() {
 
 	if s.queryDrag {
 		box := b2.AABB{LowerBound: b2.Min(s.startPoint, s.endPoint), UpperBound: b2.Max(s.startPoint, s.endPoint)}
-		s.tree.Query(box, b2.DefaultMaskBits, func(proxyId int, userData uint64) bool {
+		s.tree.OverlapAABB(box, b2.DefaultMaskBits, func(proxyId int, userData uint64) bool {
 			proxy := &s.proxies[userData]
 			proxy.queryStamp = s.timeStamp
 			return true
@@ -599,7 +575,7 @@ func (s *DynamicTree) Step() {
 
 	if s.rayDrag {
 		input := b2.RayCastInput{Origin: s.startPoint, Translation: s.endPoint.Sub(s.startPoint), MaxFraction: b2.QOne()}
-		result := s.tree.RayCast(&input, b2.DefaultMaskBits, func(input *b2.RayCastInput, proxyId int, userData uint64) b2.Q {
+		result := s.tree.CastRay(&input, b2.DefaultMaskBits, func(input *b2.RayCastInput, proxyId int, userData uint64) b2.Q {
 			proxy := &s.proxies[userData]
 			proxy.rayStamp = s.timeStamp
 			return input.MaxFraction
@@ -653,8 +629,7 @@ func (s *DynamicTree) Step() {
 		}
 	}
 
-	switch s.updateType {
-	case updateIncremental:
+	{
 		start := time.Now()
 		for i := range s.proxies {
 			p := &s.proxies[i]
@@ -663,30 +638,6 @@ func (s *DynamicTree) Step() {
 			}
 		}
 		s.DrawTextLine("incremental : %.3f ms", elapsedMilliseconds(start))
-
-	case updateFullRebuild:
-		for i := range s.proxies {
-			p := &s.proxies[i]
-			if p.moved {
-				s.tree.EnlargeProxy(p.proxyId, p.fatBox)
-			}
-		}
-
-		start := time.Now()
-		boxCount := s.tree.Rebuild(true)
-		s.DrawTextLine("full build %d : %.3f ms", boxCount, elapsedMilliseconds(start))
-
-	case updatePartialRebuild:
-		for i := range s.proxies {
-			p := &s.proxies[i]
-			if p.moved {
-				s.tree.EnlargeProxy(p.proxyId, p.fatBox)
-			}
-		}
-
-		start := time.Now()
-		boxCount := s.tree.Rebuild(false)
-		s.DrawTextLine("partial rebuild %d : %.3f ms", boxCount, elapsedMilliseconds(start))
 	}
 
 	height := s.tree.GetHeight()

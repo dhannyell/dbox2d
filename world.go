@@ -291,7 +291,6 @@ func CreateWorld(def *WorldDef) WorldId {
 	w.taskContexts = make([]taskContext, w.workerCount)
 	for i := range w.taskContexts {
 		w.taskContexts[i].contactStateBitSet = createBitSet(1024)
-		w.taskContexts[i].enlargedSimBitSet = createBitSet(256)
 		w.taskContexts[i].awakeIslandBitSet = createBitSet(256)
 		w.taskContexts[i].splitIslandId = nullIndex
 	}
@@ -901,9 +900,6 @@ func (id WorldId) DumpMemoryStats(w io.Writer) {
 	_, _ = fmt.Fprintf(w, "static tree: %d\n", wd.broadPhase.trees[StaticBody].byteCount())
 	_, _ = fmt.Fprintf(w, "kinematic tree: %d\n", wd.broadPhase.trees[KinematicBody].byteCount())
 	_, _ = fmt.Fprintf(w, "dynamic tree: %d\n", wd.broadPhase.trees[DynamicBody].byteCount())
-	moveSet := &wd.broadPhase.moveSet
-	_, _ = fmt.Fprintf(w, "moveSet: %d (%d, %d)\n", moveSet.byteCount(), moveSet.count, len(moveSet.items))
-	_, _ = fmt.Fprintf(w, "moveArray: %d\n", sliceBytes(wd.broadPhase.moveArray))
 	pairSet := &wd.broadPhase.pairSet
 	_, _ = fmt.Fprintf(w, "pairSet: %d (%d, %d)\n", pairSet.byteCount(), pairSet.count, len(pairSet.items))
 	_, _ = fmt.Fprintf(w, "\n")
@@ -1003,7 +999,20 @@ func (worldId WorldId) RebuildStaticTree() {
 	if w.locked {
 		panic("dbox2d: the world is locked")
 	}
-	w.broadPhase.trees[StaticBody].rebuild(true)
+
+	staticTree := &w.broadPhase.trees[StaticBody]
+
+	// Keep the moved marks, the next pair update still needs them.
+	var movedProxies []int
+	if staticTree.getProxyCount() > 0 {
+		movedProxies = staticTree.gatherMovedProxies(nil)
+	}
+
+	staticTree.rebuild(true)
+
+	for _, proxyId := range movedProxies {
+		staticTree.markProxyMovedSerial(proxyId)
+	}
 }
 
 // EnableSpeculative changes speculative collision handling.
@@ -1018,10 +1027,6 @@ type taskContext struct {
 	// touching and the non-touching arrays.
 	contactStateBitSet bitSet
 
-	// enlargedSimBitSet marks the awake body sims whose shapes grew their
-	// fat bounds in the finalize, so the refit walks them in order.
-	enlargedSimBitSet bitSet
-
 	// awakeIslandBitSet marks the awake islands by local index.
 	awakeIslandBitSet bitSet
 
@@ -1030,12 +1035,9 @@ type taskContext struct {
 	bulletBodies    []int
 	bulletBodyCount int
 
-	// movePairs holds the pair nodes of the moved proxies this worker
-	// queried. It keeps its capacity between steps.
-	movePairs []movePair
-
-	// queryStack is the broad-phase traversal stack of this worker; reusing it avoids zeroing 8 KB per query.
-	queryStack [treeStackSize]int
+	// pairKeys holds the new shape pair keys this worker found. It keeps
+	// its capacity between steps.
+	pairKeys []uint64
 
 	// splitIslandId is the sleepiest island with a pending split.
 	splitIslandId  int
@@ -1259,7 +1261,7 @@ func (worldId WorldId) OverlapAABB(aabb AABB, filter QueryFilter, fcn OverlapRes
 
 	var stats TreeStats
 	for i := range w.broadPhase.trees {
-		result := w.broadPhase.trees[i].query(aabb, filter.MaskBits, callback)
+		result := w.broadPhase.trees[i].overlapAABB(aabb, filter.MaskBits, callback)
 		stats.NodeVisits += result.nodeVisits
 		stats.LeafVisits += result.leafVisits
 	}
@@ -1306,7 +1308,7 @@ func (worldId WorldId) CastRay(origin, translation Vec2, filter QueryFilter, fcn
 
 	var stats TreeStats
 	for i := range w.broadPhase.trees {
-		result := w.broadPhase.trees[i].rayCast(&input, filter.MaskBits, callback)
+		result := w.broadPhase.trees[i].castRay(&input, filter.MaskBits, callback)
 		stats.NodeVisits += result.nodeVisits
 		stats.LeafVisits += result.leafVisits
 
@@ -1358,7 +1360,7 @@ func (worldId WorldId) OverlapShape(proxy *ShapeProxy, filter QueryFilter, fcn O
 
 	var stats TreeStats
 	for i := range w.broadPhase.trees {
-		result := w.broadPhase.trees[i].query(aabb, filter.MaskBits, callback)
+		result := w.broadPhase.trees[i].overlapAABB(aabb, filter.MaskBits, callback)
 		stats.NodeVisits += result.nodeVisits
 		stats.LeafVisits += result.leafVisits
 	}
@@ -1421,7 +1423,7 @@ func (worldId WorldId) CastRayClosest(origin, translation Vec2, filter QueryFilt
 	}
 
 	for i := range w.broadPhase.trees {
-		treeResult := w.broadPhase.trees[i].rayCast(&input, filter.MaskBits, callback)
+		treeResult := w.broadPhase.trees[i].castRay(&input, filter.MaskBits, callback)
 		result.NodeVisits += treeResult.nodeVisits
 		result.LeafVisits += treeResult.leafVisits
 
@@ -1456,17 +1458,22 @@ func (worldId WorldId) CastShape(proxy *ShapeProxy, translation Vec2, filter Que
 
 	fraction := one
 
-	callback := func(input *ShapeCastInput, _ int, userData uint64) Q {
+	callback := func(treeInput *BoxCastInput, _ int, userData uint64) Q {
 		s := &w.shapes[int(userData)]
 		if !shouldQueryCollide(s.filter, filter) {
-			return input.MaxFraction
+			return treeInput.MaxFraction
 		}
+
+		// Rebuild the shape input, taking only the advancing fraction from
+		// the tree.
+		localInput := input
+		localInput.MaxFraction = treeInput.MaxFraction
 
 		transform := getBodyTransformQuick(w, &w.bodies[s.bodyId])
 
-		output := shapeCastShape(input, s, transform)
+		output := shapeCastShape(&localInput, s, transform)
 		if !output.Hit {
-			return input.MaxFraction
+			return treeInput.MaxFraction
 		}
 
 		value := fcn(shapeIdOf(w, s), output.Point, output.Normal, output.Fraction)
@@ -1478,16 +1485,23 @@ func (worldId WorldId) CastShape(proxy *ShapeProxy, translation Vec2, filter Que
 		return value
 	}
 
+	// Create a conservative box from the proxy.
+	treeInput := BoxCastInput{
+		Box:         MakeAABB(proxy.Points[:proxy.Count], proxy.Radius),
+		Translation: translation,
+		MaxFraction: one,
+	}
+
 	var stats TreeStats
 	for i := range w.broadPhase.trees {
-		result := w.broadPhase.trees[i].shapeCast(&input, filter.MaskBits, callback)
+		result := w.broadPhase.trees[i].castBox(&treeInput, filter.MaskBits, callback)
 		stats.NodeVisits += result.nodeVisits
 		stats.LeafVisits += result.leafVisits
 
 		if fraction.Eq(zero) {
 			return stats
 		}
-		input.MaxFraction = fraction
+		treeInput.MaxFraction = fraction
 	}
 	return stats
 }
@@ -1524,15 +1538,20 @@ func (worldId WorldId) CastMover(mover *Capsule, translation Vec2, filter QueryF
 
 	fraction := one
 
-	callback := func(input *ShapeCastInput, _ int, userData uint64) Q {
+	callback := func(treeInput *BoxCastInput, _ int, userData uint64) Q {
 		s := &w.shapes[int(userData)]
 		if !shouldQueryCollide(s.filter, filter) {
 			return fraction
 		}
 
+		// Rebuild the shape input, taking only the advancing fraction from
+		// the tree.
+		localInput := input
+		localInput.MaxFraction = treeInput.MaxFraction
+
 		transform := getBodyTransformQuick(w, &w.bodies[s.bodyId])
 
-		output := shapeCastShape(input, s, transform)
+		output := shapeCastShape(&localInput, s, transform)
 		if output.Fraction.Eq(zero) {
 			// Ignore overlapping shapes
 			return fraction
@@ -1542,13 +1561,21 @@ func (worldId WorldId) CastMover(mover *Capsule, translation Vec2, filter QueryF
 		return output.Fraction
 	}
 
+	// Bound the capsule.
+	centers := [2]Vec2{mover.Center1, mover.Center2}
+	treeInput := BoxCastInput{
+		Box:         MakeAABB(centers[:], mover.Radius),
+		Translation: translation,
+		MaxFraction: one,
+	}
+
 	for i := range w.broadPhase.trees {
-		w.broadPhase.trees[i].shapeCast(&input, filter.MaskBits, callback)
+		w.broadPhase.trees[i].castBox(&treeInput, filter.MaskBits, callback)
 
 		if fraction.Eq(zero) {
 			return zero
 		}
-		input.MaxFraction = fraction
+		treeInput.MaxFraction = fraction
 	}
 
 	return fraction
@@ -1588,7 +1615,7 @@ func (worldId WorldId) CollideMover(mover *Capsule, filter QueryFilter, fcn Plan
 	}
 
 	for i := range w.broadPhase.trees {
-		w.broadPhase.trees[i].query(aabb, filter.MaskBits, callback)
+		w.broadPhase.trees[i].overlapAABB(aabb, filter.MaskBits, callback)
 	}
 }
 
@@ -1692,7 +1719,7 @@ func (worldId WorldId) Explode(def *ExplosionDef) {
 		UpperBound: Vec2{X: def.Position.X.Add(reach), Y: def.Position.Y.Add(reach)},
 	}
 
-	w.broadPhase.trees[DynamicBody].query(aabb, def.MaskBits, ctx.explosionCallback)
+	w.broadPhase.trees[DynamicBody].overlapAABB(aabb, def.MaskBits, ctx.explosionCallback)
 }
 
 // drawShape forwards one shape's geometry to the backend-neutral drawer.
@@ -1936,7 +1963,7 @@ func drawWithBounds(draw *DebugDraw, w *world) {
 	setBitCountAndClear(&ctx.jointSet, len(w.joints))
 	setBitCountAndClear(&ctx.contactSet, len(w.contacts))
 	for i := range w.broadPhase.trees {
-		w.broadPhase.trees[i].query(draw.DrawingBounds, DefaultMaskBits, ctx.drawQueryCallback)
+		w.broadPhase.trees[i].overlapAABB(draw.DrawingBounds, DefaultMaskBits, ctx.drawQueryCallback)
 	}
 	for blockIndex, word := range ctx.bodySet.bits {
 		for word != 0 {

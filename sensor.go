@@ -123,9 +123,9 @@ func sensorTask(startIndex, endIndex, workerIndex int, context *stepContext) {
 			}
 
 			maskBits := sensorShape.filter.MaskBits
-			w.broadPhase.trees[StaticBody].query(sensorShape.fatAABB, maskBits, callback)
-			w.broadPhase.trees[KinematicBody].query(sensorShape.fatAABB, maskBits, callback)
-			w.broadPhase.trees[DynamicBody].query(sensorShape.fatAABB, maskBits, callback)
+			w.broadPhase.trees[StaticBody].overlapAABB(sensorShape.fatAABB, maskBits, callback)
+			w.broadPhase.trees[KinematicBody].overlapAABB(sensorShape.fatAABB, maskBits, callback)
+			w.broadPhase.trees[DynamicBody].overlapAABB(sensorShape.fatAABB, maskBits, callback)
 		}
 
 		// slices.SortFunc keeps the step free of allocations; sort.Slice

@@ -2,13 +2,14 @@ package b2
 
 import (
 	"math/rand"
+	"slices"
 	"testing"
 )
 
-// TestBroadPhaseBuffersTheMovedProxies pins the move buffer: a dynamic
-// proxy joins it, a static proxy only when forced, a destroy leaves it,
-// and the key packs the type below the id.
-func TestBroadPhaseBuffersTheMovedProxies(t *testing.T) {
+// TestBroadPhaseMarksTheMovedProxies pins the moved marks: a dynamic
+// proxy is marked on creation, a static proxy only when forced, a move
+// marks the proxy, and the key packs the type below the id.
+func TestBroadPhaseMarksTheMovedProxies(t *testing.T) {
 	var bp broadPhase
 	createBroadPhase(&bp)
 
@@ -16,36 +17,56 @@ func TestBroadPhaseBuffersTheMovedProxies(t *testing.T) {
 	if proxyTypeOf(dyn) != DynamicBody || proxyIdOf(dyn) != 0 || bp.getShapeIndex(dyn) != 7 {
 		t.Errorf("the dynamic key %d does not unpack", dyn)
 	}
+	if !bp.trees[DynamicBody].hasMoved() {
+		t.Errorf("a new dynamic proxy is not marked moved")
+	}
 
 	static := bp.createProxy(StaticBody, box(0, 0, 1, 1), DefaultCategoryBits, 8, false)
-	forced := bp.createProxy(StaticBody, box(5, 5, 6, 6), DefaultCategoryBits, 9, true)
-	if len(bp.moveArray) != 2 || bp.moveArray[0] != dyn || bp.moveArray[1] != forced {
-		t.Fatalf("the move array is %v, want the dynamic and the forced key", bp.moveArray)
+	if bp.trees[StaticBody].hasMoved() {
+		t.Errorf("an unforced static proxy is marked moved")
 	}
-	if !bp.testOverlap(dyn, static) || bp.testOverlap(dyn, forced) {
-		t.Errorf("testOverlap does not follow the boxes")
+	forced := bp.createProxy(StaticBody, box(5, 5, 6, 6), DefaultCategoryBits, 9, true)
+	if !bp.trees[StaticBody].hasMoved() {
+		t.Errorf("a forced static proxy is not marked moved")
+	}
+	moved := bp.trees[StaticBody].gatherMovedProxies(nil)
+	if len(moved) != 1 || moved[0] != proxyIdOf(forced) {
+		t.Errorf("the static tree reports %v moved, want the forced proxy", moved)
+	}
+
+	bp.trees[StaticBody].clearMoved()
+	bp.moveProxy(static, box(2, 2, 3, 3))
+	moved = bp.trees[StaticBody].gatherMovedProxies(nil)
+	if len(moved) != 1 || moved[0] != proxyIdOf(static) {
+		t.Errorf("the move marked %v, want the static proxy", moved)
+	}
+	if bp.trees[StaticBody].getProxyBounds(proxyIdOf(static)) != box(2, 2, 3, 3) {
+		t.Errorf("the move did not set the box")
+	}
+
+	bp.trees[StaticBody].clearMoved()
+	bp.markProxyMovedSerial(forced)
+	moved = bp.trees[StaticBody].gatherMovedProxies(nil)
+	if len(moved) != 1 || moved[0] != proxyIdOf(forced) {
+		t.Errorf("the serial mark marked %v, want the forced proxy", moved)
 	}
 
 	bp.destroyProxy(dyn)
-	if len(bp.moveArray) != 1 || bp.moveArray[0] != forced || bp.moveSet.count != 1 {
-		t.Errorf("the destroy left the move array as %v", bp.moveArray)
+	if bp.trees[DynamicBody].getProxyCount() != 0 || bp.trees[DynamicBody].hasMoved() {
+		t.Errorf("the destroy left the dynamic tree marked")
 	}
-
-	bp.moveProxy(static, box(2, 2, 3, 3))
-	if len(bp.moveArray) != 2 || bp.moveArray[1] != static {
-		t.Errorf("the move did not buffer the static key")
-	}
-	bp.moveProxy(static, box(3, 3, 4, 4))
-	if len(bp.moveArray) != 2 {
-		t.Errorf("a second move buffered the key twice")
-	}
-
-	requirePanic(t, func() { bp.enlargeProxy(static, box(0, 0, 9, 9)) })
+	bp.trees[StaticBody].validate()
 
 	destroyBroadPhase(&bp)
 }
 
-// TestBroadPhasePairsFollowTheRules pins pairQueryCallback: overlapping
+// updatePairs runs the pair update and joins the tree rebuild it starts.
+func updatePairs(w *world) {
+	updateBroadPhasePairs(w, &w.solverContext)
+	w.treeTask.wait()
+}
+
+// TestBroadPhasePairsFollowTheRules pins the candidate filter: overlapping
 // shapes gain one contact each, two static shapes none, a rejecting
 // filter none, two shapes of one body none, and an existing pair is not
 // created twice.
@@ -69,26 +90,26 @@ func TestBroadPhasePairsFollowTheRules(t *testing.T) {
 	sc := firstShape(w, c)
 	sc.filter.MaskBits = 0
 
-	// Every shape owns a proxy from its creation and sits in the move
-	// buffer: the default definition invokes contact creation, so the
-	// static shapes join the dynamic ones.
-	if len(w.broadPhase.moveArray) != 6 {
-		t.Fatalf("the move buffer holds %d proxies, want 6", len(w.broadPhase.moveArray))
+	// Every shape is marked from its creation: the default definition
+	// invokes contact creation, so the static shapes join the dynamic
+	// ones.
+	if got := len(w.broadPhase.trees[StaticBody].gatherMovedProxies(nil)); got != 2 {
+		t.Fatalf("the static tree marks %d proxies, want 2", got)
+	}
+	if got := len(w.broadPhase.trees[DynamicBody].gatherMovedProxies(nil)); got != 4 {
+		t.Fatalf("the dynamic tree marks %d proxies, want 4", got)
 	}
 	_, _, _ = b, groundA, groundB
 
-	updateBroadPhasePairs(w, &w.solverContext)
+	updatePairs(w)
 	validateWorld(w)
 	w.broadPhase.validate()
-	w.broadPhase.validateNoEnlarged()
+	w.broadPhase.validateNoMoved()
 
 	// a-b, a-groundA, a-groundB, b-groundA, b-groundB, second-b,
 	// second-groundA, second-groundB.
 	if got := w.contactIdPool.idCount(); got != 8 {
 		t.Fatalf("the update created %d contacts, want 8", got)
-	}
-	if len(w.broadPhase.moveArray) != 0 || w.broadPhase.moveSet.count != 0 {
-		t.Errorf("the update left the move buffer full")
 	}
 
 	for i := range 8 {
@@ -98,66 +119,58 @@ func TestBroadPhasePairsFollowTheRules(t *testing.T) {
 		}
 	}
 
-	// A second update with every proxy buffered again creates nothing new.
+	// A second update with every proxy marked again creates nothing new.
 	for i := range w.shapes {
 		if w.shapes[i].proxyKey != nullIndex {
-			w.broadPhase.bufferMove(w.shapes[i].proxyKey)
+			w.broadPhase.markProxyMovedSerial(w.shapes[i].proxyKey)
 		}
 	}
-	updateBroadPhasePairs(w, &w.solverContext)
+	updatePairs(w)
 	if got := w.contactIdPool.idCount(); got != 8 {
 		t.Errorf("the second update raised the contact count to %d", got)
 	}
 }
 
-// TestBroadPhasePairsAreSortedByShapeId pins D-013: the contacts of one
-// moved proxy come out in ascending shape pair order, and a static tree
-// rebuilt into another topology yields the same sequence.
+// TestBroadPhasePairsAreSortedByShapeId pins the pair order: the update
+// creates the contacts in ascending shape pair key order, and a static
+// tree rebuilt into another topology yields the same sequence.
 func TestBroadPhasePairsAreSortedByShapeId(t *testing.T) {
-	if upstreamPairOrder {
-		t.Skip("D-013: the dbox2d_upstream_pairs build keeps the pair order of the reference")
-	}
 	sequence := func(rebuild bool) [][2]int {
 		worldId := createTestWorld(t)
 		w := getWorldFromId(worldId)
 
-		mover := addDynamicBox(t, worldId, v2(0, 0))
-		statics := make([]BodyId, 0, 7)
+		addDynamicBox(t, worldId, v2(0, 0))
+		addDynamicBox(t, worldId, v2(0, 0))
 		for _, k := range []int{5, 2, 6, 0, 3, 1, 4} {
-			// Every circle overlaps the box; the spread only changes the tree.
+			// Every circle overlaps the boxes; the spread only changes the
+			// tree.
 			position := Vec2{X: QFromInt(k).Div(QFromInt(16))}
-			statics = append(statics, addStaticCircle(t, worldId, position))
+			addStaticCircle(t, worldId, position)
 		}
 
-		_, _ = mover, statics
 		if rebuild {
-			w.broadPhase.trees[StaticBody].rebuild(true)
+			worldId.RebuildStaticTree()
 			w.broadPhase.trees[StaticBody].validate()
-			w.broadPhase.rebuildTrees()
 			w.broadPhase.validate()
 		}
 
-		updateBroadPhasePairs(w, &w.solverContext)
+		updatePairs(w)
 
 		// createContact may flip a pair to its primary register, so the
-		// pair is rebuilt as the broadphase saw it: the smaller proxy key
+		// pair is rebuilt as the broadphase saw it: the smaller shape id
 		// is A.
 		count := w.contactIdPool.idCount()
 		pairs := make([][2]int, 0, count)
 		for i := range count {
 			ct := &w.contacts[i]
-			pair := [2]int{ct.shapeIdA, ct.shapeIdB}
-			if w.shapes[pair[1]].proxyKey < w.shapes[pair[0]].proxyKey {
-				pair[0], pair[1] = pair[1], pair[0]
-			}
-			pairs = append(pairs, pair)
+			pairs = append(pairs, [2]int{min(ct.shapeIdA, ct.shapeIdB), max(ct.shapeIdA, ct.shapeIdB)})
 		}
 		return pairs
 	}
 
 	plain := sequence(false)
-	if len(plain) != 7 {
-		t.Fatalf("the update created %d contacts, want 7", len(plain))
+	if len(plain) != 15 {
+		t.Fatalf("the update created %d contacts, want 15", len(plain))
 	}
 	for i := 1; i < len(plain); i++ {
 		p, q := plain[i-1], plain[i]
@@ -170,6 +183,24 @@ func TestBroadPhasePairsAreSortedByShapeId(t *testing.T) {
 	for i := range plain {
 		if i >= len(rebuilt) || rebuilt[i] != plain[i] {
 			t.Fatalf("the rebuilt tree gave %v, the incremental tree %v", rebuilt, plain)
+		}
+	}
+}
+
+// TestRadixSortKeysSorts compares radixSortKeys with a library sort over
+// keys that share digits, as shape pair keys do.
+func TestRadixSortKeysSorts(t *testing.T) {
+	rng := rand.New(rand.NewSource(5))
+	for _, count := range []int{1, 2, 3, 64, 1000} {
+		keys := make([]uint64, count)
+		for i := range keys {
+			keys[i] = shapePairKey(rng.Intn(300), rng.Intn(300))
+		}
+		want := slices.Clone(keys)
+		slices.Sort(want)
+		radixSortKeys(keys, make([]uint64, count))
+		if !slices.Equal(keys, want) {
+			t.Fatalf("radix sort of %d keys differs from the library sort", count)
 		}
 	}
 }
@@ -251,7 +282,7 @@ func TestBroadPhasePairsMatchBruteForce(t *testing.T) {
 		CreateCircleShape(bodyId, &shapeDef, &circle)
 	}
 
-	updateBroadPhasePairs(w, &w.solverContext)
+	updatePairs(w)
 	validateWorld(w)
 	w.broadPhase.validate()
 

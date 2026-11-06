@@ -307,22 +307,26 @@ func TestStepIsWorkerCountIndependent(t *testing.T) {
 	}
 }
 
-// TestChecksumIgnoresTheTreeTopology pins D-013: a pyramid whose trees
-// are rebuilt from scratch before the first step yields the checksum of
-// the pyramid whose trees grew by insertion, because the pair order does
-// not depend on the tree.
+// TestChecksumIgnoresTheTreeTopology pins the pair order: a pyramid whose
+// trees are rebuilt from scratch before the first step yields the checksum
+// of the pyramid whose trees grew by insertion, because the update sorts
+// the new pairs by shape id.
 func TestChecksumIgnoresTheTreeTopology(t *testing.T) {
-	if upstreamPairOrder {
-		t.Skip("D-013: the dbox2d_upstream_pairs build keeps the pair order of the reference")
-	}
 	run := func(rebuild bool) uint64 {
 		worldId := createTestWorld(t)
 		w := getWorldFromId(worldId)
 		buildPyramid(worldId, 6)
 		if rebuild {
 			for i := range BodyTypeCount {
-				w.broadPhase.trees[i].rebuild(true)
-				w.broadPhase.trees[i].validate()
+				// The rebuild clears the moved flags, which the first
+				// update still needs.
+				tree := &w.broadPhase.trees[i]
+				moved := tree.gatherMovedProxies(nil)
+				tree.rebuild(true)
+				for _, proxyId := range moved {
+					tree.markProxyMovedSerial(proxyId)
+				}
+				tree.validate()
 			}
 		}
 		dt := stepDt()

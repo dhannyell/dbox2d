@@ -16,6 +16,6 @@ func validateSolverSetsDebug(*world) {}
 // b2DynamicTree_Validate in the reference when B2_VALIDATE is disabled.
 func validateTreeDebug(*dynamicTree) {}
 
-// validateTreeNoEnlargedDebug is a no-op in release builds, matching
-// b2DynamicTree_ValidateNoEnlarged when B2_VALIDATE is disabled.
-func validateTreeNoEnlargedDebug(*dynamicTree) {}
+// validateTreeNoMovedDebug is a no-op in release builds, matching
+// b2DynamicTree_ValidateNoMoved when B2_VALIDATE is disabled.
+func validateTreeNoMovedDebug(*dynamicTree) {}

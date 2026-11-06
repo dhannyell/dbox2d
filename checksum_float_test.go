@@ -3,4 +3,5 @@
 package b2
 
 // The float witness, proved on four architectures by CI.
-const checksumWitness uint64 = 8990675704191140788 // v3.2: relative-frame collision
+// v3.2 phase 2: the shape no longer folds the retired enlargedAABB flag.
+const checksumWitness uint64 = 3640157120542509367

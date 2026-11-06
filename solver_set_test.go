@@ -30,7 +30,6 @@ func TestRemoveSwapNoClearTypesHaveNoPointers(t *testing.T) {
 	types := []reflect.Type{
 		reflect.TypeFor[bodySim](),
 		reflect.TypeFor[bodyState](),
-		reflect.TypeFor[movePair](),
 		reflect.TypeFor[contactSim](),
 		reflect.TypeFor[jointSim](),
 		reflect.TypeFor[islandSim](),

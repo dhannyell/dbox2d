@@ -53,6 +53,11 @@ func QMaxValue() Q { return fixed.Q32MaxValue() }
 // QMinValue returns the smallest scalar.
 func QMinValue() Q { return fixed.Q32MinValue() }
 
+// qInfinity stands for INFINITY where the tree seeds its empty nodes.
+// Fixed point has no infinity; the largest value is only ever compared,
+// so the empty node never saturates an operation.
+func qInfinity() Q { return fixed.Q32MaxValue() }
+
 // RotIdentity returns the rotation by zero turns.
 func RotIdentity() Rot { return fixed.RotIdentity() }
 

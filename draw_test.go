@@ -154,7 +154,7 @@ func enableAllDrawFlags(draw *DebugDraw) {
 // createDrawScene spaces every dynamic body far apart so each one touches
 // only the ground: a moved proxy then finds at most one new pair, which
 // keeps the port's pair order and graph colors identical to the
-// reference's (D-013). No gap equals the speculative distance (4*linearSlop).
+// reference's. No gap equals the speculative distance (4*linearSlop).
 func createDrawScene(t testing.TB) WorldId {
 	t.Helper()
 	w := createTestWorld(t)

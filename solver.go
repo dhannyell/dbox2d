@@ -2,7 +2,6 @@ package b2
 
 import (
 	"math"
-	"math/bits"
 	"slices"
 	"sync/atomic"
 	"time"
@@ -638,11 +637,11 @@ func solveContinuous(w *world, bodySimIndex int) {
 			continue
 		}
 
-		staticTree.query(box, DefaultMaskBits, ctx.queryCallback)
+		staticTree.overlapAABB(box, DefaultMaskBits, ctx.queryCallback)
 
 		if isBullet {
-			kinematicTree.query(box, DefaultMaskBits, ctx.queryCallback)
-			dynamicTree.query(box, DefaultMaskBits, ctx.queryCallback)
+			kinematicTree.overlapAABB(box, DefaultMaskBits, ctx.queryCallback)
+			dynamicTree.overlapAABB(box, DefaultMaskBits, ctx.queryCallback)
 		}
 	}
 
@@ -685,8 +684,13 @@ func solveContinuous(w *world, bodySimIndex int) {
 				}
 				s.fatAABB = fatAABB
 
-				s.enlargedAABB = true
-				fastBodySim.enlargeAABB = true
+				// Regular bodies mark the hierarchy as enlarged using atomic operations.
+				// Bullets are handled separately at a later stage.
+				if !fastBodySim.isBullet {
+					w.broadPhase.markProxyMoved(s.proxyKey, fatAABB)
+				} else {
+					fastBodySim.enlargeAABB = true
+				}
 			}
 
 			shapeId = s.nextShapeId
@@ -712,8 +716,13 @@ func solveContinuous(w *world, bodySimIndex int) {
 				}
 				s.fatAABB = fatAABB
 
-				s.enlargedAABB = true
-				fastBodySim.enlargeAABB = true
+				// Regular bodies mark the hierarchy as enlarged using atomic operations.
+				// Bullets are handled separately at a later stage.
+				if !fastBodySim.isBullet {
+					w.broadPhase.markProxyMoved(s.proxyKey, fatAABB)
+				} else {
+					fastBodySim.enlargeAABB = true
+				}
 			}
 
 			shapeId = s.nextShapeId
@@ -739,7 +748,6 @@ func finalizeBodiesTask(startIndex, endIndex, workerIndex int, context *stepCont
 	}
 
 	taskContext := &w.taskContexts[workerIndex]
-	enlargedSimBitSet := &taskContext.enlargedSimBitSet
 	awakeIslandBitSet := &taskContext.awakeIslandBitSet
 	taskContext.bulletBodies = context.bulletBodies[startIndex:endIndex:endIndex]
 	taskContext.bulletBodyCount = 0
@@ -854,20 +862,14 @@ func finalizeBodiesTask(startIndex, endIndex, workerIndex int, context *stepCont
 				// For fast non-bullet bodies the AABB has already been updated in solveContinuous
 				// For fast bullet bodies the AABB will be updated at a later stage
 
-				// Add to enlarged shapes regardless of AABB changes.
-				// Bit-set to keep the move array sorted
-				enlargedSimBitSet.setBit(simIndex)
 			} else {
+				// Update bounds for slow bodies, including slow bullets.
 				aabb := computeShapeAABB(s, transform)
 				aabb.LowerBound.X = aabb.LowerBound.X.Sub(speculativeDistance)
 				aabb.LowerBound.Y = aabb.LowerBound.Y.Sub(speculativeDistance)
 				aabb.UpperBound.X = aabb.UpperBound.X.Add(speculativeDistance)
 				aabb.UpperBound.Y = aabb.UpperBound.Y.Add(speculativeDistance)
 				s.aabb = aabb
-
-				if s.enlargedAABB {
-					panic("dbox2d: the shape is still marked enlarged")
-				}
 
 				if !AABBContains(s.fatAABB, aabb) {
 					fatAABB := AABB{
@@ -876,10 +878,8 @@ func finalizeBodiesTask(startIndex, endIndex, workerIndex int, context *stepCont
 					}
 					s.fatAABB = fatAABB
 
-					s.enlargedAABB = true
-
-					// Bit-set to keep the move array sorted
-					enlargedSimBitSet.setBit(simIndex)
+					// Mark the hierarchy as enlarged using atomic operations.
+					w.broadPhase.markProxyMoved(s.proxyKey, fatAABB)
 				}
 			}
 
@@ -1225,16 +1225,19 @@ func solve(w *world, context *stepContext) {
 
 		transformsStart := time.Now()
 
-		// Prepare the enlarged body and island bit sets used in body finalization.
+		// Prepare the island bit sets used in body finalization.
 		awakeIslandCount := len(awake.islandSims)
 		for i := range w.workerCount {
 			taskContext := &w.taskContexts[i]
-			setBitCountAndClear(&taskContext.enlargedSimBitSet, awakeBodyCount)
 			setBitCountAndClear(&taskContext.awakeIslandBitSet, awakeIslandCount)
 			taskContext.splitIslandId = nullIndex
 			taskContext.splitSleepTime = QZero()
 			taskContext.bulletBodyCount = 0
 		}
+
+		// Finish the tree rebuild that was queued earlier in the time step.
+		// This must be complete before touching the broad-phase.
+		w.treeTask.wait()
 
 		// Finalize bodies. Must happen after the constraint solver and after island splitting.
 		w.taskCount++
@@ -1247,9 +1250,6 @@ func solve(w *world, context *stepContext) {
 			context.bulletBodyCount += taskContext.bulletBodyCount
 		}
 
-		for i := 1; i < w.workerCount; i++ {
-			inPlaceUnion(&w.taskContexts[0].enlargedSimBitSet, &w.taskContexts[i].enlargedSimBitSet)
-		}
 		for i := range graphColorCount {
 			colors[i].contacts = nil
 			colors[i].contacts32 = nil
@@ -1341,65 +1341,15 @@ func solve(w *world, context *stepContext) {
 	{
 		refitStart := time.Now()
 
-		// Finish the tree rebuild that started in collide. It must be
-		// complete before the broad-phase is touched.
-		w.treeTask.wait()
-
-		enlargedBodyBitSet := &w.taskContexts[0].enlargedSimBitSet
-
-		// Enlarge broad-phase proxies and build move array
-		// Apply shape AABB changes to broad-phase. This also create the move array which must be
-		// in deterministic order. Sim bodies are tracked because the number of shape ids can be huge.
-		broadPhase := &w.broadPhase
-		bodySimArray := awake.bodySims
-
-		for k := range enlargedBodyBitSet.bits {
-			word := enlargedBodyBitSet.bits[k]
-			for word != 0 {
-				ctz := bits.TrailingZeros64(word)
-				bodySimIndex := 64*k + ctz
-
-				bodySim := &bodySimArray[bodySimIndex]
-
-				b := &w.bodies[bodySim.bodyId]
-
-				shapeId := b.headShapeId
-				if bodySim.isBullet && bodySim.isFast {
-					// Fast bullet bodies don't have their final AABB yet
-					for shapeId != nullIndex {
-						s := &w.shapes[shapeId]
-
-						// Shape is fast. It's aabb will be enlarged in continuous collision.
-						// Update the move array here for determinism because bullets are processed
-						// below in non-deterministic order.
-						broadPhase.bufferMove(s.proxyKey)
-
-						shapeId = s.nextShapeId
-					}
-				} else {
-					for shapeId != nullIndex {
-						s := &w.shapes[shapeId]
-
-						// The AABB may not have been enlarged, despite the body being flagged as enlarged.
-						// For example, a body with multiple shapes may have not have all shapes enlarged.
-						// A fast body may have been flagged as enlarged despite having no shapes enlarged.
-						if s.enlargedAABB {
-							broadPhase.enlargeProxy(s.proxyKey, s.fatAABB)
-							s.enlargedAABB = false
-						}
-
-						shapeId = s.nextShapeId
-					}
-				}
-
-				// Clear the smallest set bit
-				word = word & (word - 1)
-			}
-		}
+		bp := &w.broadPhase
+		bp.trees[KinematicBody].refit()
+		bp.trees[DynamicBody].refit()
 
 		w.profile.Refit = millisecondsSince(refitStart)
 	}
 
+	// Bullets are processed after the broad-phase refit so they can query
+	// the final non-bullet world.
 	// Continuous collision of the bullet bodies. The proxy refit remains serial.
 	if context.bulletBodyCount > 0 {
 		bulletsStart := time.Now()
@@ -1430,26 +1380,18 @@ func solve(w *world, context *stepContext) {
 			shapeId := bulletBody.headShapeId
 			for shapeId != nullIndex {
 				s := &w.shapes[shapeId]
-				if !s.enlargedAABB {
-					shapeId = s.nextShapeId
-					continue
-				}
-
-				// clear flag
-				s.enlargedAABB = false
-
 				proxyKey := s.proxyKey
 				proxyId := proxyIdOf(proxyKey)
 				if proxyTypeOf(proxyKey) != DynamicBody {
 					panic("dbox2d: a bullet shape is not in the dynamic tree")
 				}
 
-				// all fast bullet shapes should already be in the move buffer
-				if !broadPhase.moveSet.containsKey(uint64(proxyKey) + 1) {
-					panic("dbox2d: a bullet shape is not in the move buffer")
+				// Double check containment because a bullet can have multiple
+				// shapes and maybe just one needs an update.
+				treeAABB := dynamicTree.getProxyBounds(proxyId)
+				if !AABBContains(treeAABB, s.fatAABB) {
+					dynamicTree.enlargeProxy(proxyId, s.fatAABB)
 				}
-
-				dynamicTree.enlargeProxy(proxyId, s.fatAABB)
 
 				shapeId = s.nextShapeId
 			}

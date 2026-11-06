@@ -1465,6 +1465,16 @@ func f64Center(a f64AABB) (float64, float64) {
 	return 0.5 * (a[0] + a[2]), 0.5 * (a[1] + a[3])
 }
 
+// The rotation choices of the f64 mirror. The mirror keeps the v3.1 tree,
+// with its per-node rotation, as a fixed cost reference.
+const (
+	rotateNone = iota
+	rotateBF
+	rotateBG
+	rotateCD
+	rotateCE
+)
+
 type f64TreeNode struct {
 	aabb           f64AABB
 	userData       uint64
@@ -1837,7 +1847,7 @@ func halfUnitsF64(box [4]int) f64AABB {
 }
 
 func BenchmarkTreeQueryQ(b *testing.B) {
-	tree := createTree()
+	tree := createTree(16)
 	for i := range treeBenchSide * treeBenchSide {
 		tree.createProxy(halfUnitsQ(treeBenchBox(i)), DefaultCategoryBits, uint64(i))
 	}
@@ -1851,7 +1861,7 @@ func BenchmarkTreeQueryQ(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
-		tree.query(query, DefaultMaskBits, callback)
+		tree.overlapAABB(query, DefaultMaskBits, callback)
 	}
 	b.StopTimer()
 	if hits != 4*b.N {
@@ -1895,6 +1905,7 @@ func BenchmarkUpdateBroadPhasePairsQ(b *testing.B) {
 	buildPyramid(worldId, pyramidRows)
 	w := getWorldFromId(worldId)
 	updateBroadPhasePairs(w, &w.solverContext)
+	w.treeTask.wait()
 	contacts := w.contactIdPool.idCount()
 	// Step grows the arena after the first pass; the bench does the same.
 	w.arena.grow()
@@ -1902,7 +1913,7 @@ func BenchmarkUpdateBroadPhasePairsQ(b *testing.B) {
 	moveAll := func() {
 		for i := range w.shapes {
 			if w.shapes[i].proxyKey != nullIndex {
-				w.broadPhase.bufferMove(w.shapes[i].proxyKey)
+				w.broadPhase.markProxyMovedSerial(w.shapes[i].proxyKey)
 			}
 		}
 	}
@@ -1911,6 +1922,7 @@ func BenchmarkUpdateBroadPhasePairsQ(b *testing.B) {
 	for range b.N {
 		moveAll()
 		updateBroadPhasePairs(w, &w.solverContext)
+		w.treeTask.wait()
 	}
 	b.StopTimer()
 	if w.contactIdPool.idCount() != contacts {

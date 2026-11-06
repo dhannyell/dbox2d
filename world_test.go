@@ -172,8 +172,8 @@ func TestDumpMemoryStatsListsEverySection(t *testing.T) {
 		t.Errorf("contact sim lines = %d, want 2:\n%s", got, dump)
 	}
 
-	if !regexp.MustCompile(`moveSet: \d+ \(\d+, \d+\)`).MatchString(dump) {
-		t.Errorf("moveSet line missing count/capacity suffix:\n%s", dump)
+	if !regexp.MustCompile(`pairSet: \d+ \(\d+, \d+\)`).MatchString(dump) {
+		t.Errorf("pairSet line missing count/capacity suffix:\n%s", dump)
 	}
 }
 

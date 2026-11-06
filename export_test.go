@@ -4,10 +4,6 @@ package b2
 // and benchmark tests use internal/shared, so these test-only bridges keep
 // that package boundary acyclic.
 
-// UpstreamPairOrder reports whether this build restores the broadphase pair
-// order of the reference (D-013).
-func UpstreamPairOrder() bool { return upstreamPairOrder }
-
 const FNVOffsetBasis = fnvOffsetBasis
 
 func FNVFold(h, word uint64) uint64 { return fnvFold(h, word) }

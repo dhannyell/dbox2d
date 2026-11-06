@@ -564,7 +564,7 @@ func (jointId JointId) SetCollideConnected(shouldCollide bool) {
 		for shapeId := body.headShapeId; shapeId != nullIndex; shapeId = w.shapes[shapeId].nextShapeId {
 			s := &w.shapes[shapeId]
 			if s.proxyKey != nullIndex {
-				w.broadPhase.bufferMove(s.proxyKey)
+				w.broadPhase.markProxyMovedSerial(s.proxyKey)
 			}
 		}
 		return

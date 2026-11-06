@@ -179,18 +179,11 @@ budgets. See DIVERGENCES.md D-018.
 
 ### Reproducing Box2D bit for bit
 
-With `-tags dbox2d_upstream_pairs`, float mode reproduces the output bits of
-the reference built without SIMD and without FMA: every frozen scene trace
-matches over its full length, in the scalar and the SIMD families alike.
-
-```sh
-go test -tags dbox2d_upstream_pairs ./...
-```
-
-The tag restores the broadphase pair order of Box2D, which follows the walk of
-the tree. The default build sorts those pairs instead, so its world does not
-depend on tree topology, and it parts from the reference wherever the two
-orders differ (DIVERGENCES.md D-013). CI runs both.
+Box2D v3.2 sorts the new broadphase pairs by shape pair key, and the port
+follows that order, so the world does not depend on the tree topology and no
+build tag is needed. Up to v1.0.0 the reference followed the walk of the tree
+and the `dbox2d_upstream_pairs` tag reproduced it (DIVERGENCES.md D-013).
+The frozen scene traces are being regenerated against v3.2.
 
 ### SIMD
 
@@ -318,8 +311,7 @@ the repository: one is a single machine on a single day.
 
 A profile takes 3 to 6 percent off the solver: 2.7 percent on one worker and
 5 to 6 percent from two workers up, in all seven scenes. It changes no result
-bits. The checksum witnesses, the conformance traces under
-`dbox2d_upstream_pairs`, the no-FMA gate and the per-scene hashes all hold
+bits. The checksum witnesses, the conformance traces, the no-FMA gate and the per-scene hashes all hold
 with a profile applied, because every float product already sits inside an
 explicit rounding conversion, and a fused multiply-add cannot cross that
 barrier.
