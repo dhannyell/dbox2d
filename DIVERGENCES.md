@@ -1,6 +1,6 @@
 # Known differences from Box2D
 
-`dbox2d` follows the Box2D v3.1.1 formulation by default. This ledger lists
+`dbox2d` follows the Box2D v3.2.0 formulation by default. This ledger lists
 the places where Go, fixed-point arithmetic, or deterministic execution
 requires a different implementation.
 

@@ -225,15 +225,6 @@ func recLoad64(p []byte) uint64 {
 	return uint64(recLoad32(p)) | uint64(recLoad32(p[4:]))<<32
 }
 
-// recordingOf returns the recording of a world, or nil. The hook of every
-// recorded function is one call of this and a nil check.
-func recordingOf(world0 uint16) *Recording {
-	if world0 >= maxWorlds {
-		return nil
-	}
-	return worlds[world0].recording
-}
-
 // beginRecord opens a record: the opcode and a 24-bit size to patch.
 func (r *Recording) beginRecord(op byte) {
 	r.buf.u8(op)

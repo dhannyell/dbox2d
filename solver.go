@@ -341,7 +341,6 @@ func solverMainTask(context *stepContext) {
 	syncBits := uint32(jointSyncIndex)<<16 | uint32(stageIndex)
 	executeMainStage(&stages[stageIndex], context, syncBits)
 	stageIndex += 1
-	jointSyncIndex += 1
 
 	contactSyncIndex := 1
 	syncBits = uint32(contactSyncIndex)<<16 | uint32(stageIndex)

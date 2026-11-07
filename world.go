@@ -2160,7 +2160,7 @@ func drawNumber(value Q, places int) string {
 
 // drawGeneral formats a label as printf's "%g" does.
 func drawGeneral(value Q) string {
-	return strconv.FormatFloat(QToFloat64(value), 'g', 6, 64)
+	return strconv.FormatFloat(QToFloat64(value), 'g', 6, 64) // display only: no state reads it back
 }
 
 // drawContext carries the world and the drawer into the tree query. The

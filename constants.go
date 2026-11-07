@@ -65,9 +65,6 @@ var (
 	// neither belongs inside a prepare or collide call. The bits are the
 	// ones the call sites produced.
 
-	// upstream 0.1f, the angular damping ratio of the mouse joint
-	mouseAngularDampingRatio = QMustParse("0.1")
-
 	// upstream 0.01f, the Gauss map tolerances of a chain segment
 	chainSegmentTolerance = QFromRatio(1, 100)
 
@@ -86,8 +83,6 @@ var (
 	// on every creation.
 	defaultSleepThreshold    = QMustParse("0.05")
 	defaultFriction          = QMustParse("0.6")
-	defaultCorrectionFactor  = QMustParse("0.3")
-	defaultDrawSize          = QMustParse("0.25")
 	defaultWheelDampingRatio = QMustParse("0.7")
 )
 

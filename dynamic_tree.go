@@ -571,7 +571,6 @@ func rotateNodes(tree *dynamicTree, iA int) {
 		if deltaCE.Less(bestDelta) {
 			bestDown = iC
 			bestUp = iE
-			bestDelta = deltaCE
 		}
 	}
 

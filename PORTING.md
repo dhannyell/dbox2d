@@ -1,6 +1,6 @@
 # Porting and audit map
 
-This is the contributor's map from Box2D v3.1.1 to `dbox2d`. It answers three
+This is the contributor's map from Box2D v3.2.0 to `dbox2d`. It answers three
 questions: where an upstream file lives in Go, how closely it was ported, and
 which differences are intentional.
 
@@ -22,9 +22,11 @@ unexported state. The samples and conformance tools are separate modules.
 
 ## Provenance
 
-- Upstream: <https://github.com/erincatto/box2d>, tag `v3.1.1`
-- Commit: `8c661469c9507d3ad6fbd2fea3f1aa71669c2fe3`, 2025-06-03
-- Local branch: `reference/box2d-v3.1.1`, with the upstream history
+- Upstream: <https://github.com/erincatto/box2d>, tag `v3.2.0`
+- Commit: `178495ba35695aefe9c321e569d2277f06db3b90`, 2026-10-18
+- Local branch: `reference/box2d-v3.2.0`, with the upstream history
+- Earlier: tag `v3.1.1`, commit `8c661469c9507d3ad6fbd2fea3f1aa71669c2fe3`,
+  branch `reference/box2d-v3.1.1`, ported by v1.0.0
 
 Read the reference with `git show`, `git log` and `git blame` against that
 branch. Blame is part of the method: when an upstream line looks strange, the

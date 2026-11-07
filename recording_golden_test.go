@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	. "github.com/dhannyell/dbox2d"
@@ -176,19 +175,6 @@ func (s *goldenScene) snapshot() []byte {
 	image := make([]byte, n)
 	s.worldId.GetSnapshot(image)
 	return image
-}
-
-// goldenText prints the final state the way the C tool does.
-func (s *goldenScene) text() string {
-	var b strings.Builder
-	bodies := []BodyId{s.ground, s.box1, s.box2, s.box3, s.circleBody, s.capsuleBody, s.pendulum}
-	for i, id := range bodies {
-		t := id.GetTransform()
-		x, y := PosBits(t.P)
-		fmt.Fprintf(&b, "body %d %s %s %08x %08x\n", i, hexBits(x), hexBits(y),
-			qBits(t.Q.Cos), qBits(t.Q.Sin))
-	}
-	return b.String()
 }
 
 func hexBits(v uint64) string {
