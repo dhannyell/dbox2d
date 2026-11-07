@@ -38,32 +38,6 @@ func laneClamp(a, lo, hi laneW) laneW {
 	return laneBlend(lo.Greater(a), lo, laneBlend(a.Greater(hi), hi, a))
 }
 
-// laneGroupMask sets the lanes whose lane group holds a nonzero value of v,
-// as laneGroupAny does for the scalar family, and reports whether any lane
-// does.
-func laneGroupMask(v laneW) (maskW, bool) {
-	var values, flags [wideWidth]laneScalar
-	v.store(&values)
-	var zero laneScalar
-	one := laneScalarFromQ(QOne())
-	anyLane := false
-	for start := 0; start < wideWidth; start += laneGroupWidth {
-		group := false
-		for j := start; j < start+laneGroupWidth; j++ {
-			if values[j] != zero {
-				group = true
-			}
-		}
-		if group {
-			anyLane = true
-			for j := start; j < start+laneGroupWidth; j++ {
-				flags[j] = one
-			}
-		}
-	}
-	return laneLoad(&flags).Greater(laneZero()), anyLane
-}
-
 // maskIndices returns indices with nullIndex in the lanes the mask clears.
 func maskIndices(indices *[wideWidth]int, m maskW) [wideWidth]int {
 	var flags [wideWidth]laneScalar
@@ -131,6 +105,9 @@ func prepareContactsTaskWide(startIndex, endIndex int, context *stepContext) {
 		)
 
 		constraint := &context.contactConstraintsWide[i]
+		// Float lanes are written in place: staging them in local arrays
+		// and loading the vectors afterwards stalls on store forwarding.
+		*constraint = contactConstraintWide{}
 		// Float lanes never skip: the skipped blocks would store +0 where
 		// they write -0, and the checksum reads the sign bit.
 		anyRolling := signedZeroSurvives
@@ -195,59 +172,59 @@ func prepareContactsTaskWide(startIndex, endIndex int, context *stepContext) {
 				soft = staticSoftness
 			}
 
-			invMassA[j] = laneScalarFromQ(mA)
-			invMassB[j] = laneScalarFromQ(mB)
-			invIA[j] = laneScalarFromQ(iA)
-			invIB[j] = laneScalarFromQ(iB)
+			laneSlots(&constraint.invMassA, &invMassA)[j] = laneScalarFromQ(mA)
+			laneSlots(&constraint.invMassB, &invMassB)[j] = laneScalarFromQ(mB)
+			laneSlots(&constraint.invIA, &invIA)[j] = laneScalarFromQ(iA)
+			laneSlots(&constraint.invIB, &invIB)[j] = laneScalarFromQ(iB)
 
 			k := iA.Add(iB)
 			if zero.Less(k) {
-				rollingMass[j] = laneScalarFromQ(one.Div(k))
+				laneSlots(&constraint.rollingMass, &rollingMass)[j] = laneScalarFromQ(one.Div(k))
 			}
 
 			normal := manifold.Normal
 			tangent := RightPerp(normal)
-			normalX[j] = laneScalarFromQ(normal.X)
-			normalY[j] = laneScalarFromQ(normal.Y)
-			friction[j] = laneScalarFromQ(contact.friction)
-			tangentSpeed[j] = laneScalarFromQ(contact.tangentSpeed)
-			restitution[j] = laneScalarFromQ(contact.restitution)
-			rollingResistance[j] = laneScalarFromQ(contact.rollingResistance)
-			rollingImpulse[j] = laneScalarFromQ(warmStartScale.Mul(manifold.RollingImpulse))
+			laneSlots(&constraint.normal.x, &normalX)[j] = laneScalarFromQ(normal.X)
+			laneSlots(&constraint.normal.y, &normalY)[j] = laneScalarFromQ(normal.Y)
+			laneSlots(&constraint.friction, &friction)[j] = laneScalarFromQ(contact.friction)
+			laneSlots(&constraint.tangentSpeed, &tangentSpeed)[j] = laneScalarFromQ(contact.tangentSpeed)
+			laneSlots(&constraint.restitution, &restitution)[j] = laneScalarFromQ(contact.restitution)
+			laneSlots(&constraint.rollingResistance, &rollingResistance)[j] = laneScalarFromQ(contact.rollingResistance)
+			laneSlots(&constraint.rollingImpulse, &rollingImpulse)[j] = laneScalarFromQ(warmStartScale.Mul(manifold.RollingImpulse))
 			// A stored impulse counts too: the warm start applies it after
 			// the rolling resistance drops to zero.
 			if zero.Less(contact.rollingResistance) || !manifold.RollingImpulse.Eq(zero) {
 				anyRolling = true
 			}
-			pushRate[j] = laneScalarFromQ(soft.massScale.Mul(soft.biasRate))
-			massScale[j] = laneScalarFromQ(soft.massScale)
-			impulseScale[j] = laneScalarFromQ(soft.impulseScale)
+			laneSlots(&constraint.pushRate, &pushRate)[j] = laneScalarFromQ(soft.massScale.Mul(soft.biasRate))
+			laneSlots(&constraint.massScale, &massScale)[j] = laneScalarFromQ(soft.massScale)
+			laneSlots(&constraint.impulseScale, &impulseScale)[j] = laneScalarFromQ(soft.impulseScale)
 
 			for pointIndex := range pointCount {
 				mp := &manifold.Points[pointIndex]
 				rA := mp.AnchorA
 				rB := mp.AnchorB
 
-				anchorAX[pointIndex][j] = laneScalarFromQ(rA.X)
-				anchorAY[pointIndex][j] = laneScalarFromQ(rA.Y)
-				anchorBX[pointIndex][j] = laneScalarFromQ(rB.X)
-				anchorBY[pointIndex][j] = laneScalarFromQ(rB.Y)
-				baseSeparation[pointIndex][j] = laneScalarFromQ(mp.Separation.Sub(rB.Sub(rA).Dot(normal)))
-				normalImpulse[pointIndex][j] = laneScalarFromQ(warmStartScale.Mul(mp.NormalImpulse))
-				tangentImpulse[pointIndex][j] = laneScalarFromQ(warmStartScale.Mul(mp.TangentImpulse))
+				laneSlots(&constraint.points[pointIndex].anchorA.x, &anchorAX[pointIndex])[j] = laneScalarFromQ(rA.X)
+				laneSlots(&constraint.points[pointIndex].anchorA.y, &anchorAY[pointIndex])[j] = laneScalarFromQ(rA.Y)
+				laneSlots(&constraint.points[pointIndex].anchorB.x, &anchorBX[pointIndex])[j] = laneScalarFromQ(rB.X)
+				laneSlots(&constraint.points[pointIndex].anchorB.y, &anchorBY[pointIndex])[j] = laneScalarFromQ(rB.Y)
+				laneSlots(&constraint.points[pointIndex].baseSeparation, &baseSeparation[pointIndex])[j] = laneScalarFromQ(mp.Separation.Sub(rB.Sub(rA).Dot(normal)))
+				laneSlots(&constraint.points[pointIndex].normalImpulse, &normalImpulse[pointIndex])[j] = laneScalarFromQ(warmStartScale.Mul(mp.NormalImpulse))
+				laneSlots(&constraint.points[pointIndex].tangentImpulse, &tangentImpulse[pointIndex])[j] = laneScalarFromQ(warmStartScale.Mul(mp.TangentImpulse))
 
 				rnA := Cross(rA, normal)
 				rnB := Cross(rB, normal)
 				kNormal := mA.Add(mB).Add(iA.Mul(rnA.Mul(rnA))).Add(iB.Mul(rnB.Mul(rnB)))
 				if zero.Less(kNormal) {
-					normalMass[pointIndex][j] = laneScalarFromQ(one.Div(kNormal))
+					laneSlots(&constraint.points[pointIndex].normalMass, &normalMass[pointIndex])[j] = laneScalarFromQ(one.Div(kNormal))
 				}
 
 				rtA := Cross(rA, tangent)
 				rtB := Cross(rB, tangent)
 				kTangent := mA.Add(mB).Add(iA.Mul(rtA.Mul(rtA))).Add(iB.Mul(rtB.Mul(rtB)))
 				if zero.Less(kTangent) {
-					tangentMass[pointIndex][j] = laneScalarFromQ(one.Div(kTangent))
+					laneSlots(&constraint.points[pointIndex].tangentMass, &tangentMass[pointIndex])[j] = laneScalarFromQ(one.Div(kTangent))
 				}
 
 				// Relative velocity at contact
@@ -256,40 +233,43 @@ func prepareContactsTaskWide(startIndex, endIndex int, context *stepContext) {
 					dvx := vB.X.Sub(wB.Mul(rB.Y)).Sub(vA.X.Sub(wA.Mul(rA.Y)))
 					dvy := vB.Y.Add(wB.Mul(rB.X)).Sub(vA.Y.Add(wA.Mul(rA.X)))
 					vn := dvx.Mul(normal.X).Add(dvy.Mul(normal.Y))
-					relativeVelocity[pointIndex][j] = laneScalarFromQ(vn)
+					laneSlots(&constraint.points[pointIndex].relativeVelocity, &relativeVelocity[pointIndex])[j] = laneScalarFromQ(vn)
 					mp.NormalVelocity = vn
 				}
 			}
 		}
 		constraint.hasRolling = anyRolling
 
-		constraint.invMassA = laneLoad(&invMassA)
-		constraint.invMassB = laneLoad(&invMassB)
-		constraint.invIA = laneLoad(&invIA)
-		constraint.invIB = laneLoad(&invIB)
-		constraint.normal = vec2W{x: laneLoad(&normalX), y: laneLoad(&normalY)}
-		constraint.friction = laneLoad(&friction)
-		constraint.tangentSpeed = laneLoad(&tangentSpeed)
-		constraint.restitution = laneLoad(&restitution)
-		constraint.rollingResistance = laneLoad(&rollingResistance)
-		constraint.rollingMass = laneLoad(&rollingMass)
-		constraint.rollingImpulse = laneLoad(&rollingImpulse)
-		constraint.pushRate = laneLoad(&pushRate)
-		constraint.massScale = laneLoad(&massScale)
-		constraint.impulseScale = laneLoad(&impulseScale)
+		// Fixed lanes stage through the arrays; float lanes are already in place.
+		if !laneSlotsInPlace {
+			constraint.invMassA = laneLoad(&invMassA)
+			constraint.invMassB = laneLoad(&invMassB)
+			constraint.invIA = laneLoad(&invIA)
+			constraint.invIB = laneLoad(&invIB)
+			constraint.normal = vec2W{x: laneLoad(&normalX), y: laneLoad(&normalY)}
+			constraint.friction = laneLoad(&friction)
+			constraint.tangentSpeed = laneLoad(&tangentSpeed)
+			constraint.restitution = laneLoad(&restitution)
+			constraint.rollingResistance = laneLoad(&rollingResistance)
+			constraint.rollingMass = laneLoad(&rollingMass)
+			constraint.rollingImpulse = laneLoad(&rollingImpulse)
+			constraint.pushRate = laneLoad(&pushRate)
+			constraint.massScale = laneLoad(&massScale)
+			constraint.impulseScale = laneLoad(&impulseScale)
 
-		for p := range 2 {
-			cp := &constraint.points[p]
-			cp.anchorA = vec2W{x: laneLoad(&anchorAX[p]), y: laneLoad(&anchorAY[p])}
-			cp.anchorB = vec2W{x: laneLoad(&anchorBX[p]), y: laneLoad(&anchorBY[p])}
-			cp.normalMass = laneLoad(&normalMass[p])
-			cp.tangentMass = laneLoad(&tangentMass[p])
-			cp.baseSeparation = laneLoad(&baseSeparation[p])
-			cp.normalImpulse = laneLoad(&normalImpulse[p])
-			cp.tangentImpulse = laneLoad(&tangentImpulse[p])
-			cp.relativeVelocity = laneLoad(&relativeVelocity[p])
-			cp.restitutionImpulse = laneZero()
-			cp.totalNormalImpulse = laneZero().toAcc()
+			for p := range 2 {
+				cp := &constraint.points[p]
+				cp.anchorA = vec2W{x: laneLoad(&anchorAX[p]), y: laneLoad(&anchorAY[p])}
+				cp.anchorB = vec2W{x: laneLoad(&anchorBX[p]), y: laneLoad(&anchorBY[p])}
+				cp.normalMass = laneLoad(&normalMass[p])
+				cp.tangentMass = laneLoad(&tangentMass[p])
+				cp.baseSeparation = laneLoad(&baseSeparation[p])
+				cp.normalImpulse = laneLoad(&normalImpulse[p])
+				cp.tangentImpulse = laneLoad(&tangentImpulse[p])
+				cp.relativeVelocity = laneLoad(&relativeVelocity[p])
+				cp.restitutionImpulse = laneZero()
+				cp.totalNormalImpulse = laneZero().toAcc()
+			}
 		}
 	}
 
@@ -314,23 +294,30 @@ func warmStartContactsTaskWide(startIndex, endIndex int, context *stepContext, c
 		normal := constraint.normal
 		tangent := vec2W{x: normal.y, y: normal.x.Neg()}
 
+		vAx, vAy, wA := bodyA.v.x, bodyA.v.y, bodyA.w
+		vBx, vBy, wB := bodyB.v.x, bodyB.v.y, bodyB.w
 		for j := range 2 {
 			cp := &constraint.points[j]
-			p := vec2W{
-				x: cp.normalImpulse.Mul(normal.x).Add(cp.tangentImpulse.Mul(tangent.x)),
-				y: cp.normalImpulse.Mul(normal.y).Add(cp.tangentImpulse.Mul(tangent.y)),
-			}
-			bodyA.subImpulseW(mA, iA, p.x, p.y, crossW(cp.anchorA, p))
-			bodyB.addImpulseW(mB, iB, p.x, p.y, crossW(cp.anchorB, p))
+			px := cp.normalImpulse.Mul(normal.x).Add(cp.tangentImpulse.Mul(tangent.x))
+			py := cp.normalImpulse.Mul(normal.y).Add(cp.tangentImpulse.Mul(tangent.y))
+			p := vec2W{x: px, y: py}
+			vAx = vAx.SubBounded(mA.Mul(px).toAcc())
+			vAy = vAy.SubBounded(mA.Mul(py).toAcc())
+			wA = wA.SubBounded(iA.Mul(crossW(cp.anchorA, p)).toAcc())
+			vBx = vBx.AddBounded(mB.Mul(px).toAcc())
+			vBy = vBy.AddBounded(mB.Mul(py).toAcc())
+			wB = wB.AddBounded(iB.Mul(crossW(cp.anchorB, p)).toAcc())
 
 			cp.totalNormalImpulse = cp.totalNormalImpulse.AddBounded(cp.normalImpulse.toAcc())
 		}
 
 		if constraint.hasRolling {
-			bodyA.w = bodyA.w.SubBounded(iA.Mul(constraint.rollingImpulse).toAcc())
-			bodyB.w = bodyB.w.AddBounded(iB.Mul(constraint.rollingImpulse).toAcc())
+			wA = wA.SubBounded(iA.Mul(constraint.rollingImpulse).toAcc())
+			wB = wB.AddBounded(iB.Mul(constraint.rollingImpulse).toAcc())
 		}
 
+		bodyA.v.x, bodyA.v.y, bodyA.w = vAx, vAy, wA
+		bodyB.v.x, bodyB.v.y, bodyB.w = vBx, vBy, wB
 		scatterBodyW(states, &constraint.storeA, &bodyA)
 		scatterBodyW(states, &constraint.storeB, &bodyB)
 	}
@@ -360,11 +347,18 @@ func pushContactsTaskWide(startIndex, endIndex int, context *stepContext, colorI
 		wA := bodyA.w.toLane()
 		wB := bodyB.w.toLane()
 		dn := bodyB.v.x.Sub(bodyA.v.x).toLane().Mul(normal.x).Add(bodyB.v.y.Sub(bodyA.v.y).toLane().Mul(normal.y))
+		dqAs, dqAc := bodyA.dq.s, bodyA.dq.c
+		dqBs, dqBc := bodyB.dq.s, bodyB.dq.c
 
 		var rnA, rnB, impulses [2]laneW
 		for j := range 2 {
 			cp := &constraint.points[j]
-			s := separationW(&bodyA, &bodyB, dp, normal, cp)
+			// separationW, written out: a call spills every live lane.
+			rsAx := dqAc.Mul(cp.anchorA.x).Sub(dqAs.Mul(cp.anchorA.y))
+			rsAy := dqAs.Mul(cp.anchorA.x).Add(dqAc.Mul(cp.anchorA.y))
+			rsBx := dqBc.Mul(cp.anchorB.x).Sub(dqBs.Mul(cp.anchorB.y))
+			rsBy := dqBs.Mul(cp.anchorB.x).Add(dqBc.Mul(cp.anchorB.y))
+			s := normal.x.Mul(dp.x.Add(rsBx.Sub(rsAx))).Add(normal.y.Mul(dp.y.Add(rsBy.Sub(rsAy)))).Add(cp.baseSeparation)
 
 			// Apply speculative bias if separation is greater than zero,
 			// otherwise apply soft constraint bias. The contact speed limits
@@ -397,8 +391,13 @@ func pushContactsTaskWide(startIndex, endIndex int, context *stepContext, colorI
 		angularA := impulses[0].Mul(rnA[0]).Add(impulses[1].Mul(rnA[1]))
 		angularB := impulses[0].Mul(rnB[0]).Add(impulses[1].Mul(rnB[1]))
 
-		bodyA.subImpulseW(mA, iA, px, py, angularA)
-		bodyB.addImpulseW(mB, iB, px, py, angularB)
+		// subImpulseW and addImpulseW, written out.
+		bodyA.v.x = bodyA.v.x.SubBounded(mA.Mul(px).toAcc())
+		bodyA.v.y = bodyA.v.y.SubBounded(mA.Mul(py).toAcc())
+		bodyA.w = bodyA.w.SubBounded(iA.Mul(angularA).toAcc())
+		bodyB.v.x = bodyB.v.x.AddBounded(mB.Mul(px).toAcc())
+		bodyB.v.y = bodyB.v.y.AddBounded(mB.Mul(py).toAcc())
+		bodyB.w = bodyB.w.AddBounded(iB.Mul(angularB).toAcc())
 
 		scatterBodyW(states, &constraint.storeA, &bodyA)
 		scatterBodyW(states, &constraint.storeB, &bodyB)
@@ -428,8 +427,21 @@ func solveContactsTaskWide(startIndex, endIndex int, context *stepContext, color
 		c2 := &constraint.points[1]
 
 		// Speculative bias, positive if separated and zero if overlapped
-		velocityBias1 := separationW(&bodyA, &bodyB, dp, normal, c1).Mul(invH).Max(zero)
-		velocityBias2 := separationW(&bodyA, &bodyB, dp, normal, c2).Mul(invH).Max(zero)
+		// separationW, written out: a call spills every live lane.
+		dqAs, dqAc := bodyA.dq.s, bodyA.dq.c
+		dqBs, dqBc := bodyB.dq.s, bodyB.dq.c
+		rsAx := dqAc.Mul(c1.anchorA.x).Sub(dqAs.Mul(c1.anchorA.y))
+		rsAy := dqAs.Mul(c1.anchorA.x).Add(dqAc.Mul(c1.anchorA.y))
+		rsBx := dqBc.Mul(c1.anchorB.x).Sub(dqBs.Mul(c1.anchorB.y))
+		rsBy := dqBs.Mul(c1.anchorB.x).Add(dqBc.Mul(c1.anchorB.y))
+		s1 := normal.x.Mul(dp.x.Add(rsBx.Sub(rsAx))).Add(normal.y.Mul(dp.y.Add(rsBy.Sub(rsAy)))).Add(c1.baseSeparation)
+		rsAx = dqAc.Mul(c2.anchorA.x).Sub(dqAs.Mul(c2.anchorA.y))
+		rsAy = dqAs.Mul(c2.anchorA.x).Add(dqAc.Mul(c2.anchorA.y))
+		rsBx = dqBc.Mul(c2.anchorB.x).Sub(dqBs.Mul(c2.anchorB.y))
+		rsBy = dqBs.Mul(c2.anchorB.x).Add(dqBc.Mul(c2.anchorB.y))
+		s2 := normal.x.Mul(dp.x.Add(rsBx.Sub(rsAx))).Add(normal.y.Mul(dp.y.Add(rsBy.Sub(rsAy)))).Add(c2.baseSeparation)
+		velocityBias1 := s1.Mul(invH).Max(zero)
+		velocityBias2 := s2.Mul(invH).Max(zero)
 
 		rnA1 := crossW(c1.anchorA, normal)
 		rnB1 := crossW(c1.anchorB, normal)
@@ -521,8 +533,13 @@ func solveContactsTaskWide(startIndex, endIndex int, context *stepContext, color
 		px := normalImpulse.Mul(normal.x).Add(tangentImpulse.Mul(tangent.x))
 		py := normalImpulse.Mul(normal.y).Add(tangentImpulse.Mul(tangent.y))
 
-		bodyA.subImpulseW(mA, iA, px, py, angularA)
-		bodyB.addImpulseW(mB, iB, px, py, angularB)
+		// subImpulseW and addImpulseW, written out.
+		bodyA.v.x = bodyA.v.x.SubBounded(mA.Mul(px).toAcc())
+		bodyA.v.y = bodyA.v.y.SubBounded(mA.Mul(py).toAcc())
+		bodyA.w = bodyA.w.SubBounded(iA.Mul(angularA).toAcc())
+		bodyB.v.x = bodyB.v.x.AddBounded(mB.Mul(px).toAcc())
+		bodyB.v.y = bodyB.v.y.AddBounded(mB.Mul(py).toAcc())
+		bodyB.w = bodyB.w.AddBounded(iB.Mul(angularB).toAcc())
 
 		scatterBodyW(states, &constraint.storeA, &bodyA)
 		scatterBodyW(states, &constraint.storeB, &bodyB)
@@ -804,11 +821,11 @@ func runGraphContactFamilyBlock(stage *solverStage, context *stepContext, startI
 	}
 	switch stage.stageType {
 	case stageWarmStart:
-		warmStartContactsTaskWide(startIndex, endIndex, context, stage.colorIndex)
+		warmStartContactsTaskWideAsm(startIndex, endIndex, context, stage.colorIndex)
 	case stageSolve:
-		pushContactsTaskWide(startIndex, endIndex, context, stage.colorIndex)
+		pushContactsTaskWideAsm(startIndex, endIndex, context, stage.colorIndex)
 	case stageRelax:
-		solveContactsTaskWide(startIndex, endIndex, context, stage.colorIndex)
+		solveContactsTaskWideAsm(startIndex, endIndex, context, stage.colorIndex)
 	case stageRestitution:
 		applyRestitutionTaskWide(startIndex, endIndex, context, stage.colorIndex)
 	}

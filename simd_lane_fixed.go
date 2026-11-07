@@ -278,3 +278,12 @@ func blendAccW(m maskW, a, b accW) accW {
 	}
 	return accLoad(&as)
 }
+
+// laneSlotsInPlace reports that laneSlots stages lanes in a scratch array,
+// which the caller loads into the vector afterwards.
+const laneSlotsInPlace = false
+
+// laneSlots returns the scratch array: a fixed lane vector is opaque.
+func laneSlots(_ *laneW, scratch *[wideWidth]laneScalar) *[wideWidth]laneScalar {
+	return scratch
+}
