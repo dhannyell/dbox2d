@@ -32,3 +32,6 @@ func mirrorTolerance(fixedTolerance, _ float64) float64 { return fixedTolerance 
 func resetSaturationCount() { fixed.ResetSaturationCount() }
 
 func saturationCount() uint64 { return fixed.SaturationCount() }
+
+// f64Atan2 is the exact atan2: the fixed atan2 is exact to 2^-20 turn.
+func f64Atan2(y, x float64) float64 { return math.Atan2(y, x) }

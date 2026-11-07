@@ -35,3 +35,30 @@ func mirrorTolerance(_ float64, want float64) float64 {
 func resetSaturationCount() {}
 
 func saturationCount() uint64 { return 0 }
+
+// f64Atan2 mirrors the polynomial of atan2Radians in float64, so the joint
+// mirrors see the same angle error as the float mode.
+func f64Atan2(y, x float64) float64 {
+	if x == 0 && y == 0 {
+		return 0
+	}
+	ax, ay := math.Abs(x), math.Abs(y)
+	a := math.Min(ax, ay) / math.Max(ax, ay)
+	s := a * a
+	c := s * a
+	q := s * s
+	r := 0.024840285*q + 0.18681418
+	t := -0.094097948*q - 0.33213072
+	r = r*s + t
+	r = r*c + a
+	if ay > ax {
+		r = 1.57079637 - r
+	}
+	if x < 0 {
+		r = 3.14159274 - r
+	}
+	if y < 0 {
+		r = -r
+	}
+	return r
+}

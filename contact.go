@@ -9,6 +9,10 @@ const (
 
 	// contactEnableContactEvents marks a contact that wants contact events.
 	contactEnableContactEvents uint32 = 0x0004
+
+	// contactRecycleFlag marks a contact whose bodies both enable contact
+	// recycling. The contact sim inherits it.
+	contactRecycleFlag uint32 = 0x0008
 )
 
 // Contact sim flags, shifted to be distinct from the contact flags. They
@@ -32,6 +36,10 @@ const (
 
 	// simEnablePreSolveEvents marks a contact that wants pre-solve events.
 	simEnablePreSolveEvents uint32 = 0x00200000
+
+	// simRelativeTransformValid is set when the contact cached the relative
+	// transform of its bodies for recycling.
+	simRelativeTransformValid uint32 = 0x00400000
 )
 
 // contactEdge connects a body to a contact inside the contact graph. Each
@@ -61,17 +69,82 @@ type contact struct {
 	shapeIdA int
 	shapeIdB int
 
-	// A contact belongs to an island only when touching. The island fields
-	// stay nullIndex until the island stage lands.
-	islandPrev int
-	islandNext int
-	islandId   int
+	// A contact belongs to an island only when touching.
+	islandId    int
+	islandIndex int
 
 	contactId int
 
 	flags uint32
 
-	isMarked bool
+	// generation advances each time a contact takes this slot. It lets a
+	// ContactId detect a destroyed contact.
+	generation uint32
+}
+
+// contactIdOf builds the public id of a live contact.
+func contactIdOf(w *world, c *contact) ContactId {
+	return ContactId{index1: int32(c.contactId) + 1, world0: w.worldId, generation: c.generation}
+}
+
+// getContactFullId returns the contact of a valid id. It corresponds to
+// b2GetContactFullId in src/contact.c.
+func getContactFullId(w *world, contactId ContactId) *contact {
+	id := int(contactId.index1) - 1
+	if id < 0 || len(w.contacts) <= id {
+		panic("dbox2d: the contact id is out of range")
+	}
+	c := &w.contacts[id]
+	if c.contactId != id || c.generation != contactId.generation {
+		panic("dbox2d: the contact id is stale")
+	}
+	return c
+}
+
+// IsValid reports whether the id references a live contact. It provides
+// validation for up to 2^32 allocations per slot. It corresponds to
+// b2Contact_IsValid.
+func (contactId ContactId) IsValid() bool {
+	if maxWorlds <= contactId.world0 {
+		return false
+	}
+
+	w := &worlds[contactId.world0]
+	if w.worldId != contactId.world0 {
+		// world is free
+		return false
+	}
+
+	id := int(contactId.index1) - 1
+	if id < 0 || len(w.contacts) <= id {
+		return false
+	}
+
+	c := &w.contacts[id]
+	if c.contactId == nullIndex {
+		// contact is free
+		return false
+	}
+
+	if c.contactId != id {
+		panic("dbox2d: a live contact has the wrong id")
+	}
+
+	return contactId.generation == c.generation
+}
+
+// GetData returns the shapes and the manifold of a contact. The manifold
+// may have no points if the contact is not touching. It corresponds to
+// b2Contact_GetData.
+func (contactId ContactId) GetData() ContactData {
+	w := getWorld(contactId.world0)
+	c := getContactFullId(w, contactId)
+	return ContactData{
+		ContactId: contactId,
+		ShapeIdA:  shapeIdOf(w, &w.shapes[c.shapeIdA]),
+		ShapeIdB:  shapeIdOf(w, &w.shapes[c.shapeIdB]),
+		Manifold:  getContactSim(w, c).manifold,
+	}
 }
 
 // contactSim is the warm contact data that the narrowphase and the solver
@@ -104,14 +177,21 @@ type contactSim struct {
 	simFlags uint32
 
 	cache SimplexCache
+
+	// The body rotations and the relative transform at the last manifold
+	// update, for contact recycling.
+	cachedRotationA    Rot
+	cachedRotationB    Rot
+	cachedRelativePose Transform
 }
 
 // manifoldFcn computes the manifold of one ordered shape type pair. It
 // corresponds to b2ManifoldFcn in src/contact.c.
 //
-// It writes into manifold, which the caller has zeroed, so the polygon paths
-// land the result in the contact without a return-by-value copy per hop.
-type manifoldFcn func(manifold *Manifold, shapeA *shape, xfA Transform, shapeB *shape, xfB Transform, cache *SimplexCache)
+// The result is in the frame of shape A and returns by value: an out
+// pointer through this indirect call would move the caller's local to the
+// heap.
+type manifoldFcn func(shapeA *shape, shapeB *shape, xf Transform, cache *SimplexCache) LocalManifold
 
 // contactRegister pairs the collide function with the order of its
 // arguments. It corresponds to b2ContactRegister in src/contact.c.
@@ -125,54 +205,57 @@ type contactRegister struct {
 // src/contact.c.
 var contactRegisters [ShapeTypeCount][ShapeTypeCount]contactRegister
 
-func circleManifold(manifold *Manifold, shapeA *shape, xfA Transform, shapeB *shape, xfB Transform, _ *SimplexCache) {
-	*manifold = CollideCircles(shapeA.circle(), xfA, shapeB.circle(), xfB)
+func circleManifold(shapeA *shape, shapeB *shape, xf Transform, _ *SimplexCache) (manifold LocalManifold) {
+	return CollideCircles(shapeA.circle(), shapeB.circle(), xf)
 }
 
-func capsuleAndCircleManifold(manifold *Manifold, shapeA *shape, xfA Transform, shapeB *shape, xfB Transform, _ *SimplexCache) {
-	*manifold = CollideCapsuleAndCircle(shapeA.capsule(), xfA, shapeB.circle(), xfB)
+func capsuleAndCircleManifold(shapeA *shape, shapeB *shape, xf Transform, _ *SimplexCache) (manifold LocalManifold) {
+	return CollideCapsuleAndCircle(shapeA.capsule(), shapeB.circle(), xf)
 }
 
-func capsuleManifold(manifold *Manifold, shapeA *shape, xfA Transform, shapeB *shape, xfB Transform, _ *SimplexCache) {
-	*manifold = CollideCapsules(shapeA.capsule(), xfA, shapeB.capsule(), xfB)
+func capsuleManifold(shapeA *shape, shapeB *shape, xf Transform, _ *SimplexCache) (manifold LocalManifold) {
+	return CollideCapsules(shapeA.capsule(), shapeB.capsule(), xf)
 }
 
-func polygonAndCircleManifold(manifold *Manifold, shapeA *shape, xfA Transform, shapeB *shape, xfB Transform, _ *SimplexCache) {
-	*manifold = CollidePolygonAndCircle(shapeA.polygon(), xfA, shapeB.circle(), xfB)
+func polygonAndCircleManifold(shapeA *shape, shapeB *shape, xf Transform, _ *SimplexCache) (manifold LocalManifold) {
+	return CollidePolygonAndCircle(shapeA.polygon(), shapeB.circle(), xf)
 }
 
-func polygonAndCapsuleManifold(manifold *Manifold, shapeA *shape, xfA Transform, shapeB *shape, xfB Transform, _ *SimplexCache) {
+func polygonAndCapsuleManifold(shapeA *shape, shapeB *shape, xf Transform, _ *SimplexCache) (manifold LocalManifold) {
 	polyB := makeCapsule(shapeB.capsule().Center1, shapeB.capsule().Center2, shapeB.capsule().Radius)
-	collidePolygonsInto(manifold, shapeA.polygon(), xfA, &polyB, xfB)
+	collidePolygonsInto(&manifold, shapeA.polygon(), &polyB, xf)
+	return manifold
 }
 
-func polygonManifold(manifold *Manifold, shapeA *shape, xfA Transform, shapeB *shape, xfB Transform, _ *SimplexCache) {
-	collidePolygonsInto(manifold, shapeA.polygon(), xfA, shapeB.polygon(), xfB)
+func polygonManifold(shapeA *shape, shapeB *shape, xf Transform, _ *SimplexCache) (manifold LocalManifold) {
+	collidePolygonsInto(&manifold, shapeA.polygon(), shapeB.polygon(), xf)
+	return manifold
 }
 
-func segmentAndCircleManifold(manifold *Manifold, shapeA *shape, xfA Transform, shapeB *shape, xfB Transform, _ *SimplexCache) {
-	*manifold = CollideSegmentAndCircle(shapeA.segment(), xfA, shapeB.circle(), xfB)
+func segmentAndCircleManifold(shapeA *shape, shapeB *shape, xf Transform, _ *SimplexCache) (manifold LocalManifold) {
+	return CollideSegmentAndCircle(shapeA.segment(), shapeB.circle(), xf)
 }
 
-func segmentAndCapsuleManifold(manifold *Manifold, shapeA *shape, xfA Transform, shapeB *shape, xfB Transform, _ *SimplexCache) {
-	*manifold = CollideSegmentAndCapsule(shapeA.segment(), xfA, shapeB.capsule(), xfB)
+func segmentAndCapsuleManifold(shapeA *shape, shapeB *shape, xf Transform, _ *SimplexCache) (manifold LocalManifold) {
+	return CollideSegmentAndCapsule(shapeA.segment(), shapeB.capsule(), xf)
 }
 
-func segmentAndPolygonManifold(manifold *Manifold, shapeA *shape, xfA Transform, shapeB *shape, xfB Transform, _ *SimplexCache) {
+func segmentAndPolygonManifold(shapeA *shape, shapeB *shape, xf Transform, _ *SimplexCache) (manifold LocalManifold) {
 	polygonA := makeCapsule(shapeA.segment().Point1, shapeA.segment().Point2, QZero())
-	collidePolygonsInto(manifold, &polygonA, xfA, shapeB.polygon(), xfB)
+	collidePolygonsInto(&manifold, &polygonA, shapeB.polygon(), xf)
+	return manifold
 }
 
-func chainSegmentAndCircleManifold(manifold *Manifold, shapeA *shape, xfA Transform, shapeB *shape, xfB Transform, _ *SimplexCache) {
-	*manifold = CollideChainSegmentAndCircle(shapeA.chainSegment(), xfA, shapeB.circle(), xfB)
+func chainSegmentAndCircleManifold(shapeA *shape, shapeB *shape, xf Transform, _ *SimplexCache) (manifold LocalManifold) {
+	return CollideChainSegmentAndCircle(shapeA.chainSegment(), shapeB.circle(), xf)
 }
 
-func chainSegmentAndCapsuleManifold(manifold *Manifold, shapeA *shape, xfA Transform, shapeB *shape, xfB Transform, cache *SimplexCache) {
-	*manifold = CollideChainSegmentAndCapsule(shapeA.chainSegment(), xfA, shapeB.capsule(), xfB, cache)
+func chainSegmentAndCapsuleManifold(shapeA *shape, shapeB *shape, xf Transform, cache *SimplexCache) (manifold LocalManifold) {
+	return CollideChainSegmentAndCapsule(shapeA.chainSegment(), shapeB.capsule(), xf, cache)
 }
 
-func chainSegmentAndPolygonManifold(manifold *Manifold, shapeA *shape, xfA Transform, shapeB *shape, xfB Transform, cache *SimplexCache) {
-	*manifold = CollideChainSegmentAndPolygon(shapeA.chainSegment(), xfA, shapeB.polygon(), xfB, cache)
+func chainSegmentAndPolygonManifold(shapeA *shape, shapeB *shape, xf Transform, cache *SimplexCache) (manifold LocalManifold) {
+	return CollideChainSegmentAndPolygon(shapeA.chainSegment(), shapeB.polygon(), xf, cache)
 }
 
 // addType registers a collide function for a type pair, in both orders.
@@ -249,16 +332,20 @@ func createContact(w *world, shapeA, shapeB *shape) {
 
 	c := &w.contacts[contactId]
 	c.contactId = contactId
+	c.generation++
 	c.setIndex = setIndex
 	c.colorIndex = nullIndex
 	c.localIndex = len(set.contactSims)
 	c.islandId = nullIndex
-	c.islandPrev = nullIndex
-	c.islandNext = nullIndex
+	c.islandIndex = nullIndex
 	c.shapeIdA = shapeIdA
 	c.shapeIdB = shapeIdB
-	c.isMarked = false
 	c.flags = 0
+
+	// Both bodies must enable recycling
+	if bodyA.flags&bodyEnableContactRecycling != 0 && bodyB.flags&bodyEnableContactRecycling != 0 {
+		c.flags |= contactRecycleFlag
+	}
 
 	if shapeA.sensorIndex != nullIndex || shapeB.sensorIndex != nullIndex {
 		panic("dbox2d: a sensor shape cannot receive a contact")
@@ -318,6 +405,9 @@ func createContact(w *world, shapeA, shapeB *shape) {
 	cs.friction = w.frictionCallback(shapeA.friction, shapeA.userMaterialId, shapeB.friction, shapeB.userMaterialId)
 	cs.restitution = w.restitutionCallback(shapeA.restitution, shapeA.userMaterialId, shapeB.restitution, shapeB.userMaterialId)
 
+	// The sim inherits the contact flags, the recycle flag among them.
+	cs.simFlags = c.flags
+
 	if shapeA.enablePreSolveEvents || shapeB.enablePreSolveEvents {
 		cs.simFlags |= simEnablePreSolveEvents
 	}
@@ -344,7 +434,7 @@ func destroyContact(w *world, c *contact, wakeBodies bool) {
 	if touching && flags&contactEnableContactEvents != 0 {
 		shapeA := &w.shapes[c.shapeIdA]
 		shapeB := &w.shapes[c.shapeIdB]
-		event := ContactEndTouchEvent{ShapeIdA: shapeIdOf(w, shapeA), ShapeIdB: shapeIdOf(w, shapeB)}
+		event := ContactEndTouchEvent{ShapeIdA: shapeIdOf(w, shapeA), ShapeIdB: shapeIdOf(w, shapeB), ContactId: contactIdOf(w, c)}
 		w.contactEndEvents[w.endEventArrayIndex] = append(w.contactEndEvents[w.endEventArrayIndex], event)
 	}
 
@@ -439,15 +529,31 @@ func getContactSim(w *world, c *contact) *contactSim {
 // matches the point ids of the old manifold to carry the stored impulses
 // into the warm start. The AABBs of the shapes may not overlap. It
 // corresponds to b2UpdateContact in src/contact.c.
-func updateContact(w *world, cs *contactSim, shapeA *shape, transformA Transform, centerOffsetA Vec2,
-	shapeB *shape, transformB Transform, centerOffsetB Vec2) bool {
+func updateContact(w *world, cs *contactSim, shapeA *shape, transformA WorldTransform, centerOffsetA Vec2,
+	shapeB *shape, transformB WorldTransform, centerOffsetB Vec2) bool {
 	// Save the old manifold.
 	oldManifold := cs.manifold
 
-	// Compute the new manifold.
+	// Compute the manifold in frame A, then convert it to world anchors
+	// relative to each shape origin. The relative transform subtracts the
+	// two world positions before the narrow phase, so precision holds far
+	// from the origin. anchorB = rot(qA, localPoint) + pA - pB.
+	relativeTransform := InvMulWorldTransforms(transformA, transformB)
 	fcn := contactRegisters[shapeA.shapeType][shapeB.shapeType].fcn
+	local := fcn(shapeA, shapeB, relativeTransform, &cs.cache)
+
 	cs.manifold = Manifold{}
-	fcn(&cs.manifold, shapeA, transformA, shapeB, transformB, &cs.cache)
+	cs.manifold.Normal = RotateVector(transformA.Q, local.Normal)
+	cs.manifold.PointCount = local.PointCount
+
+	originDelta := SubPos(transformA.P, transformB.P)
+	for i := range local.PointCount {
+		mp := &cs.manifold.Points[i]
+		mp.AnchorA = RotateVector(transformA.Q, local.Points[i].Point)
+		mp.AnchorB = mp.AnchorA.Add(originDelta)
+		mp.Separation = local.Points[i].Separation
+		mp.Id = local.Points[i].Id
+	}
 
 	// Keep these updated in case the shape values changed.
 	cs.friction = w.frictionCallback(shapeA.friction, shapeA.userMaterialId, shapeB.friction, shapeB.userMaterialId)
@@ -473,24 +579,16 @@ func updateContact(w *world, cs *contactSim, shapeA *shape, transformA Transform
 		idB := ShapeId{index1: int32(shapeB.id) + 1, world0: w.worldId, generation: shapeB.generation}
 
 		// This call assumes thread safety.
-		touching = w.preSolveFcn(idA, idB, &cs.manifold)
-		if !touching {
-			pointCount = 0
-			cs.manifold.PointCount = 0
-		}
-	}
+		w.preSolveFcn(idA, idB, &cs.manifold)
 
-	// This flag exists for testing. The reference tests point zero in both
-	// branches, so only the first branch can fire; the port keeps the
-	// behaviour without the dead branch.
-	if !w.enableSpeculative && pointCount == 2 {
-		slop := LinearSlop()
-		if slop.Add(slop.Div(QFromInt(2))).Less(cs.manifold.Points[0].Separation) {
-			cs.manifold.Points[0] = cs.manifold.Points[1]
-			cs.manifold.PointCount = 1
-		}
-
+		// Keep these current.
 		pointCount = cs.manifold.PointCount
+		touching = pointCount > 0
+
+		// Mark recycling dirty.
+		if !touching {
+			cs.simFlags &^= simRelativeTransformValid
+		}
 	}
 
 	if touching && (shapeA.enableHitEvents || shapeB.enableHitEvents) {
@@ -525,10 +623,6 @@ func updateContact(w *world, cs *contactSim, shapeA *shape, transformA Transform
 				mp2.NormalImpulse = mp1.NormalImpulse
 				mp2.TangentImpulse = mp1.TangentImpulse
 				mp2.Persisted = true
-
-				// Clear the old impulse, so a duplicate id cannot reuse it.
-				mp1.NormalImpulse = zero
-				mp1.TangentImpulse = zero
 				break
 			}
 		}
@@ -549,7 +643,18 @@ func updateContact(w *world, cs *contactSim, shapeA *shape, transformA Transform
 func computeManifold(shapeA *shape, transformA Transform, shapeB *shape, transformB Transform) Manifold {
 	fcn := contactRegisters[shapeA.shapeType][shapeB.shapeType].fcn
 	cache := SimplexCache{}
+	local := fcn(shapeA, shapeB, InvMulTransforms(transformA, transformB), &cache)
+
 	var manifold Manifold
-	fcn(&manifold, shapeA, transformA, shapeB, transformB, &cache)
+	manifold.Normal = RotateVector(transformA.Q, local.Normal)
+	manifold.PointCount = local.PointCount
+	originDelta := transformA.P.Sub(transformB.P)
+	for i := range local.PointCount {
+		mp := &manifold.Points[i]
+		mp.AnchorA = RotateVector(transformA.Q, local.Points[i].Point)
+		mp.AnchorB = mp.AnchorA.Add(originDelta)
+		mp.Separation = local.Points[i].Separation
+		mp.Id = local.Points[i].Id
+	}
 	return manifold
 }

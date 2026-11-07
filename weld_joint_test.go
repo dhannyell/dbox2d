@@ -18,15 +18,15 @@ func weldedBox(t *testing.T, worldId WorldId, position Vec2, def *WeldJointDef) 
 
 	boxDef := DefaultBodyDef()
 	boxDef.Type = DynamicBody
-	boxDef.Position = position
+	boxDef.Position = ToPos(position)
 	boxId := CreateBody(worldId, &boxDef)
 	shapeDef := DefaultShapeDef()
 	unit := MakeBox(QHalf(), QHalf())
 	CreatePolygonShape(boxId, &shapeDef, &unit)
 
-	def.BodyIdA = groundId
-	def.BodyIdB = boxId
-	def.LocalAnchorB = Vec2{X: position.X.Neg(), Y: position.Y.Neg()}
+	def.Base.BodyIdA = groundId
+	def.Base.BodyIdB = boxId
+	def.Base.LocalFrameB.P = Vec2{X: position.X.Neg(), Y: position.Y.Neg()}
 	jointId := CreateWeldJoint(worldId, def)
 	return getBodyFullId(w, boxId), getJointFullId(w, jointId)
 }
@@ -96,7 +96,7 @@ func TestWeldHoldsTheAnchor(t *testing.T) {
 
 	context := jointContext(w)
 	prepareJointsTask(0, len(context.joints), context)
-	solveJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex, false)
+	solveJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex, false, 0)
 
 	tolerance := qUlps(1 << 12)
 	js := getJointSim(w, j)
@@ -129,7 +129,7 @@ func TestWeldStopsTheSpin(t *testing.T) {
 
 	context := jointContext(w)
 	prepareJointsTask(0, len(context.joints), context)
-	solveJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex, false)
+	solveJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex, false, 0)
 
 	tolerance := qUlps(1 << 12)
 	js := getJointSim(w, j)
@@ -161,8 +161,9 @@ type f64WeldJoint struct {
 	linearSoftness, angularSoftness f64Softness
 	linearImpulse                   f64Vec
 	angularImpulse                  float64
-	anchorA, anchorB, deltaCenter   f64Vec
-	deltaAngle, axialMass           float64
+	frameA, frameB                  f64Frame
+	deltaCenter                     f64Vec
+	axialMass                       float64
 }
 
 func f64SolveWeldJoint(joint *f64WeldJoint, stateA, stateB *f64State, useBias bool) {
@@ -174,7 +175,7 @@ func f64SolveWeldJoint(joint *f64WeldJoint, stateA, stateB *f64State, useBias bo
 	{
 		bias, massScale, impulseScale := 0.0, 1.0, 0.0
 		if useBias || joint.angularHertz > 0 {
-			C := f64RelativeAngle(stateB.dqc, stateB.dqs, stateA.dqc, stateA.dqs) + joint.deltaAngle
+			C := f64FrameAngle(stateA, stateB, joint.frameA, joint.frameB)
 			bias = joint.angularSoftness.biasRate * C
 			massScale = joint.angularSoftness.massScale
 			impulseScale = joint.angularSoftness.impulseScale
@@ -189,8 +190,8 @@ func f64SolveWeldJoint(joint *f64WeldJoint, stateA, stateB *f64State, useBias bo
 	}
 
 	{
-		rA := f64Rotate(stateA.dqc, stateA.dqs, joint.anchorA)
-		rB := f64Rotate(stateB.dqc, stateB.dqs, joint.anchorB)
+		rA := f64Rotate(stateA.dqc, stateA.dqs, joint.frameA.p)
+		rB := f64Rotate(stateB.dqc, stateB.dqs, joint.frameB.p)
 
 		bias := f64Vec{}
 		massScale, impulseScale := 1.0, 0.0
@@ -236,10 +237,11 @@ func TestSolveWeldJointTracksTheFloat64Mirror(t *testing.T) {
 	idA, idB := mirrorBodies(t, worldId)
 
 	def := DefaultWeldJointDef()
-	def.BodyIdA, def.BodyIdB = idA, idB
-	def.LocalAnchorA = qv("0.5", "0.25")
-	def.LocalAnchorB = qv("-1", "0.25")
-	def.ReferenceAngle = QMustParse("0.02")
+	def.Base.BodyIdA, def.Base.BodyIdB = idA, idB
+	def.Base.LocalFrameA.P = qv("0.5", "0.25")
+	def.Base.LocalFrameB.P = qv("-1", "0.25")
+	// A reference angle of 0.02 turn, as frame B.
+	def.Base.LocalFrameB.Q = MakeRot(QMustParse("-0.02"))
 	def.LinearHertz = QFromInt(2)
 	def.LinearDampingRatio = QHalf()
 	def.AngularHertz = QFromInt(3)
@@ -258,10 +260,9 @@ func TestSolveWeldJointTracksTheFloat64Mirror(t *testing.T) {
 		mA: qToF64(js.invMassA), mB: qToF64(js.invMassB), iA: qToF64(js.invIA), iB: qToF64(js.invIB),
 		linearHertz:  qToF64(wj.linearHertz),
 		angularHertz: qToF64(wj.angularHertz),
-		anchorA:      vecToF64(wj.anchorA),
-		anchorB:      vecToF64(wj.anchorB),
+		frameA:       frameToF64(wj.frameA),
+		frameB:       frameToF64(wj.frameB),
 		deltaCenter:  vecToF64(wj.deltaCenter),
-		deltaAngle:   radiansF64(wj.deltaAngle),
 	}
 	mirror.axialMass = 1 / (mirror.iA + mirror.iB)
 	mirror.linearSoftness = makeSoftF64(mirror.linearHertz, qToF64(wj.linearDampingRatio), h)

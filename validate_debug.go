@@ -10,6 +10,5 @@ func validateSolverSetsDebug(w *world) { validateSolverSets(w) }
 // validateTreeDebug runs the tree validation behind DynamicTree.Validate.
 func validateTreeDebug(tree *dynamicTree) { tree.validate() }
 
-// validateTreeNoEnlargedDebug runs the check behind
-// DynamicTree.ValidateNoEnlarged.
-func validateTreeNoEnlargedDebug(tree *dynamicTree) { tree.validateNoEnlarged() }
+// validateTreeNoMovedDebug runs the check after a tree rebuild.
+func validateTreeNoMovedDebug(tree *dynamicTree) { tree.validateNoMoved() }

@@ -1,6 +1,6 @@
 # samples
 
-The `dbox2d` sample gallery: the Box2D v3.1.1 scenes running in a native
+The `dbox2d` sample gallery: the Box2D v3.2.0 scenes running in a native
 window or in the browser through WebGPU.
 
 [![Open the live demo](web/tumbler.png)](https://dhannyell.github.io/dbox2d/)
@@ -152,6 +152,12 @@ turn, not a radian: `π/2` is `1/4`; a motor speed in rad/s goes through
 ## Scenes
 
 Every scene of the reference is ported, under the same category and name.
+Determinism / Rollback snapshots the world every 20 steps and compares a
+rolled back run with the reference run. Replay / Viewer plays a recording
+file: start the native host with `-replay <file>`; the browser host has no
+file system, so the viewer shows a hint there. Play, step (`.`), step back
+(`,`, five frames with Shift), restart, speed, loop, a frame slider and the
+divergence frame are in the panel.
 Barrel adds a Gopher shape that is not in the reference; it is the default
 shape, and Barrel is the scene the app opens on.
 

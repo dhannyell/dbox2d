@@ -32,30 +32,30 @@ type joint struct {
 
 	edges [2]jointEdge
 
-	jointId    int
-	islandId   int
-	islandPrev int
-	islandNext int
+	jointId     int
+	islandId    int
+	islandIndex int
 
 	jointType JointType
-	drawSize  Q
+	drawScale Q
 
 	generation uint16
 
-	isMarked         bool
 	collideConnected bool
 }
 
 // distanceJoint is the sim data of a distance joint. It corresponds to
 // b2DistanceJoint in src/joint.h.
 type distanceJoint struct {
-	length        Q
-	hertz         Q
-	dampingRatio  Q
-	minLength     Q
-	maxLength     Q
-	maxMotorForce Q
-	motorSpeed    Q
+	length           Q
+	hertz            Q
+	dampingRatio     Q
+	lowerSpringForce Q
+	upperSpringForce Q
+	minLength        Q
+	maxLength        Q
+	maxMotorForce    Q
+	motorSpeed       Q
 
 	impulse      Q
 	lowerImpulse Q
@@ -76,49 +76,74 @@ type distanceJoint struct {
 }
 
 // motorJoint is the sim data of a motor joint. It corresponds to
-// b2MotorJoint in src/joint.h.
+// b2MotorJoint in src/joint.h. The angular velocity is in the angle unit of
+// the mode (D-004).
 type motorJoint struct {
-	linearOffset     Vec2
-	angularOffset    Q
-	linearImpulse    Vec2
-	angularImpulse   Q
-	maxForce         Q
-	maxTorque        Q
-	correctionFactor Q
+	linearVelocity      Vec2
+	maxVelocityForce    Q
+	angularVelocity     Q
+	maxVelocityTorque   Q
+	linearHertz         Q
+	linearDampingRatio  Q
+	maxSpringForce      Q
+	angularHertz        Q
+	angularDampingRatio Q
+	maxSpringTorque     Q
+
+	linearVelocityImpulse  Vec2
+	angularVelocityImpulse Q
+	linearSpringImpulse    Vec2
+	angularSpringImpulse   Q
+
+	linearSpring  softness
+	angularSpring softness
 
 	indexA      int
 	indexB      int
-	anchorA     Vec2
-	anchorB     Vec2
+	frameA      Transform
+	frameB      Transform
 	deltaCenter Vec2
-	deltaAngle  Q
 	linearMass  Mat22
 	angularMass Q
 }
 
-// mouseJoint is the sim data of a mouse joint. It corresponds to
-// b2MouseJoint in src/joint.h.
-type mouseJoint struct {
-	targetA      Vec2
-	hertz        Q
-	dampingRatio Q
-	maxForce     Q
+// moverJoint is the sim data of a mover joint. It corresponds to
+// b2MoverJoint in src/joint.h.
+type moverJoint struct {
+	linearVelocity        Vec2
+	maxVelocityForce      Vec2
+	linearVelocityImpulse Vec2
 
-	linearImpulse   Vec2
-	angularImpulse  Q
-	linearSoftness  softness
-	angularSoftness softness
+	indexA     int
+	indexB     int
+	frameA     Transform
+	frameB     Transform
+	linearMass Q
+}
 
+// pogoJoint is the sim data of a pogo joint, a hybrid between a contact
+// and a joint. It corresponds to b2PogoJoint in src/joint.h.
+type pogoJoint struct {
+	normal              Vec2
+	restLength          Q
+	hertz               Q
+	dampingRatio        Q
+	maxTensionForce     Q
+	maxCompressionForce Q
+
+	impulse     Q
+	indexA      int
 	indexB      int
-	anchorB     Vec2
+	frameA      Transform
+	frameB      Transform
 	deltaCenter Vec2
-	linearMass  Mat22
+	linearMass  Q
+	velocity    Q
 }
 
 // prismaticJoint is the sim data of a prismatic joint. It corresponds to
 // b2PrismaticJoint in src/joint.h.
 type prismaticJoint struct {
-	localAxisA        Vec2
 	impulse           Vec2
 	springImpulse     Q
 	motorImpulse      Q
@@ -129,18 +154,14 @@ type prismaticJoint struct {
 	targetTranslation Q
 	maxMotorForce     Q
 	motorSpeed        Q
-	referenceAngle    Q
 	lowerTranslation  Q
 	upperTranslation  Q
 
 	indexA         int
 	indexB         int
-	anchorA        Vec2
-	anchorB        Vec2
-	axisA          Vec2
+	frameA         Transform
+	frameB         Transform
 	deltaCenter    Vec2
-	deltaAngle     Q
-	axialMass      Q
 	springSoftness softness
 
 	enableSpring bool
@@ -149,7 +170,8 @@ type prismaticJoint struct {
 }
 
 // revoluteJoint is the sim data of a revolute joint. It corresponds to
-// b2RevoluteJoint in src/joint.h.
+// b2RevoluteJoint in src/joint.h. The angles are in the angle unit of the
+// mode (D-004).
 type revoluteJoint struct {
 	linearImpulse  Vec2
 	springImpulse  Q
@@ -161,16 +183,14 @@ type revoluteJoint struct {
 	targetAngle    Q
 	maxMotorTorque Q
 	motorSpeed     Q
-	referenceAngle Q
 	lowerAngle     Q
 	upperAngle     Q
 
 	indexA         int
 	indexB         int
-	anchorA        Vec2
-	anchorB        Vec2
+	frameA         Transform
+	frameB         Transform
 	deltaCenter    Vec2
-	deltaAngle     Q
 	axialMass      Q
 	springSoftness softness
 
@@ -182,29 +202,26 @@ type revoluteJoint struct {
 // weldJoint is the sim data of a weld joint. It corresponds to
 // b2WeldJoint in src/joint.h.
 type weldJoint struct {
-	referenceAngle      Q
 	linearHertz         Q
 	linearDampingRatio  Q
 	angularHertz        Q
 	angularDampingRatio Q
-	linearSoftness      softness
-	angularSoftness     softness
+	linearSpring        softness
+	angularSpring       softness
 	linearImpulse       Vec2
 	angularImpulse      Q
 
 	indexA      int
 	indexB      int
-	anchorA     Vec2
-	anchorB     Vec2
+	frameA      Transform
+	frameB      Transform
 	deltaCenter Vec2
-	deltaAngle  Q
 	axialMass   Q
 }
 
 // wheelJoint is the sim data of a wheel joint. It corresponds to
 // b2WheelJoint in src/joint.h.
 type wheelJoint struct {
-	localAxisA       Vec2
 	perpImpulse      Q
 	motorImpulse     Q
 	springImpulse    Q
@@ -219,9 +236,8 @@ type wheelJoint struct {
 
 	indexA         int
 	indexB         int
-	anchorA        Vec2
-	anchorB        Vec2
-	axisA          Vec2
+	frameA         Transform
+	frameB         Transform
 	deltaCenter    Vec2
 	perpMass       Q
 	motorMass      Q
@@ -244,9 +260,9 @@ type jointSim struct {
 
 	jointType JointType
 
-	// Anchors relative to body origin
-	localOriginAnchorA Vec2
-	localOriginAnchorB Vec2
+	// Joint frames relative to the body origins
+	localFrameA Transform
+	localFrameB Transform
 
 	invMassA, invMassB Q
 	invIA, invIB       Q
@@ -256,21 +272,25 @@ type jointSim struct {
 
 	constraintSoftness softness
 
+	forceThreshold  Q
+	torqueThreshold Q
+
 	// The reference stores the joint data in a union; jointType selects
-	// the live one. The seven payloads share this storage through the
-	// typed accessors below, so a sim is a quarter of the size it would be
-	// with all seven inline, which is what the solver and the set moves pay.
+	// the live one. The eight payloads share this storage through the
+	// typed accessors below, so a sim is a fraction of the size it would be
+	// with all eight inline, which is what the solver and the set moves pay.
 	payload jointPayload
 }
 
-// jointPayload is the storage of the joint union: the largest of the seven
+// jointPayload is the storage of the joint union: the largest of the eight
 // payloads, in 8-byte words so every field of every payload is aligned.
 // None of the payloads holds a pointer, so the garbage collector never
 // looks inside.
 type jointPayload [(max(
 	unsafe.Sizeof(distanceJoint{}),
 	unsafe.Sizeof(motorJoint{}),
-	unsafe.Sizeof(mouseJoint{}),
+	unsafe.Sizeof(moverJoint{}),
+	unsafe.Sizeof(pogoJoint{}),
 	unsafe.Sizeof(revoluteJoint{}),
 	unsafe.Sizeof(prismaticJoint{}),
 	unsafe.Sizeof(weldJoint{}),
@@ -279,7 +299,8 @@ type jointPayload [(max(
 
 func (js *jointSim) distance() *distanceJoint { return (*distanceJoint)(unsafe.Pointer(&js.payload)) }
 func (js *jointSim) motor() *motorJoint       { return (*motorJoint)(unsafe.Pointer(&js.payload)) }
-func (js *jointSim) mouse() *mouseJoint       { return (*mouseJoint)(unsafe.Pointer(&js.payload)) }
+func (js *jointSim) mover() *moverJoint       { return (*moverJoint)(unsafe.Pointer(&js.payload)) }
+func (js *jointSim) pogo() *pogoJoint         { return (*pogoJoint)(unsafe.Pointer(&js.payload)) }
 func (js *jointSim) revolute() *revoluteJoint { return (*revoluteJoint)(unsafe.Pointer(&js.payload)) }
 func (js *jointSim) prismatic() *prismaticJoint {
 	return (*prismaticJoint)(unsafe.Pointer(&js.payload))
@@ -294,6 +315,10 @@ type jointPair struct {
 	jointSim *jointSim
 }
 
+// minJointDrawScale keeps the joint drawing visible. It corresponds to the
+// 0.0001 floor in b2DrawJoint.
+var minJointDrawScale = QMustParse("0.0001")
+
 func drawJoint(draw *DebugDraw, w *world, joint *joint) {
 	bodyA := &w.bodies[joint.edges[0].bodyId]
 	bodyB := &w.bodies[joint.edges[1].bodyId]
@@ -303,30 +328,50 @@ func drawJoint(draw *DebugDraw, w *world, joint *joint) {
 	base := getJointSim(w, joint)
 	transformA := getBodyTransformQuick(w, bodyA)
 	transformB := getBodyTransformQuick(w, bodyB)
-	pA := TransformPoint(transformA, base.localOriginAnchorA)
-	pB := TransformPoint(transformB, base.localOriginAnchorB)
+	pA := TransformWorldPoint(transformA, base.localFrameA.P)
+	pB := TransformWorldPoint(transformB, base.localFrameB.P)
+
+	scale := minJointDrawScale.Max(draw.JointScale.Mul(joint.drawScale))
+	pointSize := QFromInt(8)
+
 	switch joint.jointType {
 	case DistanceJoint:
 		drawDistanceJoint(draw, base, transformA, transformB)
-	case MouseJoint:
-		draw.DrawPoint(base.mouse().targetA, QFromInt(4), ColorGreen)
-		draw.DrawPoint(pB, QFromInt(4), ColorGreen)
-		draw.DrawSegment(base.mouse().targetA, pB, ColorLightGray)
 	case FilterJoint:
-		draw.DrawSegment(pA, pB, ColorGold)
+		draw.DrawPointFcn(pA, pointSize, ColorLightSkyBlue)
+		draw.DrawPointFcn(pB, pointSize, ColorLightSkyBlue)
+		if draw.DrawJointExtras {
+			draw.DrawLineFcn(pA, pB, ColorGold)
+		}
+	case MotorJoint:
+		draw.DrawPointFcn(pA, pointSize, ColorYellowGreen)
+		draw.DrawPointFcn(pB, pointSize, ColorPlum)
+		if draw.DrawJointExtras {
+			draw.DrawLineFcn(pA, pB, ColorLightGray)
+		}
+	case MoverJoint:
+		draw.DrawPointFcn(pB, pointSize, ColorPlum)
+	case PogoJoint:
+		draw.DrawLineFcn(pA, pB, ColorLightGray)
 	case PrismaticJoint:
-		drawPrismaticJoint(draw, base, transformA, transformB)
+		drawPrismaticJoint(draw, base, transformA, transformB, scale)
 	case RevoluteJoint:
-		drawRevoluteJoint(draw, base, transformA, transformB, joint.drawSize)
+		drawRevoluteJoint(draw, base, transformA, transformB, scale)
+	case WeldJoint:
+		drawWeldJoint(draw, base, transformA, transformB, scale)
 	case WheelJoint:
-		drawWheelJoint(draw, base, transformA, transformB)
-	default:
-		draw.DrawSegment(transformA.P, pA, ColorDarkSeaGreen)
-		draw.DrawSegment(pA, pB, ColorDarkSeaGreen)
-		draw.DrawSegment(transformB.P, pB, ColorDarkSeaGreen)
+		drawWheelJoint(draw, base, transformA, transformB, scale)
 	}
 	if draw.DrawGraphColors && joint.colorIndex != nullIndex {
-		draw.DrawPoint(Lerp(pA, pB, QHalf()), QFromInt(5), graphColors[joint.colorIndex])
+		draw.DrawPointFcn(LerpPos(pA, pB, QHalf()), QFromInt(5), graphColors[joint.colorIndex])
+	}
+	if draw.DrawJointExtras {
+		force := getJointConstraintForce(w, joint)
+		torque := getJointConstraintTorque(w, joint)
+		p := LerpPos(pA, pB, QHalf())
+		draw.DrawLineFcn(p, OffsetPos(p, force.Mul(QMustParse("0.001"))), ColorAzure)
+		text := "f = [" + drawGeneral(force.X) + ", " + drawGeneral(force.Y) + "], t = " + drawGeneral(torque)
+		draw.DrawStringFcn(p, text, ColorAzure)
 	}
 }
 
@@ -435,118 +480,52 @@ func (jointId JointId) GetWorld() WorldId {
 	return WorldId{index1: jointId.world0 + 1, generation: w.generation}
 }
 
-// SetLocalAnchorA changes the local anchor on body A (b2Joint_SetLocalAnchorA).
-func (jointId JointId) SetLocalAnchorA(localAnchor Vec2) {
-	if !IsValidVec2(localAnchor) {
-		panic("dbox2d: SetLocalAnchorA needs a valid vector")
+// SetLocalFrameA changes the joint frame on body A (b2Joint_SetLocalFrameA).
+func (jointId JointId) SetLocalFrameA(localFrame Transform) {
+	if !IsValidTransform(localFrame) {
+		panic("dbox2d: SetLocalFrameA needs a valid transform")
 	}
 	w := getWorld(jointId.world0)
+	if w.recording != nil {
+		w.recording.rec(opJointSetLocalFrameA, jointId, localFrame)
+	}
 	j := getJointFullId(w, jointId)
-	getJointSim(w, j).localOriginAnchorA = localAnchor
+	getJointSim(w, j).localFrameA = localFrame
 }
 
-// GetLocalAnchorA reports the local anchor on body A (b2Joint_GetLocalAnchorA).
-func (jointId JointId) GetLocalAnchorA() Vec2 {
+// GetLocalFrameA reports the joint frame on body A (b2Joint_GetLocalFrameA).
+func (jointId JointId) GetLocalFrameA() Transform {
 	w := getWorld(jointId.world0)
 	j := getJointFullId(w, jointId)
-	return getJointSim(w, j).localOriginAnchorA
+	return getJointSim(w, j).localFrameA
 }
 
-// SetLocalAnchorB changes the local anchor on body B (b2Joint_SetLocalAnchorB).
-func (jointId JointId) SetLocalAnchorB(localAnchor Vec2) {
-	if !IsValidVec2(localAnchor) {
-		panic("dbox2d: SetLocalAnchorB needs a valid vector")
+// SetLocalFrameB changes the joint frame on body B (b2Joint_SetLocalFrameB).
+func (jointId JointId) SetLocalFrameB(localFrame Transform) {
+	if !IsValidTransform(localFrame) {
+		panic("dbox2d: SetLocalFrameB needs a valid transform")
 	}
 	w := getWorld(jointId.world0)
+	if w.recording != nil {
+		w.recording.rec(opJointSetLocalFrameB, jointId, localFrame)
+	}
 	j := getJointFullId(w, jointId)
-	getJointSim(w, j).localOriginAnchorB = localAnchor
+	getJointSim(w, j).localFrameB = localFrame
 }
 
-// GetLocalAnchorB reports the local anchor on body B (b2Joint_GetLocalAnchorB).
-func (jointId JointId) GetLocalAnchorB() Vec2 {
+// GetLocalFrameB reports the joint frame on body B (b2Joint_GetLocalFrameB).
+func (jointId JointId) GetLocalFrameB() Transform {
 	w := getWorld(jointId.world0)
 	j := getJointFullId(w, jointId)
-	return getJointSim(w, j).localOriginAnchorB
-}
-
-// SetReferenceAngle changes the reference angle in turns (b2Joint_SetReferenceAngle).
-func (jointId JointId) SetReferenceAngle(angle Q) {
-	if !IsValidQ(angle) {
-		panic("dbox2d: SetReferenceAngle needs a valid angle")
-	}
-	w := getWorld(jointId.world0)
-	j := getJointFullId(w, jointId)
-	js := getJointSim(w, j)
-	halfTurn := QHalf()
-	angle = angleFromTurns(angle.Clamp(halfTurn.Neg(), halfTurn))
-
-	switch j.jointType {
-	case PrismaticJoint:
-		js.prismatic().referenceAngle = angle
-	case RevoluteJoint:
-		js.revolute().referenceAngle = angle
-	case WeldJoint:
-		js.weld().referenceAngle = angle
-	}
-}
-
-// GetReferenceAngle reports the reference angle in turns (b2Joint_GetReferenceAngle).
-func (jointId JointId) GetReferenceAngle() Q {
-	w := getWorld(jointId.world0)
-	j := getJointFullId(w, jointId)
-	js := getJointSim(w, j)
-
-	switch j.jointType {
-	case PrismaticJoint:
-		return angleToTurns(js.prismatic().referenceAngle)
-	case RevoluteJoint:
-		return angleToTurns(js.revolute().referenceAngle)
-	case WeldJoint:
-		return angleToTurns(js.weld().referenceAngle)
-	default:
-		return QZero()
-	}
-}
-
-// SetLocalAxisA changes the local axis on an applicable joint (b2Joint_SetLocalAxisA).
-func (jointId JointId) SetLocalAxisA(axis Vec2) {
-	if !IsValidVec2(axis) {
-		panic("dbox2d: SetLocalAxisA needs a valid vector")
-	}
-	if !IsNormalized(axis) {
-		panic("dbox2d: SetLocalAxisA needs a normalized vector")
-	}
-	w := getWorld(jointId.world0)
-	j := getJointFullId(w, jointId)
-	js := getJointSim(w, j)
-
-	switch j.jointType {
-	case PrismaticJoint:
-		js.prismatic().localAxisA = axis
-	case WheelJoint:
-		js.wheel().localAxisA = axis
-	}
-}
-
-// GetLocalAxisA reports the local axis on an applicable joint (b2Joint_GetLocalAxisA).
-func (jointId JointId) GetLocalAxisA() Vec2 {
-	w := getWorld(jointId.world0)
-	j := getJointFullId(w, jointId)
-	js := getJointSim(w, j)
-
-	switch j.jointType {
-	case PrismaticJoint:
-		return js.prismatic().localAxisA
-	case WheelJoint:
-		return js.wheel().localAxisA
-	default:
-		return Vec2Zero()
-	}
+	return getJointSim(w, j).localFrameB
 }
 
 // SetCollideConnected changes whether the attached bodies collide (b2Joint_SetCollideConnected).
 func (jointId JointId) SetCollideConnected(shouldCollide bool) {
 	w := getWorldLocked(jointId.world0)
+	if w.recording != nil {
+		w.recording.rec(opJointSetCollideConnected, jointId, shouldCollide)
+	}
 	j := getJointFullId(w, jointId)
 	if j.collideConnected == shouldCollide {
 		return
@@ -557,15 +536,27 @@ func (jointId JointId) SetCollideConnected(shouldCollide bool) {
 	bodyB := &w.bodies[j.edges[1].bodyId]
 
 	if shouldCollide {
-		body := bodyA
-		if bodyA.shapeCount >= bodyB.shapeCount {
-			body = bodyB
+		typeA := bodyA.bodyType
+		typeB := bodyB.bodyType
+
+		shapeId := nullIndex
+		if typeA == DynamicBody && typeB == DynamicBody {
+			shapeId = bodyB.headShapeId
+			if bodyA.shapeCount < bodyB.shapeCount {
+				shapeId = bodyA.headShapeId
+			}
+		} else if typeA == DynamicBody {
+			shapeId = bodyA.headShapeId
+		} else if typeB == DynamicBody {
+			shapeId = bodyB.headShapeId
 		}
-		for shapeId := body.headShapeId; shapeId != nullIndex; shapeId = w.shapes[shapeId].nextShapeId {
+
+		for shapeId != nullIndex {
 			s := &w.shapes[shapeId]
 			if s.proxyKey != nullIndex {
-				w.broadPhase.bufferMove(s.proxyKey)
+				w.broadPhase.markProxyMovedSerial(s.proxyKey)
 			}
+			shapeId = s.nextShapeId
 		}
 		return
 	}
@@ -594,15 +585,61 @@ func (jointId JointId) GetUserData() any {
 // WakeBodies wakes both bodies attached to the joint (b2Joint_WakeBodies).
 func (jointId JointId) WakeBodies() {
 	w := getWorldLocked(jointId.world0)
+	if w.recording != nil {
+		w.recording.rec(opJointWakeBodies, jointId)
+	}
 	j := getJointFullId(w, jointId)
 	wakeBody(w, &w.bodies[j.edges[0].bodyId])
 	wakeBody(w, &w.bodies[j.edges[1].bodyId])
 }
 
-// GetConstraintForce reports the constraint force from the last step (b2Joint_GetConstraintForce).
-func (jointId JointId) GetConstraintForce() Vec2 {
-	w := getWorld(jointId.world0)
-	j := getJointFullId(w, jointId)
+// getJointReaction reports the force and the torque magnitudes of the last
+// step. The joint events compare them with the thresholds. It corresponds
+// to b2GetJointReaction in src/joint.c.
+func getJointReaction(js *jointSim, invTimeStep Q) (force, torque Q) {
+	linearImpulse := QZero()
+	angularImpulse := QZero()
+
+	switch js.jointType {
+	case DistanceJoint:
+		d := js.distance()
+		linearImpulse = d.impulse.Add(d.lowerImpulse).Sub(d.upperImpulse).Add(d.motorImpulse).Abs()
+	case MotorJoint:
+		m := js.motor()
+		linearImpulse = m.linearVelocityImpulse.Add(m.linearSpringImpulse).Len()
+		angularImpulse = m.angularVelocityImpulse.Add(m.angularSpringImpulse).Abs()
+	case MoverJoint:
+		linearImpulse = js.mover().linearVelocityImpulse.Len()
+	case PogoJoint:
+		linearImpulse = js.pogo().impulse.Abs()
+	case PrismaticJoint:
+		p := js.prismatic()
+		perpImpulse := p.impulse.X
+		axialImpulse := p.motorImpulse.Add(p.lowerImpulse).Sub(p.upperImpulse)
+		linearImpulse = perpImpulse.Mul(perpImpulse).Add(axialImpulse.Mul(axialImpulse)).Sqrt()
+		angularImpulse = p.impulse.Y.Abs()
+	case RevoluteJoint:
+		r := js.revolute()
+		linearImpulse = r.linearImpulse.Len()
+		angularImpulse = r.motorImpulse.Add(r.lowerImpulse).Sub(r.upperImpulse).Abs()
+	case WeldJoint:
+		wj := js.weld()
+		linearImpulse = wj.linearImpulse.Len()
+		angularImpulse = wj.angularImpulse.Abs()
+	case WheelJoint:
+		wh := js.wheel()
+		perpImpulse := wh.perpImpulse
+		axialImpulse := wh.springImpulse.Add(wh.lowerImpulse).Sub(wh.upperImpulse)
+		linearImpulse = perpImpulse.Mul(perpImpulse).Add(axialImpulse.Mul(axialImpulse)).Sqrt()
+		angularImpulse = wh.motorImpulse.Abs()
+	}
+
+	return linearImpulse.Mul(invTimeStep), angularImpulse.Mul(invTimeStep)
+}
+
+// getJointConstraintForce corresponds to b2GetJointConstraintForce in
+// src/joint.c.
+func getJointConstraintForce(w *world, j *joint) Vec2 {
 	base := getJointSim(w, j)
 
 	switch j.jointType {
@@ -610,10 +647,12 @@ func (jointId JointId) GetConstraintForce() Vec2 {
 		return getDistanceJointForce(w, base)
 	case MotorJoint:
 		return getMotorJointForce(w, base)
-	case MouseJoint:
-		return getMouseJointForce(w, base)
+	case MoverJoint:
+		return getMoverJointForce(w, base)
 	case FilterJoint:
 		return Vec2Zero()
+	case PogoJoint:
+		return getPogoJointForce(w, base)
 	case PrismaticJoint:
 		return getPrismaticJointForce(w, base)
 	case RevoluteJoint:
@@ -627,19 +666,16 @@ func (jointId JointId) GetConstraintForce() Vec2 {
 	}
 }
 
-// GetConstraintTorque reports the constraint torque from the last step (b2Joint_GetConstraintTorque).
-func (jointId JointId) GetConstraintTorque() Q {
-	w := getWorld(jointId.world0)
-	j := getJointFullId(w, jointId)
+// getJointConstraintTorque corresponds to b2GetJointConstraintTorque in
+// src/joint.c. The mover and the pogo joints apply no torque.
+func getJointConstraintTorque(w *world, j *joint) Q {
 	base := getJointSim(w, j)
 
 	switch j.jointType {
-	case DistanceJoint, FilterJoint:
+	case DistanceJoint, FilterJoint, MoverJoint, PogoJoint:
 		return QZero()
 	case MotorJoint:
 		return getMotorJointTorque(w, base)
-	case MouseJoint:
-		return getMouseJointTorque(w, base)
 	case PrismaticJoint:
 		return getPrismaticJointTorque(w, base)
 	case RevoluteJoint:
@@ -653,16 +689,29 @@ func (jointId JointId) GetConstraintTorque() Q {
 	}
 }
 
+// GetConstraintForce reports the constraint force from the last step (b2Joint_GetConstraintForce).
+func (jointId JointId) GetConstraintForce() Vec2 {
+	w := getWorld(jointId.world0)
+	return getJointConstraintForce(w, getJointFullId(w, jointId))
+}
+
+// GetConstraintTorque reports the constraint torque from the last step (b2Joint_GetConstraintTorque).
+func (jointId JointId) GetConstraintTorque() Q {
+	w := getWorld(jointId.world0)
+	return getJointConstraintTorque(w, getJointFullId(w, jointId))
+}
+
 // GetLinearSeparation reports the joint's linear separation (b2Joint_GetLinearSeparation).
 func (jointId JointId) GetLinearSeparation() Q {
 	w := getWorld(jointId.world0)
 	j := getJointFullId(w, jointId)
 	base := getJointSim(w, j)
 
-	xfA := getBodyTransform(w, j.edges[0].bodyId)
-	xfB := getBodyTransform(w, j.edges[1].bodyId)
-	pA := TransformPoint(xfA, base.localOriginAnchorA)
-	pB := TransformPoint(xfB, base.localOriginAnchorB)
+	wxfA := getBodyTransform(w, j.edges[0].bodyId)
+	wxfB := getBodyTransform(w, j.edges[1].bodyId)
+	xfA, xfB := jointRelativeFrames(wxfA, wxfB)
+	pA := TransformPoint(xfA, base.localFrameA.P)
+	pB := TransformPoint(xfB, base.localFrameB.P)
 	dp := pB.Sub(pA)
 	zero := QZero()
 
@@ -682,11 +731,12 @@ func (jointId JointId) GetLinearSeparation() Q {
 			return zero
 		}
 		return length.Sub(distance.length).Abs()
-	case MotorJoint, MouseJoint, FilterJoint:
+	case MotorJoint, MoverJoint, PogoJoint, FilterJoint:
 		return zero
 	case PrismaticJoint:
 		prismatic := base.prismatic()
-		axisA := RotateVector(xfA.Q, prismatic.localAxisA)
+		// The reference takes the axis from the body rotation, not the frame.
+		axisA := RotateVector(xfA.Q, Vec2{X: QOne(), Y: zero})
 		perpendicularSeparation := LeftPerp(axisA).Dot(dp).Abs()
 		limitSeparation := zero
 		if prismatic.enableLimit {
@@ -698,7 +748,7 @@ func (jointId JointId) GetLinearSeparation() Q {
 				limitSeparation = translation.Sub(prismatic.upperTranslation)
 			}
 		}
-		return Vec2{X: perpendicularSeparation, Y: limitSeparation}.Len()
+		return perpendicularSeparation.Mul(perpendicularSeparation).Add(limitSeparation.Mul(limitSeparation)).Sqrt()
 	case RevoluteJoint:
 		return dp.Len()
 	case WeldJoint:
@@ -708,7 +758,7 @@ func (jointId JointId) GetLinearSeparation() Q {
 		return zero
 	case WheelJoint:
 		wheel := base.wheel()
-		axisA := RotateVector(xfA.Q, wheel.localAxisA)
+		axisA := RotateVector(xfA.Q, Vec2{X: QOne(), Y: zero})
 		perpendicularSeparation := LeftPerp(axisA).Dot(dp).Abs()
 		limitSeparation := zero
 		if wheel.enableLimit {
@@ -720,13 +770,15 @@ func (jointId JointId) GetLinearSeparation() Q {
 				limitSeparation = translation.Sub(wheel.upperTranslation)
 			}
 		}
-		return Vec2{X: perpendicularSeparation, Y: limitSeparation}.Len()
+		return perpendicularSeparation.Mul(perpendicularSeparation).Add(limitSeparation.Mul(limitSeparation)).Sqrt()
 	default:
 		panic("dbox2d: unknown joint type")
 	}
 }
 
 // GetAngularSeparation reports angular separation in turns (b2Joint_GetAngularSeparation).
+// As in the reference, the angle is the relative body rotation; the joint
+// frames do not enter.
 func (jointId JointId) GetAngularSeparation() Q {
 	// D-004: the joint computes in its angle unit and reports turns.
 	w := getWorld(jointId.world0)
@@ -735,18 +787,18 @@ func (jointId JointId) GetAngularSeparation() Q {
 
 	xfA := getBodyTransform(w, j.edges[0].bodyId)
 	xfB := getBodyTransform(w, j.edges[1].bodyId)
-	relative := relativeAngle(xfB.Q, xfA.Q)
+	relative := relativeAngle(xfA.Q, xfB.Q)
 	zero := QZero()
 
 	switch j.jointType {
-	case DistanceJoint, MotorJoint, MouseJoint, FilterJoint, WheelJoint:
+	case DistanceJoint, MotorJoint, MoverJoint, PogoJoint, FilterJoint, WheelJoint:
 		return zero
 	case PrismaticJoint:
-		return angleToTurns(unwindAngle(relative.Sub(base.prismatic().referenceAngle)))
+		return angleToTurns(relative)
 	case RevoluteJoint:
 		revolute := base.revolute()
 		if revolute.enableLimit {
-			angle := unwindAngle(relative.Sub(revolute.referenceAngle))
+			angle := relative
 			if angle.Less(revolute.lowerAngle) {
 				return angleToTurns(revolute.lowerAngle.Sub(angle))
 			}
@@ -756,9 +808,8 @@ func (jointId JointId) GetAngularSeparation() Q {
 		}
 		return zero
 	case WeldJoint:
-		weld := base.weld()
-		if weld.angularHertz.Eq(zero) {
-			return angleToTurns(unwindAngle(relative.Sub(weld.referenceAngle)))
+		if base.weld().angularHertz.Eq(zero) {
+			return angleToTurns(relative)
 		}
 		return zero
 	default:
@@ -776,6 +827,9 @@ func (jointId JointId) SetConstraintTuning(hertz, dampingRatio Q) {
 		panic("dbox2d: SetConstraintTuning damping ratio is invalid")
 	}
 	w := getWorld(jointId.world0)
+	if w.recording != nil {
+		w.recording.rec(opJointSetConstraintTuning, jointId, hertz, dampingRatio)
+	}
 	j := getJointFullId(w, jointId)
 	base := getJointSim(w, j)
 	base.constraintHertz = hertz
@@ -790,10 +844,108 @@ func (jointId JointId) GetConstraintTuning() (hertz, dampingRatio Q) {
 	return base.constraintHertz, base.constraintDampingRatio
 }
 
-// createJoint allocates a joint between two bodies, links it into both
-// body lists and picks its solver set. It corresponds to b2CreateJoint in
-// src/joint.c.
-func createJoint(w *world, bodyA, bodyB *body, userData any, drawSize Q, jointType JointType, collideConnected bool) jointPair {
+// SetForceThreshold changes the force that triggers a joint event (b2Joint_SetForceThreshold).
+func (jointId JointId) SetForceThreshold(threshold Q) {
+	if !isForceBound(threshold) || threshold.Less(QZero()) {
+		panic("dbox2d: SetForceThreshold needs a valid non-negative threshold")
+	}
+	w := getWorld(jointId.world0)
+	if w.recording != nil {
+		w.recording.rec(opJointSetForceThreshold, jointId, threshold)
+	}
+	j := getJointFullId(w, jointId)
+	getJointSim(w, j).forceThreshold = threshold
+}
+
+// GetForceThreshold reports the force that triggers a joint event (b2Joint_GetForceThreshold).
+func (jointId JointId) GetForceThreshold() Q {
+	w := getWorld(jointId.world0)
+	j := getJointFullId(w, jointId)
+	return getJointSim(w, j).forceThreshold
+}
+
+// SetTorqueThreshold changes the torque that triggers a joint event (b2Joint_SetTorqueThreshold).
+func (jointId JointId) SetTorqueThreshold(threshold Q) {
+	if !isForceBound(threshold) || threshold.Less(QZero()) {
+		panic("dbox2d: SetTorqueThreshold needs a valid non-negative threshold")
+	}
+	w := getWorld(jointId.world0)
+	if w.recording != nil {
+		w.recording.rec(opJointSetTorqueThreshold, jointId, threshold)
+	}
+	j := getJointFullId(w, jointId)
+	getJointSim(w, j).torqueThreshold = threshold
+}
+
+// GetTorqueThreshold reports the torque that triggers a joint event (b2Joint_GetTorqueThreshold).
+func (jointId JointId) GetTorqueThreshold() Q {
+	w := getWorld(jointId.world0)
+	j := getJointFullId(w, jointId)
+	return getJointSim(w, j).torqueThreshold
+}
+
+// validateJointDef panics on an invalid base definition (D-003). It
+// corresponds to b2IsValidJointDef in src/joint.c.
+func validateJointDef(def *JointDef) {
+	zero := QZero()
+	if !IsValidTransform(def.LocalFrameA) || !IsValidTransform(def.LocalFrameB) {
+		panic("dbox2d: JointDef local frames must be valid transforms")
+	}
+	if !isForceBound(def.ForceThreshold) || def.ForceThreshold.Less(zero) {
+		panic("dbox2d: JointDef.ForceThreshold must be non-negative")
+	}
+	if !isForceBound(def.TorqueThreshold) || def.TorqueThreshold.Less(zero) {
+		panic("dbox2d: JointDef.TorqueThreshold must be non-negative")
+	}
+	if !IsValidQ(def.ConstraintHertz) || def.ConstraintHertz.Less(zero) {
+		panic("dbox2d: JointDef.ConstraintHertz must be non-negative")
+	}
+	if !IsValidQ(def.ConstraintDampingRatio) || def.ConstraintDampingRatio.Less(zero) {
+		panic("dbox2d: JointDef.ConstraintDampingRatio must be non-negative")
+	}
+	if !IsValidQ(def.DrawScale) {
+		panic("dbox2d: JointDef.DrawScale must be valid")
+	}
+}
+
+// validQ panics when a definition field is not a valid number (D-003).
+func validQ(value Q, message string) {
+	if !IsValidQ(value) {
+		panic(message)
+	}
+}
+
+// createJoint allocates a joint between the two bodies of a definition,
+// links it into both body lists and picks its solver set. It corresponds
+// to b2CreateJoint in src/joint.c.
+func createJoint(worldId WorldId, def *JointDef, jointType JointType) (*world, jointPair) {
+	validateJointDef(def)
+	w := getWorldFromId(worldId)
+	if w.locked {
+		panic("dbox2d: the world is locked")
+	}
+	if !def.BodyIdA.IsValid() {
+		panic("dbox2d: BodyIdA is not valid")
+	}
+	if !def.BodyIdB.IsValid() {
+		panic("dbox2d: BodyIdB is not valid")
+	}
+	if def.BodyIdA.world0 != w.worldId || def.BodyIdB.world0 != w.worldId {
+		panic("dbox2d: the joint bodies belong to another world")
+	}
+	if def.BodyIdA == def.BodyIdB {
+		panic("dbox2d: a joint needs two different bodies")
+	}
+	bodyA := getBodyFullId(w, def.BodyIdA)
+	bodyB := getBodyFullId(w, def.BodyIdB)
+
+	// If the joint prevents collisions, then destroy all contacts between
+	// attached bodies. Do this first so world arrays are not disturbed in
+	// the following code.
+	if !def.CollideConnected {
+		destroyContactsBetweenBodies(w, bodyA, bodyB)
+	}
+
 	bodyIdA := bodyA.id
 	bodyIdB := bodyB.id
 	maxSetIndex := max(bodyA.setIndex, bodyB.setIndex)
@@ -806,18 +958,16 @@ func createJoint(w *world, bodyA, bodyB *body, userData any, drawSize Q, jointTy
 
 	j := &w.joints[jointId]
 	j.jointId = jointId
-	j.userData = userData
+	j.userData = def.UserData
 	j.generation += 1
 	j.setIndex = nullIndex
 	j.colorIndex = nullIndex
 	j.localIndex = nullIndex
 	j.islandId = nullIndex
-	j.islandPrev = nullIndex
-	j.islandNext = nullIndex
+	j.islandIndex = nullIndex
+	j.drawScale = def.DrawScale
 	j.jointType = jointType
-	j.drawSize = drawSize
-	j.collideConnected = collideConnected
-	j.isMarked = false
+	j.collideConnected = def.CollideConnected
 
 	// Doubly linked list on bodyA
 	j.edges[0].bodyId = bodyIdA
@@ -863,8 +1013,8 @@ func createJoint(w *world, bodyA, bodyB *body, userData any, drawSize Q, jointTy
 		js.bodyIdA = bodyIdA
 		js.bodyIdB = bodyIdB
 
-	case bodyA.setIndex == staticSet && bodyB.setIndex == staticSet:
-		// joint is connecting static bodies
+	case bodyA.bodyType != DynamicBody && bodyB.bodyType != DynamicBody:
+		// joint is not attached to a dynamic body
 		set := &w.solverSets[staticSet]
 		j.setIndex = staticSet
 		j.localIndex = len(set.jointSims)
@@ -908,6 +1058,7 @@ func createJoint(w *world, bodyA, bodyB *body, userData any, drawSize Q, jointTy
 		set.jointSims = append(set.jointSims, jointSim{})
 		js = &set.jointSims[j.localIndex]
 
+		// These must be set to accommodate the merge below
 		js.jointId = jointId
 		js.bodyIdA = bodyIdA
 		js.bodyIdB = bodyIdB
@@ -934,13 +1085,18 @@ func createJoint(w *world, bodyA, bodyB *body, userData any, drawSize Q, jointTy
 		}
 	}
 
-	js.constraintHertz = jointConstraintHertz
-	js.constraintDampingRatio = jointConstraintDampingRatio
+	js.localFrameA = def.LocalFrameA
+	js.localFrameB = def.LocalFrameB
+	js.jointType = jointType
+	js.constraintHertz = def.ConstraintHertz
+	js.constraintDampingRatio = def.ConstraintDampingRatio
 	js.constraintSoftness = softness{
 		biasRate:     QZero(),
 		massScale:    QOne(),
 		impulseScale: QZero(),
 	}
+	js.forceThreshold = def.ForceThreshold
+	js.torqueThreshold = def.TorqueThreshold
 
 	if js.jointId != jointId || js.bodyIdA != bodyIdA || js.bodyIdB != bodyIdB {
 		panic("dbox2d: the joint sim does not match the joint")
@@ -948,13 +1104,12 @@ func createJoint(w *world, bodyA, bodyB *body, userData any, drawSize Q, jointTy
 
 	if j.setIndex > disabledSet {
 		// Add edge to island graph
-		mergeIslands := true
-		linkJoint(w, j, mergeIslands)
+		linkJoint(w, j)
 	}
 
 	validateSolverSetsDebug(w)
 
-	return jointPair{j, js}
+	return w, jointPair{j, js}
 }
 
 // destroyContactsBetweenBodies removes every contact between two bodies
@@ -994,24 +1149,6 @@ func destroyContactsBetweenBodies(w *world, bodyA, bodyB *body) {
 	validateSolverSetsDebug(w)
 }
 
-// getJointWorld returns the unlocked world of a joint definition and its
-// two validated bodies.
-func getJointWorld(worldId WorldId, bodyIdA, bodyIdB BodyId) (*world, *body, *body) {
-	w := getWorldFromId(worldId)
-	if w.locked {
-		panic("dbox2d: the world is locked")
-	}
-	if !bodyIdA.IsValid() {
-		panic("dbox2d: BodyIdA is not valid")
-	}
-	if !bodyIdB.IsValid() {
-		panic("dbox2d: BodyIdB is not valid")
-	}
-	bodyA := getBodyFullId(w, bodyIdA)
-	bodyB := getBodyFullId(w, bodyIdB)
-	return w, bodyA, bodyB
-}
-
 // makeJointId builds the public handle of a new joint.
 func makeJointId(w *world, pair jointPair) JointId {
 	return JointId{index1: int32(pair.jointSim.jointId) + 1, world0: w.worldId, generation: pair.joint.generation}
@@ -1022,17 +1159,12 @@ func makeJointId(w *world, pair jointPair) JointId {
 // DefaultFilterJointDef.
 func CreateFilterJoint(worldId WorldId, def *FilterJointDef) JointId {
 	checkDef(def.internalValue)
-	w, bodyA, bodyB := getJointWorld(worldId, def.BodyIdA, def.BodyIdB)
-
-	collideConnected := false
-	pair := createJoint(w, bodyA, bodyB, def.UserData, Q{}, FilterJoint, collideConnected)
-
-	js := pair.jointSim
-	js.jointType = FilterJoint
-	js.localOriginAnchorA = Vec2Zero()
-	js.localOriginAnchorB = Vec2Zero()
-
-	return makeJointId(w, pair)
+	w, pair := createJoint(worldId, &def.Base, FilterJoint)
+	id := makeJointId(w, pair)
+	if w.recording != nil {
+		w.recording.recRet(opCreateFilterJoint, id, worldId, *def)
+	}
+	return id
 }
 
 // CreateDistanceJoint creates a distance joint. The definition must come
@@ -1043,254 +1175,309 @@ func CreateDistanceJoint(worldId WorldId, def *DistanceJointDef) JointId {
 	if !IsValidQ(def.Length) || !zero.Less(def.Length) {
 		panic("dbox2d: DistanceJointDef.Length must be positive")
 	}
-	w, bodyA, bodyB := getJointWorld(worldId, def.BodyIdA, def.BodyIdB)
-
-	pair := createJoint(w, bodyA, bodyB, def.UserData, Q{}, DistanceJoint, def.CollideConnected)
-
-	js := pair.jointSim
-	js.jointType = DistanceJoint
-	js.localOriginAnchorA = def.LocalAnchorA
-	js.localOriginAnchorB = def.LocalAnchorB
-
-	*js.distance() = distanceJoint{}
-	js.distance().length = def.Length.Max(linearSlop)
-	js.distance().hertz = def.Hertz
-	js.distance().dampingRatio = def.DampingRatio
-	js.distance().minLength = def.MinLength.Max(linearSlop)
-	js.distance().maxLength = def.MinLength.Max(def.MaxLength)
-	js.distance().maxMotorForce = def.MaxMotorForce
-	js.distance().motorSpeed = def.MotorSpeed
-	js.distance().enableSpring = def.EnableSpring
-	js.distance().enableLimit = def.EnableLimit
-	js.distance().enableMotor = def.EnableMotor
-	js.distance().impulse = zero
-	js.distance().lowerImpulse = zero
-	js.distance().upperImpulse = zero
-	js.distance().motorImpulse = zero
-
-	// If the joint prevents collisions, then destroy all contacts between attached bodies
-	if !def.CollideConnected {
-		destroyContactsBetweenBodies(w, bodyA, bodyB)
+	validQ(def.Hertz, "dbox2d: DistanceJointDef.Hertz must be valid")
+	validQ(def.DampingRatio, "dbox2d: DistanceJointDef.DampingRatio must be valid")
+	validQ(def.MinLength, "dbox2d: DistanceJointDef.MinLength must be valid")
+	validQ(def.MaxLength, "dbox2d: DistanceJointDef.MaxLength must be valid")
+	validQ(def.MaxMotorForce, "dbox2d: DistanceJointDef.MaxMotorForce must be valid")
+	validQ(def.MotorSpeed, "dbox2d: DistanceJointDef.MotorSpeed must be valid")
+	if !isForceBound(def.LowerSpringForce) {
+		panic("dbox2d: DistanceJointDef.LowerSpringForce must be valid")
+	}
+	if !isForceBound(def.UpperSpringForce) {
+		panic("dbox2d: DistanceJointDef.UpperSpringForce must be valid")
+	}
+	if def.UpperSpringForce.Less(def.LowerSpringForce) {
+		panic("dbox2d: DistanceJointDef.LowerSpringForce exceeds UpperSpringForce")
 	}
 
-	return makeJointId(w, pair)
+	w, pair := createJoint(worldId, &def.Base, DistanceJoint)
+
+	js := pair.jointSim
+	*js.distance() = distanceJoint{}
+	d := js.distance()
+	d.length = def.Length.Max(linearSlop)
+	d.hertz = def.Hertz
+	d.dampingRatio = def.DampingRatio
+	d.minLength = def.MinLength.Max(linearSlop)
+	d.maxLength = def.MinLength.Max(def.MaxLength)
+	d.maxMotorForce = def.MaxMotorForce
+	d.motorSpeed = def.MotorSpeed
+	d.enableSpring = def.EnableSpring
+	d.lowerSpringForce = def.LowerSpringForce.Min(def.UpperSpringForce)
+	d.upperSpringForce = def.LowerSpringForce.Max(def.UpperSpringForce)
+	d.enableLimit = def.EnableLimit
+	d.enableMotor = def.EnableMotor
+
+	id := makeJointId(w, pair)
+	if w.recording != nil {
+		w.recording.recRet(opCreateDistanceJoint, id, worldId, *def)
+	}
+	return id
 }
 
 // CreateMotorJoint creates a motor joint. The definition must come from
-// DefaultMotorJointDef.
+// DefaultMotorJointDef. The angular velocity is in turns per second.
 func CreateMotorJoint(worldId WorldId, def *MotorJointDef) JointId {
 	checkDef(def.internalValue)
-	w, bodyA, bodyB := getJointWorld(worldId, def.BodyIdA, def.BodyIdB)
-
-	pair := createJoint(w, bodyA, bodyB, def.UserData, Q{}, MotorJoint, def.CollideConnected)
-	js := pair.jointSim
-
-	js.jointType = MotorJoint
-	js.localOriginAnchorA = Vec2Zero()
-	js.localOriginAnchorB = Vec2Zero()
-	*js.motor() = motorJoint{}
-	js.motor().linearOffset = def.LinearOffset
-	js.motor().angularOffset = angleFromTurns(def.AngularOffset)
-	js.motor().maxForce = def.MaxForce
-	js.motor().maxTorque = def.MaxTorque
-	js.motor().correctionFactor = def.CorrectionFactor.Clamp(QZero(), QOne())
-
-	// If the joint prevents collisions, then destroy all contacts between attached bodies
-	if !def.CollideConnected {
-		destroyContactsBetweenBodies(w, bodyA, bodyB)
+	if !IsValidVec2(def.LinearVelocity) {
+		panic("dbox2d: MotorJointDef.LinearVelocity must be valid")
 	}
+	validQ(def.MaxVelocityForce, "dbox2d: MotorJointDef.MaxVelocityForce must be valid")
+	validQ(def.AngularVelocity, "dbox2d: MotorJointDef.AngularVelocity must be valid")
+	validQ(def.MaxVelocityTorque, "dbox2d: MotorJointDef.MaxVelocityTorque must be valid")
+	validQ(def.LinearHertz, "dbox2d: MotorJointDef.LinearHertz must be valid")
+	validQ(def.LinearDampingRatio, "dbox2d: MotorJointDef.LinearDampingRatio must be valid")
+	validQ(def.MaxSpringForce, "dbox2d: MotorJointDef.MaxSpringForce must be valid")
+	validQ(def.AngularHertz, "dbox2d: MotorJointDef.AngularHertz must be valid")
+	validQ(def.AngularDampingRatio, "dbox2d: MotorJointDef.AngularDampingRatio must be valid")
+	validQ(def.MaxSpringTorque, "dbox2d: MotorJointDef.MaxSpringTorque must be valid")
 
-	return makeJointId(w, pair)
+	w, pair := createJoint(worldId, &def.Base, MotorJoint)
+
+	js := pair.jointSim
+	*js.motor() = motorJoint{}
+	m := js.motor()
+	m.linearVelocity = def.LinearVelocity
+	m.maxVelocityForce = def.MaxVelocityForce
+	m.angularVelocity = angleFromTurns(def.AngularVelocity)
+	m.maxVelocityTorque = def.MaxVelocityTorque
+	m.linearHertz = def.LinearHertz
+	m.linearDampingRatio = def.LinearDampingRatio
+	m.maxSpringForce = def.MaxSpringForce
+	m.angularHertz = def.AngularHertz
+	m.angularDampingRatio = def.AngularDampingRatio
+	m.maxSpringTorque = def.MaxSpringTorque
+
+	id := makeJointId(w, pair)
+	if w.recording != nil {
+		w.recording.recRet(opCreateMotorJoint, id, worldId, *def)
+	}
+	return id
 }
 
-// CreateMouseJoint creates a mouse joint. The definition must come from
-// DefaultMouseJointDef.
-func CreateMouseJoint(worldId WorldId, def *MouseJointDef) JointId {
+// CreateMoverJoint creates a mover joint. The definition must come from
+// DefaultMoverJointDef.
+func CreateMoverJoint(worldId WorldId, def *MoverJointDef) JointId {
 	checkDef(def.internalValue)
-	w, bodyA, bodyB := getJointWorld(worldId, def.BodyIdA, def.BodyIdB)
+	if !IsValidVec2(def.LinearVelocity) {
+		panic("dbox2d: MoverJointDef.LinearVelocity must be valid")
+	}
+	if !IsValidVec2(def.MaxVelocityForce) {
+		panic("dbox2d: MoverJointDef.MaxVelocityForce must be valid")
+	}
 
-	transformA := getBodyTransformQuick(w, bodyA)
-	transformB := getBodyTransformQuick(w, bodyB)
-
-	pair := createJoint(w, bodyA, bodyB, def.UserData, Q{}, MouseJoint, def.CollideConnected)
+	w, pair := createJoint(worldId, &def.Base, MoverJoint)
 
 	js := pair.jointSim
-	js.jointType = MouseJoint
-	js.localOriginAnchorA = InvTransformPoint(transformA, def.Target)
-	js.localOriginAnchorB = InvTransformPoint(transformB, def.Target)
+	*js.mover() = moverJoint{}
+	js.mover().linearVelocity = def.LinearVelocity
+	js.mover().maxVelocityForce = def.MaxVelocityForce
 
-	*js.mouse() = mouseJoint{}
-	js.mouse().targetA = def.Target
-	js.mouse().hertz = def.Hertz
-	js.mouse().dampingRatio = def.DampingRatio
-	js.mouse().maxForce = def.MaxForce
+	id := makeJointId(w, pair)
+	if w.recording != nil {
+		w.recording.recRet(opCreateMoverJoint, id, worldId, *def)
+	}
+	return id
+}
 
-	return makeJointId(w, pair)
+// CreatePogoJoint creates a pogo joint. The definition must come from
+// DefaultPogoJointDef.
+func CreatePogoJoint(worldId WorldId, def *PogoJointDef) JointId {
+	checkDef(def.internalValue)
+	zero := QZero()
+	if !IsValidVec2(def.Normal) {
+		panic("dbox2d: PogoJointDef.Normal must be valid")
+	}
+	for _, field := range []struct {
+		value Q
+		name  string
+	}{
+		{def.RestLength, "RestLength"},
+		{def.Hertz, "Hertz"},
+		{def.DampingRatio, "DampingRatio"},
+		{def.MaxTensionForce, "MaxTensionForce"},
+		{def.MaxCompressionForce, "MaxCompressionForce"},
+	} {
+		if !IsValidQ(field.value) || field.value.Less(zero) {
+			panic("dbox2d: PogoJointDef." + field.name + " must be non-negative")
+		}
+	}
+	validQ(def.Impulse, "dbox2d: PogoJointDef.Impulse must be valid")
+	validQ(def.Velocity, "dbox2d: PogoJointDef.Velocity must be valid")
+
+	w, pair := createJoint(worldId, &def.Base, PogoJoint)
+
+	js := pair.jointSim
+	*js.pogo() = pogoJoint{}
+	p := js.pogo()
+	p.restLength = def.RestLength
+	p.hertz = def.Hertz
+	p.dampingRatio = def.DampingRatio
+	p.maxTensionForce = def.MaxTensionForce
+	p.maxCompressionForce = def.MaxCompressionForce
+	p.normal = def.Normal
+	p.impulse = def.Impulse
+	p.velocity = def.Velocity
+
+	id := makeJointId(w, pair)
+	if w.recording != nil {
+		w.recording.recRet(opCreatePogoJoint, id, worldId, *def)
+	}
+	return id
 }
 
 // CreatePrismaticJoint creates a prismatic joint. The definition must come
-// from DefaultPrismaticJointDef.
+// from DefaultPrismaticJointDef. The joint slides along the x-axis of
+// LocalFrameA.
 func CreatePrismaticJoint(worldId WorldId, def *PrismaticJointDef) JointId {
 	checkDef(def.internalValue)
+	validQ(def.Hertz, "dbox2d: PrismaticJointDef.Hertz must be valid")
+	validQ(def.DampingRatio, "dbox2d: PrismaticJointDef.DampingRatio must be valid")
+	validQ(def.TargetTranslation, "dbox2d: PrismaticJointDef.TargetTranslation must be valid")
+	validQ(def.LowerTranslation, "dbox2d: PrismaticJointDef.LowerTranslation must be valid")
+	validQ(def.UpperTranslation, "dbox2d: PrismaticJointDef.UpperTranslation must be valid")
+	validQ(def.MaxMotorForce, "dbox2d: PrismaticJointDef.MaxMotorForce must be valid")
+	validQ(def.MotorSpeed, "dbox2d: PrismaticJointDef.MotorSpeed must be valid")
 	if def.UpperTranslation.Less(def.LowerTranslation) {
 		panic("dbox2d: PrismaticJointDef.LowerTranslation exceeds UpperTranslation")
 	}
-	w, bodyA, bodyB := getJointWorld(worldId, def.BodyIdA, def.BodyIdB)
 
-	pair := createJoint(w, bodyA, bodyB, def.UserData, Q{}, PrismaticJoint, def.CollideConnected)
+	w, pair := createJoint(worldId, &def.Base, PrismaticJoint)
 
 	js := pair.jointSim
-	js.jointType = PrismaticJoint
-	js.localOriginAnchorA = def.LocalAnchorA
-	js.localOriginAnchorB = def.LocalAnchorB
-
 	*js.prismatic() = prismaticJoint{}
+	p := js.prismatic()
+	p.hertz = def.Hertz
+	p.dampingRatio = def.DampingRatio
+	p.targetTranslation = def.TargetTranslation
+	p.lowerTranslation = def.LowerTranslation.Min(def.UpperTranslation)
+	p.upperTranslation = def.LowerTranslation.Max(def.UpperTranslation)
+	p.maxMotorForce = def.MaxMotorForce
+	p.motorSpeed = def.MotorSpeed
+	p.enableSpring = def.EnableSpring
+	p.enableLimit = def.EnableLimit
+	p.enableMotor = def.EnableMotor
 
-	js.prismatic().localAxisA = def.LocalAxisA.Normalize()
-	js.prismatic().referenceAngle = angleFromTurns(def.ReferenceAngle)
-	js.prismatic().targetTranslation = def.TargetTranslation
-	js.prismatic().hertz = def.Hertz
-	js.prismatic().dampingRatio = def.DampingRatio
-	js.prismatic().lowerTranslation = def.LowerTranslation
-	js.prismatic().upperTranslation = def.UpperTranslation
-	js.prismatic().maxMotorForce = def.MaxMotorForce
-	js.prismatic().motorSpeed = def.MotorSpeed
-	js.prismatic().enableSpring = def.EnableSpring
-	js.prismatic().enableLimit = def.EnableLimit
-	js.prismatic().enableMotor = def.EnableMotor
-
-	// If the joint prevents collisions, then destroy all contacts between attached bodies
-	if !def.CollideConnected {
-		destroyContactsBetweenBodies(w, bodyA, bodyB)
+	id := makeJointId(w, pair)
+	if w.recording != nil {
+		w.recording.recRet(opCreatePrismaticJoint, id, worldId, *def)
 	}
-
-	return makeJointId(w, pair)
+	return id
 }
 
 // CreateRevoluteJoint creates a revolute joint. The definition must come
 // from DefaultRevoluteJointDef. The angles are in turns.
 func CreateRevoluteJoint(worldId WorldId, def *RevoluteJointDef) JointId {
 	checkDef(def.internalValue)
+	validQ(def.TargetAngle, "dbox2d: RevoluteJointDef.TargetAngle must be valid")
+	validQ(def.Hertz, "dbox2d: RevoluteJointDef.Hertz must be valid")
+	validQ(def.DampingRatio, "dbox2d: RevoluteJointDef.DampingRatio must be valid")
+	validQ(def.LowerAngle, "dbox2d: RevoluteJointDef.LowerAngle must be valid")
+	validQ(def.UpperAngle, "dbox2d: RevoluteJointDef.UpperAngle must be valid")
+	validQ(def.MaxMotorTorque, "dbox2d: RevoluteJointDef.MaxMotorTorque must be valid")
+	validQ(def.MotorSpeed, "dbox2d: RevoluteJointDef.MotorSpeed must be valid")
 	if def.UpperAngle.Less(def.LowerAngle) {
 		panic("dbox2d: RevoluteJointDef.LowerAngle exceeds UpperAngle")
 	}
-	// The reference limits the range to 0.99 pi; in turns that is 0.495.
-	limitAngle := revoluteLimitAngle
-	if def.LowerAngle.Less(limitAngle.Neg()) {
-		panic("dbox2d: RevoluteJointDef.LowerAngle is below -0.495 turns")
-	}
-	if limitAngle.Less(def.UpperAngle) {
-		panic("dbox2d: RevoluteJointDef.UpperAngle is above 0.495 turns")
-	}
 
-	w, bodyA, bodyB := getJointWorld(worldId, def.BodyIdA, def.BodyIdB)
-
-	pair := createJoint(w, bodyA, bodyB, def.UserData, def.DrawSize, RevoluteJoint, def.CollideConnected)
+	w, pair := createJoint(worldId, &def.Base, RevoluteJoint)
 
 	js := pair.jointSim
-	js.jointType = RevoluteJoint
-	js.localOriginAnchorA = def.LocalAnchorA
-	js.localOriginAnchorB = def.LocalAnchorB
-
 	*js.revolute() = revoluteJoint{}
+	r := js.revolute()
 
+	// D-004: the reference bounds are +/- pi and +/- 0.99 pi; in turns they
+	// are +/- 0.5 and +/- 0.495.
 	halfTurn := QHalf()
-	js.revolute().referenceAngle = angleFromTurns(def.ReferenceAngle.Clamp(halfTurn.Neg(), halfTurn))
-	js.revolute().targetAngle = angleFromTurns(def.TargetAngle.Clamp(halfTurn.Neg(), halfTurn))
-	js.revolute().hertz = def.Hertz
-	js.revolute().dampingRatio = def.DampingRatio
-	js.revolute().lowerAngle = angleFromTurns(def.LowerAngle)
-	js.revolute().upperAngle = angleFromTurns(def.UpperAngle)
-	js.revolute().maxMotorTorque = def.MaxMotorTorque
-	js.revolute().motorSpeed = angleFromTurns(def.MotorSpeed)
-	js.revolute().enableSpring = def.EnableSpring
-	js.revolute().enableLimit = def.EnableLimit
-	js.revolute().enableMotor = def.EnableMotor
+	r.targetAngle = angleFromTurns(def.TargetAngle.Clamp(halfTurn.Neg(), halfTurn))
+	r.hertz = def.Hertz
+	r.dampingRatio = def.DampingRatio
 
-	// If the joint prevents collisions, then destroy all contacts between attached bodies
-	if !def.CollideConnected {
-		destroyContactsBetweenBodies(w, bodyA, bodyB)
+	lowerAngle := def.LowerAngle.Min(def.UpperAngle)
+	upperAngle := def.LowerAngle.Max(def.UpperAngle)
+	r.lowerAngle = angleFromTurns(lowerAngle.Clamp(revoluteLimitAngle.Neg(), revoluteLimitAngle))
+	r.upperAngle = angleFromTurns(upperAngle.Clamp(revoluteLimitAngle.Neg(), revoluteLimitAngle))
+
+	r.maxMotorTorque = def.MaxMotorTorque
+	r.motorSpeed = angleFromTurns(def.MotorSpeed)
+	r.enableSpring = def.EnableSpring
+	r.enableLimit = def.EnableLimit
+	r.enableMotor = def.EnableMotor
+
+	id := makeJointId(w, pair)
+	if w.recording != nil {
+		w.recording.recRet(opCreateRevoluteJoint, id, worldId, *def)
 	}
-
-	return makeJointId(w, pair)
+	return id
 }
 
 // CreateWeldJoint creates a weld joint. The definition must come from
 // DefaultWeldJointDef.
 func CreateWeldJoint(worldId WorldId, def *WeldJointDef) JointId {
 	checkDef(def.internalValue)
-	w, bodyA, bodyB := getJointWorld(worldId, def.BodyIdA, def.BodyIdB)
+	validQ(def.LinearHertz, "dbox2d: WeldJointDef.LinearHertz must be valid")
+	validQ(def.AngularHertz, "dbox2d: WeldJointDef.AngularHertz must be valid")
+	validQ(def.LinearDampingRatio, "dbox2d: WeldJointDef.LinearDampingRatio must be valid")
+	validQ(def.AngularDampingRatio, "dbox2d: WeldJointDef.AngularDampingRatio must be valid")
 
-	pair := createJoint(w, bodyA, bodyB, def.UserData, Q{}, WeldJoint, def.CollideConnected)
+	w, pair := createJoint(worldId, &def.Base, WeldJoint)
 
 	js := pair.jointSim
-	js.jointType = WeldJoint
-	js.localOriginAnchorA = def.LocalAnchorA
-	js.localOriginAnchorB = def.LocalAnchorB
-
 	*js.weld() = weldJoint{}
-	js.weld().referenceAngle = angleFromTurns(def.ReferenceAngle)
-	js.weld().linearHertz = def.LinearHertz
-	js.weld().linearDampingRatio = def.LinearDampingRatio
-	js.weld().angularHertz = def.AngularHertz
-	js.weld().angularDampingRatio = def.AngularDampingRatio
-	js.weld().linearImpulse = Vec2Zero()
-	js.weld().angularImpulse = QZero()
+	wj := js.weld()
+	wj.linearHertz = def.LinearHertz
+	wj.linearDampingRatio = def.LinearDampingRatio
+	wj.angularHertz = def.AngularHertz
+	wj.angularDampingRatio = def.AngularDampingRatio
 
-	// If the joint prevents collisions, then destroy all contacts between attached bodies
-	if !def.CollideConnected {
-		destroyContactsBetweenBodies(w, bodyA, bodyB)
+	id := makeJointId(w, pair)
+	if w.recording != nil {
+		w.recording.recRet(opCreateWeldJoint, id, worldId, *def)
 	}
-
-	return makeJointId(w, pair)
+	return id
 }
 
 // CreateWheelJoint creates a wheel joint. The definition must come from
-// DefaultWheelJointDef.
+// DefaultWheelJointDef. The wheel axis is the x-axis of LocalFrameA.
 func CreateWheelJoint(worldId WorldId, def *WheelJointDef) JointId {
 	checkDef(def.internalValue)
+	validQ(def.Hertz, "dbox2d: WheelJointDef.Hertz must be valid")
+	validQ(def.DampingRatio, "dbox2d: WheelJointDef.DampingRatio must be valid")
+	validQ(def.LowerTranslation, "dbox2d: WheelJointDef.LowerTranslation must be valid")
+	validQ(def.UpperTranslation, "dbox2d: WheelJointDef.UpperTranslation must be valid")
+	validQ(def.MaxMotorTorque, "dbox2d: WheelJointDef.MaxMotorTorque must be valid")
+	validQ(def.MotorSpeed, "dbox2d: WheelJointDef.MotorSpeed must be valid")
 	if def.UpperTranslation.Less(def.LowerTranslation) {
 		panic("dbox2d: WheelJointDef.LowerTranslation exceeds UpperTranslation")
 	}
-	w, bodyA, bodyB := getJointWorld(worldId, def.BodyIdA, def.BodyIdB)
 
-	pair := createJoint(w, bodyA, bodyB, def.UserData, Q{}, WheelJoint, def.CollideConnected)
+	w, pair := createJoint(worldId, &def.Base, WheelJoint)
 
 	js := pair.jointSim
-	js.jointType = WheelJoint
-	js.localOriginAnchorA = def.LocalAnchorA
-	js.localOriginAnchorB = def.LocalAnchorB
-
-	zero := QZero()
 	*js.wheel() = wheelJoint{}
-	js.wheel().localAxisA = def.LocalAxisA.Normalize()
-	js.wheel().perpMass = zero
-	js.wheel().axialMass = zero
-	js.wheel().motorImpulse = zero
-	js.wheel().lowerImpulse = zero
-	js.wheel().upperImpulse = zero
-	js.wheel().lowerTranslation = def.LowerTranslation
-	js.wheel().upperTranslation = def.UpperTranslation
-	js.wheel().maxMotorTorque = def.MaxMotorTorque
-	js.wheel().motorSpeed = angleFromTurns(def.MotorSpeed)
-	js.wheel().hertz = def.Hertz
-	js.wheel().dampingRatio = def.DampingRatio
-	js.wheel().enableSpring = def.EnableSpring
-	js.wheel().enableLimit = def.EnableLimit
-	js.wheel().enableMotor = def.EnableMotor
+	wh := js.wheel()
+	wh.lowerTranslation = def.LowerTranslation.Min(def.UpperTranslation)
+	wh.upperTranslation = def.LowerTranslation.Max(def.UpperTranslation)
+	wh.maxMotorTorque = def.MaxMotorTorque
+	wh.motorSpeed = angleFromTurns(def.MotorSpeed)
+	wh.hertz = def.Hertz
+	wh.dampingRatio = def.DampingRatio
+	wh.enableSpring = def.EnableSpring
+	wh.enableLimit = def.EnableLimit
+	wh.enableMotor = def.EnableMotor
 
-	// If the joint prevents collisions, then destroy all contacts between attached bodies
-	if !def.CollideConnected {
-		destroyContactsBetweenBodies(w, bodyA, bodyB)
+	id := makeJointId(w, pair)
+	if w.recording != nil {
+		w.recording.recRet(opCreateWheelJoint, id, worldId, *def)
 	}
-
-	return makeJointId(w, pair)
+	return id
 }
 
 // destroyJointInternal unlinks a joint from its bodies, its island and its
 // set, then frees the id. It corresponds to b2DestroyJointInternal in
 // src/joint.c.
-func destroyJointInternal(w *world, j *joint, wakeBodies bool) {
+func destroyJointInternal(w *world, j *joint) {
 	jointId := j.jointId
 
 	edgeA := &j.edges[0]
@@ -1379,10 +1566,8 @@ func destroyJointInternal(w *world, j *joint, wakeBodies bool) {
 	j.jointId = nullIndex
 	w.jointIdPool.freeId(jointId)
 
-	if wakeBodies {
-		wakeBody(w, bodyA)
-		wakeBody(w, bodyB)
-	}
+	wakeBody(w, bodyA)
+	wakeBody(w, bodyB)
 
 	validateSolverSetsDebug(w)
 }
@@ -1390,10 +1575,13 @@ func destroyJointInternal(w *world, j *joint, wakeBodies bool) {
 // DestroyJoint destroys a joint and wakes the two bodies.
 func DestroyJoint(jointId JointId) {
 	w := getWorldLocked(jointId.world0)
+	if w.recording != nil {
+		w.recording.rec(opDestroyJoint, jointId)
+	}
 
 	j := getJointFullId(w, jointId)
 
-	destroyJointInternal(w, j, true)
+	destroyJointInternal(w, j)
 }
 
 // jointStates returns the solver states of the two bodies of a joint. A
@@ -1429,8 +1617,10 @@ func prepareJoint(js *jointSim, context *stepContext) {
 		prepareWeldJoint(js, context)
 	case MotorJoint:
 		prepareMotorJoint(js, context)
-	case MouseJoint:
-		prepareMouseJoint(js, context)
+	case MoverJoint:
+		prepareMoverJoint(js, context)
+	case PogoJoint:
+		preparePogoJoint(js, context)
 	case RevoluteJoint:
 		prepareRevoluteJoint(js, context)
 	default:
@@ -1452,8 +1642,10 @@ func warmStartJoint(js *jointSim, context *stepContext) {
 		warmStartWeldJoint(js, context)
 	case MotorJoint:
 		warmStartMotorJoint(js, context)
-	case MouseJoint:
-		warmStartMouseJoint(js, context)
+	case MoverJoint:
+		warmStartMoverJoint(js, context)
+	case PogoJoint:
+		warmStartPogoJoint(js, context)
 	case RevoluteJoint:
 		warmStartRevoluteJoint(js, context)
 	default:
@@ -1474,9 +1666,11 @@ func solveJoint(js *jointSim, context *stepContext, useBias bool) {
 	case WeldJoint:
 		solveWeldJoint(js, context, useBias)
 	case MotorJoint:
-		solveMotorJoint(js, context, useBias)
-	case MouseJoint:
-		solveMouseJoint(js, context)
+		solveMotorJoint(js, context)
+	case MoverJoint:
+		solveMoverJoint(js, context)
+	case PogoJoint:
+		solvePogoJoint(js, context, useBias)
 	case RevoluteJoint:
 		solveRevoluteJoint(js, context, useBias)
 	default:
@@ -1534,11 +1728,36 @@ func warmStartJointRange(startIndex, endIndex int, context *stepContext, joints 
 	}
 }
 
-// solveJointsTask solves a joint range. It corresponds to
-// b2SolveJointsTask in src/solver.c.
-func solveJointsTask(startIndex, endIndex int, context *stepContext, colorIndex int, useBias bool) {
+// solveJointsTask solves a joint range and flags the joints whose reaction
+// crosses a threshold. It corresponds to b2SolveJointsTask in
+// src/joint.c.
+func solveJointsTask(startIndex, endIndex int, context *stepContext, colorIndex int, useBias bool, workerIndex int) {
 	joints := context.graph.colors[colorIndex].jointSims
 	solveJointRange(startIndex, endIndex, context, joints, useBias)
+	if !useBias {
+		return
+	}
+
+	jointStateBitSet := &context.world.taskContexts[workerIndex].jointStateBitSet
+	maxValue := QMaxValue()
+	for i := startIndex; i < endIndex; i++ {
+		js := &joints[i]
+		if !js.forceThreshold.Less(maxValue) && !js.torqueThreshold.Less(maxValue) {
+			continue
+		}
+		if jointStateBitSet.getBit(js.jointId) {
+			continue
+		}
+
+		force, torque := getJointReaction(js, context.invH)
+
+		// Check thresholds. A zero threshold means all awake joints get
+		// reported.
+		if !force.Less(js.forceThreshold) || !torque.Less(js.torqueThreshold) {
+			// Flag this joint for processing.
+			jointStateBitSet.setBit(js.jointId)
+		}
+	}
 }
 
 // solveOverflowJoints solves the overflow joints. It corresponds to
@@ -1559,4 +1778,64 @@ func solveJointRange(startIndex, endIndex int, context *stepContext, joints []jo
 // set and every other field zero. It corresponds to b2DefaultExplosionDef.
 func DefaultExplosionDef() ExplosionDef {
 	return ExplosionDef{MaskBits: DefaultMaskBits}
+}
+
+// prepareJointBodies loads the inverse masses of the two bodies into the
+// joint and returns their sims and their awake state indices. A body
+// outside the awake set gets the null index. It is the preamble every
+// b2Prepare*Joint of the reference repeats.
+func prepareJointBodies(base *jointSim, context *stepContext) (bodySimA, bodySimB *bodySim, indexA, indexB int) {
+	w := context.world
+	bodyA := &w.bodies[base.bodyIdA]
+	bodyB := &w.bodies[base.bodyIdB]
+	if bodyA.setIndex != awakeSet && bodyB.setIndex != awakeSet {
+		panic("dbox2d: neither body of the joint is awake")
+	}
+	bodySimA = &w.solverSets[bodyA.setIndex].bodySims[bodyA.localIndex]
+	bodySimB = &w.solverSets[bodyB.setIndex].bodySims[bodyB.localIndex]
+
+	base.invMassA = bodySimA.invMass
+	base.invMassB = bodySimB.invMass
+	base.invIA = bodySimA.invInertia
+	base.invIB = bodySimB.invInertia
+
+	indexA = nullIndex
+	if bodyA.setIndex == awakeSet {
+		indexA = bodyA.localIndex
+	}
+	indexB = nullIndex
+	if bodyB.setIndex == awakeSet {
+		indexB = bodyB.localIndex
+	}
+	return bodySimA, bodySimB, indexA, indexB
+}
+
+// jointFrame computes a joint frame with the world rotation, relative to
+// the center of mass: rot(xf.q, f.p - lc) avoids the round-off of
+// (xf.p - c) + rot(xf.q, f.p).
+func jointFrame(sim *bodySim, localFrame Transform) Transform {
+	return Transform{
+		P: RotateVector(sim.transform.Q, localFrame.P.Sub(sim.localCenter)),
+		Q: MulRot(sim.transform.Q, localFrame.Q),
+	}
+}
+
+// storeJointVelocity writes a solved velocity back to a body state. Only a
+// dynamic body takes it: a kinematic body keeps its velocity and the dummy
+// state of a static body stays at rest.
+func storeJointVelocity(state *bodyState, v Vec2, w Q) {
+	if state.flags&bodyDynamicFlag != 0 {
+		state.linearVelocity = v
+		state.angularVelocity = w
+	}
+}
+
+// jointRelativeFrames returns the frames of two bodies relative to the
+// position of body A, as the reference does for the joint queries, so the
+// difference of two joint anchors stays in float precision far from the
+// origin. It corresponds to the b2ToRelativeTransform( wxfA, wxfA.p ) pairs
+// of src/joint.c, src/distance_joint.c, src/pogo_joint.c and
+// src/prismatic_joint.c.
+func jointRelativeFrames(a, b WorldTransform) (Transform, Transform) {
+	return ToRelativeTransform(a, a.P), ToRelativeTransform(b, a.P)
 }

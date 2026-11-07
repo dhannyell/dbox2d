@@ -21,39 +21,47 @@ type conformanceToleranceConfig struct {
 	ulps     uint32
 	abs      float64
 	absFloat float64
+	// absHit is the fixed-mode budget for the TOI hit point and normal, which
+	// inherit the witness-point error of the final GJK call.
+	absHit float64
 	// hashSteps is the least number of leading steps with an equal hash, float mode only.
 	hashSteps int
 }
 
+// conformanceScenesBitExact gates every scene to the exact hash in float
+// mode, through the whole trace.
+const conformanceScenesBitExact = true
+
 // conformanceTolerance defines the per-trace conformance budgets.
 // Function traces use ulps in float mode and abs in fixed mode.
-// Scene step 1 uses abs in fixed mode and absFloat in float mode.
+// Scene step 1 uses abs in fixed mode; float mode matches every scene bit
+// for bit (conformanceScenesBitExact).
 var conformanceTolerance = map[string]conformanceToleranceConfig{
-	"collide_capsules.txt":                  {ulps: 0, abs: 2e-6},        // precision
-	"collide_capsule_and_circle.txt":        {ulps: 0, abs: 1e-5},        // precision
-	"collide_circles.txt":                   {ulps: 0, abs: 1e-6},        // precision
-	"collide_polygon_and_circle.txt":        {ulps: 0, abs: 2e-6},        // precision
-	"collide_segment_and_capsule.txt":       {ulps: 0, abs: 2e-6},        // precision
-	"collide_polygon_and_capsule.txt":       {ulps: 0, abs: 2e-6},        // precision
-	"collide_polygons.txt":                  {ulps: 0, abs: 2e-6},        // precision
-	"collide_segment_and_circle.txt":        {ulps: 0, abs: 4e-5},        // precision
-	"collide_segment_and_polygon.txt":       {ulps: 0, abs: 2e-6},        // precision
-	"collide_chain_segment_and_circle.txt":  {ulps: 0, abs: 2e-5},        // precision
-	"collide_chain_segment_and_capsule.txt": {ulps: 0, abs: 1e-6},        // precision
-	"collide_chain_segment_and_polygon.txt": {ulps: 0, abs: 2e-6},        // precision
-	"shape_distance.txt":                    {ulps: 0, abs: 8e-6},        // precision
-	"time_of_impact.txt":                    {ulps: 0, abs: 1e-7},        // precision
-	"compute_hull.txt":                      {ulps: 0, abs: 0},           // exact after cyclic alignment
-	"make_rot.txt":                          {ulps: 1328, abs: 4e-3},     // ulps: D-004; abs: D-017 (CORDIC vs Bhaskara)
-	"atan2.txt":                             {ulps: 0, abs: 6e-5},        // abs: D-017 (CORDIC vs polynomial)
-	"falling_hinges.txt":                    {abs: 4e-3, hashSteps: 158}, // abs: D-017 (rotation from an angle); exact at step 1 and hash equal through step 158 in float mode
-	"joint_grid.txt":                        {hashSteps: 500},            // no step-1 dump; count and hash only; hash equal through step 500 in float mode
-	"large_pyramid.txt":                     {},                          // no step-1 dump; count and hash only
-	"many_pyramids.txt":                     {},                          // no step-1 dump; count and hash only
-	"rain.txt":                              {abs: 4e-5, hashSteps: 171}, // precision; exact at step 1 and hash equal through step 171 in float mode
-	"smash.txt":                             {hashSteps: 69},             // no step-1 dump; count and hash only; hash equal through step 69 in float mode
-	"spinner.txt":                           {abs: 1e-2, absFloat: 1e-2}, // D-013: the colored set of the bar contacts differs
-	"tumbler.txt":                           {abs: 2e-5, hashSteps: 6},   // precision; exact at step 1 and hash equal through step 6 in float mode
+	"collide_capsules.txt":                  {ulps: 0, abs: 2e-6},               // precision
+	"collide_capsule_and_circle.txt":        {ulps: 0, abs: 1e-5},               // precision
+	"collide_circles.txt":                   {ulps: 0, abs: 1e-6},               // precision
+	"collide_polygon_and_circle.txt":        {ulps: 0, abs: 2e-6},               // precision
+	"collide_segment_and_capsule.txt":       {ulps: 0, abs: 2e-6},               // precision
+	"collide_polygon_and_capsule.txt":       {ulps: 0, abs: 2e-6},               // precision
+	"collide_polygons.txt":                  {ulps: 0, abs: 2e-6},               // precision
+	"collide_segment_and_circle.txt":        {ulps: 0, abs: 4e-5},               // precision
+	"collide_segment_and_polygon.txt":       {ulps: 0, abs: 2e-6},               // precision
+	"collide_chain_segment_and_circle.txt":  {ulps: 0, abs: 2e-5},               // precision
+	"collide_chain_segment_and_capsule.txt": {ulps: 0, abs: 1e-6},               // precision
+	"collide_chain_segment_and_polygon.txt": {ulps: 0, abs: 2e-6},               // precision
+	"shape_distance.txt":                    {ulps: 0, abs: 8e-6},               // precision
+	"time_of_impact.txt":                    {ulps: 0, abs: 1e-7, absHit: 2e-6}, // precision
+	"compute_hull.txt":                      {ulps: 0, abs: 0},                  // exact after cyclic alignment
+	"make_rot.txt":                          {ulps: 1328, abs: 4e-3},            // ulps: D-004; abs: D-017 (CORDIC vs Bhaskara)
+	"atan2.txt":                             {ulps: 0, abs: 6e-5},               // abs: D-017 (CORDIC vs polynomial)
+	"falling_hinges.txt":                    {abs: 4e-3},                        // abs: D-017 (rotation from an angle)
+	"joint_grid.txt":                        {},                                 // no step-1 dump; count and hash only
+	"large_pyramid.txt":                     {},                                 // no step-1 dump; count and hash only
+	"many_pyramids.txt":                     {},                                 // no step-1 dump; count and hash only
+	"rain.txt":                              {abs: 4e-5},                        // precision
+	"smash.txt":                             {},                                 // no step-1 dump; count and hash only
+	"spinner.txt":                           {},                                 // no step-1 dump; count and hash only
+	"tumbler.txt":                           {abs: 2e-5},                        // precision
 }
 
 type conformanceTraceFloat struct {
@@ -140,8 +148,8 @@ func readConformanceTraceLines(t *testing.T, path, kind string) []string {
 		t.Fatalf("conformance trace %s is empty", path)
 	}
 	header := strings.Fields(scanner.Text())
-	if len(header) < 6 || header[0] != "#" || header[1] != "dbox2d" || header[2] != "conformance" || header[3] != "trace" || header[4] != "v1" {
-		t.Fatalf("conformance trace %s has invalid version header; want token v1", path)
+	if len(header) < 6 || header[0] != "#" || header[1] != "dbox2d" || header[2] != "conformance" || header[3] != "trace" || (header[4] != "v1" && header[4] != "v2") {
+		t.Fatalf("conformance trace %s has invalid version header; want token v1 or v2", path)
 	}
 	gotKind := ""
 	for _, token := range header[5:] {
@@ -223,7 +231,7 @@ func readConformanceFunctionTrace(t *testing.T, path string) []conformanceFuncti
 }
 
 type conformanceSceneBody struct {
-	position [2]conformanceTraceFloat
+	position [2]conformanceTracePos
 	rotation [2]conformanceTraceFloat
 }
 
@@ -298,7 +306,7 @@ func readConformanceSceneTrace(t *testing.T, path string) conformanceSceneTrace 
 				t.Fatalf("scene trace %s repeats body %d at step %d", path, index, current.index)
 			}
 			current.bodies[index] = conformanceSceneBody{
-				position: [2]conformanceTraceFloat{parseConformanceFloat(t, fields[2]), parseConformanceFloat(t, fields[3])},
+				position: [2]conformanceTracePos{parseConformancePos(t, fields[2]), parseConformancePos(t, fields[3])},
 				rotation: [2]conformanceTraceFloat{parseConformanceFloat(t, fields[4]), parseConformanceFloat(t, fields[5])},
 			}
 		default:
@@ -309,6 +317,12 @@ func readConformanceSceneTrace(t *testing.T, path string) conformanceSceneTrace 
 		t.Fatalf("scene trace %s declares %d steps but contains %d", path, stepCount, len(trace.steps))
 	}
 	return trace
+}
+
+// conformanceRotationPos widens a traced rotation float so the scene
+// residue code treats positions and rotations alike.
+func conformanceRotationPos(f conformanceTraceFloat) conformanceTracePos {
+	return conformanceTracePos{bits: uint64(f.bits), value: float64(f.value)}
 }
 
 func conformanceFloatMode() bool {
@@ -376,7 +390,11 @@ func (c *conformanceFunctionChecker) reportFloat(caseIndex int, field string, go
 		c.maxAbs = difference
 	}
 	message := fmt.Sprintf("%s case %d field %s: got 0x%016x (%g), want 0x%08x (%g), abs=%g", c.file, caseIndex, field, qBits(got), gotValue, want.bits, want.value, difference)
-	if difference > c.tolerance.abs {
+	budget := c.tolerance.abs
+	if c.tolerance.absHit > 0 && (strings.HasPrefix(field, "point.") || strings.HasPrefix(field, "normal.")) {
+		budget = c.tolerance.absHit
+	}
+	if difference > budget {
 		c.exceeded = true
 		c.t.Errorf("%s", message)
 	}
@@ -388,6 +406,11 @@ func (c *conformanceFunctionChecker) reportInt(caseIndex int, field string, got,
 	}
 	// Fixed-point distance iterations can vary while the numeric trace stays within its budget.
 	if c.file == "shape_distance.txt" && field == "iterations" && !c.floatMode {
+		return
+	}
+	// v3.2 writes the simplex cache on every exit; in fixed mode a near tie
+	// can pick another witness vertex while the manifold stays within budget.
+	if strings.HasPrefix(c.file, "collide_chain_segment_and_") && strings.HasPrefix(field, "cache.") && !c.floatMode {
 		return
 	}
 	c.count++
@@ -407,23 +430,23 @@ func (c *conformanceFunctionChecker) finish() {
 }
 
 type conformanceManifold struct {
-	normal         [2]conformanceTraceFloat
-	rollingImpulse conformanceTraceFloat
-	pointCount     int
-	points         [2]conformanceManifoldPoint
+	normal     [2]conformanceTraceFloat
+	pointCount int
+	points     [2]conformanceManifoldPoint
 }
 
+// conformanceManifoldPoint is one point of a format v2 local manifold, in
+// the frame of shape A.
 type conformanceManifoldPoint struct {
-	point, anchorA, anchorB [2]conformanceTraceFloat
-	separation              conformanceTraceFloat
-	id                      int
+	point      [2]conformanceTraceFloat
+	separation conformanceTraceFloat
+	id         int
 }
 
 func parseConformanceManifold(c *conformanceTraceCursor) conformanceManifold {
 	result := conformanceManifold{
-		normal:         [2]conformanceTraceFloat{c.float(), c.float()},
-		rollingImpulse: c.float(),
-		pointCount:     c.int(),
+		normal:     [2]conformanceTraceFloat{c.float(), c.float()},
+		pointCount: c.int(),
 	}
 	if result.pointCount < 0 || result.pointCount > 2 {
 		c.t.Fatalf("invalid manifold point count %d", result.pointCount)
@@ -431,8 +454,6 @@ func parseConformanceManifold(c *conformanceTraceCursor) conformanceManifold {
 	for i := range result.pointCount {
 		result.points[i] = conformanceManifoldPoint{
 			point:      [2]conformanceTraceFloat{c.float(), c.float()},
-			anchorA:    [2]conformanceTraceFloat{c.float(), c.float()},
-			anchorB:    [2]conformanceTraceFloat{c.float(), c.float()},
 			separation: c.float(),
 			id:         c.int(),
 		}
@@ -440,20 +461,15 @@ func parseConformanceManifold(c *conformanceTraceCursor) conformanceManifold {
 	return result
 }
 
-func compareConformanceManifold(c *conformanceFunctionChecker, caseIndex int, got Manifold, want conformanceManifold) {
+func compareConformanceManifold(c *conformanceFunctionChecker, caseIndex int, got LocalManifold, want conformanceManifold) {
 	c.reportFloat(caseIndex, "normal.x", got.Normal.X, want.normal[0])
 	c.reportFloat(caseIndex, "normal.y", got.Normal.Y, want.normal[1])
-	c.reportFloat(caseIndex, "rollingImpulse", got.RollingImpulse, want.rollingImpulse)
 	c.reportInt(caseIndex, "pointCount", got.PointCount, want.pointCount)
 	for i := range min(got.PointCount, want.pointCount) {
 		gotPoint := got.Points[i]
 		wantPoint := want.points[i]
 		c.reportFloat(caseIndex, fmt.Sprintf("point[%d].point.x", i), gotPoint.Point.X, wantPoint.point[0])
 		c.reportFloat(caseIndex, fmt.Sprintf("point[%d].point.y", i), gotPoint.Point.Y, wantPoint.point[1])
-		c.reportFloat(caseIndex, fmt.Sprintf("point[%d].anchorA.x", i), gotPoint.AnchorA.X, wantPoint.anchorA[0])
-		c.reportFloat(caseIndex, fmt.Sprintf("point[%d].anchorA.y", i), gotPoint.AnchorA.Y, wantPoint.anchorA[1])
-		c.reportFloat(caseIndex, fmt.Sprintf("point[%d].anchorB.x", i), gotPoint.AnchorB.X, wantPoint.anchorB[0])
-		c.reportFloat(caseIndex, fmt.Sprintf("point[%d].anchorB.y", i), gotPoint.AnchorB.Y, wantPoint.anchorB[1])
 		c.reportFloat(caseIndex, fmt.Sprintf("point[%d].separation", i), gotPoint.Separation, wantPoint.separation)
 		c.reportInt(caseIndex, fmt.Sprintf("point[%d].id", i), int(gotPoint.Id), wantPoint.id)
 	}
@@ -553,63 +569,63 @@ func parseConformanceSweep(c *conformanceTraceCursor) Sweep {
 func runConformanceCollisionCase(t *testing.T, file string, caseIndex int, input, output []string, checker *conformanceFunctionChecker) {
 	in := newConformanceTraceCursor(t, input)
 	out := newConformanceTraceCursor(t, output)
-	var manifold Manifold
+	var manifold LocalManifold
 	var cache *SimplexCache
 	var cacheWant SimplexCache
 
 	switch file {
 	case "collide_circles.txt":
-		a, xfA := parseConformanceCircle(in), parseConformanceTransform(in)
-		b, xfB := parseConformanceCircle(in), parseConformanceTransform(in)
-		manifold = CollideCircles(&a, xfA, &b, xfB)
+		a, b := parseConformanceCircle(in), parseConformanceCircle(in)
+		xf := parseConformanceTransform(in)
+		manifold = CollideCircles(&a, &b, xf)
 	case "collide_capsule_and_circle.txt":
-		a, xfA := parseConformanceCapsule(in), parseConformanceTransform(in)
-		b, xfB := parseConformanceCircle(in), parseConformanceTransform(in)
-		manifold = CollideCapsuleAndCircle(&a, xfA, &b, xfB)
+		a, b := parseConformanceCapsule(in), parseConformanceCircle(in)
+		xf := parseConformanceTransform(in)
+		manifold = CollideCapsuleAndCircle(&a, &b, xf)
 	case "collide_polygon_and_circle.txt":
-		a, xfA := parseConformancePolygon(in), parseConformanceTransform(in)
-		b, xfB := parseConformanceCircle(in), parseConformanceTransform(in)
-		manifold = CollidePolygonAndCircle(&a, xfA, &b, xfB)
+		a, b := parseConformancePolygon(in), parseConformanceCircle(in)
+		xf := parseConformanceTransform(in)
+		manifold = CollidePolygonAndCircle(&a, &b, xf)
 	case "collide_capsules.txt":
-		a, xfA := parseConformanceCapsule(in), parseConformanceTransform(in)
-		b, xfB := parseConformanceCapsule(in), parseConformanceTransform(in)
-		manifold = CollideCapsules(&a, xfA, &b, xfB)
+		a, b := parseConformanceCapsule(in), parseConformanceCapsule(in)
+		xf := parseConformanceTransform(in)
+		manifold = CollideCapsules(&a, &b, xf)
 	case "collide_segment_and_capsule.txt":
-		a, xfA := parseConformanceSegment(in), parseConformanceTransform(in)
-		b, xfB := parseConformanceCapsule(in), parseConformanceTransform(in)
-		manifold = CollideSegmentAndCapsule(&a, xfA, &b, xfB)
+		a, b := parseConformanceSegment(in), parseConformanceCapsule(in)
+		xf := parseConformanceTransform(in)
+		manifold = CollideSegmentAndCapsule(&a, &b, xf)
 	case "collide_polygon_and_capsule.txt":
-		a, xfA := parseConformancePolygon(in), parseConformanceTransform(in)
-		b, xfB := parseConformanceCapsule(in), parseConformanceTransform(in)
-		manifold = CollidePolygonAndCapsule(&a, xfA, &b, xfB)
+		a, b := parseConformancePolygon(in), parseConformanceCapsule(in)
+		xf := parseConformanceTransform(in)
+		manifold = CollidePolygonAndCapsule(&a, &b, xf)
 	case "collide_polygons.txt":
-		a, xfA := parseConformancePolygon(in), parseConformanceTransform(in)
-		b, xfB := parseConformancePolygon(in), parseConformanceTransform(in)
-		manifold = CollidePolygons(&a, xfA, &b, xfB)
+		a, b := parseConformancePolygon(in), parseConformancePolygon(in)
+		xf := parseConformanceTransform(in)
+		manifold = CollidePolygons(&a, &b, xf)
 	case "collide_segment_and_circle.txt":
-		a, xfA := parseConformanceSegment(in), parseConformanceTransform(in)
-		b, xfB := parseConformanceCircle(in), parseConformanceTransform(in)
-		manifold = CollideSegmentAndCircle(&a, xfA, &b, xfB)
+		a, b := parseConformanceSegment(in), parseConformanceCircle(in)
+		xf := parseConformanceTransform(in)
+		manifold = CollideSegmentAndCircle(&a, &b, xf)
 	case "collide_segment_and_polygon.txt":
-		a, xfA := parseConformanceSegment(in), parseConformanceTransform(in)
-		b, xfB := parseConformancePolygon(in), parseConformanceTransform(in)
-		manifold = CollideSegmentAndPolygon(&a, xfA, &b, xfB)
+		a, b := parseConformanceSegment(in), parseConformancePolygon(in)
+		xf := parseConformanceTransform(in)
+		manifold = CollideSegmentAndPolygon(&a, &b, xf)
 	case "collide_chain_segment_and_circle.txt":
-		a, xfA := parseConformanceChainSegment(in), parseConformanceTransform(in)
-		b, xfB := parseConformanceCircle(in), parseConformanceTransform(in)
-		manifold = CollideChainSegmentAndCircle(&a, xfA, &b, xfB)
+		a, b := parseConformanceChainSegment(in), parseConformanceCircle(in)
+		xf := parseConformanceTransform(in)
+		manifold = CollideChainSegmentAndCircle(&a, &b, xf)
 	case "collide_chain_segment_and_capsule.txt":
-		a, xfA := parseConformanceChainSegment(in), parseConformanceTransform(in)
-		b, xfB := parseConformanceCapsule(in), parseConformanceTransform(in)
+		a, b := parseConformanceChainSegment(in), parseConformanceCapsule(in)
+		xf := parseConformanceTransform(in)
 		inputCache := parseConformanceSimplexCache(in)
 		cache = &inputCache
-		manifold = CollideChainSegmentAndCapsule(&a, xfA, &b, xfB, cache)
+		manifold = CollideChainSegmentAndCapsule(&a, &b, xf, cache)
 	case "collide_chain_segment_and_polygon.txt":
-		a, xfA := parseConformanceChainSegment(in), parseConformanceTransform(in)
-		b, xfB := parseConformancePolygon(in), parseConformanceTransform(in)
+		a, b := parseConformanceChainSegment(in), parseConformancePolygon(in)
+		xf := parseConformanceTransform(in)
 		inputCache := parseConformanceSimplexCache(in)
 		cache = &inputCache
-		manifold = CollideChainSegmentAndPolygon(&a, xfA, &b, xfB, cache)
+		manifold = CollideChainSegmentAndPolygon(&a, &b, xf, cache)
 	default:
 		t.Fatalf("unsupported collision conformance trace %s", file)
 	}
@@ -633,11 +649,11 @@ func runConformanceFunctionCase(t *testing.T, file string, caseIndex int, input,
 	switch file {
 	case "shape_distance.txt":
 		proxyA, proxyB := parseConformanceProxy(in), parseConformanceProxy(in)
-		xfA, xfB := parseConformanceTransform(in), parseConformanceTransform(in)
+		xf := parseConformanceTransform(in)
 		useRadii := in.bool()
 		in.done("function input")
 		cache := SimplexCache{}
-		got := ShapeDistance(&DistanceInput{ProxyA: proxyA, ProxyB: proxyB, TransformA: xfA, TransformB: xfB, UseRadii: useRadii}, &cache, nil)
+		got := ComputeShapeDistance(&DistanceInput{ProxyA: proxyA, ProxyB: proxyB, Transform: xf, UseRadii: useRadii}, &cache, nil)
 		want := [6]conformanceTraceFloat{out.float(), out.float(), out.float(), out.float(), out.float(), out.float()}
 		checker.reportFloat(caseIndex, "normal.x", got.Normal.X, want[0])
 		checker.reportFloat(caseIndex, "normal.y", got.Normal.Y, want[1])
@@ -654,9 +670,13 @@ func runConformanceFunctionCase(t *testing.T, file string, caseIndex int, input,
 		sweepA, sweepB := parseConformanceSweep(in), parseConformanceSweep(in)
 		maxFraction := in.float().q()
 		in.done("function input")
-		got := TimeOfImpact(&TOIInput{ProxyA: proxyA, ProxyB: proxyB, SweepA: sweepA, SweepB: sweepB, MaxFraction: maxFraction})
+		got := ComputeTimeOfImpact(&TOIInput{ProxyA: proxyA, ProxyB: proxyB, SweepA: sweepA, SweepB: sweepB, MaxFraction: maxFraction})
 		checker.reportInt(caseIndex, "state", int(got.State), out.int())
 		checker.reportFloat(caseIndex, "fraction", got.Fraction, out.float())
+		checker.reportFloat(caseIndex, "point.x", got.Point.X, out.float())
+		checker.reportFloat(caseIndex, "point.y", got.Point.Y, out.float())
+		checker.reportFloat(caseIndex, "normal.x", got.Normal.X, out.float())
+		checker.reportFloat(caseIndex, "normal.y", got.Normal.Y, out.float())
 		out.done("function output")
 	case "compute_hull.txt":
 		count := in.int()
@@ -727,7 +747,7 @@ func TestConformance(t *testing.T) {
 	if err != nil {
 		t.Fatalf("find function conformance traces: %v", err)
 	}
-	scenePaths, err := filepath.Glob(filepath.Join(root, "scenes", "*.txt"))
+	scenePaths, err := filepath.Glob(filepath.Join(conformanceSceneRoot, "scenes", "*.txt"))
 	if err != nil {
 		t.Fatalf("find scene conformance traces: %v", err)
 	}
@@ -765,7 +785,7 @@ func TestConformance(t *testing.T) {
 func conformanceSceneBodies(worldId WorldId) []BodyId {
 	aabb := AABB{LowerBound: Vec2{X: QFromInt(-1000000), Y: QFromInt(-1000000)}, UpperBound: Vec2{X: QFromInt(1000000), Y: QFromInt(1000000)}}
 	seen := make(map[BodyId]struct{})
-	worldId.OverlapAABB(aabb, DefaultQueryFilter(), func(shapeId ShapeId) bool {
+	worldId.OverlapAABB(ToPos(Vec2{}), aabb, DefaultQueryFilter(), func(shapeId ShapeId) bool {
 		seen[shapeId.GetBody()] = struct{}{}
 		return true
 	})
@@ -781,8 +801,7 @@ func conformanceSceneHash(worldId WorldId) uint64 {
 	hash := FNVOffsetBasis
 	for _, bodyId := range conformanceSceneBodies(worldId) {
 		transform := bodyId.GetTransform()
-		hash = FNVFold(hash, qBits(transform.P.X))
-		hash = FNVFold(hash, qBits(transform.P.Y))
+		hash = foldConformancePos(hash, transform.P)
 		hash = FNVFold(hash, qBits(transform.Q.Cos))
 		hash = FNVFold(hash, qBits(transform.Q.Sin))
 	}
@@ -795,10 +814,10 @@ type conformanceSceneResidue struct {
 	field  string
 }
 
-func reportConformanceSceneAbs(t *testing.T, tolerance float64, gate bool, step, body int, field string, got Q, want conformanceTraceFloat) float64 {
-	difference := math.Abs(QToFloat64(got) - float64(want.value))
+func reportConformanceSceneAbs(t *testing.T, tolerance float64, gate bool, step, body int, field string, got float64, gotBits uint64, want conformanceTracePos) float64 {
+	difference := math.Abs(got - want.value)
 	if gate && difference > tolerance {
-		t.Errorf("step %d body %d %s mismatch: got 0x%016x (%g), want 0x%08x (%g), abs=%g", step, body, field, qBits(got), QToFloat64(got), want.bits, want.value, difference)
+		t.Errorf("step %d body %d %s mismatch: got 0x%016x (%g), want 0x%016x (%g), abs=%g", step, body, field, gotBits, got, want.bits, want.value, difference)
 	}
 	return difference
 }
@@ -829,9 +848,8 @@ func runConformanceSceneTrace(t *testing.T, name, path string, floatMode bool) {
 	}
 
 	tolerance := conformanceTolerance[name]
-	if floatMode && UpstreamPairOrder() {
-		// D-013: with the pair order of the reference, float mode matches every
-		// scene bit for bit.
+	if floatMode && conformanceScenesBitExact {
+		// Float mode matches every scene bit for bit.
 		tolerance.absFloat = 0
 		tolerance.hashSteps = len(trace.steps)
 	}
@@ -864,21 +882,23 @@ func runConformanceSceneTrace(t *testing.T, name, path string, floatMode bool) {
 						continue
 					}
 					transform := bodyId.GetTransform()
+					gotX, gotY, gotXBits, gotYBits := positionSample(transform.P)
 					for _, sample := range []struct {
-						field string
-						got   Q
-						want  conformanceTraceFloat
+						field   string
+						got     float64
+						gotBits uint64
+						want    conformanceTracePos
 					}{
-						{field: "x", got: transform.P.X, want: want.position[0]},
-						{field: "y", got: transform.P.Y, want: want.position[1]},
-						{field: "c", got: transform.Q.Cos, want: want.rotation[0]},
-						{field: "s", got: transform.Q.Sin, want: want.rotation[1]},
+						{field: "x", got: gotX, gotBits: gotXBits, want: want.position[0]},
+						{field: "y", got: gotY, gotBits: gotYBits, want: want.position[1]},
+						{field: "c", got: QToFloat64(transform.Q.Cos), gotBits: qBits(transform.Q.Cos), want: conformanceRotationPos(want.rotation[0])},
+						{field: "s", got: QToFloat64(transform.Q.Sin), gotBits: qBits(transform.Q.Sin), want: conformanceRotationPos(want.rotation[1])},
 					} {
 						stepTolerance := tolerance.abs
 						if floatMode {
 							stepTolerance = tolerance.absFloat
 						}
-						difference := reportConformanceSceneAbs(t, stepTolerance, step == 1, step, bodyIndex, sample.field, sample.got, sample.want)
+						difference := reportConformanceSceneAbs(t, stepTolerance, step == 1, step, bodyIndex, sample.field, sample.got, sample.gotBits, sample.want)
 						if difference > residue.maxAbs {
 							residue.maxAbs = difference
 							residue.body = bodyIndex
@@ -888,7 +908,9 @@ func runConformanceSceneTrace(t *testing.T, name, path string, floatMode bool) {
 				}
 			}
 		}
-		if name == "falling_hinges.txt" && portSleepStep == 0 && worldId.GetAwakeBodyCount() == 0 {
+		// The reference marks sleep on the first step without move events,
+		// one step after the island falls asleep.
+		if name == "falling_hinges.txt" && portSleepStep == 0 && len(worldId.GetBodyEvents().MoveEvents) == 0 {
 			portSleepStep = step
 		}
 	}

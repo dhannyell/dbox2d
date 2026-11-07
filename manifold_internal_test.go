@@ -28,12 +28,12 @@ func TestClipSegmentsLerpsBothEnds(t *testing.T) {
 
 	sep := QHalf()
 	p0 := manifold.Points[0]
-	if p0.AnchorA != qv("0", "0.25") || !p0.Separation.Eq(sep) {
-		t.Fatalf("point 0 %v separation %v, want (0, 0.25) and 0.5", p0.AnchorA, p0.Separation)
+	if p0.Point != qv("0", "0.25") || !p0.Separation.Eq(sep) {
+		t.Fatalf("point 0 %v separation %v, want (0, 0.25) and 0.5", p0.Point, p0.Separation)
 	}
 	p1 := manifold.Points[1]
-	if p1.AnchorA != qv("-2", "0.25") || !p1.Separation.Eq(sep) {
-		t.Fatalf("point 1 %v separation %v, want (-2, 0.25) and 0.5", p1.AnchorA, p1.Separation)
+	if p1.Point != qv("-2", "0.25") || !p1.Separation.Eq(sep) {
+		t.Fatalf("point 1 %v separation %v, want (-2, 0.25) and 0.5", p1.Point, p1.Separation)
 	}
 	if p0.Id != makeId(0, 1) || p1.Id != makeId(1, 0) {
 		t.Fatalf("ids %d, %d, want %d, %d", p0.Id, p1.Id, makeId(0, 1), makeId(1, 0))
@@ -57,8 +57,8 @@ func TestClipSegmentsKeepsADegeneratePoint(t *testing.T) {
 	}
 	for i := range manifold.PointCount {
 		p := manifold.Points[i]
-		if p.AnchorA != qv("-1", "0") || !p.Separation.Eq(zero) {
-			t.Fatalf("point %d %v separation %v, want (-1, 0) and 0", i, p.AnchorA, p.Separation)
+		if p.Point != qv("-1", "0") || !p.Separation.Eq(zero) {
+			t.Fatalf("point %d %v separation %v, want (-1, 0) and 0", i, p.Point, p.Separation)
 		}
 	}
 }

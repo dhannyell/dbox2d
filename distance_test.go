@@ -62,7 +62,7 @@ func TestSegmentDistanceMatchesTheReference(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			result := b2.SegmentDistance(c.p1, c.q1, c.p2, c.q2)
+			result := b2.ComputeSegmentDistance(c.p1, c.q1, c.p2, c.q2)
 			if !result.Fraction1.Eq(c.f1) || !result.Fraction2.Eq(c.f2) {
 				t.Fatalf("fractions (%v, %v), want (%v, %v)",
 					result.Fraction1, result.Fraction2, c.f1, c.f2)
@@ -83,7 +83,7 @@ func TestSegmentDistanceHandlesDegenerateSegments(t *testing.T) {
 
 	// Segment 2 is a point past the end of segment 1: f1 clamps to one.
 	point := vec(3, 4)
-	result := b2.SegmentDistance(vec(0, 0), vec(2, 0), point, point)
+	result := b2.ComputeSegmentDistance(vec(0, 0), vec(2, 0), point, point)
 	if !result.Fraction1.Eq(one) || !result.Fraction2.Eq(zero) {
 		t.Fatalf("fractions (%v, %v), want (1, 0)", result.Fraction1, result.Fraction2)
 	}
@@ -92,7 +92,7 @@ func TestSegmentDistanceHandlesDegenerateSegments(t *testing.T) {
 	}
 
 	// Both segments are points: the distance is between the points.
-	result = b2.SegmentDistance(vec(1, 2), vec(1, 2), vec(4, 6), vec(4, 6))
+	result = b2.ComputeSegmentDistance(vec(1, 2), vec(1, 2), vec(4, 6), vec(4, 6))
 	if !result.Fraction1.Eq(zero) || !result.Fraction2.Eq(zero) {
 		t.Fatalf("fractions (%v, %v), want (0, 0)", result.Fraction1, result.Fraction2)
 	}
@@ -130,11 +130,10 @@ func boxProxy(halfWidth, halfHeight int, center b2.Vec2) b2.ShapeProxy {
 
 func identityDistanceInput(a, b b2.ShapeProxy, useRadii bool) b2.DistanceInput {
 	return b2.DistanceInput{
-		ProxyA:     a,
-		ProxyB:     b,
-		TransformA: b2.TransformIdentity(),
-		TransformB: b2.TransformIdentity(),
-		UseRadii:   useRadii,
+		ProxyA:    a,
+		ProxyB:    b,
+		Transform: b2.TransformIdentity(),
+		UseRadii:  useRadii,
 	}
 }
 
@@ -146,7 +145,7 @@ func TestShapeDistanceMatchesHandCases(t *testing.T) {
 
 	t.Run("boxes", func(t *testing.T) {
 		input := identityDistanceInput(boxProxy(1, 1, vec(0, 0)), boxProxy(1, 1, vec(3, 0)), false)
-		out := b2.ShapeDistance(&input, &cache, nil)
+		out := b2.ComputeShapeDistance(&input, &cache, nil)
 		if !out.Distance.Eq(b2.QOne()) || !out.Normal.X.Eq(b2.QOne()) || !out.Normal.Y.Eq(b2.QZero()) {
 			t.Fatalf("distance %v normal %v, want 1 and (1, 0)", out.Distance, out.Normal)
 		}
@@ -163,7 +162,7 @@ func TestShapeDistanceMatchesHandCases(t *testing.T) {
 		a := b2.MakeProxy([]b2.Vec2{vec(0, 0)}, half)
 		b := b2.MakeProxy([]b2.Vec2{vec(3, 0)}, half)
 		input := identityDistanceInput(a, b, true)
-		out := b2.ShapeDistance(&input, &cache, nil)
+		out := b2.ComputeShapeDistance(&input, &cache, nil)
 		if !out.Distance.Eq(b2.QFromInt(2)) {
 			t.Fatalf("distance %v, want 2", out.Distance)
 		}
@@ -179,7 +178,7 @@ func TestShapeDistanceMatchesHandCases(t *testing.T) {
 		b := b2.MakeProxy([]b2.Vec2{vec(1, -1), vec(1, 1)}, b2.QZero())
 		input := identityDistanceInput(a, b, false)
 		var simplexes [4]b2.Simplex
-		out := b2.ShapeDistance(&input, &cache, simplexes[:])
+		out := b2.ComputeShapeDistance(&input, &cache, simplexes[:])
 		if !out.Distance.Eq(b2.QOne()) || !out.PointB.X.Eq(b2.QOne()) || !out.PointB.Y.Eq(b2.QZero()) {
 			t.Fatalf("distance %v point B %v, want 1 and (1, 0)", out.Distance, out.PointB)
 		}
@@ -199,7 +198,7 @@ func TestShapeDistanceReportsOverlap(t *testing.T) {
 	t.Run("triangle contains the origin", func(t *testing.T) {
 		var cache b2.SimplexCache
 		input := identityDistanceInput(boxProxy(1, 1, vec(0, 0)), boxProxy(1, 1, vecQ("0.5", "0.25")), false)
-		out := b2.ShapeDistance(&input, &cache, nil)
+		out := b2.ComputeShapeDistance(&input, &cache, nil)
 		if !out.Distance.Eq(b2.QZero()) {
 			t.Fatalf("distance %v, want 0", out.Distance)
 		}
@@ -212,7 +211,7 @@ func TestShapeDistanceReportsOverlap(t *testing.T) {
 		a := b2.MakeProxy([]b2.Vec2{vec(0, 0)}, b2.QZero())
 		b := b2.MakeProxy([]b2.Vec2{vec(-1, 0), vec(1, 0)}, b2.QZero())
 		input := identityDistanceInput(a, b, false)
-		out := b2.ShapeDistance(&input, &cache, nil)
+		out := b2.ComputeShapeDistance(&input, &cache, nil)
 		if !out.Distance.Eq(b2.QZero()) || !out.PointA.X.Eq(b2.QZero()) {
 			t.Fatalf("distance %v point A %v, want 0 and the origin", out.Distance, out.PointA)
 		}
@@ -224,10 +223,10 @@ func TestShapeDistanceReportsOverlap(t *testing.T) {
 func TestShapeDistanceWarmStartsFromTheCache(t *testing.T) {
 	var cache b2.SimplexCache
 	input := identityDistanceInput(boxProxy(1, 2, vec(0, 0)), boxProxy(2, 1, vec(4, 3)), false)
-	input.TransformB.Q = b2.MakeRot(b2.QFromRatio(1, 8))
+	input.Transform.Q = b2.MakeRot(b2.QFromRatio(1, 8))
 
-	cold := b2.ShapeDistance(&input, &cache, nil)
-	warm := b2.ShapeDistance(&input, &cache, nil)
+	cold := b2.ComputeShapeDistance(&input, &cache, nil)
+	warm := b2.ComputeShapeDistance(&input, &cache, nil)
 
 	if !cold.Distance.Eq(warm.Distance) || cold.PointA != warm.PointA {
 		t.Fatalf("cold %+v, warm %+v", cold, warm)
@@ -260,11 +259,10 @@ func randomDistanceInput(rng *rand.Rand) b2.DistanceInput {
 		}
 	}
 	return b2.DistanceInput{
-		ProxyA:     proxy(),
-		ProxyB:     proxy(),
-		TransformA: transform(),
-		TransformB: transform(),
-		UseRadii:   true,
+		ProxyA:    proxy(),
+		ProxyB:    proxy(),
+		Transform: b2.InvMulTransforms(transform(), transform()),
+		UseRadii:  true,
 	}
 }
 
@@ -280,7 +278,7 @@ func TestShapeDistanceConvergesOnRandomPairs(t *testing.T) {
 	for range 1000 {
 		input := randomDistanceInput(rng)
 		var cache b2.SimplexCache
-		out := b2.ShapeDistance(&input, &cache, nil)
+		out := b2.ComputeShapeDistance(&input, &cache, nil)
 
 		if out.Iterations > 20 {
 			t.Fatalf("iterations %d on %+v", out.Iterations, input)
@@ -337,8 +335,7 @@ func TestShapeCastMatchesHandCases(t *testing.T) {
 		return b2.ShapeCastPairInput{
 			ProxyA:       a,
 			ProxyB:       b,
-			TransformA:   b2.TransformIdentity(),
-			TransformB:   b2.Transform{P: positionB, Q: b2.RotIdentity()},
+			Transform:    b2.Transform{P: positionB, Q: b2.RotIdentity()},
 			TranslationB: translation,
 			MaxFraction:  one,
 		}
@@ -346,7 +343,7 @@ func TestShapeCastMatchesHandCases(t *testing.T) {
 
 	t.Run("hit", func(t *testing.T) {
 		input := pair(vec(5, 0), vec(-10, 0))
-		out := b2.ShapeCast(&input)
+		out := b2.CastShape(&input)
 		if !out.Hit {
 			t.Fatal("the sweep missed")
 		}
@@ -366,21 +363,21 @@ func TestShapeCastMatchesHandCases(t *testing.T) {
 
 	t.Run("miss", func(t *testing.T) {
 		input := pair(vec(5, 0), vec(0, 10))
-		if out := b2.ShapeCast(&input); out.Hit {
+		if out := b2.CastShape(&input); out.Hit {
 			t.Fatalf("a parallel sweep hit at %v", out.Fraction)
 		}
 	})
 
 	t.Run("out of range", func(t *testing.T) {
 		input := pair(vec(5, 0), vec(-1, 0))
-		if out := b2.ShapeCast(&input); out.Hit {
+		if out := b2.CastShape(&input); out.Hit {
 			t.Fatalf("a short sweep hit at %v", out.Fraction)
 		}
 	})
 
 	t.Run("initial overlap", func(t *testing.T) {
 		input := pair(vec(1, 0), vec(-10, 0))
-		out := b2.ShapeCast(&input)
+		out := b2.CastShape(&input)
 		if !out.Hit || !out.Fraction.Eq(b2.QZero()) || out.Normal != vec(0, 0) {
 			t.Fatalf("overlap reported %+v, want a hit at zero with no normal", out)
 		}
@@ -393,13 +390,12 @@ func TestShapeCastMatchesHandCases(t *testing.T) {
 		input := b2.ShapeCastPairInput{
 			ProxyA:       b2.MakeProxy([]b2.Vec2{vec(0, 0)}, half),
 			ProxyB:       b2.MakeProxy([]b2.Vec2{vec(0, 0)}, half),
-			TransformA:   b2.TransformIdentity(),
-			TransformB:   b2.Transform{P: vecQ("0.9", "0"), Q: b2.RotIdentity()},
+			Transform:    b2.Transform{P: vecQ("0.9", "0"), Q: b2.RotIdentity()},
 			TranslationB: vec(-1, 0),
 			MaxFraction:  one,
 			CanEncroach:  true,
 		}
-		out := b2.ShapeCast(&input)
+		out := b2.CastShape(&input)
 		if !out.Hit || !b2.QZero().Less(out.Fraction) || !out.Fraction.Less(b2.QMustParse("0.01")) {
 			t.Fatalf("encroach reported %+v, want a small positive fraction", out)
 		}
@@ -422,13 +418,12 @@ func toiPair(a, b b2.ShapeProxy, c1, c2 b2.Vec2, q1, q2 b2.Rot) b2.TOIInput {
 // the radii, which is the quantity the solver drives to its target.
 func toiGap(input *b2.TOIInput, fraction b2.Q) b2.Q {
 	distanceInput := b2.DistanceInput{
-		ProxyA:     input.ProxyA,
-		ProxyB:     input.ProxyB,
-		TransformA: b2.GetSweepTransform(&input.SweepA, fraction),
-		TransformB: b2.GetSweepTransform(&input.SweepB, fraction),
+		ProxyA:    input.ProxyA,
+		ProxyB:    input.ProxyB,
+		Transform: b2.InvMulTransforms(b2.GetSweepTransform(&input.SweepA, fraction), b2.GetSweepTransform(&input.SweepB, fraction)),
 	}
 	var cache b2.SimplexCache
-	return b2.ShapeDistance(&distanceInput, &cache, nil).Distance
+	return b2.ComputeShapeDistance(&distanceInput, &cache, nil).Distance
 }
 
 // toiTarget returns the separation the solver seeks and the band around it.
@@ -448,7 +443,7 @@ func TestTimeOfImpactMatchesHandCases(t *testing.T) {
 
 	t.Run("hit", func(t *testing.T) {
 		input := toiPair(a, b, vec(5, 0), vec(-5, 0), identity, identity)
-		out := b2.TimeOfImpact(&input)
+		out := b2.ComputeTimeOfImpact(&input)
 		if out.State != b2.TOIStateHit {
 			t.Fatalf("state %v, want a hit", out.State)
 		}
@@ -461,7 +456,7 @@ func TestTimeOfImpactMatchesHandCases(t *testing.T) {
 
 	t.Run("separated", func(t *testing.T) {
 		input := toiPair(a, b, vec(5, 0), vec(10, 0), identity, identity)
-		out := b2.TimeOfImpact(&input)
+		out := b2.ComputeTimeOfImpact(&input)
 		if out.State != b2.TOIStateSeparated || !out.Fraction.Eq(b2.QOne()) {
 			t.Fatalf("state %v fraction %v, want separated at 1", out.State, out.Fraction)
 		}
@@ -470,7 +465,7 @@ func TestTimeOfImpactMatchesHandCases(t *testing.T) {
 	t.Run("out of range", func(t *testing.T) {
 		input := toiPair(a, b, vec(5, 0), vec(-5, 0), identity, identity)
 		input.MaxFraction = b2.QFromRatio(1, 4)
-		out := b2.TimeOfImpact(&input)
+		out := b2.ComputeTimeOfImpact(&input)
 		if out.State != b2.TOIStateSeparated || !out.Fraction.Eq(input.MaxFraction) {
 			t.Fatalf("state %v fraction %v, want separated at the max fraction", out.State, out.Fraction)
 		}
@@ -478,7 +473,7 @@ func TestTimeOfImpactMatchesHandCases(t *testing.T) {
 
 	t.Run("overlapped", func(t *testing.T) {
 		input := toiPair(a, b, vec(0, 0), vec(5, 0), identity, identity)
-		out := b2.TimeOfImpact(&input)
+		out := b2.ComputeTimeOfImpact(&input)
 		if out.State != b2.TOIStateOverlapped || !out.Fraction.Eq(b2.QZero()) {
 			t.Fatalf("state %v fraction %v, want overlapped at 0", out.State, out.Fraction)
 		}
@@ -487,7 +482,7 @@ func TestTimeOfImpactMatchesHandCases(t *testing.T) {
 	t.Run("touching", func(t *testing.T) {
 		// The gap starts at half a slop, inside the target band.
 		input := toiPair(a, b, vecQ("2.0025", "0"), vec(-5, 0), identity, identity)
-		out := b2.TimeOfImpact(&input)
+		out := b2.ComputeTimeOfImpact(&input)
 		if out.State != b2.TOIStateHit || !out.Fraction.Eq(b2.QZero()) {
 			t.Fatalf("state %v fraction %v, want a hit at 0", out.State, out.Fraction)
 		}
@@ -508,7 +503,7 @@ func TestTimeOfImpactMatchesHandCases(t *testing.T) {
 			SweepB:      b2.Sweep{Q1: identity, Q2: b2.MakeRot(b2.QFromRatio(1, 4))},
 			MaxFraction: b2.QOne(),
 		}
-		out := b2.TimeOfImpact(&input)
+		out := b2.ComputeTimeOfImpact(&input)
 		if out.State != b2.TOIStateHit {
 			t.Fatalf("state %v, want a hit", out.State)
 		}
@@ -560,7 +555,7 @@ func TestTimeOfImpactConvergesOnRandomSweeps(t *testing.T) {
 
 	for range 1000 {
 		input := randomTOIInput(rng)
-		out := b2.TimeOfImpact(&input)
+		out := b2.ComputeTimeOfImpact(&input)
 		target, tolerance := toiTarget(&input)
 
 		switch out.State {
@@ -626,12 +621,12 @@ func TestIterativeGeometryRejectsInvalidInput(t *testing.T) {
 	t.Run("empty proxy", func(t *testing.T) {
 		input := identityDistanceInput(boxProxy(1, 1, vec(0, 0)), b2.ShapeProxy{}, false)
 		var cache b2.SimplexCache
-		expectPanic(t, func() { b2.ShapeDistance(&input, &cache, nil) })
+		expectPanic(t, func() { b2.ComputeShapeDistance(&input, &cache, nil) })
 	})
 
 	t.Run("non-unit rotation", func(t *testing.T) {
 		input := toiPair(boxProxy(1, 1, vec(0, 0)), boxProxy(1, 1, vec(0, 0)), vec(5, 0), vec(-5, 0), b2.RotIdentity(), b2.Rot{})
-		expectPanic(t, func() { b2.TimeOfImpact(&input) })
+		expectPanic(t, func() { b2.ComputeTimeOfImpact(&input) })
 	})
 }
 
@@ -657,12 +652,11 @@ func TestShapeCastNeverPanicsOnAGrid(t *testing.T) {
 				input := b2.ShapeCastPairInput{
 					ProxyA:       proxyA,
 					ProxyB:       proxyB,
-					TransformA:   b2.TransformIdentity(),
-					TransformB:   b2.Transform{P: start, Q: b2.RotIdentity()},
+					Transform:    b2.Transform{P: start, Q: b2.RotIdentity()},
 					TranslationB: direction,
 					MaxFraction:  one,
 				}
-				out := b2.ShapeCast(&input)
+				out := b2.CastShape(&input)
 				if out.Fraction.Less(b2.QZero()) || one.Less(out.Fraction) {
 					t.Fatalf("start %v direction %v: fraction %v", start, direction, out.Fraction)
 				}

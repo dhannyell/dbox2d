@@ -1,20 +1,43 @@
 package b2
 
-// This file corresponds to src/motor_joint.c of the reference. The API
-// takes the angular offset in turns (D-004); the joint keeps it in the angle
-// unit of the mode, and the separation enters the bias in radians.
+// This file corresponds to src/motor_joint.c of the reference. The motor
+// joint drives body B relative to body A with a velocity constraint and a
+// spring, each with its own force and torque limit. The API takes the
+// angular velocity in turns per second (D-004); the joint keeps it in the
+// angle unit of the mode.
 
 // getMotorJointForce reports the constraint force of the last step. It
 // corresponds to b2GetMotorJointForce in src/motor_joint.c.
 func getMotorJointForce(w *world, base *jointSim) Vec2 {
-	force := base.motor().linearImpulse.Mul(w.invH)
-	return force
+	joint := base.motor()
+	return joint.linearVelocityImpulse.Add(joint.linearSpringImpulse).Mul(w.invH)
 }
 
 // getMotorJointTorque reports the constraint torque of the last step. It
 // corresponds to b2GetMotorJointTorque in src/motor_joint.c.
 func getMotorJointTorque(w *world, base *jointSim) Q {
-	return w.invH.Mul(base.motor().angularImpulse)
+	joint := base.motor()
+	return w.invH.Mul(joint.angularVelocityImpulse.Add(joint.angularSpringImpulse))
+}
+
+// motorLinearMass returns the inverse of the point constraint mass.
+func motorLinearMass(mA, mB, iA, iB Q, rA, rB Vec2) Mat22 {
+	var kl Mat22
+	kl.Cx.X = mA.Add(mB).Add(rA.Y.Mul(rA.Y).Mul(iA)).Add(rB.Y.Mul(rB.Y).Mul(iB))
+	kl.Cx.Y = rA.Y.Neg().Mul(rA.X).Mul(iA).Sub(rB.Y.Mul(rB.X).Mul(iB))
+	kl.Cy.X = kl.Cx.Y
+	kl.Cy.Y = mA.Add(mB).Add(rA.X.Mul(rA.X).Mul(iA)).Add(rB.X.Mul(rB.X).Mul(iB))
+	return GetInverse22(kl)
+}
+
+// clampImpulseLength scales an accumulated impulse down to maxImpulse.
+func clampImpulseLength(impulse Vec2, maxImpulse Q) Vec2 {
+	if maxImpulse.Mul(maxImpulse).Less(impulse.LenSq()) {
+		impulse = impulse.Normalize()
+		impulse.X = impulse.X.Mul(maxImpulse)
+		impulse.Y = impulse.Y.Mul(maxImpulse)
+	}
+	return impulse
 }
 
 // Point-to-point constraint
@@ -37,63 +60,30 @@ func prepareMotorJoint(base *jointSim, context *stepContext) {
 	if base.jointType != MotorJoint {
 		panic("dbox2d: the joint is not a motor joint")
 	}
-
-	// chase body id to the solver set where the body lives
-	idA := base.bodyIdA
-	idB := base.bodyIdB
-
-	w := context.world
-
-	bodyA := &w.bodies[idA]
-	bodyB := &w.bodies[idB]
-
-	if bodyA.setIndex != awakeSet && bodyB.setIndex != awakeSet {
-		panic("dbox2d: neither body of the joint is awake")
-	}
-
-	setA := &w.solverSets[bodyA.setIndex]
-	setB := &w.solverSets[bodyB.setIndex]
-
-	localIndexA := bodyA.localIndex
-	localIndexB := bodyB.localIndex
-
-	bodySimA := &setA.bodySims[localIndexA]
-	bodySimB := &setB.bodySims[localIndexB]
-
-	mA := bodySimA.invMass
-	iA := bodySimA.invInertia
-	mB := bodySimB.invMass
-	iB := bodySimB.invInertia
-
-	base.invMassA = mA
-	base.invMassB = mB
-	base.invIA = iA
-	base.invIB = iB
+	bodySimA, bodySimB, indexA, indexB := prepareJointBodies(base, context)
+	mA := base.invMassA
+	mB := base.invMassB
+	iA := base.invIA
+	iB := base.invIB
 
 	joint := base.motor()
-	joint.indexA = nullIndex
-	if bodyA.setIndex == awakeSet {
-		joint.indexA = localIndexA
-	}
-	joint.indexB = nullIndex
-	if bodyB.setIndex == awakeSet {
-		joint.indexB = localIndexB
-	}
+	joint.indexA = indexA
+	joint.indexB = indexB
 
-	joint.anchorA = RotateVector(bodySimA.transform.Q, base.localOriginAnchorA.Sub(bodySimA.localCenter))
-	joint.anchorB = RotateVector(bodySimB.transform.Q, base.localOriginAnchorB.Sub(bodySimB.localCenter))
-	joint.deltaCenter = bodySimB.center.Sub(bodySimA.center).Sub(joint.linearOffset)
-	joint.deltaAngle = relativeAngle(bodySimB.transform.Q, bodySimA.transform.Q).Sub(joint.angularOffset)
+	joint.frameA = jointFrame(bodySimA, base.localFrameA)
+	joint.frameB = jointFrame(bodySimB, base.localFrameB)
 
-	rA := joint.anchorA
-	rB := joint.anchorB
+	// Compute the initial center delta. Incremental position updates are
+	// relative to this.
+	joint.deltaCenter = SubPos(bodySimB.center, bodySimA.center)
 
-	var K Mat22
-	K.Cx.X = mA.Add(mB).Add(rA.Y.Mul(rA.Y).Mul(iA)).Add(rB.Y.Mul(rB.Y).Mul(iB))
-	K.Cx.Y = rA.Y.Neg().Mul(rA.X).Mul(iA).Sub(rB.Y.Mul(rB.X).Mul(iB))
-	K.Cy.X = K.Cx.Y
-	K.Cy.Y = mA.Add(mB).Add(rA.X.Mul(rA.X).Mul(iA)).Add(rB.X.Mul(rB.X).Mul(iB))
-	joint.linearMass = GetInverse22(K)
+	rA := joint.frameA.P
+	rB := joint.frameB.P
+
+	joint.linearSpring = makeSoft(joint.linearHertz, joint.linearDampingRatio, context.h)
+	joint.angularSpring = makeSoft(joint.angularHertz, joint.angularDampingRatio, context.h)
+
+	joint.linearMass = motorLinearMass(mA, mB, iA, iB, rA, rB)
 
 	zero := QZero()
 	ka := iA.Add(iB)
@@ -104,14 +94,20 @@ func prepareMotorJoint(base *jointSim, context *stepContext) {
 	}
 
 	if !context.enableWarmStarting {
-		joint.linearImpulse = Vec2Zero()
-		joint.angularImpulse = zero
+		joint.linearVelocityImpulse = Vec2Zero()
+		joint.angularVelocityImpulse = zero
+		joint.linearSpringImpulse = Vec2Zero()
+		joint.angularSpringImpulse = zero
 	}
 }
 
 // warmStartMotorJoint corresponds to b2WarmStartMotorJoint in
 // src/motor_joint.c.
 func warmStartMotorJoint(base *jointSim, context *stepContext) {
+	if base.jointType != MotorJoint {
+		panic("dbox2d: the joint is not a motor joint")
+	}
+
 	mA := base.invMassA
 	mB := base.invMassB
 	iA := base.invIA
@@ -121,26 +117,27 @@ func warmStartMotorJoint(base *jointSim, context *stepContext) {
 
 	// dummy state for static bodies
 	dummyState := identityBodyState()
+	stateA, stateB := jointStates(context.states, &dummyState, joint.indexA, joint.indexB)
 
-	bodyA, bodyB := jointStates(context.states, &dummyState, joint.indexA, joint.indexB)
+	rA := RotateVector(stateA.deltaRotation, joint.frameA.P)
+	rB := RotateVector(stateB.deltaRotation, joint.frameB.P)
 
-	rA := RotateVector(bodyA.deltaRotation, joint.anchorA)
-	rB := RotateVector(bodyB.deltaRotation, joint.anchorB)
+	linearImpulse := joint.linearVelocityImpulse.Add(joint.linearSpringImpulse)
+	angularImpulse := joint.angularVelocityImpulse.Add(joint.angularSpringImpulse)
 
-	bodyA.linearVelocity = MulSub(bodyA.linearVelocity, mA, joint.linearImpulse)
-	wA := bodyA.angularVelocity
-	wA = wA.Sub(iA.Mul(Cross(rA, joint.linearImpulse).Add(joint.angularImpulse)))
-	bodyA.angularVelocity = wA
-
-	bodyB.linearVelocity = MulAdd(bodyB.linearVelocity, mB, joint.linearImpulse)
-	wB := bodyB.angularVelocity
-	wB = wB.Add(iB.Mul(Cross(rB, joint.linearImpulse).Add(joint.angularImpulse)))
-	bodyB.angularVelocity = wB
+	if stateA.flags&bodyDynamicFlag != 0 {
+		stateA.linearVelocity = MulSub(stateA.linearVelocity, mA, linearImpulse)
+		stateA.angularVelocity = stateA.angularVelocity.Sub(iA.Mul(Cross(rA, linearImpulse).Add(angularImpulse)))
+	}
+	if stateB.flags&bodyDynamicFlag != 0 {
+		stateB.linearVelocity = MulAdd(stateB.linearVelocity, mB, linearImpulse)
+		stateB.angularVelocity = stateB.angularVelocity.Add(iB.Mul(Cross(rB, linearImpulse).Add(angularImpulse)))
+	}
 }
 
 // solveMotorJoint corresponds to b2SolveMotorJoint in src/motor_joint.c.
-// The reference ignores useBias.
-func solveMotorJoint(base *jointSim, context *stepContext, _ bool) {
+// The springs act during relax as well, so the solve takes no useBias.
+func solveMotorJoint(base *jointSim, context *stepContext) {
 	if base.jointType != MotorJoint {
 		panic("dbox2d: the joint is not a motor joint")
 	}
@@ -154,56 +151,82 @@ func solveMotorJoint(base *jointSim, context *stepContext, _ bool) {
 	dummyState := identityBodyState()
 
 	joint := base.motor()
-	bodyA, bodyB := jointStates(context.states, &dummyState, joint.indexA, joint.indexB)
+	stateA, stateB := jointStates(context.states, &dummyState, joint.indexA, joint.indexB)
 
-	vA := bodyA.linearVelocity
-	wA := bodyA.angularVelocity
-	vB := bodyB.linearVelocity
-	wB := bodyB.angularVelocity
+	vA := stateA.linearVelocity
+	wA := stateA.angularVelocity
+	vB := stateB.linearVelocity
+	wB := stateB.angularVelocity
 
-	// angular constraint
-	{
-		angularSeparation := relativeAngle(bodyB.deltaRotation, bodyA.deltaRotation).Add(joint.deltaAngle)
-		angularSeparation = unwindAngle(angularSeparation)
+	zero := QZero()
 
-		angularBias := context.invH.Mul(joint.correctionFactor).Mul(angleRadians(angularSeparation))
+	// angular spring
+	if zero.Less(joint.maxSpringTorque) && zero.Less(joint.angularHertz) {
+		qA := MulRot(stateA.deltaRotation, joint.frameA.Q)
+		qB := MulRot(stateB.deltaRotation, joint.frameB.Q)
+		// relativeAngle(qA, qB) is b2Rot_GetAngle(b2InvMulRot(qA, qB)).
+		c := angleRadians(relativeAngle(qA, qB))
 
-		Cdot := wB.Sub(wA)
-		impulse := joint.angularMass.Neg().Mul(Cdot.Add(angularBias))
+		bias := joint.angularSpring.biasRate.Mul(c)
+		massScale := joint.angularSpring.massScale
+		impulseScale := joint.angularSpring.impulseScale
 
-		oldImpulse := joint.angularImpulse
-		maxImpulse := context.h.Mul(joint.maxTorque)
-		joint.angularImpulse = joint.angularImpulse.Add(impulse).Clamp(maxImpulse.Neg(), maxImpulse)
-		impulse = joint.angularImpulse.Sub(oldImpulse)
+		cdot := wB.Sub(wA)
+
+		maxImpulse := context.h.Mul(joint.maxSpringTorque)
+		oldImpulse := joint.angularSpringImpulse
+		impulse := massScale.Neg().Mul(joint.angularMass).Mul(cdot.Add(bias)).Sub(impulseScale.Mul(oldImpulse))
+		joint.angularSpringImpulse = oldImpulse.Add(impulse).Clamp(maxImpulse.Neg(), maxImpulse)
+		impulse = joint.angularSpringImpulse.Sub(oldImpulse)
 
 		wA = wA.Sub(iA.Mul(impulse))
 		wB = wB.Add(iB.Mul(impulse))
 	}
 
-	// linear constraint
-	{
-		rA := RotateVector(bodyA.deltaRotation, joint.anchorA)
-		rB := RotateVector(bodyB.deltaRotation, joint.anchorB)
+	// angular velocity
+	if zero.Less(joint.maxVelocityTorque) {
+		cdot := wB.Sub(wA).Sub(angleRadians(joint.angularVelocity))
+		impulse := joint.angularMass.Neg().Mul(cdot)
 
-		ds := bodyB.deltaPosition.Sub(bodyA.deltaPosition).Add(rB.Sub(rA))
-		linearSeparation := joint.deltaCenter.Add(ds)
-		linearBias := linearSeparation.Mul(context.invH.Mul(joint.correctionFactor))
+		maxImpulse := context.h.Mul(joint.maxVelocityTorque)
+		oldImpulse := joint.angularVelocityImpulse
+		joint.angularVelocityImpulse = oldImpulse.Add(impulse).Clamp(maxImpulse.Neg(), maxImpulse)
+		impulse = joint.angularVelocityImpulse.Sub(oldImpulse)
 
-		Cdot := vB.Add(CrossSV(wB, rB)).Sub(vA.Add(CrossSV(wA, rA)))
-		b := MulMV(joint.linearMass, Cdot.Add(linearBias))
-		impulse := Vec2{X: b.X.Neg(), Y: b.Y.Neg()}
+		wA = wA.Sub(iA.Mul(impulse))
+		wB = wB.Add(iB.Mul(impulse))
+	}
 
-		oldImpulse := joint.linearImpulse
-		maxImpulse := context.h.Mul(joint.maxForce)
-		joint.linearImpulse = joint.linearImpulse.Add(impulse)
+	rA := RotateVector(stateA.deltaRotation, joint.frameA.P)
+	rB := RotateVector(stateB.deltaRotation, joint.frameB.P)
 
-		if maxImpulse.Mul(maxImpulse).Less(joint.linearImpulse.LenSq()) {
-			joint.linearImpulse = joint.linearImpulse.Normalize()
-			joint.linearImpulse.X = joint.linearImpulse.X.Mul(maxImpulse)
-			joint.linearImpulse.Y = joint.linearImpulse.Y.Mul(maxImpulse)
+	// linear spring
+	if zero.Less(joint.maxSpringForce) && zero.Less(joint.linearHertz) {
+		dcA := stateA.deltaPosition
+		dcB := stateB.deltaPosition
+		c := dcB.Sub(dcA).Add(rB.Sub(rA)).Add(joint.deltaCenter)
+
+		bias := c.Mul(joint.linearSpring.biasRate)
+		massScale := joint.linearSpring.massScale
+		impulseScale := joint.linearSpring.impulseScale
+
+		cdot := vB.Add(CrossSV(wB, rB)).Sub(vA.Add(CrossSV(wA, rA)))
+		cdot = cdot.Add(bias)
+
+		// Updating the effective mass here may be overkill
+		joint.linearMass = motorLinearMass(mA, mB, iA, iB, rA, rB)
+		b := MulMV(joint.linearMass, cdot)
+
+		oldImpulse := joint.linearSpringImpulse
+		impulse := Vec2{
+			X: massScale.Neg().Mul(b.X).Sub(impulseScale.Mul(oldImpulse.X)),
+			Y: massScale.Neg().Mul(b.Y).Sub(impulseScale.Mul(oldImpulse.Y)),
 		}
 
-		impulse = joint.linearImpulse.Sub(oldImpulse)
+		maxImpulse := context.h.Mul(joint.maxSpringForce)
+		joint.linearSpringImpulse = clampImpulseLength(joint.linearSpringImpulse.Add(impulse), maxImpulse)
+
+		impulse = joint.linearSpringImpulse.Sub(oldImpulse)
 
 		vA = MulSub(vA, mA, impulse)
 		wA = wA.Sub(iA.Mul(Cross(rA, impulse)))
@@ -211,120 +234,25 @@ func solveMotorJoint(base *jointSim, context *stepContext, _ bool) {
 		wB = wB.Add(iB.Mul(Cross(rB, impulse)))
 	}
 
-	bodyA.linearVelocity = vA
-	bodyA.angularVelocity = wA
-	bodyB.linearVelocity = vB
-	bodyB.angularVelocity = wB
-}
+	// linear velocity
+	if zero.Less(joint.maxVelocityForce) {
+		cdot := vB.Add(CrossSV(wB, rB)).Sub(vA.Add(CrossSV(wA, rA)))
+		cdot = cdot.Sub(joint.linearVelocity)
+		b := MulMV(joint.linearMass, cdot)
+		impulse := Vec2{X: b.X.Neg(), Y: b.Y.Neg()}
 
-// SetLinearOffset changes the motor joint's linear offset (b2MotorJoint_SetLinearOffset).
-func (jointId JointId) SetLinearOffset(linearOffset Vec2) {
-	if !IsValidVec2(linearOffset) {
-		panic("dbox2d: SetLinearOffset needs a valid vector")
+		oldImpulse := joint.linearVelocityImpulse
+		maxImpulse := context.h.Mul(joint.maxVelocityForce)
+		joint.linearVelocityImpulse = clampImpulseLength(joint.linearVelocityImpulse.Add(impulse), maxImpulse)
+
+		impulse = joint.linearVelocityImpulse.Sub(oldImpulse)
+
+		vA = MulSub(vA, mA, impulse)
+		wA = wA.Sub(iA.Mul(Cross(rA, impulse)))
+		vB = MulAdd(vB, mB, impulse)
+		wB = wB.Add(iB.Mul(Cross(rB, impulse)))
 	}
-	w := getWorld(jointId.world0)
-	js := getJointSimCheckType(w, jointId, MotorJoint)
-	js.motor().linearOffset = linearOffset
-}
 
-// GetLinearOffset reports the motor joint's linear offset (b2MotorJoint_GetLinearOffset).
-func (jointId JointId) GetLinearOffset() Vec2 {
-	w := getWorld(jointId.world0)
-	js := getJointSimCheckType(w, jointId, MotorJoint)
-	return js.motor().linearOffset
-}
-
-// SetAngularOffset changes the motor joint's angular offset in turns (b2MotorJoint_SetAngularOffset).
-func (jointId JointId) SetAngularOffset(angularOffset Q) {
-	if !IsValidQ(angularOffset) {
-		panic("dbox2d: SetAngularOffset needs a valid angle")
-	}
-	w := getWorld(jointId.world0)
-	js := getJointSimCheckType(w, jointId, MotorJoint)
-	halfTurn := QHalf()
-	// D-004: the port bounds turns to a half turn; the reference leaves radians unbounded.
-	angularOffset = angularOffset.Clamp(halfTurn.Neg(), halfTurn) // D-004
-	js.motor().angularOffset = angleFromTurns(angularOffset)
-}
-
-// GetAngularOffset reports the motor joint's angular offset in turns (b2MotorJoint_GetAngularOffset).
-func (jointId JointId) GetAngularOffset() Q {
-	w := getWorld(jointId.world0)
-	js := getJointSimCheckType(w, jointId, MotorJoint)
-	return angleToTurns(js.motor().angularOffset)
-}
-
-// SetMaxForce changes the maximum force of a motor or mouse joint (b2MotorJoint_SetMaxForce, b2MouseJoint_SetMaxForce).
-func (jointId JointId) SetMaxForce(maxForce Q) {
-	if !IsValidQ(maxForce) {
-		panic("dbox2d: SetMaxForce needs a valid value")
-	}
-	zero := QZero()
-	if maxForce.Less(zero) {
-		maxForce = zero
-	}
-	w := getWorld(jointId.world0)
-	j := getJointFullId(w, jointId)
-	js := getJointSim(w, j)
-	switch j.jointType {
-	case MotorJoint:
-		js.motor().maxForce = maxForce
-	case MouseJoint:
-		js.mouse().maxForce = maxForce
-	default:
-		panic("dbox2d: SetMaxForce needs a motor or mouse joint")
-	}
-}
-
-// GetMaxForce reports the maximum force of a motor or mouse joint (b2MotorJoint_GetMaxForce, b2MouseJoint_GetMaxForce).
-func (jointId JointId) GetMaxForce() Q {
-	w := getWorld(jointId.world0)
-	j := getJointFullId(w, jointId)
-	js := getJointSim(w, j)
-	switch j.jointType {
-	case MotorJoint:
-		return js.motor().maxForce
-	case MouseJoint:
-		return js.mouse().maxForce
-	default:
-		panic("dbox2d: GetMaxForce needs a motor or mouse joint")
-	}
-}
-
-// SetMaxTorque changes the motor joint's maximum torque (b2MotorJoint_SetMaxTorque).
-func (jointId JointId) SetMaxTorque(maxTorque Q) {
-	if !IsValidQ(maxTorque) {
-		panic("dbox2d: SetMaxTorque needs a valid value")
-	}
-	zero := QZero()
-	if maxTorque.Less(zero) {
-		maxTorque = zero
-	}
-	w := getWorld(jointId.world0)
-	js := getJointSimCheckType(w, jointId, MotorJoint)
-	js.motor().maxTorque = maxTorque
-}
-
-// GetMaxTorque reports the motor joint's maximum torque (b2MotorJoint_GetMaxTorque).
-func (jointId JointId) GetMaxTorque() Q {
-	w := getWorld(jointId.world0)
-	js := getJointSimCheckType(w, jointId, MotorJoint)
-	return js.motor().maxTorque
-}
-
-// SetCorrectionFactor changes the motor joint's correction factor (b2MotorJoint_SetCorrectionFactor).
-func (jointId JointId) SetCorrectionFactor(correctionFactor Q) {
-	if !IsValidQ(correctionFactor) {
-		panic("dbox2d: SetCorrectionFactor needs a valid value")
-	}
-	w := getWorld(jointId.world0)
-	js := getJointSimCheckType(w, jointId, MotorJoint)
-	js.motor().correctionFactor = correctionFactor.Clamp(QZero(), QOne())
-}
-
-// GetCorrectionFactor reports the motor joint's correction factor (b2MotorJoint_GetCorrectionFactor).
-func (jointId JointId) GetCorrectionFactor() Q {
-	w := getWorld(jointId.world0)
-	js := getJointSimCheckType(w, jointId, MotorJoint)
-	return js.motor().correctionFactor
+	storeJointVelocity(stateA, vA, wA)
+	storeJointVelocity(stateB, vB, wB)
 }

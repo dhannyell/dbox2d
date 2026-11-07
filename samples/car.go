@@ -1,4 +1,4 @@
-// Ported from samples/car.cpp of Box2D v3.1.1
+// Ported from samples/car.cpp of Box2D v3.2.0
 
 package samples
 
@@ -38,7 +38,7 @@ func (c *car) spawn(worldId b2.WorldId, position b2.Vec2, scale, hertz, dampingR
 
 	bodyDef := b2.DefaultBodyDef()
 	bodyDef.Type = b2.DynamicBody
-	bodyDef.Position = b2.Vec2{Y: scale}.Add(position)
+	bodyDef.Position = b2.ToPos(b2.Vec2{Y: scale}.Add(position))
 	c.chassisId = b2.CreateBody(worldId, &bodyDef)
 	b2.CreatePolygonShape(c.chassisId, &shapeDef, &chassis)
 
@@ -46,12 +46,12 @@ func (c *car) spawn(worldId b2.WorldId, position b2.Vec2, scale, hertz, dampingR
 	shapeDef.Material.Friction = b2.F(1.5)
 	shapeDef.Material.RollingResistance = b2.F(0.1)
 
-	bodyDef.Position = b2.Vec2{X: scale.Neg(), Y: b2.F(0.35).Mul(scale)}.Add(position)
+	bodyDef.Position = b2.ToPos(b2.Vec2{X: scale.Neg(), Y: b2.F(0.35).Mul(scale)}.Add(position))
 	bodyDef.AllowFastRotation = true
 	c.rearWheelId = b2.CreateBody(worldId, &bodyDef)
 	b2.CreateCircleShape(c.rearWheelId, &shapeDef, &circle)
 
-	bodyDef.Position = b2.Vec2{X: scale, Y: b2.F(0.4).Mul(scale)}.Add(position)
+	bodyDef.Position = b2.ToPos(b2.Vec2{X: scale, Y: b2.F(0.4).Mul(scale)}.Add(position))
 	bodyDef.AllowFastRotation = true
 	c.frontWheelId = b2.CreateBody(worldId, &bodyDef)
 	b2.CreateCircleShape(c.frontWheelId, &shapeDef, &circle)
@@ -59,11 +59,11 @@ func (c *car) spawn(worldId b2.WorldId, position b2.Vec2, scale, hertz, dampingR
 	axis := b2.Vec2{Y: b2.QOne()}
 	pivot := c.rearWheelId.GetPosition()
 	jointDef := b2.DefaultWheelJointDef()
-	jointDef.BodyIdA = c.chassisId
-	jointDef.BodyIdB = c.rearWheelId
-	jointDef.LocalAxisA = jointDef.BodyIdA.GetLocalVector(axis)
-	jointDef.LocalAnchorA = jointDef.BodyIdA.GetLocalPoint(pivot)
-	jointDef.LocalAnchorB = jointDef.BodyIdB.GetLocalPoint(pivot)
+	jointDef.Base.BodyIdA = c.chassisId
+	jointDef.Base.BodyIdB = c.rearWheelId
+	jointDef.Base.LocalFrameA.Q = b2.MakeRotFromUnitVector(jointDef.Base.BodyIdA.GetLocalVector(axis))
+	jointDef.Base.LocalFrameA.P = jointDef.Base.BodyIdA.GetLocalPoint(pivot)
+	jointDef.Base.LocalFrameB.P = jointDef.Base.BodyIdB.GetLocalPoint(pivot)
 	jointDef.MotorSpeed = b2.QZero()
 	jointDef.MaxMotorTorque = torque
 	jointDef.EnableMotor = true
@@ -75,11 +75,11 @@ func (c *car) spawn(worldId b2.WorldId, position b2.Vec2, scale, hertz, dampingR
 	c.rearAxleId = b2.CreateWheelJoint(worldId, &jointDef)
 
 	pivot = c.frontWheelId.GetPosition()
-	jointDef.BodyIdA = c.chassisId
-	jointDef.BodyIdB = c.frontWheelId
-	jointDef.LocalAxisA = jointDef.BodyIdA.GetLocalVector(axis)
-	jointDef.LocalAnchorA = jointDef.BodyIdA.GetLocalPoint(pivot)
-	jointDef.LocalAnchorB = jointDef.BodyIdB.GetLocalPoint(pivot)
+	jointDef.Base.BodyIdA = c.chassisId
+	jointDef.Base.BodyIdB = c.frontWheelId
+	jointDef.Base.LocalFrameA.Q = b2.MakeRotFromUnitVector(jointDef.Base.BodyIdA.GetLocalVector(axis))
+	jointDef.Base.LocalFrameA.P = jointDef.Base.BodyIdA.GetLocalPoint(pivot)
+	jointDef.Base.LocalFrameB.P = jointDef.Base.BodyIdB.GetLocalPoint(pivot)
 	jointDef.MotorSpeed = b2.QZero()
 	jointDef.MaxMotorTorque = torque
 	jointDef.EnableMotor = true
@@ -104,8 +104,8 @@ func (c *car) despawn() {
 func (c *car) setSpeed(speed b2.Q) {
 	// rad/s to turns/s.
 	turnsPerSecond := speed.Div(b2.Pi().Mul(b2.F(2)))
-	c.rearAxleId.SetMotorSpeed(turnsPerSecond)
-	c.frontAxleId.SetMotorSpeed(turnsPerSecond)
+	c.rearAxleId.SetTargetMotorSpeed(turnsPerSecond)
+	c.frontAxleId.SetTargetMotorSpeed(turnsPerSecond)
 	c.rearAxleId.WakeBodies()
 }
 
@@ -154,7 +154,7 @@ func (t *truck) spawn(worldId b2.WorldId, position b2.Vec2, scale, hertz, dampin
 
 	bodyDef := b2.DefaultBodyDef()
 	bodyDef.Type = b2.DynamicBody
-	bodyDef.Position = b2.Vec2{Y: scale}.Add(position)
+	bodyDef.Position = b2.ToPos(b2.Vec2{Y: scale}.Add(position))
 	t.chassisId = b2.CreateBody(worldId, &bodyDef)
 	b2.CreatePolygonShape(t.chassisId, &shapeDef, &chassis)
 
@@ -171,22 +171,22 @@ func (t *truck) spawn(worldId b2.WorldId, position b2.Vec2, scale, hertz, dampin
 	shapeDef.Material.CustomColor = uint32(b2.ColorSilver)
 
 	circle := b2.Circle{Center: b2.Vec2{}, Radius: b2.F(0.4).Mul(scale)}
-	bodyDef.Position = b2.Vec2{X: b2.F(-2.75).Mul(scale), Y: b2.F(0.3).Mul(scale)}.Add(position)
+	bodyDef.Position = b2.ToPos(b2.Vec2{X: b2.F(-2.75).Mul(scale), Y: b2.F(0.3).Mul(scale)}.Add(position))
 	t.rearWheelId = b2.CreateBody(worldId, &bodyDef)
 	b2.CreateCircleShape(t.rearWheelId, &shapeDef, &circle)
 
-	bodyDef.Position = b2.Vec2{X: b2.F(0.8).Mul(scale), Y: b2.F(0.3).Mul(scale)}.Add(position)
+	bodyDef.Position = b2.ToPos(b2.Vec2{X: b2.F(0.8).Mul(scale), Y: b2.F(0.3).Mul(scale)}.Add(position))
 	t.frontWheelId = b2.CreateBody(worldId, &bodyDef)
 	b2.CreateCircleShape(t.frontWheelId, &shapeDef, &circle)
 
 	axis := b2.Vec2{Y: b2.QOne()}
 	pivot := t.rearWheelId.GetPosition()
 	jointDef := b2.DefaultWheelJointDef()
-	jointDef.BodyIdA = t.chassisId
-	jointDef.BodyIdB = t.rearWheelId
-	jointDef.LocalAxisA = jointDef.BodyIdA.GetLocalVector(axis)
-	jointDef.LocalAnchorA = jointDef.BodyIdA.GetLocalPoint(pivot)
-	jointDef.LocalAnchorB = jointDef.BodyIdB.GetLocalPoint(pivot)
+	jointDef.Base.BodyIdA = t.chassisId
+	jointDef.Base.BodyIdB = t.rearWheelId
+	jointDef.Base.LocalFrameA.Q = b2.MakeRotFromUnitVector(jointDef.Base.BodyIdA.GetLocalVector(axis))
+	jointDef.Base.LocalFrameA.P = jointDef.Base.BodyIdA.GetLocalPoint(pivot)
+	jointDef.Base.LocalFrameB.P = jointDef.Base.BodyIdB.GetLocalPoint(pivot)
 	jointDef.MotorSpeed = b2.QZero()
 	jointDef.MaxMotorTorque = torque
 	jointDef.EnableMotor = true
@@ -198,11 +198,11 @@ func (t *truck) spawn(worldId b2.WorldId, position b2.Vec2, scale, hertz, dampin
 	t.rearAxleId = b2.CreateWheelJoint(worldId, &jointDef)
 
 	pivot = t.frontWheelId.GetPosition()
-	jointDef.BodyIdA = t.chassisId
-	jointDef.BodyIdB = t.frontWheelId
-	jointDef.LocalAxisA = jointDef.BodyIdA.GetLocalVector(axis)
-	jointDef.LocalAnchorA = jointDef.BodyIdA.GetLocalPoint(pivot)
-	jointDef.LocalAnchorB = jointDef.BodyIdB.GetLocalPoint(pivot)
+	jointDef.Base.BodyIdA = t.chassisId
+	jointDef.Base.BodyIdB = t.frontWheelId
+	jointDef.Base.LocalFrameA.Q = b2.MakeRotFromUnitVector(jointDef.Base.BodyIdA.GetLocalVector(axis))
+	jointDef.Base.LocalFrameA.P = jointDef.Base.BodyIdA.GetLocalPoint(pivot)
+	jointDef.Base.LocalFrameB.P = jointDef.Base.BodyIdB.GetLocalPoint(pivot)
 	jointDef.MotorSpeed = b2.QZero()
 	jointDef.MaxMotorTorque = torque
 	jointDef.EnableMotor = true
@@ -227,8 +227,8 @@ func (t *truck) despawn() {
 func (t *truck) setSpeed(speed b2.Q) {
 	// rad/s to turns/s.
 	turnsPerSecond := speed.Div(b2.Pi().Mul(b2.F(2)))
-	t.rearAxleId.SetMotorSpeed(turnsPerSecond)
-	t.frontAxleId.SetMotorSpeed(turnsPerSecond)
+	t.rearAxleId.SetTargetMotorSpeed(turnsPerSecond)
+	t.frontAxleId.SetTargetMotorSpeed(turnsPerSecond)
 	t.rearAxleId.WakeBodies()
 }
 

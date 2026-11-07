@@ -37,6 +37,12 @@ func checksumVec2(h uint64, value Vec2) uint64 {
 	return checksumQ(h, value.Y)
 }
 
+// checksumTransform folds a transform: the position, then the rotation.
+func checksumTransform(h uint64, value Transform) uint64 {
+	h = checksumVec2(h, value.P)
+	return checksumRot(h, value.Q)
+}
+
 func checksumRot(h uint64, value Rot) uint64 {
 	h = checksumQ(h, value.Cos)
 	return checksumQ(h, value.Sin)
@@ -77,7 +83,7 @@ func checksumShapeGeometry(h uint64, s *shape) uint64 {
 	}
 }
 
-func checksumShape(s *shape) uint64 {
+func checksumShape(w *world, s *shape) uint64 {
 	h := fnvOffsetBasis
 	h = fnvFold(h, uint64(s.shapeType))
 	h = checksumQ(h, s.density)
@@ -85,18 +91,19 @@ func checksumShape(s *shape) uint64 {
 	h = checksumQ(h, s.restitution)
 	h = checksumQ(h, s.rollingResistance)
 	h = checksumQ(h, s.tangentSpeed)
-	h = fnvFold(h, uint64(int64(s.userMaterialId)))
+	h = fnvFold(h, s.userMaterialId)
 	h = fnvFold(h, s.filter.CategoryBits)
 	h = fnvFold(h, s.filter.MaskBits)
 	h = fnvFold(h, uint64(int64(s.filter.GroupIndex)))
 	h = checksumAABB(h, s.aabb)
-	h = checksumAABB(h, s.fatAABB)
+	h = checksumQ(h, s.aabbMargin)
+	h = checksumAABB(h, w.fatAABBs[s.id])
 	h = checksumVec2(h, s.localCentroid)
 	h = checksumBool(h, s.enableSensorEvents)
 	h = checksumBool(h, s.enableContactEvents)
 	h = checksumBool(h, s.enableHitEvents)
 	h = checksumBool(h, s.enablePreSolveEvents)
-	h = checksumBool(h, s.enlargedAABB)
+	h = checksumBool(h, s.enableCustomFiltering)
 	return checksumShapeGeometry(h, s)
 }
 
@@ -117,22 +124,20 @@ func checksumBody(w *world, b *body) uint64 {
 	h = checksumQ(h, b.mass)
 	h = checksumQ(h, b.inertia)
 	h = checksumQ(h, b.sleepThreshold)
+	h = checksumQ(h, b.safetyFactor)
 	h = checksumQ(h, b.sleepTime)
-	h = checksumBool(h, b.enableSleep)
-	h = checksumBool(h, b.fixedRotation)
-	h = checksumBool(h, b.isSpeedCapped)
-	h = checksumBool(h, b.isMarked)
+	h = fnvFold(h, uint64(b.flags))
 
 	// A pending island split changes the next step: it blocks sleep and
 	// picks the island to split. Only the sign of the count matters.
 	pendingSplit := b.islandId != nullIndex && w.islands[b.islandId].constraintRemoveCount > 0
 	h = checksumBool(h, pendingSplit)
 
-	h = checksumVec2(h, sim.transform.P)
+	h = checksumPos(h, sim.transform.P)
 	h = checksumRot(h, sim.transform.Q)
-	h = checksumVec2(h, sim.center)
+	h = checksumPos(h, sim.center)
 	h = checksumRot(h, sim.rotation0)
-	h = checksumVec2(h, sim.center0)
+	h = checksumPos(h, sim.center0)
 	h = checksumVec2(h, sim.localCenter)
 	h = checksumVec2(h, sim.force)
 	h = checksumQ(h, sim.torque)
@@ -143,17 +148,13 @@ func checksumBody(w *world, b *body) uint64 {
 	h = checksumQ(h, sim.linearDamping)
 	h = checksumQ(h, sim.angularDamping)
 	h = checksumQ(h, sim.gravityScale)
-	h = checksumBool(h, sim.isFast)
-	h = checksumBool(h, sim.isBullet)
-	h = checksumBool(h, sim.isSpeedCapped)
-	h = checksumBool(h, sim.allowFastRotation)
-	h = checksumBool(h, sim.enlargeAABB)
+	h = fnvFold(h, uint64(sim.flags))
 
 	if b.setIndex == awakeSet {
 		state := &set.bodyStates[b.localIndex]
 		h = checksumVec2(h, state.linearVelocity)
 		h = checksumQ(h, state.angularVelocity)
-		h = fnvFold(h, uint64(int64(state.flags)))
+		h = fnvFold(h, uint64(state.flags))
 		h = checksumVec2(h, state.deltaPosition)
 		h = checksumRot(h, state.deltaRotation)
 	}
@@ -161,7 +162,7 @@ func checksumBody(w *world, b *body) uint64 {
 	var shapeSum uint64
 	shapeCount := 0
 	for shapeId := b.headShapeId; shapeId != nullIndex; shapeId = w.shapes[shapeId].nextShapeId {
-		shapeSum += checksumShape(&w.shapes[shapeId])
+		shapeSum += checksumShape(w, &w.shapes[shapeId])
 		shapeCount++
 	}
 	h = fnvFold(h, uint64(shapeCount))
@@ -191,7 +192,6 @@ func checksumManifold(h uint64, m *Manifold, swap bool) uint64 {
 		}
 
 		pointHash := fnvOffsetBasis
-		pointHash = checksumVec2(pointHash, p.Point)
 		pointHash = checksumVec2(pointHash, anchorA)
 		pointHash = checksumVec2(pointHash, anchorB)
 		pointHash = checksumQ(pointHash, p.Separation)
@@ -213,7 +213,7 @@ func checksumContactEndpoint(w *world, shapeId int) uint64 {
 
 	h := fnvOffsetBasis
 	h = fnvFold(h, checksumBody(w, b))
-	return fnvFold(h, checksumShape(s))
+	return fnvFold(h, checksumShape(w, s))
 }
 
 func checksumContactOrientation(c *contact, cs *contactSim, endpointA, endpointB uint64, swap bool) uint64 {
@@ -259,6 +259,8 @@ func checksumJointData(h uint64, js *jointSim) uint64 {
 		h = checksumQ(h, d.length)
 		h = checksumQ(h, d.hertz)
 		h = checksumQ(h, d.dampingRatio)
+		h = checksumQ(h, d.lowerSpringForce)
+		h = checksumQ(h, d.upperSpringForce)
 		h = checksumQ(h, d.minLength)
 		h = checksumQ(h, d.maxLength)
 		h = checksumQ(h, d.maxMotorForce)
@@ -274,24 +276,37 @@ func checksumJointData(h uint64, js *jointSim) uint64 {
 		return h
 	case MotorJoint:
 		m := js.motor()
-		h = checksumVec2(h, m.linearOffset)
-		h = checksumQ(h, m.angularOffset)
-		h = checksumVec2(h, m.linearImpulse)
-		h = checksumQ(h, m.angularImpulse)
-		h = checksumQ(h, m.maxForce)
-		h = checksumQ(h, m.maxTorque)
-		return checksumQ(h, m.correctionFactor)
-	case MouseJoint:
-		m := js.mouse()
-		h = checksumVec2(h, m.targetA)
-		h = checksumQ(h, m.hertz)
-		h = checksumQ(h, m.dampingRatio)
-		h = checksumQ(h, m.maxForce)
-		h = checksumVec2(h, m.linearImpulse)
-		return checksumQ(h, m.angularImpulse)
+		h = checksumVec2(h, m.linearVelocity)
+		h = checksumQ(h, m.maxVelocityForce)
+		h = checksumQ(h, m.angularVelocity)
+		h = checksumQ(h, m.maxVelocityTorque)
+		h = checksumQ(h, m.linearHertz)
+		h = checksumQ(h, m.linearDampingRatio)
+		h = checksumQ(h, m.maxSpringForce)
+		h = checksumQ(h, m.angularHertz)
+		h = checksumQ(h, m.angularDampingRatio)
+		h = checksumQ(h, m.maxSpringTorque)
+		h = checksumVec2(h, m.linearVelocityImpulse)
+		h = checksumQ(h, m.angularVelocityImpulse)
+		h = checksumVec2(h, m.linearSpringImpulse)
+		return checksumQ(h, m.angularSpringImpulse)
+	case MoverJoint:
+		m := js.mover()
+		h = checksumVec2(h, m.linearVelocity)
+		h = checksumVec2(h, m.maxVelocityForce)
+		return checksumVec2(h, m.linearVelocityImpulse)
+	case PogoJoint:
+		p := js.pogo()
+		h = checksumVec2(h, p.normal)
+		h = checksumQ(h, p.restLength)
+		h = checksumQ(h, p.hertz)
+		h = checksumQ(h, p.dampingRatio)
+		h = checksumQ(h, p.maxTensionForce)
+		h = checksumQ(h, p.maxCompressionForce)
+		h = checksumQ(h, p.impulse)
+		return checksumQ(h, p.velocity)
 	case PrismaticJoint:
 		p := js.prismatic()
-		h = checksumVec2(h, p.localAxisA)
 		h = checksumVec2(h, p.impulse)
 		h = checksumQ(h, p.springImpulse)
 		h = checksumQ(h, p.motorImpulse)
@@ -302,7 +317,6 @@ func checksumJointData(h uint64, js *jointSim) uint64 {
 		h = checksumQ(h, p.targetTranslation)
 		h = checksumQ(h, p.maxMotorForce)
 		h = checksumQ(h, p.motorSpeed)
-		h = checksumQ(h, p.referenceAngle)
 		h = checksumQ(h, p.lowerTranslation)
 		h = checksumQ(h, p.upperTranslation)
 		h = checksumBool(h, p.enableSpring)
@@ -320,7 +334,6 @@ func checksumJointData(h uint64, js *jointSim) uint64 {
 		h = checksumQ(h, r.targetAngle)
 		h = checksumQ(h, r.maxMotorTorque)
 		h = checksumQ(h, r.motorSpeed)
-		h = checksumQ(h, r.referenceAngle)
 		h = checksumQ(h, r.lowerAngle)
 		h = checksumQ(h, r.upperAngle)
 		h = checksumBool(h, r.enableSpring)
@@ -328,7 +341,6 @@ func checksumJointData(h uint64, js *jointSim) uint64 {
 		return checksumBool(h, r.enableLimit)
 	case WeldJoint:
 		wj := js.weld()
-		h = checksumQ(h, wj.referenceAngle)
 		h = checksumQ(h, wj.linearHertz)
 		h = checksumQ(h, wj.linearDampingRatio)
 		h = checksumQ(h, wj.angularHertz)
@@ -337,7 +349,6 @@ func checksumJointData(h uint64, js *jointSim) uint64 {
 		return checksumQ(h, wj.angularImpulse)
 	case WheelJoint:
 		wh := js.wheel()
-		h = checksumVec2(h, wh.localAxisA)
 		h = checksumQ(h, wh.perpImpulse)
 		h = checksumQ(h, wh.motorImpulse)
 		h = checksumQ(h, wh.springImpulse)
@@ -370,8 +381,10 @@ func checksumJoint(w *world, j *joint) uint64 {
 	h = checksumBool(h, j.collideConnected)
 	h = fnvFold(h, checksumBody(w, bodyA))
 	h = fnvFold(h, checksumBody(w, bodyB))
-	h = checksumVec2(h, js.localOriginAnchorA)
-	h = checksumVec2(h, js.localOriginAnchorB)
+	h = checksumTransform(h, js.localFrameA)
+	h = checksumTransform(h, js.localFrameB)
+	h = checksumQ(h, js.forceThreshold)
+	h = checksumQ(h, js.torqueThreshold)
 	h = checksumQ(h, js.constraintHertz)
 	h = checksumQ(h, js.constraintDampingRatio)
 	h = checksumSoftness(h, js.constraintSoftness)
@@ -391,15 +404,16 @@ func Checksum(worldId WorldId) uint64 {
 	h = checksumQ(h, w.hitEventThreshold)
 	h = checksumQ(h, w.restitutionThreshold)
 	h = checksumQ(h, w.maxLinearSpeed)
-	h = checksumQ(h, w.maxContactPushSpeed)
 	h = checksumQ(h, w.contactSpeed)
+	h = fnvFold(h, uint64(w.restitutionIterations))
+	h = checksumBool(h, w.enableRestitutionPropagation)
+	h = checksumQ(h, w.contactRecycleDistance)
 	h = checksumQ(h, w.contactHertz)
 	h = checksumQ(h, w.contactDampingRatio)
 	h = checksumQ(h, w.invH)
 	h = checksumBool(h, w.enableSleep)
 	h = checksumBool(h, w.enableWarmStarting)
 	h = checksumBool(h, w.enableContinuous)
-	h = checksumBool(h, w.enableSpeculative)
 
 	var bodySum uint64
 	bodyCount := 0

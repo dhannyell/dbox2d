@@ -91,7 +91,7 @@ func TestChecksumSeesAStateChange(t *testing.T) {
 	sleeperDef := DefaultBodyDef()
 	sleeperDef.Type = DynamicBody
 	sleeperDef.IsAwake = false
-	sleeperDef.Position = v2(20, 0)
+	sleeperDef.Position = ToPos(v2(20, 0))
 	CreateBody(worldId, &sleeperDef)
 	if Checksum(worldId) == afterVelocity {
 		t.Errorf("a new sleeping body did not change the checksum")
@@ -142,7 +142,6 @@ func TestChecksumSeesAPendingSplit(t *testing.T) {
 		startTouching(t, w, idA, idB)
 		if chain {
 			c := startTouching(t, w, idB, idC)
-			mergeAwakeIslands(w)
 			destroyContact(w, c, false)
 		}
 		return worldId, idA
@@ -196,7 +195,7 @@ func TestChecksumMatchesDeterministicWitness(t *testing.T) {
 func buildSplitStacks(worldId WorldId) BodyId {
 	half := QHalf()
 	groundDef := DefaultBodyDef()
-	groundDef.Position = Vec2{Y: half.Neg()}
+	groundDef.Position = ToPos(Vec2{Y: half.Neg()})
 	groundId := CreateBody(worldId, &groundDef)
 	shapeDef := DefaultShapeDef()
 	ground := MakeBox(QFromInt(4), half)
@@ -207,16 +206,16 @@ func buildSplitStacks(worldId WorldId) BodyId {
 	box := MakeSquare(half)
 	x := QFromRatio(3, 4)
 	for i := range 3 {
-		bodyDef.Position = Vec2{X: x.Neg(), Y: QFromInt(i).Add(half)}
+		bodyDef.Position = ToPos(Vec2{X: x.Neg(), Y: QFromInt(i).Add(half)})
 		bodyId := CreateBody(worldId, &bodyDef)
 		CreatePolygonShape(bodyId, &shapeDef, &box)
 
-		bodyDef.Position.X = x
+		bodyDef.Position = ToPos(Vec2{X: x, Y: posY(bodyDef.Position)})
 		bodyId = CreateBody(worldId, &bodyDef)
 		CreatePolygonShape(bodyId, &shapeDef, &box)
 	}
 
-	bodyDef.Position = Vec2{Y: QFromRatio(13, 4)}
+	bodyDef.Position = ToPos(Vec2{Y: QFromRatio(13, 4)})
 	connectorId := CreateBody(worldId, &bodyDef)
 	connector := MakeBox(QFromRatio(3, 2), QFromRatio(1, 4))
 	CreatePolygonShape(connectorId, &shapeDef, &connector)
@@ -307,22 +306,26 @@ func TestStepIsWorkerCountIndependent(t *testing.T) {
 	}
 }
 
-// TestChecksumIgnoresTheTreeTopology pins D-013: a pyramid whose trees
-// are rebuilt from scratch before the first step yields the checksum of
-// the pyramid whose trees grew by insertion, because the pair order does
-// not depend on the tree.
+// TestChecksumIgnoresTheTreeTopology pins the pair order: a pyramid whose
+// trees are rebuilt from scratch before the first step yields the checksum
+// of the pyramid whose trees grew by insertion, because the update sorts
+// the new pairs by shape id.
 func TestChecksumIgnoresTheTreeTopology(t *testing.T) {
-	if upstreamPairOrder {
-		t.Skip("D-013: the dbox2d_upstream_pairs build keeps the pair order of the reference")
-	}
 	run := func(rebuild bool) uint64 {
 		worldId := createTestWorld(t)
 		w := getWorldFromId(worldId)
 		buildPyramid(worldId, 6)
 		if rebuild {
 			for i := range BodyTypeCount {
-				w.broadPhase.trees[i].rebuild(true)
-				w.broadPhase.trees[i].validate()
+				// The rebuild clears the moved flags, which the first
+				// update still needs.
+				tree := &w.broadPhase.trees[i]
+				moved := tree.gatherMovedProxies(nil)
+				tree.rebuild(true)
+				for _, proxyId := range moved {
+					tree.markProxyMovedSerial(proxyId)
+				}
+				tree.validate()
 			}
 		}
 		dt := stepDt()

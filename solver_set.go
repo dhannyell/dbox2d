@@ -87,7 +87,9 @@ func wakeSolverSet(w *world, setIndex int) {
 		b.sleepTime = Q{}
 
 		awake.bodySims = append(awake.bodySims, *simSrc)
-		awake.bodyStates = append(awake.bodyStates, identityBodyState())
+		state := identityBodyState()
+		state.flags = b.flags
+		awake.bodyStates = append(awake.bodyStates, state)
 
 		// move non-touching contacts from disabled set to awake set
 		contactKey := b.headContactKey
@@ -191,8 +193,8 @@ func trySleepIsland(w *world, islandId int) {
 		panic("dbox2d: only an awake island sleeps")
 	}
 
-	// cannot put an island to sleep while it has a pending split
-	if isl.constraintRemoveCount > 0 {
+	// Cannot put an island to sleep while it has a pending split and more than one body.
+	if isl.constraintRemoveCount > 0 && len(isl.bodies) > 1 {
 		return
 	}
 
@@ -218,20 +220,21 @@ func trySleepIsland(w *world, islandId int) {
 	}
 
 	sleepSet.setIndex = sleepSetId
-	sleepSet.bodySims = takeSpare(&w.spareSet.bodySims, isl.bodyCount)
-	sleepSet.contactSims = takeSpare(&w.spareSet.contactSims, isl.contactCount)
-	sleepSet.jointSims = takeSpare(&w.spareSet.jointSims, isl.jointCount)
+	sleepSet.bodySims = takeSpare(&w.spareSet.bodySims, len(isl.bodies))
+	sleepSet.contactSims = takeSpare(&w.spareSet.contactSims, len(isl.contacts))
+	sleepSet.jointSims = takeSpare(&w.spareSet.jointSims, len(isl.joints))
 
 	// move awake bodies to sleeping set
 	// this shuffles around bodies in the awake set
 	{
 		disabled := &w.solverSets[disabledSet]
-		bodyId := isl.headBody
-		for bodyId != nullIndex {
+		for i, bodyId := range isl.bodies {
 			b := &w.bodies[bodyId]
-			if b.setIndex != awakeSet || b.islandId != islandId {
+			if b.setIndex != awakeSet || b.islandId != islandId || b.islandIndex != i {
 				panic("dbox2d: a body of the island is not awake in it")
 			}
+
+			b.flags &^= bodyTransientFlags
 
 			// Update the body move event to indicate this body fell asleep
 			// It could happen the body is forced asleep before it ever moves.
@@ -246,6 +249,7 @@ func trySleepIsland(w *world, islandId int) {
 
 			awakeBodyIndex := b.localIndex
 			awakeSim := &awake.bodySims[awakeBodyIndex]
+			awakeSim.flags &^= bodyTransientFlags
 
 			// move body sim to sleep set
 			sleepBodyIndex := len(sleepSet.bodySims)
@@ -331,17 +335,14 @@ func trySleepIsland(w *world, islandId int) {
 					movedContact.localIndex = localIndex
 				}
 			}
-
-			bodyId = b.islandNext
 		}
 	}
 
 	// move touching contacts
 	// this shuffles contacts in the awake set
 	{
-		contactId := isl.headContact
-		for contactId != nullIndex {
-			c := &w.contacts[contactId]
+		for i := range isl.contacts {
+			c := &w.contacts[isl.contacts[i].contactId]
 			if c.setIndex != awakeSet || c.islandId != islandId {
 				panic("dbox2d: a contact of the island is not awake in it")
 			}
@@ -380,17 +381,14 @@ func trySleepIsland(w *world, islandId int) {
 			c.setIndex = sleepSetId
 			c.colorIndex = nullIndex
 			c.localIndex = sleepContactIndex
-
-			contactId = c.islandNext
 		}
 	}
 
 	// move joints
 	// this shuffles joints in the awake set
 	{
-		jointId := isl.headJoint
-		for jointId != nullIndex {
-			j := &w.joints[jointId]
+		for i := range isl.joints {
+			j := &w.joints[isl.joints[i].jointId]
 			if j.setIndex != awakeSet || j.islandId != islandId {
 				panic("dbox2d: a joint of the island is not awake in it")
 			}
@@ -430,8 +428,6 @@ func trySleepIsland(w *world, islandId int) {
 			j.setIndex = sleepSetId
 			j.colorIndex = nullIndex
 			j.localIndex = sleepJointIndex
-
-			jointId = j.islandNext
 		}
 	}
 
@@ -561,6 +557,10 @@ func transferBody(w *world, targetSet, sourceSet *solverSet, b *body) {
 	targetIndex := len(targetSet.bodySims)
 	targetSet.bodySims = append(targetSet.bodySims, sourceSim)
 
+	// Clear transient body flags
+	b.flags &^= bodyTransientFlags
+	targetSet.bodySims[targetIndex].flags &^= bodyIsFast | bodyTransientFlags
+
 	// Remove body sim from solver set that owns it
 	var movedIndex int
 	sourceSet.bodySims, movedIndex = removeSwapNoClear(sourceSet.bodySims, sourceIndex)
@@ -577,7 +577,9 @@ func transferBody(w *world, targetSet, sourceSet *solverSet, b *body) {
 	if sourceSet.setIndex == awakeSet {
 		sourceSet.bodyStates, _ = removeSwapNoClear(sourceSet.bodyStates, sourceIndex)
 	} else if targetSet.setIndex == awakeSet {
-		targetSet.bodyStates = append(targetSet.bodyStates, identityBodyState())
+		state := identityBodyState()
+		state.flags = b.flags
+		targetSet.bodyStates = append(targetSet.bodyStates, state)
 	}
 
 	b.setIndex = targetSet.setIndex

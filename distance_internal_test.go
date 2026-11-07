@@ -383,17 +383,17 @@ func TestShapeDistanceTracksTheFloat64Mirror(t *testing.T) {
 
 	for range 1000 {
 		input := DistanceInput{
-			ProxyA:     randomProxy(rng),
-			ProxyB:     randomProxy(rng),
-			TransformA: randomTransform(rng),
-			TransformB: randomTransform(rng),
-			UseRadii:   true,
+			ProxyA: randomProxy(rng),
+			ProxyB: randomProxy(rng),
 		}
+		xfA, xfB := randomTransform(rng), randomTransform(rng)
+		input.Transform = InvMulTransforms(xfA, xfB)
+		input.UseRadii = true
 		var cache SimplexCache
-		got := ShapeDistance(&input, &cache, nil)
+		got := ComputeShapeDistance(&input, &cache, nil)
 
 		pa, pb := proxyToF64(&input.ProxyA), proxyToF64(&input.ProxyB)
-		want := shapeDistanceF64(&pa, &pb, transformToF64(input.TransformA), transformToF64(input.TransformB), true, &f64SimplexCache{})
+		want := shapeDistanceF64(&pa, &pb, transformToF64(TransformIdentity()), transformToF64(input.Transform), true, &f64SimplexCache{})
 
 		if (want.distance == 0) != got.Distance.Eq(QZero()) {
 			continue
@@ -694,7 +694,7 @@ func TestTimeOfImpactTracksTheFloat64Mirror(t *testing.T) {
 			SweepB:      randomSweep(rng),
 			MaxFraction: QOne(),
 		}
-		got := TimeOfImpact(&input)
+		got := ComputeTimeOfImpact(&input)
 
 		pa, pb := proxyToF64(&input.ProxyA), proxyToF64(&input.ProxyB)
 		want := timeOfImpactF64(&pa, &pb, sweepToF64(&input.SweepA), sweepToF64(&input.SweepB), 1)

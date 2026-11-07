@@ -1,6 +1,9 @@
 package b2
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
 
 func TestShapeAccessorsRoundTrip(t *testing.T) {
 	worldId := createTestWorld(t)
@@ -33,8 +36,8 @@ func TestShapeAccessorsRoundTrip(t *testing.T) {
 		},
 		{
 			name: "material",
-			set:  func() { shapeId.SetMaterial(7) },
-			got:  func() bool { return shapeId.GetMaterial() == 7 },
+			set:  func() { shapeId.SetUserMaterial(7) },
+			got:  func() bool { return shapeId.GetUserMaterial() == 7 },
 		},
 		{
 			name: "surface material",
@@ -162,10 +165,10 @@ func TestSetCircleRefitsAABB(t *testing.T) {
 	shapeDef := DefaultShapeDef()
 	circle := Circle{Radius: QMustParse("0.25")}
 	shapeId := CreateCircleShape(bodyId, &shapeDef, &circle)
-	oldAABB := shapeId.GetAABB()
+	oldAABB := shapeId.GetBounds()
 
 	shapeId.SetCircle(&Circle{Radius: QMustParse("0.75")})
-	newAABB := shapeId.GetAABB()
+	newAABB := shapeId.GetBounds()
 	if !newAABB.LowerBound.X.Less(oldAABB.LowerBound.X) ||
 		!newAABB.LowerBound.Y.Less(oldAABB.LowerBound.Y) ||
 		!oldAABB.UpperBound.X.Less(newAABB.UpperBound.X) ||
@@ -182,11 +185,7 @@ func TestRayCastHitsShape(t *testing.T) {
 	box := MakeSquare(QHalf())
 	shapeId := CreatePolygonShape(bodyId, &shapeDef, &box)
 
-	output := shapeId.RayCast(&RayCastInput{
-		Origin:      v2(-2, 0),
-		Translation: v2(4, 0),
-		MaxFraction: QOne(),
-	})
+	output := shapeId.CastRay(ToPos(v2(-2, 0)), v2(4, 0))
 	if !output.Hit {
 		t.Fatal("ray cast did not hit the box")
 	}
@@ -194,8 +193,8 @@ func TestRayCastHitsShape(t *testing.T) {
 		t.Fatalf("hit normal = %v, want (-1, 0)", output.Normal)
 	}
 	wantPoint := Vec2{X: QHalf().Neg()}
-	if !withinQ(output.Point.X, wantPoint.X, qUlps(16)) ||
-		!withinQ(output.Point.Y, wantPoint.Y, qUlps(16)) {
+	if !withinQ(posX(output.Point), wantPoint.X, qUlps(16)) ||
+		!withinQ(posY(output.Point), wantPoint.Y, qUlps(16)) {
 		t.Fatalf("hit point = %v, want %v", output.Point, wantPoint)
 	}
 }
@@ -208,9 +207,9 @@ func TestGetClosestPointOutsidePolygon(t *testing.T) {
 	box := MakeSquare(QHalf())
 	shapeId := CreatePolygonShape(bodyId, &shapeDef, &box)
 
-	got := shapeId.GetClosestPoint(v2(3, 0))
+	got := shapeId.GetClosestPoint(ToPos(v2(3, 0)))
 	want := Vec2{X: QHalf()}
-	if !withinQ(got.X, want.X, qUlps(16)) || !withinQ(got.Y, want.Y, qUlps(16)) {
+	if !withinQ(posX(got), want.X, qUlps(16)) || !withinQ(posY(got), want.Y, qUlps(16)) {
 		t.Fatalf("closest point = %v, want %v", got, want)
 	}
 }
@@ -218,16 +217,16 @@ func TestGetClosestPointOutsidePolygon(t *testing.T) {
 func TestTestPoint(t *testing.T) {
 	worldId := createTestWorld(t)
 	bodyDef := DefaultBodyDef()
-	bodyDef.Position = v2(2, 3)
+	bodyDef.Position = ToPos(v2(2, 3))
 	bodyId := CreateBody(worldId, &bodyDef)
 	shapeDef := DefaultShapeDef()
 	box := MakeSquare(QHalf())
 	shapeId := CreatePolygonShape(bodyId, &shapeDef, &box)
 
-	if !shapeId.TestPoint(v2(2, 3)) {
+	if !shapeId.TestPoint(ToPos(v2(2, 3))) {
 		t.Fatal("TestPoint rejected a point inside the box")
 	}
-	if shapeId.TestPoint(v2(3, 3)) {
+	if shapeId.TestPoint(ToPos(v2(3, 3))) {
 		t.Fatal("TestPoint accepted a point outside the box")
 	}
 }
@@ -236,9 +235,12 @@ func TestCreateChainOpenBuildsSegmentsWithGhosts(t *testing.T) {
 	worldId := createTestWorld(t)
 	bodyDef := DefaultBodyDef()
 	bodyId := CreateBody(worldId, &bodyDef)
+	// The ghosts sit at x = 0 and x = 4, so every segment sees the same
+	// neighbors as one long line.
 	points := []Vec2{v2(0, 0), v2(1, 0), v2(2, 0), v2(3, 0), v2(4, 0)}
 	chainDef := DefaultChainDef()
-	chainDef.Points = points
+	chainDef.Points = points[1:4]
+	chainDef.Ghost1, chainDef.Ghost2 = points[0], points[4]
 	chainId := CreateChain(bodyId, &chainDef)
 
 	if got := chainId.GetSegmentCount(); got != 2 {
@@ -273,33 +275,149 @@ func TestCreateChainLoopBuildsAllSegments(t *testing.T) {
 	}
 }
 
-func TestCreateChainPanicsBelowFourPoints(t *testing.T) {
+// TestCreateChainRejectsBadDefs checks the v3.2 minimums: two points and
+// both ghosts for an open chain, three points for a loop, and one material
+// or one per segment.
+func TestCreateChainRejectsBadDefs(t *testing.T) {
 	worldId := createTestWorld(t)
 	bodyDef := DefaultBodyDef()
 	bodyId := CreateBody(worldId, &bodyDef)
-	chainDef := DefaultChainDef()
-	chainDef.Points = []Vec2{v2(0, 0), v2(1, 0), v2(2, 0)}
 
-	requirePanic(t, func() { CreateChain(bodyId, &chainDef) })
+	open := func() ChainDef {
+		def := DefaultChainDef()
+		def.Points = []Vec2{v2(1, 0), v2(2, 0)}
+		def.Ghost1, def.Ghost2 = v2(0, 0), v2(3, 0)
+		return def
+	}
+
+	def := open()
+	if got := CreateChain(bodyId, &def).GetSegmentCount(); got != 1 {
+		t.Fatalf("two points built %d segments, want 1", got)
+	}
+
+	def = open()
+	def.Points = def.Points[:1]
+	requirePanic(t, func() { CreateChain(bodyId, &def) })
+
+	def = open()
+	def.Ghost1 = DefaultChainDef().Ghost1
+	requirePanic(t, func() { CreateChain(bodyId, &def) })
+
+	def = open()
+	def.Ghost2 = DefaultChainDef().Ghost2
+	requirePanic(t, func() { CreateChain(bodyId, &def) })
+
+	def = open()
+	def.Materials = []SurfaceMaterial{DefaultSurfaceMaterial(), DefaultSurfaceMaterial()}
+	requirePanic(t, func() { CreateChain(bodyId, &def) })
+
+	def = DefaultChainDef()
+	def.Points = []Vec2{v2(0, 0), v2(1, 0)}
+	def.IsLoop = true
+	requirePanic(t, func() { CreateChain(bodyId, &def) })
+
+	// A loop ignores the ghosts, so the sentinels are fine.
+	def.Points = append(def.Points, v2(0, 1))
+	if got := CreateChain(bodyId, &def).GetSegmentCount(); got != 3 {
+		t.Fatalf("a three point loop built %d segments, want 3", got)
+	}
 }
 
-func TestChainSetFrictionReachesEverySegment(t *testing.T) {
+// TestChainSurfaceMaterials sets the material of one segment and then of
+// every segment, and checks the per-segment materials of the definition.
+func TestChainSurfaceMaterials(t *testing.T) {
 	worldId := createTestWorld(t)
 	bodyDef := DefaultBodyDef()
 	bodyId := CreateBody(worldId, &bodyDef)
 	chainDef := DefaultChainDef()
-	chainDef.Points = []Vec2{v2(0, 0), v2(1, 0), v2(2, 0), v2(3, 0), v2(4, 0)}
+	chainDef.Points = []Vec2{v2(1, 0), v2(2, 0), v2(3, 0)}
+	chainDef.Ghost1, chainDef.Ghost2 = v2(0, 0), v2(4, 0)
+	chainDef.Materials = []SurfaceMaterial{
+		{Friction: QMustParse("0.25"), UserMaterialId: 1},
+		{Friction: QMustParse("0.5"), UserMaterialId: 2},
+	}
 	chainId := CreateChain(bodyId, &chainDef)
-	friction := QMustParse("0.375")
-	chainId.SetFriction(friction)
 
+	for i, want := range chainDef.Materials {
+		if got := chainId.GetSurfaceMaterial(i); got != want {
+			t.Errorf("segment %d material = %+v, want %+v", i, got, want)
+		}
+	}
+
+	one := SurfaceMaterial{Friction: QMustParse("0.375"), UserMaterialId: 7}
+	chainId.SetSurfaceMaterial(one, 1)
+	if got := chainId.GetSurfaceMaterial(1); got != one {
+		t.Errorf("segment 1 material = %+v, want %+v", got, one)
+	}
+	if got := chainId.GetSurfaceMaterial(0); got != chainDef.Materials[0] {
+		t.Errorf("segment 0 changed to %+v", got)
+	}
+
+	all := SurfaceMaterial{Friction: QMustParse("0.125"), Restitution: QHalf()}
+	chainId.SetAllSurfaceMaterials(all)
 	segments := make([]ShapeId, chainId.GetSegmentCount())
 	chainId.GetSegments(segments)
 	for i, segmentId := range segments {
-		if got := segmentId.GetFriction(); !got.Eq(friction) {
-			t.Errorf("segment %d friction = %v, want %v", i, got, friction)
+		if got := segmentId.GetSurfaceMaterial(); got != all {
+			t.Errorf("segment %d material = %+v, want %+v", i, got, all)
 		}
 	}
+
+	requirePanic(t, func() { chainId.SetSurfaceMaterial(one, 2) })
+	requirePanic(t, func() { chainId.SetAllSurfaceMaterials(SurfaceMaterial{Friction: QFromInt(-1)}) })
+}
+
+// TestLooseChainSegment creates a chain segment without a parent chain,
+// changes it, and destroys it. A segment owned by a chain refuses both.
+func TestLooseChainSegment(t *testing.T) {
+	worldId := createTestWorld(t)
+	bodyDef := DefaultBodyDef()
+	bodyId := CreateBody(worldId, &bodyDef)
+	shapeDef := DefaultShapeDef()
+
+	loose := ChainSegment{
+		Ghost1:  v2(-1, 0),
+		Segment: Segment{Point1: v2(0, 0), Point2: v2(1, 0)},
+		Ghost2:  v2(2, 0),
+		ChainId: 3,
+	}
+	shapeId := CreateChainSegmentShape(bodyId, &shapeDef, &loose)
+	if got := shapeId.GetType(); got != ChainSegmentShape {
+		t.Fatalf("type = %v, want a chain segment", got)
+	}
+	if shapeId.GetParentChain().IsValid() {
+		t.Error("a loose segment has a parent chain")
+	}
+
+	moved := loose
+	moved.Segment.Point2 = v2(2, 0)
+	moved.Ghost2 = v2(3, 0)
+	shapeId.SetChainSegment(&moved)
+	if got := shapeId.GetChainSegment(); got.Segment != moved.Segment || got.ChainId != nullIndex {
+		t.Errorf("chain segment = %+v, want %+v without a chain", got, moved)
+	}
+
+	degenerate := loose
+	degenerate.Segment.Point2 = degenerate.Segment.Point1
+	requirePanic(t, func() { CreateChainSegmentShape(bodyId, &shapeDef, &degenerate) })
+	shapeId.SetChainSegment(&degenerate)
+	if got := shapeId.GetChainSegment(); got.Segment != moved.Segment {
+		t.Errorf("a degenerate segment replaced the geometry: %+v", got)
+	}
+
+	DestroyShape(shapeId, false)
+	if shapeId.IsValid() {
+		t.Error("the loose segment survived DestroyShape")
+	}
+
+	chainDef := DefaultChainDef()
+	chainDef.Points = []Vec2{v2(0, 0), v2(2, 0), v2(2, 2)}
+	chainDef.IsLoop = true
+	chainId := CreateChain(bodyId, &chainDef)
+	segments := make([]ShapeId, chainId.GetSegmentCount())
+	chainId.GetSegments(segments)
+	requirePanic(t, func() { DestroyShape(segments[0], false) })
+	requirePanic(t, func() { segments[0].SetChainSegment(&loose) })
 }
 
 func TestDestroyChainRemovesSegmentsFromBody(t *testing.T) {
@@ -308,7 +426,8 @@ func TestDestroyChainRemovesSegmentsFromBody(t *testing.T) {
 	bodyDef := DefaultBodyDef()
 	bodyId := CreateBody(worldId, &bodyDef)
 	chainDef := DefaultChainDef()
-	chainDef.Points = []Vec2{v2(0, 0), v2(1, 0), v2(2, 0), v2(3, 0)}
+	chainDef.Points = []Vec2{v2(1, 0), v2(2, 0)}
+	chainDef.Ghost1, chainDef.Ghost2 = v2(0, 0), v2(3, 0)
 	chainId := CreateChain(bodyId, &chainDef)
 
 	DestroyChain(chainId)
@@ -319,4 +438,63 @@ func TestDestroyChainRemovesSegmentsFromBody(t *testing.T) {
 		t.Error("destroyed chain is still valid")
 	}
 	validateWorld(w)
+}
+
+// TestApplyWindPushesAlongTheWind blows on a circle and a box at rest. The
+// force is half the air density times the projected area times the squared
+// speed, along the wind, and a box only feels its windward face.
+func TestApplyWindPushesAlongTheWind(t *testing.T) {
+	worldId := createTestWorld(t)
+	w := getWorldFromId(worldId)
+	wind := v2(10, 0)
+
+	circleId := addDynamicCircle(t, worldId, v2(0, 0))
+	boxId := addDynamicBox(t, worldId, v2(5, 0))
+	for _, tc := range []struct {
+		bodyId BodyId
+		want   float64
+	}{{circleId, 61.25}, {boxId, 122.5}} {
+		s := firstShape(w, tc.bodyId)
+		shapeIdOf(w, s).ApplyWind(wind, QOne(), QZero(), false)
+		sim := getBodySim(w, getBodyFullId(w, tc.bodyId))
+		if got := QToFloat64(sim.force.X); math.Abs(got-tc.want) > 1e-3 || !sim.force.Y.Eq(QZero()) {
+			t.Errorf("wind force = %v, want (%v, 0)", sim.force, tc.want)
+		}
+		if got := QToFloat64(sim.torque); math.Abs(got) > 1e-6 {
+			t.Errorf("wind torque = %v, want 0", got)
+		}
+	}
+}
+
+// TestApplyWindWakesOnlyWhenAsked leaves a sleeping body alone unless wake
+// is set, and ignores static bodies.
+func TestApplyWindWakesOnlyWhenAsked(t *testing.T) {
+	worldId := createTestWorld(t)
+	w := getWorldFromId(worldId)
+	bodyId := addDynamicCircle(t, worldId, v2(0, 0))
+	shapeId := shapeIdOf(w, firstShape(w, bodyId))
+	bodyId.SetAwake(false)
+
+	shapeId.ApplyWind(v2(10, 0), QOne(), QZero(), false)
+	if bodyId.IsAwake() {
+		t.Fatal("the wind woke the body without wake")
+	}
+
+	shapeId.ApplyWind(v2(10, 0), QOne(), QZero(), true)
+	if !bodyId.IsAwake() {
+		t.Fatal("the wind did not wake the body")
+	}
+	if sim := getBodySim(w, getBodyFullId(w, bodyId)); !QZero().Less(sim.force.X) {
+		t.Errorf("wind force = %v, want a push along x", sim.force)
+	}
+
+	groundDef := DefaultBodyDef()
+	groundId := CreateBody(worldId, &groundDef)
+	shapeDef := DefaultShapeDef()
+	circle := Circle{Radius: QOne()}
+	groundShape := CreateCircleShape(groundId, &shapeDef, &circle)
+	groundShape.ApplyWind(v2(10, 0), QOne(), QZero(), true)
+	if sim := getBodySim(w, getBodyFullId(w, groundId)); sim.force != Vec2Zero() {
+		t.Errorf("a static body felt the wind: %v", sim.force)
+	}
 }

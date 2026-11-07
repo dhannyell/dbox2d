@@ -64,7 +64,11 @@ static void benchCondBroadcast( benchCond* c ) { pthread_cond_broadcast( c ); }
 
 typedef struct benchPoolTask
 {
+#ifdef CBENCH_V32
+	b2TaskCallbackFcn* fcn;
+#else
 	b2TaskCallback* fcn;
+#endif
 	void* context;
 	int itemCount;
 	int chunkCount;
@@ -158,10 +162,15 @@ static bool benchClaimLocked( benchPool* pool, benchPoolTask** outTask, int* out
 
 static void benchRunChunk( benchPool* pool, benchPoolTask* task, int chunk, int workerIndex )
 {
+#ifdef CBENCH_V32
+	(void)chunk;
+	task->fcn( task->context );
+#else
 	int start = 0;
 	int end = 0;
 	benchChunkRange( task, chunk, &start, &end );
 	task->fcn( start, end, (uint32_t)workerIndex, task->context );
+#endif
 
 	benchLock( &pool->mutex );
 	pool->workerSeen[workerIndex] = true;
@@ -285,6 +294,16 @@ static void benchPoolStop( void )
 	benchMutexDestroy( &pool->mutex );
 }
 
+#ifdef CBENCH_V32
+// v3.2 enqueues whole tasks, each run exactly once; the library splits the
+// work itself. A task is one chunk of one item.
+static void* benchEnqueueTask( b2TaskCallbackFcn* fcn, void* context, void* userContext )
+{
+	(void)userContext;
+	benchPool* pool = &benchPoolInstance;
+	int itemCount = 1;
+	int chunkCount = 1;
+#else
 static void* benchEnqueueTask( b2TaskCallback* fcn, int itemCount, int minRange, void* context, void* userContext )
 {
 	(void)userContext;
@@ -304,6 +323,7 @@ static void* benchEnqueueTask( b2TaskCallback* fcn, int itemCount, int minRange,
 	{
 		chunkCount = pool->workerCount;
 	}
+#endif
 
 	benchLock( &pool->mutex );
 	benchPoolTask* task = pool->freeList;
@@ -313,7 +333,11 @@ static void* benchEnqueueTask( b2TaskCallback* fcn, int itemCount, int minRange,
 		// the harness say so rather than quietly report a serialised run.
 		pool->overflowed = true;
 		benchUnlock( &pool->mutex );
+#ifdef CBENCH_V32
+		fcn( context );
+#else
 		fcn( 0, itemCount, 0, context );
+#endif
 		return NULL;
 	}
 	pool->freeList = task->freeNext;

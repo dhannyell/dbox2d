@@ -33,10 +33,8 @@ func makeCapsule(p1, p2 Vec2, radius Q) Polygon {
 
 // CollideCircles computes the contact manifold of two circles. It
 // corresponds to b2CollideCircles in src/manifold.c.
-func CollideCircles(circleA *Circle, xfA Transform, circleB *Circle, xfB Transform) Manifold {
-	var manifold Manifold
-
-	xf := InvMulTransforms(xfA, xfB)
+func CollideCircles(circleA *Circle, circleB *Circle, xf Transform) LocalManifold {
+	var manifold LocalManifold
 
 	pointA := circleA.Center
 	pointB := TransformPoint(xf, circleB.Center)
@@ -55,11 +53,9 @@ func CollideCircles(circleA *Circle, xfA Transform, circleB *Circle, xfB Transfo
 	cB := MulAdd(pointB, radiusB.Neg(), normal)
 	contactPointA := Lerp(cA, cB, QHalf())
 
-	manifold.Normal = RotateVector(xfA.Q, normal)
+	manifold.Normal = normal
 	mp := &manifold.Points[0]
-	mp.AnchorA = RotateVector(xfA.Q, contactPointA)
-	mp.AnchorB = mp.AnchorA.Add(xfA.P.Sub(xfB.P))
-	mp.Point = mp.AnchorA.Add(xfA.P)
+	mp.Point = contactPointA
 	mp.Separation = separation
 	mp.Id = 0
 	manifold.PointCount = 1
@@ -68,10 +64,8 @@ func CollideCircles(circleA *Circle, xfA Transform, circleB *Circle, xfB Transfo
 
 // CollideCapsuleAndCircle computes the contact manifold of a capsule and a
 // circle. It corresponds to b2CollideCapsuleAndCircle in src/manifold.c.
-func CollideCapsuleAndCircle(capsuleA *Capsule, xfA Transform, circleB *Circle, xfB Transform) Manifold {
-	var manifold Manifold
-
-	xf := InvMulTransforms(xfA, xfB)
+func CollideCapsuleAndCircle(capsuleA *Capsule, circleB *Circle, xf Transform) LocalManifold {
+	var manifold LocalManifold
 
 	// Compute the circle position in the frame of the capsule.
 	pB := TransformPoint(xf, circleB.Center)
@@ -111,11 +105,9 @@ func CollideCapsuleAndCircle(capsuleA *Capsule, xfA Transform, circleB *Circle, 
 	cB := MulAdd(pB, radiusB.Neg(), normal)
 	contactPointA := Lerp(cA, cB, QHalf())
 
-	manifold.Normal = RotateVector(xfA.Q, normal)
+	manifold.Normal = normal
 	mp := &manifold.Points[0]
-	mp.AnchorA = RotateVector(xfA.Q, contactPointA)
-	mp.AnchorB = mp.AnchorA.Add(xfA.P.Sub(xfB.P))
-	mp.Point = xfA.P.Add(mp.AnchorA)
+	mp.Point = contactPointA
 	mp.Separation = separation
 	mp.Id = 0
 	manifold.PointCount = 1
@@ -124,13 +116,11 @@ func CollideCapsuleAndCircle(capsuleA *Capsule, xfA Transform, circleB *Circle, 
 
 // CollidePolygonAndCircle computes the contact manifold of a polygon and a
 // circle. It corresponds to b2CollidePolygonAndCircle in src/manifold.c.
-func CollidePolygonAndCircle(polygonA *Polygon, xfA Transform, circleB *Circle, xfB Transform) Manifold {
-	var manifold Manifold
+func CollidePolygonAndCircle(polygonA *Polygon, circleB *Circle, xf Transform) LocalManifold {
+	var manifold LocalManifold
 	speculative := SpeculativeDistance()
 	zero := QZero()
 	half := QHalf()
-
-	xf := InvMulTransforms(xfA, xfB)
 
 	// Compute the circle position in the frame of the polygon.
 	center := TransformPoint(xf, circleB.Center)
@@ -181,11 +171,9 @@ func CollidePolygonAndCircle(polygonA *Polygon, xfA Transform, circleB *Circle, 
 		cB := MulSub(center, radiusB, normal)
 		contactPointA := Lerp(cA, cB, half)
 
-		manifold.Normal = RotateVector(xfA.Q, normal)
+		manifold.Normal = normal
 		mp := &manifold.Points[0]
-		mp.AnchorA = RotateVector(xfA.Q, contactPointA)
-		mp.AnchorB = mp.AnchorA.Add(xfA.P.Sub(xfB.P))
-		mp.Point = xfA.P.Add(mp.AnchorA)
+		mp.Point = contactPointA
 		mp.Separation = cB.Sub(cA).Dot(normal)
 		mp.Id = 0
 		manifold.PointCount = 1
@@ -201,11 +189,9 @@ func CollidePolygonAndCircle(polygonA *Polygon, xfA Transform, circleB *Circle, 
 		cB := MulSub(center, radiusB, normal)
 		contactPointA := Lerp(cA, cB, half)
 
-		manifold.Normal = RotateVector(xfA.Q, normal)
+		manifold.Normal = normal
 		mp := &manifold.Points[0]
-		mp.AnchorA = RotateVector(xfA.Q, contactPointA)
-		mp.AnchorB = mp.AnchorA.Add(xfA.P.Sub(xfB.P))
-		mp.Point = xfA.P.Add(mp.AnchorA)
+		mp.Point = contactPointA
 		mp.Separation = cB.Sub(cA).Dot(normal)
 		mp.Id = 0
 		manifold.PointCount = 1
@@ -213,7 +199,7 @@ func CollidePolygonAndCircle(polygonA *Polygon, xfA Transform, circleB *Circle, 
 		// The circle center is between v1 and v2. It may be inside the
 		// polygon.
 		normal := polygonA.Normals[normalIndex]
-		manifold.Normal = RotateVector(xfA.Q, normal)
+		manifold.Normal = normal
 
 		// cA is the projection of the circle center onto the reference edge.
 		cA := MulAdd(center, radiusA.Sub(center.Sub(v1).Dot(normal)), normal)
@@ -224,9 +210,7 @@ func CollidePolygonAndCircle(polygonA *Polygon, xfA Transform, circleB *Circle, 
 		contactPointA := Lerp(cA, cB, half)
 
 		mp := &manifold.Points[0]
-		mp.AnchorA = RotateVector(xfA.Q, contactPointA)
-		mp.AnchorB = mp.AnchorA.Add(xfA.P.Sub(xfB.P))
-		mp.Point = xfA.P.Add(mp.AnchorA)
+		mp.Point = contactPointA
 		mp.Separation = separation.Sub(radius)
 		mp.Id = 0
 		manifold.PointCount = 1
@@ -238,18 +222,18 @@ func CollidePolygonAndCircle(polygonA *Polygon, xfA Transform, circleB *Circle, 
 // CollideCapsules computes the contact manifold of two capsules. It follows
 // Ericson 5.1.9 with clipping for a second contact point and corresponds to
 // b2CollideCapsules in src/manifold.c.
-func CollideCapsules(capsuleA *Capsule, xfA Transform, capsuleB *Capsule, xfB Transform) Manifold {
+func CollideCapsules(capsuleA *Capsule, capsuleB *Capsule, xf Transform) LocalManifold {
 	origin := capsuleA.Center1
 
-	// Shift capsule A to the origin.
-	sfA := Transform{P: xfA.P.Add(RotateVector(xfA.Q, origin)), Q: xfA.Q}
-	xf := InvMulTransforms(sfA, xfB)
+	// Shift to the origin in frame A for round-off, a pure translation in
+	// the frame of A.
+	xfs := Transform{P: xf.P.Sub(origin), Q: xf.Q}
 
 	p1 := Vec2{}
 	q1 := capsuleA.Center2.Sub(origin)
 
-	p2 := TransformPoint(xf, capsuleB.Center1)
-	q2 := TransformPoint(xf, capsuleB.Center2)
+	p2 := TransformPoint(xfs, capsuleB.Center1)
+	q2 := TransformPoint(xfs, capsuleB.Center2)
 
 	d1 := q1.Sub(p1)
 	d2 := q2.Sub(p2)
@@ -299,7 +283,7 @@ func CollideCapsules(capsuleA *Capsule, xfA Transform, capsuleB *Capsule, xfB Tr
 	closest2 := MulAdd(p2, f2, d2)
 	distanceSquared := closest1.DistanceSq(closest2)
 
-	var manifold Manifold
+	var manifold LocalManifold
 	radiusA := capsuleA.Radius
 	radiusB := capsuleB.Radius
 	radius := radiusA.Add(radiusB)
@@ -390,12 +374,12 @@ func CollideCapsules(capsuleA *Capsule, xfA Transform, capsuleB *Capsule, xfB Tr
 
 			if sp.Cmp(distance.Add(linearSlop)) <= 0 || sq.Cmp(distance.Add(linearSlop)) <= 0 {
 				mp := &manifold.Points[0]
-				mp.AnchorA = MulAdd(cp, half.Mul(radiusA.Sub(radiusB).Sub(sp)), normalA)
+				mp.Point = MulAdd(cp, half.Mul(radiusA.Sub(radiusB).Sub(sp)), normalA)
 				mp.Separation = sp.Sub(radius)
 				mp.Id = makeId(0, 0)
 
 				mp = &manifold.Points[1]
-				mp.AnchorA = MulAdd(cq, half.Mul(radiusA.Sub(radiusB).Sub(sq)), normalA)
+				mp.Point = MulAdd(cq, half.Mul(radiusA.Sub(radiusB).Sub(sq)), normalA)
 				mp.Separation = sq.Sub(radius)
 				mp.Id = makeId(0, 1)
 				manifold.PointCount = 2
@@ -426,12 +410,12 @@ func CollideCapsules(capsuleA *Capsule, xfA Transform, capsuleB *Capsule, xfB Tr
 
 			if sp.Cmp(distance.Add(linearSlop)) <= 0 || sq.Cmp(distance.Add(linearSlop)) <= 0 {
 				mp := &manifold.Points[0]
-				mp.AnchorA = MulAdd(cp, half.Mul(radiusB.Sub(radiusA).Sub(sp)), normalB)
+				mp.Point = MulAdd(cp, half.Mul(radiusB.Sub(radiusA).Sub(sp)), normalB)
 				mp.Separation = sp.Sub(radius)
 				mp.Id = makeId(0, 0)
 
 				mp = &manifold.Points[1]
-				mp.AnchorA = MulAdd(cq, half.Mul(radiusB.Sub(radiusA).Sub(sq)), normalB)
+				mp.Point = MulAdd(cq, half.Mul(radiusB.Sub(radiusA).Sub(sq)), normalB)
 				mp.Separation = sq.Sub(radius)
 				mp.Id = makeId(1, 0)
 				manifold.PointCount = 2
@@ -462,21 +446,15 @@ func CollideCapsules(capsuleA *Capsule, xfA Transform, capsuleB *Capsule, xfB Tr
 		}
 
 		manifold.Normal = normal
-		manifold.Points[0].AnchorA = Lerp(c1, c2, half)
+		manifold.Points[0].Point = Lerp(c1, c2, half)
 		manifold.Points[0].Separation = distanceSquared.Sqrt().Sub(radius)
 		manifold.Points[0].Id = makeId(i1, i2)
 		manifold.PointCount = 1
 	}
 
-	// Convert the manifold to world space.
-	manifold.Normal = RotateVector(xfA.Q, manifold.Normal)
+	// Undo the origin shift so the points are in frame A.
 	for i := range manifold.PointCount {
-		mp := &manifold.Points[i]
-
-		// Anchor points relative to the shape origin in world space.
-		mp.AnchorA = RotateVector(xfA.Q, mp.AnchorA.Add(origin))
-		mp.AnchorB = mp.AnchorA.Add(xfA.P.Sub(xfB.P))
-		mp.Point = xfA.P.Add(mp.AnchorA)
+		manifold.Points[i].Point = manifold.Points[i].Point.Add(origin)
 	}
 
 	return manifold
@@ -484,16 +462,16 @@ func CollideCapsules(capsuleA *Capsule, xfA Transform, capsuleB *Capsule, xfB Tr
 
 // CollideSegmentAndCapsule computes the contact manifold of a segment and a
 // capsule. It corresponds to b2CollideSegmentAndCapsule in src/manifold.c.
-func CollideSegmentAndCapsule(segmentA *Segment, xfA Transform, capsuleB *Capsule, xfB Transform) Manifold {
+func CollideSegmentAndCapsule(segmentA *Segment, capsuleB *Capsule, xf Transform) LocalManifold {
 	capsuleA := Capsule{Center1: segmentA.Point1, Center2: segmentA.Point2}
-	return CollideCapsules(&capsuleA, xfA, capsuleB, xfB)
+	return CollideCapsules(&capsuleA, capsuleB, xf)
 }
 
 // CollidePolygonAndCapsule computes the contact manifold of a polygon and a
 // capsule. It corresponds to b2CollidePolygonAndCapsule in src/manifold.c.
-func CollidePolygonAndCapsule(polygonA *Polygon, xfA Transform, capsuleB *Capsule, xfB Transform) Manifold {
+func CollidePolygonAndCapsule(polygonA *Polygon, capsuleB *Capsule, xf Transform) LocalManifold {
 	polyB := makeCapsule(capsuleB.Center1, capsuleB.Center2, capsuleB.Radius)
-	return CollidePolygons(polygonA, xfA, &polyB, xfB)
+	return CollidePolygons(polygonA, &polyB, xf)
 }
 
 // clipPolygons computes the contact points of two potentially touching
@@ -503,7 +481,7 @@ func CollidePolygonAndCapsule(polygonA *Polygon, xfA Transform, capsuleB *Capsul
 // It writes into manifold, which the caller has zeroed, instead of returning
 // by value: a Manifold is 120 bytes and Go copies a returned struct at every
 // hop, and this is the hottest path of the collide phase.
-func clipPolygons(manifold *Manifold, polyA, polyB *Polygon, edgeA, edgeB int, flip bool) {
+func clipPolygons(manifold *LocalManifold, polyA, polyB *Polygon, edgeA, edgeB int, flip bool) {
 
 	// The reference polygon and the incident polygon.
 	var poly1, poly2 *Polygon
@@ -590,19 +568,19 @@ func clipPolygons(manifold *Manifold, polyA, polyB *Polygon, edgeA, edgeB int, f
 
 	if !flip {
 		manifold.Normal = normal
-		manifold.Points[0].AnchorA = vLower
+		manifold.Points[0].Point = vLower
 		manifold.Points[0].Separation = separationLower.Sub(radius)
 		manifold.Points[0].Id = makeId(i11, i22)
-		manifold.Points[1].AnchorA = vUpper
+		manifold.Points[1].Point = vUpper
 		manifold.Points[1].Separation = separationUpper.Sub(radius)
 		manifold.Points[1].Id = makeId(i12, i21)
 		manifold.PointCount = 2
 	} else {
 		manifold.Normal = Neg(normal)
-		manifold.Points[0].AnchorA = vUpper
+		manifold.Points[0].Point = vUpper
 		manifold.Points[0].Separation = separationUpper.Sub(radius)
 		manifold.Points[0].Id = makeId(i21, i12)
-		manifold.Points[1].AnchorA = vLower
+		manifold.Points[1].Point = vLower
 		manifold.Points[1].Separation = separationLower.Sub(radius)
 		manifold.Points[1].Id = makeId(i22, i11)
 		manifold.PointCount = 2
@@ -645,25 +623,25 @@ func findMaxSeparation(poly1, poly2 *Polygon) (Q, int) {
 // CollidePolygons computes the contact manifold of two rounded polygons with
 // the separating axis test and edge clipping. It corresponds to
 // b2CollidePolygons in src/manifold.c.
-func CollidePolygons(polygonA *Polygon, xfA Transform, polygonB *Polygon, xfB Transform) Manifold {
-	var manifold Manifold
-	collidePolygonsInto(&manifold, polygonA, xfA, polygonB, xfB)
+func CollidePolygons(polygonA *Polygon, polygonB *Polygon, xf Transform) LocalManifold {
+	var manifold LocalManifold
+	collidePolygonsInto(&manifold, polygonA, polygonB, xf)
 	return manifold
 }
 
 // collidePolygonsInto is CollidePolygons writing into a zeroed manifold. The
 // contact update calls it directly so the result lands in the contact
 // without passing through three return-by-value copies.
-func collidePolygonsInto(manifold *Manifold, polygonA *Polygon, xfA Transform, polygonB *Polygon, xfB Transform) {
+func collidePolygonsInto(manifold *LocalManifold, polygonA *Polygon, polygonB *Polygon, xf Transform) {
 	origin := polygonA.Vertices[0]
 	speculativeDistance := SpeculativeDistance()
 	zero := QZero()
 	one := QOne()
 	half := QHalf()
 
-	// Shift polygon A to the origin.
-	sfA := Transform{P: xfA.P.Add(RotateVector(xfA.Q, origin)), Q: xfA.Q}
-	xf := InvMulTransforms(sfA, xfB)
+	// Shift to the origin in frame A for round-off, a pure translation in
+	// the frame of A.
+	xfs := Transform{P: xf.P.Sub(origin), Q: xf.Q}
 
 	var localPolyA Polygon
 	localPolyA.Count = polygonA.Count
@@ -680,17 +658,19 @@ func collidePolygonsInto(manifold *Manifold, polygonA *Polygon, xfA Transform, p
 	localPolyB.Count = polygonB.Count
 	localPolyB.Radius = polygonB.Radius
 	for i := range localPolyB.Count {
-		localPolyB.Vertices[i] = TransformPoint(xf, polygonB.Vertices[i])
-		localPolyB.Normals[i] = RotateVector(xf.Q, polygonB.Normals[i])
+		localPolyB.Vertices[i] = TransformPoint(xfs, polygonB.Vertices[i])
+		localPolyB.Normals[i] = RotateVector(xfs.Q, polygonB.Normals[i])
 	}
-
-	separationA, edgeA := findMaxSeparation(&localPolyA, &localPolyB)
-	separationB, edgeB := findMaxSeparation(&localPolyB, &localPolyA)
 
 	radius := localPolyA.Radius.Add(localPolyB.Radius)
 
-	if speculativeDistance.Add(radius).Less(separationA) ||
-		speculativeDistance.Add(radius).Less(separationB) {
+	separationA, edgeA := findMaxSeparation(&localPolyA, &localPolyB)
+	if speculativeDistance.Add(radius).Less(separationA) {
+		return
+	}
+
+	separationB, edgeB := findMaxSeparation(&localPolyB, &localPolyA)
+	if speculativeDistance.Add(radius).Less(separationB) {
 		return
 	}
 
@@ -750,7 +730,7 @@ func collidePolygonsInto(manifold *Manifold, polygonA *Polygon, xfA Transform, p
 		v21 := localPolyB.Vertices[i21]
 		v22 := localPolyB.Vertices[i22]
 
-		result := SegmentDistance(v11, v12, v21, v22)
+		result := ComputeSegmentDistance(v11, v12, v21, v22)
 
 		// The reference asserts a positive squared distance. See D-003.
 		if result.DistanceSquared.Eq(zero) {
@@ -783,7 +763,7 @@ func collidePolygonsInto(manifold *Manifold, polygonA *Polygon, xfA Transform, p
 				c2 := MulAdd(v21, localPolyB.Radius.Neg(), normal)
 
 				manifold.Normal = normal
-				manifold.Points[0].AnchorA = Lerp(c1, c2, half)
+				manifold.Points[0].Point = Lerp(c1, c2, half)
 				manifold.Points[0].Separation = distance.Sub(radius)
 				manifold.Points[0].Id = makeId(i11, i21)
 				manifold.PointCount = 1
@@ -795,7 +775,7 @@ func collidePolygonsInto(manifold *Manifold, polygonA *Polygon, xfA Transform, p
 				c2 := MulAdd(v22, localPolyB.Radius.Neg(), normal)
 
 				manifold.Normal = normal
-				manifold.Points[0].AnchorA = Lerp(c1, c2, half)
+				manifold.Points[0].Point = Lerp(c1, c2, half)
 				manifold.Points[0].Separation = distance.Sub(radius)
 				manifold.Points[0].Id = makeId(i11, i22)
 				manifold.PointCount = 1
@@ -807,7 +787,7 @@ func collidePolygonsInto(manifold *Manifold, polygonA *Polygon, xfA Transform, p
 				c2 := MulAdd(v21, localPolyB.Radius.Neg(), normal)
 
 				manifold.Normal = normal
-				manifold.Points[0].AnchorA = Lerp(c1, c2, half)
+				manifold.Points[0].Point = Lerp(c1, c2, half)
 				manifold.Points[0].Separation = distance.Sub(radius)
 				manifold.Points[0].Id = makeId(i12, i21)
 				manifold.PointCount = 1
@@ -819,7 +799,7 @@ func collidePolygonsInto(manifold *Manifold, polygonA *Polygon, xfA Transform, p
 				c2 := MulAdd(v22, localPolyB.Radius.Neg(), normal)
 
 				manifold.Normal = normal
-				manifold.Points[0].AnchorA = Lerp(c1, c2, half)
+				manifold.Points[0].Point = Lerp(c1, c2, half)
 				manifold.Points[0].Separation = distance.Sub(radius)
 				manifold.Points[0].Id = makeId(i12, i22)
 				manifold.PointCount = 1
@@ -830,43 +810,32 @@ func collidePolygonsInto(manifold *Manifold, polygonA *Polygon, xfA Transform, p
 		clipPolygons(manifold, &localPolyA, &localPolyB, edgeA, edgeB, flip)
 	}
 
-	// Convert the manifold to world space.
-	if manifold.PointCount > 0 {
-		manifold.Normal = RotateVector(xfA.Q, manifold.Normal)
-		for i := range manifold.PointCount {
-			mp := &manifold.Points[i]
-
-			// Anchor points relative to the shape origin in world space.
-			mp.AnchorA = RotateVector(xfA.Q, mp.AnchorA.Add(origin))
-			mp.AnchorB = mp.AnchorA.Add(xfA.P.Sub(xfB.P))
-			mp.Point = xfA.P.Add(mp.AnchorA)
-		}
+	// Undo the origin shift so the points are in frame A.
+	for i := range manifold.PointCount {
+		manifold.Points[i].Point = manifold.Points[i].Point.Add(origin)
 	}
-
 }
 
 // CollideSegmentAndCircle computes the contact manifold of a segment and a
 // circle. It corresponds to b2CollideSegmentAndCircle in src/manifold.c.
-func CollideSegmentAndCircle(segmentA *Segment, xfA Transform, circleB *Circle, xfB Transform) Manifold {
+func CollideSegmentAndCircle(segmentA *Segment, circleB *Circle, xf Transform) LocalManifold {
 	capsuleA := Capsule{Center1: segmentA.Point1, Center2: segmentA.Point2}
-	return CollideCapsuleAndCircle(&capsuleA, xfA, circleB, xfB)
+	return CollideCapsuleAndCircle(&capsuleA, circleB, xf)
 }
 
 // CollideSegmentAndPolygon computes the contact manifold of a segment and a
 // polygon. It corresponds to b2CollideSegmentAndPolygon in src/manifold.c.
-func CollideSegmentAndPolygon(segmentA *Segment, xfA Transform, polygonB *Polygon, xfB Transform) Manifold {
+func CollideSegmentAndPolygon(segmentA *Segment, polygonB *Polygon, xf Transform) LocalManifold {
 	polygonA := makeCapsule(segmentA.Point1, segmentA.Point2, QZero())
-	return CollidePolygons(&polygonA, xfA, polygonB, xfB)
+	return CollidePolygons(&polygonA, polygonB, xf)
 }
 
 // CollideChainSegmentAndCircle computes the contact manifold of a one-sided
 // chain segment and a circle. It corresponds to
 // b2CollideChainSegmentAndCircle in src/manifold.c.
-func CollideChainSegmentAndCircle(segmentA *ChainSegment, xfA Transform, circleB *Circle, xfB Transform) Manifold {
-	var manifold Manifold
+func CollideChainSegmentAndCircle(segmentA *ChainSegment, circleB *Circle, xf Transform) LocalManifold {
+	var manifold LocalManifold
 	zero := QZero()
-
-	xf := InvMulTransforms(xfA, xfB)
 
 	// Compute the circle in the frame of the segment.
 	pB := TransformPoint(xf, circleB.Center)
@@ -927,12 +896,10 @@ func CollideChainSegmentAndCircle(segmentA *ChainSegment, xfA Transform, circleB
 	cB := MulAdd(pB, radius.Neg(), normal)
 	contactPointA := Lerp(cA, cB, QHalf())
 
-	manifold.Normal = RotateVector(xfA.Q, normal)
+	manifold.Normal = normal
 
 	mp := &manifold.Points[0]
-	mp.AnchorA = RotateVector(xfA.Q, contactPointA)
-	mp.AnchorB = mp.AnchorA.Add(xfA.P.Sub(xfB.P))
-	mp.Point = xfA.P.Add(mp.AnchorA)
+	mp.Point = contactPointA
 	mp.Separation = separation
 	mp.Id = 0
 	manifold.PointCount = 1
@@ -942,16 +909,16 @@ func CollideChainSegmentAndCircle(segmentA *ChainSegment, xfA Transform, circleB
 // CollideChainSegmentAndCapsule treats the capsule as a rounded polygon
 // and defers to the polygon routine. It corresponds to
 // b2CollideChainSegmentAndCapsule in src/manifold.c.
-func CollideChainSegmentAndCapsule(segmentA *ChainSegment, xfA Transform, capsuleB *Capsule, xfB Transform, cache *SimplexCache) Manifold {
+func CollideChainSegmentAndCapsule(segmentA *ChainSegment, capsuleB *Capsule, xf Transform, cache *SimplexCache) LocalManifold {
 	polyB := makeCapsule(capsuleB.Center1, capsuleB.Center2, capsuleB.Radius)
-	return CollideChainSegmentAndPolygon(segmentA, xfA, &polyB, xfB, cache)
+	return CollideChainSegmentAndPolygon(segmentA, &polyB, xf, cache)
 }
 
 // clipSegments clips segment b against segment a along the normal and
 // always yields two points. It corresponds to the static b2ClipSegments in
 // src/manifold.c.
-func clipSegments(a1, a2, b1, b2 Vec2, normal Vec2, ra, rb Q, id1, id2 uint16) Manifold {
-	var manifold Manifold
+func clipSegments(a1, a2, b1, b2 Vec2, normal Vec2, ra, rb Q, id1, id2 uint16) LocalManifold {
+	var manifold LocalManifold
 
 	tangent := LeftPerp(normal)
 
@@ -994,10 +961,10 @@ func clipSegments(a1, a2, b1, b2 Vec2, normal Vec2, ra, rb Q, id1, id2 uint16) M
 	radius := ra.Add(rb)
 
 	manifold.Normal = normal
-	manifold.Points[0].AnchorA = vLower
+	manifold.Points[0].Point = vLower
 	manifold.Points[0].Separation = separationLower.Sub(radius)
 	manifold.Points[0].Id = id1
-	manifold.Points[1].AnchorA = vUpper
+	manifold.Points[1].Point = vUpper
 	manifold.Points[1].Separation = separationUpper.Sub(radius)
 	manifold.Points[1].Id = id2
 	manifold.PointCount = 2
@@ -1069,11 +1036,9 @@ func classifyNormal(params chainSegmentParams, normal Vec2) normalType {
 // segment and a polygon. The cache warm starts the distance solver
 // between calls. It corresponds to b2CollideChainSegmentAndPolygon in
 // src/manifold.c.
-func CollideChainSegmentAndPolygon(segmentA *ChainSegment, xfA Transform, polygonB *Polygon, xfB Transform, cache *SimplexCache) Manifold {
-	var manifold Manifold
+func CollideChainSegmentAndPolygon(segmentA *ChainSegment, polygonB *Polygon, xf Transform, cache *SimplexCache) LocalManifold {
+	var manifold LocalManifold
 	zero := QZero()
-
-	xf := InvMulTransforms(xfA, xfB)
 
 	centroidB := TransformPoint(xf, polygonB.Centroid)
 	radiusB := polygonB.Radius
@@ -1125,11 +1090,10 @@ func CollideChainSegmentAndPolygon(segmentA *ChainSegment, xfA Transform, polygo
 	var input DistanceInput
 	input.ProxyA = MakeProxy([]Vec2{segmentA.Segment.Point1, segmentA.Segment.Point2}, zero)
 	input.ProxyB = MakeProxy(vertices[:count], zero)
-	input.TransformA = TransformIdentity()
-	input.TransformB = TransformIdentity()
+	input.Transform = TransformIdentity()
 	input.UseRadii = false
 
-	output := ShapeDistance(&input, cache, nil)
+	output := ComputeShapeDistance(&input, cache, nil)
 
 	if radiusB.Add(speculativeDistance).Less(output.Distance) {
 		return manifold
@@ -1166,11 +1130,9 @@ func CollideChainSegmentAndPolygon(segmentA *ChainSegment, xfA Transform, polygo
 			}
 
 			if ntype == normalAdmit {
-				manifold.Normal = RotateVector(xfA.Q, normal)
+				manifold.Normal = normal
 				cp := &manifold.Points[0]
-				cp.AnchorA = RotateVector(xfA.Q, pA)
-				cp.AnchorB = cp.AnchorA.Add(xfA.P.Sub(xfB.P))
-				cp.Point = xfA.P.Add(cp.AnchorA)
+				cp.Point = pA
 				cp.Separation = output.Distance.Sub(radiusB)
 				cp.Id = makeId(int(cache.IndexA[0]), int(cache.IndexB[0]))
 				manifold.PointCount = 1
@@ -1247,14 +1209,7 @@ func CollideChainSegmentAndPolygon(segmentA *ChainSegment, xfA Transform, polygo
 						panic("dbox2d: the segment clip produced one point")
 					}
 					if manifold.PointCount == 2 {
-						manifold.Normal = RotateVector(xfA.Q, Neg(normalB))
-						manifold.Points[0].AnchorA = RotateVector(xfA.Q, manifold.Points[0].AnchorA)
-						manifold.Points[1].AnchorA = RotateVector(xfA.Q, manifold.Points[1].AnchorA)
-						pAB := xfA.P.Sub(xfB.P)
-						manifold.Points[0].AnchorB = manifold.Points[0].AnchorA.Add(pAB)
-						manifold.Points[1].AnchorB = manifold.Points[1].AnchorA.Add(pAB)
-						manifold.Points[0].Point = xfA.P.Add(manifold.Points[0].AnchorA)
-						manifold.Points[1].Point = xfA.P.Add(manifold.Points[1].AnchorA)
+						manifold.Normal = Neg(normalB)
 					}
 					return manifold
 				}
@@ -1374,14 +1329,7 @@ func CollideChainSegmentAndPolygon(segmentA *ChainSegment, xfA Transform, polygo
 				panic("dbox2d: the segment clip produced one point")
 			}
 			if manifold.PointCount == 2 {
-				manifold.Normal = RotateVector(xfA.Q, Neg(normals[ia1]))
-				manifold.Points[0].AnchorA = RotateVector(xfA.Q, manifold.Points[0].AnchorA)
-				manifold.Points[1].AnchorA = RotateVector(xfA.Q, manifold.Points[1].AnchorA)
-				pAB := xfA.P.Sub(xfB.P)
-				manifold.Points[0].AnchorB = manifold.Points[0].AnchorA.Add(pAB)
-				manifold.Points[1].AnchorB = manifold.Points[1].AnchorA.Add(pAB)
-				manifold.Points[0].Point = xfA.P.Add(manifold.Points[0].AnchorA)
-				manifold.Points[1].Point = xfA.P.Add(manifold.Points[1].AnchorA)
+				manifold.Normal = Neg(normals[ia1])
 			}
 
 			return manifold
@@ -1441,17 +1389,5 @@ func CollideChainSegmentAndPolygon(segmentA *ChainSegment, xfA Transform, polygo
 	if manifold.PointCount != 0 && manifold.PointCount != 2 {
 		panic("dbox2d: the segment clip produced one point")
 	}
-	if manifold.PointCount == 2 {
-		// There may be no points c
-		manifold.Normal = RotateVector(xfA.Q, manifold.Normal)
-		manifold.Points[0].AnchorA = RotateVector(xfA.Q, manifold.Points[0].AnchorA)
-		manifold.Points[1].AnchorA = RotateVector(xfA.Q, manifold.Points[1].AnchorA)
-		pAB := xfA.P.Sub(xfB.P)
-		manifold.Points[0].AnchorB = manifold.Points[0].AnchorA.Add(pAB)
-		manifold.Points[1].AnchorB = manifold.Points[1].AnchorA.Add(pAB)
-		manifold.Points[0].Point = xfA.P.Add(manifold.Points[0].AnchorA)
-		manifold.Points[1].Point = xfA.P.Add(manifold.Points[1].AnchorA)
-	}
-
 	return manifold
 }

@@ -1,14 +1,14 @@
 package b2
 
-// This file corresponds to src/weld_joint.c of the reference. The API
-// takes the reference angle in turns (D-004); the joint keeps it in the
-// angle unit of the mode, and the angular error enters C in radians.
+// This file corresponds to src/weld_joint.c of the reference. The joint
+// keeps frame B on frame A; the angular error enters C in radians. The
+// reference also carries a block solver behind B2_WELD_BLOCK_SOLVE, off by
+// default; the port keeps the default split solver only.
 
 // getWeldJointForce reports the constraint force of the last step. It
 // corresponds to b2GetWeldJointForce in src/weld_joint.c.
 func getWeldJointForce(w *world, base *jointSim) Vec2 {
-	force := base.weld().linearImpulse.Mul(w.invH)
-	return force
+	return base.weld().linearImpulse.Mul(w.invH)
 }
 
 // getWeldJointTorque reports the constraint torque of the last step. It
@@ -17,83 +17,11 @@ func getWeldJointTorque(w *world, base *jointSim) Q {
 	return w.invH.Mul(base.weld().angularImpulse)
 }
 
-// SetLinearHertz changes the weld joint linear frequency (b2WeldJoint_SetLinearHertz).
-func (jointId JointId) SetLinearHertz(hertz Q) {
-	zero := QZero()
-	if !IsValidQ(hertz) || hertz.Less(zero) {
-		panic("dbox2d: SetLinearHertz needs a valid non-negative hertz")
-	}
-	w := getWorld(jointId.world0)
-	joint := getJointSimCheckType(w, jointId, WeldJoint)
-	joint.weld().linearHertz = hertz
-}
-
-// GetLinearHertz reports the weld joint linear frequency (b2WeldJoint_GetLinearHertz).
-func (jointId JointId) GetLinearHertz() Q {
-	w := getWorld(jointId.world0)
-	joint := getJointSimCheckType(w, jointId, WeldJoint)
-	return joint.weld().linearHertz
-}
-
-// SetLinearDampingRatio changes the weld joint linear damping ratio (b2WeldJoint_SetLinearDampingRatio).
-func (jointId JointId) SetLinearDampingRatio(dampingRatio Q) {
-	zero := QZero()
-	if !IsValidQ(dampingRatio) || dampingRatio.Less(zero) {
-		panic("dbox2d: SetLinearDampingRatio needs a valid non-negative damping ratio")
-	}
-	w := getWorld(jointId.world0)
-	joint := getJointSimCheckType(w, jointId, WeldJoint)
-	joint.weld().linearDampingRatio = dampingRatio
-}
-
-// GetLinearDampingRatio reports the weld joint linear damping ratio (b2WeldJoint_GetLinearDampingRatio).
-func (jointId JointId) GetLinearDampingRatio() Q {
-	w := getWorld(jointId.world0)
-	joint := getJointSimCheckType(w, jointId, WeldJoint)
-	return joint.weld().linearDampingRatio
-}
-
-// SetAngularHertz changes the weld joint angular frequency (b2WeldJoint_SetAngularHertz).
-func (jointId JointId) SetAngularHertz(hertz Q) {
-	zero := QZero()
-	if !IsValidQ(hertz) || hertz.Less(zero) {
-		panic("dbox2d: SetAngularHertz needs a valid non-negative hertz")
-	}
-	w := getWorld(jointId.world0)
-	joint := getJointSimCheckType(w, jointId, WeldJoint)
-	joint.weld().angularHertz = hertz
-}
-
-// GetAngularHertz reports the weld joint angular frequency (b2WeldJoint_GetAngularHertz).
-func (jointId JointId) GetAngularHertz() Q {
-	w := getWorld(jointId.world0)
-	joint := getJointSimCheckType(w, jointId, WeldJoint)
-	return joint.weld().angularHertz
-}
-
-// SetAngularDampingRatio changes the weld joint angular damping ratio (b2WeldJoint_SetAngularDampingRatio).
-func (jointId JointId) SetAngularDampingRatio(dampingRatio Q) {
-	zero := QZero()
-	if !IsValidQ(dampingRatio) || dampingRatio.Less(zero) {
-		panic("dbox2d: SetAngularDampingRatio needs a valid non-negative damping ratio")
-	}
-	w := getWorld(jointId.world0)
-	joint := getJointSimCheckType(w, jointId, WeldJoint)
-	joint.weld().angularDampingRatio = dampingRatio
-}
-
-// GetAngularDampingRatio reports the weld joint angular damping ratio (b2WeldJoint_GetAngularDampingRatio).
-func (jointId JointId) GetAngularDampingRatio() Q {
-	w := getWorld(jointId.world0)
-	joint := getJointSimCheckType(w, jointId, WeldJoint)
-	return joint.weld().angularDampingRatio
-}
-
 // Point-to-point constraint
 // C = p2 - p1
 // Cdot = v2 - v1
 //      = v2 + cross(w2, r2) - v1 - cross(w1, r1)
-// J = [-I -r1_skew I r2_skew ]
+// J = [-E -r1_skew E r2_skew ]
 // Identity used:
 // w k % (rx i + ry j) = w * (-ry i + rx j)
 
@@ -108,59 +36,20 @@ func prepareWeldJoint(base *jointSim, context *stepContext) {
 	if base.jointType != WeldJoint {
 		panic("dbox2d: the joint is not a weld joint")
 	}
-
-	// chase body id to the solver set where the body lives
-	idA := base.bodyIdA
-	idB := base.bodyIdB
-
-	w := context.world
-
-	bodyA := &w.bodies[idA]
-	bodyB := &w.bodies[idB]
-
-	if bodyA.setIndex != awakeSet && bodyB.setIndex != awakeSet {
-		panic("dbox2d: neither body of the joint is awake")
-	}
-	setA := &w.solverSets[bodyA.setIndex]
-	setB := &w.solverSets[bodyB.setIndex]
-
-	localIndexA := bodyA.localIndex
-	localIndexB := bodyB.localIndex
-
-	bodySimA := &setA.bodySims[localIndexA]
-	bodySimB := &setB.bodySims[localIndexB]
-
-	mA := bodySimA.invMass
-	iA := bodySimA.invInertia
-	mB := bodySimB.invMass
-	iB := bodySimB.invInertia
-
-	base.invMassA = mA
-	base.invMassB = mB
-	base.invIA = iA
-	base.invIB = iB
-
+	bodySimA, bodySimB, indexA, indexB := prepareJointBodies(base, context)
 	joint := base.weld()
-	joint.indexA = nullIndex
-	if bodyA.setIndex == awakeSet {
-		joint.indexA = localIndexA
-	}
-	joint.indexB = nullIndex
-	if bodyB.setIndex == awakeSet {
-		joint.indexB = localIndexB
-	}
+	joint.indexA = indexA
+	joint.indexB = indexB
 
-	qA := bodySimA.transform.Q
-	qB := bodySimB.transform.Q
+	joint.frameA = jointFrame(bodySimA, base.localFrameA)
+	joint.frameB = jointFrame(bodySimB, base.localFrameB)
 
-	joint.anchorA = RotateVector(qA, base.localOriginAnchorA.Sub(bodySimA.localCenter))
-	joint.anchorB = RotateVector(qB, base.localOriginAnchorB.Sub(bodySimB.localCenter))
-	joint.deltaCenter = bodySimB.center.Sub(bodySimA.center)
-	joint.deltaAngle = relativeAngle(qB, qA).Sub(joint.referenceAngle)
-	joint.deltaAngle = unwindAngle(joint.deltaAngle)
+	// Compute the initial center delta. Incremental position updates are
+	// relative to this.
+	joint.deltaCenter = SubPos(bodySimB.center, bodySimA.center)
 
 	zero := QZero()
-	ka := iA.Add(iB)
+	ka := base.invIA.Add(base.invIB)
 	// D-006: the reference multiplies by the reciprocal of ka.
 	joint.axialMass = zero
 	if zero.Less(ka) {
@@ -168,15 +57,15 @@ func prepareWeldJoint(base *jointSim, context *stepContext) {
 	}
 
 	if joint.linearHertz.Eq(zero) {
-		joint.linearSoftness = base.constraintSoftness
+		joint.linearSpring = base.constraintSoftness
 	} else {
-		joint.linearSoftness = makeSoft(joint.linearHertz, joint.linearDampingRatio, context.h)
+		joint.linearSpring = makeSoft(joint.linearHertz, joint.linearDampingRatio, context.h)
 	}
 
 	if joint.angularHertz.Eq(zero) {
-		joint.angularSoftness = base.constraintSoftness
+		joint.angularSpring = base.constraintSoftness
 	} else {
-		joint.angularSoftness = makeSoft(joint.angularHertz, joint.angularDampingRatio, context.h)
+		joint.angularSpring = makeSoft(joint.angularHertz, joint.angularDampingRatio, context.h)
 	}
 
 	if !context.enableWarmStarting {
@@ -197,21 +86,19 @@ func warmStartWeldJoint(base *jointSim, context *stepContext) {
 	dummyState := identityBodyState()
 
 	joint := base.weld()
-
 	stateA, stateB := jointStates(context.states, &dummyState, joint.indexA, joint.indexB)
 
-	rA := RotateVector(stateA.deltaRotation, joint.anchorA)
-	rB := RotateVector(stateB.deltaRotation, joint.anchorB)
+	rA := RotateVector(stateA.deltaRotation, joint.frameA.P)
+	rB := RotateVector(stateB.deltaRotation, joint.frameB.P)
 
-	stateA.linearVelocity = MulSub(stateA.linearVelocity, mA, joint.linearImpulse)
-	wA := stateA.angularVelocity
-	wA = wA.Sub(iA.Mul(Cross(rA, joint.linearImpulse).Add(joint.angularImpulse)))
-	stateA.angularVelocity = wA
-
-	stateB.linearVelocity = MulAdd(stateB.linearVelocity, mB, joint.linearImpulse)
-	wB := stateB.angularVelocity
-	wB = wB.Add(iB.Mul(Cross(rB, joint.linearImpulse).Add(joint.angularImpulse)))
-	stateB.angularVelocity = wB
+	if stateA.flags&bodyDynamicFlag != 0 {
+		stateA.linearVelocity = MulSub(stateA.linearVelocity, mA, joint.linearImpulse)
+		stateA.angularVelocity = stateA.angularVelocity.Sub(iA.Mul(Cross(rA, joint.linearImpulse).Add(joint.angularImpulse)))
+	}
+	if stateB.flags&bodyDynamicFlag != 0 {
+		stateB.linearVelocity = MulAdd(stateB.linearVelocity, mB, joint.linearImpulse)
+		stateB.angularVelocity = stateB.angularVelocity.Add(iB.Mul(Cross(rB, joint.linearImpulse).Add(joint.angularImpulse)))
+	}
 }
 
 // solveWeldJoint corresponds to b2SolveWeldJoint in src/weld_joint.c.
@@ -229,7 +116,6 @@ func solveWeldJoint(base *jointSim, context *stepContext, useBias bool) {
 	dummyState := identityBodyState()
 
 	joint := base.weld()
-
 	stateA, stateB := jointStates(context.states, &dummyState, joint.indexA, joint.indexB)
 
 	vA := stateA.linearVelocity
@@ -242,14 +128,19 @@ func solveWeldJoint(base *jointSim, context *stepContext, useBias bool) {
 
 	// angular constraint
 	{
+		qA := MulRot(stateA.deltaRotation, joint.frameA.Q)
+		qB := MulRot(stateB.deltaRotation, joint.frameB.Q)
+		// relativeAngle(qA, qB) is b2Rot_GetAngle(b2InvMulRot(qA, qB)).
+		jointAngle := relativeAngle(qA, qB)
+
 		bias := zero
 		massScale := one
 		impulseScale := zero
 		if useBias || zero.Less(joint.angularHertz) {
-			C := angleRadians(relativeAngle(stateB.deltaRotation, stateA.deltaRotation).Add(joint.deltaAngle))
-			bias = joint.angularSoftness.biasRate.Mul(C)
-			massScale = joint.angularSoftness.massScale
-			impulseScale = joint.angularSoftness.impulseScale
+			C := angleRadians(jointAngle)
+			bias = joint.angularSpring.biasRate.Mul(C)
+			massScale = joint.angularSpring.massScale
+			impulseScale = joint.angularSpring.impulseScale
 		}
 
 		Cdot := wB.Sub(wA)
@@ -262,8 +153,8 @@ func solveWeldJoint(base *jointSim, context *stepContext, useBias bool) {
 
 	// linear constraint
 	{
-		rA := RotateVector(stateA.deltaRotation, joint.anchorA)
-		rB := RotateVector(stateB.deltaRotation, joint.anchorB)
+		rA := RotateVector(stateA.deltaRotation, joint.frameA.P)
+		rB := RotateVector(stateB.deltaRotation, joint.frameB.P)
 
 		bias := Vec2Zero()
 		massScale := one
@@ -273,9 +164,9 @@ func solveWeldJoint(base *jointSim, context *stepContext, useBias bool) {
 			dcB := stateB.deltaPosition
 			C := dcB.Sub(dcA).Add(rB.Sub(rA)).Add(joint.deltaCenter)
 
-			bias = C.Mul(joint.linearSoftness.biasRate)
-			massScale = joint.linearSoftness.massScale
-			impulseScale = joint.linearSoftness.impulseScale
+			bias = C.Mul(joint.linearSpring.biasRate)
+			massScale = joint.linearSpring.massScale
+			impulseScale = joint.linearSpring.impulseScale
 		}
 
 		Cdot := vB.Add(CrossSV(wB, rB)).Sub(vA.Add(CrossSV(wA, rA)))
@@ -300,8 +191,16 @@ func solveWeldJoint(base *jointSim, context *stepContext, useBias bool) {
 		wB = wB.Add(iB.Mul(Cross(rB, impulse)))
 	}
 
-	stateA.linearVelocity = vA
-	stateA.angularVelocity = wA
-	stateB.linearVelocity = vB
-	stateB.angularVelocity = wB
+	storeJointVelocity(stateA, vA, wA)
+	storeJointVelocity(stateB, vB, wB)
+}
+
+// drawWeldJoint corresponds to b2DrawWeldJoint: a box on each frame.
+func drawWeldJoint(draw *DebugDraw, base *jointSim, transformA, transformB WorldTransform, drawScale Q) {
+	frameA := MulWorldTransforms(transformA, base.localFrameA)
+	frameB := MulWorldTransforms(transformB, base.localFrameB)
+
+	box := MakeBox(QMustParse("0.25").Mul(drawScale), QMustParse("0.125").Mul(drawScale))
+	draw.DrawPolygonFcn(frameA, box.Vertices[:4], ColorDarkOrange)
+	draw.DrawPolygonFcn(frameB, box.Vertices[:4], ColorDarkCyan)
 }

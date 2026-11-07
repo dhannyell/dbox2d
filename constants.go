@@ -3,7 +3,15 @@ package b2
 // graphColorCount is the number of constraint graph colors, including the
 // overflow color at the end. It corresponds to B2_GRAPH_COLOR_COUNT in
 // src/constants.h.
-const graphColorCount = 12
+const graphColorCount = 24
+
+// nameLength is the longest body name in bytes. It corresponds to
+// B2_NAME_LENGTH in include/box2d/constants.h.
+const nameLength = 10
+
+// maxRestitutionIterations bounds the restitution passes. It corresponds to
+// B2_MAX_RESTITUTION_ITERATIONS in include/box2d/constants.h.
+const maxRestitutionIterations = 63
 
 // A length is a meter. The reference lets an application rescale its
 // tolerances; this package does not, because a world that rescales them
@@ -12,6 +20,16 @@ var (
 	// upstream 0.005f * b2_lengthUnitsPerMeter
 	linearSlop = QMustParse("0.005")
 
+	// contactRecycleDistance is the default farthest relative movement that
+	// keeps a contact manifold. It corresponds to B2_CONTACT_RECYCLE_DISTANCE
+	// in include/box2d/constants.h.
+	contactRecycleDistance = QFromInt(10).Mul(linearSlop)
+
+	// contactRecycleCosAngle is the smallest cosine of the rotation of a
+	// body that keeps a recycled manifold. It corresponds to
+	// B2_CONTACT_RECYCLE_COS_ANGLE in include/box2d/constants.h.
+	contactRecycleCosAngle = QMustParse("0.98")
+
 	// upstream 0.1f * B2_LINEAR_SLOP, the tolerance of the distance queries
 	linearSlopTenth = makeRecip(QFromInt(10)).scale(linearSlop)
 
@@ -19,7 +37,7 @@ var (
 	// limit of a collision plane. It corresponds to B2_HUGE in
 	// include/box2d/math_functions.h. It bounds a length that an
 	// application supplies, so a wild input fails early.
-	Huge = QFromInt(100000)
+	Huge = QFromInt(hugeMeters)
 
 	// upstream 0.25f * B2_PI radians, which is 0.125 turns
 	maxRotation = QMustParse("0.125")
@@ -27,8 +45,11 @@ var (
 	// upstream 4.0f * B2_LINEAR_SLOP
 	speculativeDistance = linearSlop.Mul(QFromInt(4))
 
-	// upstream 0.05f * b2_lengthUnitsPerMeter
-	aabbMargin = QMustParse("0.05")
+	// upstream B2_MAX_AABB_MARGIN, 0.05f * b2_lengthUnitsPerMeter
+	maxAABBMargin = QMustParse("0.05")
+
+	// upstream B2_AABB_MARGIN_FRACTION 0.125f
+	aabbMarginFraction = QMustParse("0.125")
 
 	// upstream 0.5f
 	timeToSleep = QHalf()
@@ -43,9 +64,6 @@ var (
 	// code: QMustParse scans a string and the fixed QFromRatio divides, and
 	// neither belongs inside a prepare or collide call. The bits are the
 	// ones the call sites produced.
-
-	// upstream 0.1f, the angular damping ratio of the mouse joint
-	mouseAngularDampingRatio = QMustParse("0.1")
 
 	// upstream 0.01f, the Gauss map tolerances of a chain segment
 	chainSegmentTolerance = QFromRatio(1, 100)
@@ -65,8 +83,6 @@ var (
 	// on every creation.
 	defaultSleepThreshold    = QMustParse("0.05")
 	defaultFriction          = QMustParse("0.6")
-	defaultCorrectionFactor  = QMustParse("0.3")
-	defaultDrawSize          = QMustParse("0.25")
 	defaultWheelDampingRatio = QMustParse("0.7")
 )
 
@@ -88,11 +104,12 @@ func MaxRotation() Q { return maxRotation }
 // Changing it has a significant effect on performance and stability.
 func SpeculativeDistance() Q { return speculativeDistance }
 
-// AABBMargin fattens the bounds in the dynamic tree, in meters. A proxy that
-// moves less than the margin triggers no tree adjustment.
+// AABBMargin is the largest margin that fattens the bounds in the dynamic
+// tree, in meters. Each shape uses an eighth of its extent, up to this cap.
+// A proxy that moves less than its margin triggers no tree adjustment.
 //
 // Changing it has a significant effect on performance.
-func AABBMargin() Q { return aabbMargin }
+func AABBMargin() Q { return maxAABBMargin }
 
 // TimeToSleep is how long a body must stay still before it sleeps, in
 // seconds.

@@ -221,8 +221,8 @@ func ComputeCircleMass(shape *Circle, density Q) MassData {
 	massData.Mass = density.Mul(pi).Mul(rr)
 	massData.Center = shape.Center
 
-	// inertia about the local origin
-	massData.RotationalInertia = massData.Mass.Mul(QHalf().Mul(rr).Add(shape.Center.Dot(shape.Center)))
+	// inertia about the center of mass
+	massData.RotationalInertia = massData.Mass.Mul(QHalf()).Mul(rr)
 
 	return massData
 }
@@ -264,10 +264,6 @@ func ComputeCapsuleMass(shape *Capsule, density Q) MassData {
 	circleInertia := circleMass.Mul(half.Mul(rr).Add(h.Mul(h)).Add(two.Mul(h).Mul(lc)))
 	boxInertia := boxMass.Mul(four.Mul(rr).Add(ll)).Div(twelve)
 	massData.RotationalInertia = circleInertia.Add(boxInertia)
-
-	// inertia about the local origin
-	massData.RotationalInertia = massData.RotationalInertia.Add(
-		massData.Mass.Mul(massData.Center.Dot(massData.Center)))
 
 	return massData
 }
@@ -366,80 +362,64 @@ func ComputePolygonMass(shape *Polygon, density Q) MassData {
 	// Inertia tensor relative to the local origin.
 	massData.RotationalInertia = density.Mul(rotationalInertia)
 
-	// Shift to center of mass then to original body origin.
-	massData.RotationalInertia = massData.RotationalInertia.Add(
-		massData.Mass.Mul(massData.Center.Dot(massData.Center).Sub(center.Dot(center))))
+	// Shift inertia to center of mass
+	massData.RotationalInertia = massData.RotationalInertia.Sub(massData.Mass.Mul(center.Dot(center)))
+	if massData.RotationalInertia.Less(QZero()) {
+		panic("dbox2d: the polygon inertia is negative")
+	}
 
 	return massData
 }
 
-// ComputeCircleAABB returns the bounding box of a transformed circle.
-func ComputeCircleAABB(shape *Circle, xf Transform) AABB {
-	p := TransformPoint(xf, shape.Center)
-	r := shape.Radius
-
-	aabb := AABB{
-		LowerBound: Vec2{X: p.X.Sub(r), Y: p.Y.Sub(r)},
-		UpperBound: Vec2{X: p.X.Add(r), Y: p.Y.Add(r)},
-	}
-	return aabb
+// ComputeCircleBounds returns the bounding box of a transformed circle. It
+// corresponds to b2ComputeCircleBounds.
+func ComputeCircleBounds(shape *Circle, xf WorldTransform) AABB {
+	p := TransformWorldPoint(xf, shape.Center)
+	return posBox(p, p, shape.Radius, QZero())
 }
 
-// ComputeCapsuleAABB returns the bounding box of a transformed capsule.
-func ComputeCapsuleAABB(shape *Capsule, xf Transform) AABB {
-	v1 := TransformPoint(xf, shape.Center1)
-	v2 := TransformPoint(xf, shape.Center2)
-
-	r := Vec2{X: shape.Radius, Y: shape.Radius}
-	lower := Min(v1, v2).Sub(r)
-	upper := Max(v1, v2).Add(r)
-
-	aabb := AABB{LowerBound: lower, UpperBound: upper}
-	return aabb
+// ComputeCapsuleBounds returns the bounding box of a transformed capsule. It
+// corresponds to b2ComputeCapsuleBounds.
+func ComputeCapsuleBounds(shape *Capsule, xf WorldTransform) AABB {
+	v1 := TransformWorldPoint(xf, shape.Center1)
+	v2 := TransformWorldPoint(xf, shape.Center2)
+	return posBox(posMin(v1, v2), posMax(v1, v2), shape.Radius, QZero())
 }
 
-// ComputePolygonAABB returns the bounding box of a transformed polygon.
-func ComputePolygonAABB(shape *Polygon, xf Transform) AABB {
+// ComputePolygonBounds returns the bounding box of a transformed polygon. It
+// corresponds to b2ComputePolygonBounds.
+func ComputePolygonBounds(shape *Polygon, xf WorldTransform) AABB {
 	if shape.Count <= 0 {
-		panic("dbox2d: ComputePolygonAABB needs at least one vertex")
+		panic("dbox2d: ComputePolygonBounds needs at least one vertex")
 	}
-	lower := TransformPoint(xf, shape.Vertices[0])
+	lower := TransformWorldPoint(xf, shape.Vertices[0])
 	upper := lower
 
 	for i := 1; i < shape.Count; i++ {
-		v := TransformPoint(xf, shape.Vertices[i])
-		lower = Min(lower, v)
-		upper = Max(upper, v)
+		v := TransformWorldPoint(xf, shape.Vertices[i])
+		lower = posMin(lower, v)
+		upper = posMax(upper, v)
 	}
 
-	r := Vec2{X: shape.Radius, Y: shape.Radius}
-	lower = lower.Sub(r)
-	upper = upper.Add(r)
-
-	aabb := AABB{LowerBound: lower, UpperBound: upper}
-	return aabb
+	return posBox(lower, upper, shape.Radius, QZero())
 }
 
-// ComputeSegmentAABB returns the bounding box of a transformed segment.
-func ComputeSegmentAABB(shape *Segment, xf Transform) AABB {
-	v1 := TransformPoint(xf, shape.Point1)
-	v2 := TransformPoint(xf, shape.Point2)
-
-	lower := Min(v1, v2)
-	upper := Max(v1, v2)
-
-	aabb := AABB{LowerBound: lower, UpperBound: upper}
-	return aabb
+// ComputeSegmentBounds returns the bounding box of a transformed segment. It
+// corresponds to b2ComputeSegmentBounds.
+func ComputeSegmentBounds(shape *Segment, xf WorldTransform) AABB {
+	v1 := TransformWorldPoint(xf, shape.Point1)
+	v2 := TransformWorldPoint(xf, shape.Point2)
+	return posBox(posMin(v1, v2), posMax(v1, v2), QZero(), QZero())
 }
 
 // PointInCircle reports whether a point overlaps a circle in local space.
-func PointInCircle(point Vec2, shape *Circle) bool {
+func PointInCircle(shape *Circle, point Vec2) bool {
 	center := shape.Center
 	return !shape.Radius.Mul(shape.Radius).Less(point.DistanceSq(center))
 }
 
 // PointInCapsule reports whether a point overlaps a capsule in local space.
-func PointInCapsule(point Vec2, shape *Capsule) bool {
+func PointInCapsule(shape *Capsule, point Vec2) bool {
 	rr := shape.Radius.Mul(shape.Radius)
 	p1 := shape.Center1
 	p2 := shape.Center2
@@ -465,7 +445,7 @@ func PointInCapsule(point Vec2, shape *Capsule) bool {
 
 // RayCastCircle casts a ray against a circle in local space. An initial
 // overlap reports a hit at the ray origin with a zero fraction.
-func RayCastCircle(input *RayCastInput, shape *Circle) CastOutput {
+func CastRayCircle(shape *Circle, input *RayCastInput) CastOutput {
 	if !IsValidRay(input) {
 		panic("dbox2d: RayCastCircle needs a valid ray")
 	}
@@ -538,7 +518,7 @@ func RayCastCircle(input *RayCastInput, shape *Circle) CastOutput {
 
 // RayCastCapsule casts a ray against a capsule in local space. An initial
 // overlap reports a hit at the ray origin with a zero fraction.
-func RayCastCapsule(input *RayCastInput, shape *Capsule) CastOutput {
+func CastRayCapsule(shape *Capsule, input *RayCastInput) CastOutput {
 	if !IsValidRay(input) {
 		panic("dbox2d: RayCastCapsule needs a valid ray")
 	}
@@ -556,7 +536,7 @@ func RayCastCapsule(input *RayCastInput, shape *Capsule) CastOutput {
 	if belowEpsilon(capsuleLength) {
 		// Capsule is really a circle
 		circle := Circle{Center: v1, Radius: shape.Radius}
-		return RayCastCircle(input, &circle)
+		return CastRayCircle(&circle, input)
 	}
 
 	p1 := input.Origin
@@ -576,13 +556,13 @@ func RayCastCapsule(input *RayCastInput, shape *Capsule) CastOutput {
 		if qa.Less(zero) {
 			// start point behind capsule segment
 			circle := Circle{Center: v1, Radius: shape.Radius}
-			return RayCastCircle(input, &circle)
+			return CastRayCircle(&circle, input)
 		}
 
 		if capsuleLength.Less(qa) {
 			// start point ahead of capsule segment
 			circle := Circle{Center: v2, Radius: shape.Radius}
-			return RayCastCircle(input, &circle)
+			return CastRayCircle(&circle, input)
 		}
 
 		// ray starts inside capsule -> no hit
@@ -640,11 +620,11 @@ func RayCastCapsule(input *RayCastInput, shape *Capsule) CastOutput {
 	if s1.Less(zero) {
 		// ray passes behind capsule segment
 		circle := Circle{Center: v1, Radius: shape.Radius}
-		return RayCastCircle(input, &circle)
+		return CastRayCircle(&circle, input)
 	} else if capsuleLength.Less(s1) {
 		// ray passes ahead of capsule segment
 		circle := Circle{Center: v2, Radius: shape.Radius}
-		return RayCastCircle(input, &circle)
+		return CastRayCircle(&circle, input)
 	}
 
 	// ray hits capsule side
@@ -657,7 +637,7 @@ func RayCastCapsule(input *RayCastInput, shape *Capsule) CastOutput {
 
 // RayCastSegment casts a ray against a segment in local space. A one-sided
 // segment reports a miss for a ray that arrives from the left.
-func RayCastSegment(input *RayCastInput, shape *Segment, oneSided bool) CastOutput {
+func CastRaySegment(shape *Segment, input *RayCastInput, oneSided bool) CastOutput {
 	zero := QZero()
 
 	if oneSided {
@@ -732,7 +712,7 @@ func RayCastSegment(input *RayCastInput, shape *Segment, oneSided bool) CastOutp
 //
 // A rounded polygon needs the shape cast, which arrives with the distance
 // stage, so this function accepts only a polygon with a zero radius.
-func RayCastPolygon(input *RayCastInput, shape *Polygon) CastOutput {
+func CastRayPolygon(shape *Polygon, input *RayCastInput) CastOutput {
 	if !IsValidRay(input) {
 		panic("dbox2d: RayCastPolygon needs a valid ray")
 	}
@@ -744,12 +724,11 @@ func RayCastPolygon(input *RayCastInput, shape *Polygon) CastOutput {
 		var castInput ShapeCastPairInput
 		castInput.ProxyA = MakeProxy(shape.Vertices[:shape.Count], shape.Radius)
 		castInput.ProxyB = MakeProxy([]Vec2{input.Origin}, zero)
-		castInput.TransformA = TransformIdentity()
-		castInput.TransformB = TransformIdentity()
+		castInput.Transform = TransformIdentity()
 		castInput.TranslationB = input.Translation
 		castInput.MaxFraction = input.MaxFraction
 		castInput.CanEncroach = false
-		return ShapeCast(&castInput)
+		return CastShape(&castInput)
 	}
 
 	// Shift all math to first vertex since the polygon may be far
@@ -822,8 +801,7 @@ func shapeCastPair(input *ShapeCastInput, proxyA ShapeProxy) ShapeCastPairInput 
 	return ShapeCastPairInput{
 		ProxyA:       proxyA,
 		ProxyB:       input.Proxy,
-		TransformA:   TransformIdentity(),
-		TransformB:   TransformIdentity(),
+		Transform:    TransformIdentity(),
 		TranslationB: input.Translation,
 		MaxFraction:  input.MaxFraction,
 		CanEncroach:  input.CanEncroach,
@@ -832,46 +810,45 @@ func shapeCastPair(input *ShapeCastInput, proxyA ShapeProxy) ShapeCastPairInput 
 
 // ShapeCastCircle casts a proxy against a circle in the local frame of
 // the circle. It corresponds to b2ShapeCastCircle in src/geometry.c.
-func ShapeCastCircle(input *ShapeCastInput, shape *Circle) CastOutput {
+func CastShapeCircle(shape *Circle, input *ShapeCastInput) CastOutput {
 	pairInput := shapeCastPair(input, MakeProxy([]Vec2{shape.Center}, shape.Radius))
-	return ShapeCast(&pairInput)
+	return CastShape(&pairInput)
 }
 
 // ShapeCastCapsule casts a proxy against a capsule in the local frame of
 // the capsule. It corresponds to b2ShapeCastCapsule in src/geometry.c.
-func ShapeCastCapsule(input *ShapeCastInput, shape *Capsule) CastOutput {
+func CastShapeCapsule(shape *Capsule, input *ShapeCastInput) CastOutput {
 	pairInput := shapeCastPair(input, MakeProxy([]Vec2{shape.Center1, shape.Center2}, shape.Radius))
-	return ShapeCast(&pairInput)
+	return CastShape(&pairInput)
 }
 
 // ShapeCastSegment casts a proxy against a segment in the local frame of
 // the segment. It corresponds to b2ShapeCastSegment in src/geometry.c.
-func ShapeCastSegment(input *ShapeCastInput, shape *Segment) CastOutput {
+func CastShapeSegment(shape *Segment, input *ShapeCastInput) CastOutput {
 	pairInput := shapeCastPair(input, MakeProxy([]Vec2{shape.Point1, shape.Point2}, QZero()))
-	return ShapeCast(&pairInput)
+	return CastShape(&pairInput)
 }
 
 // ShapeCastPolygon casts a proxy against a polygon in the local frame of
 // the polygon. It corresponds to b2ShapeCastPolygon in src/geometry.c.
-func ShapeCastPolygon(input *ShapeCastInput, shape *Polygon) CastOutput {
+func CastShapePolygon(shape *Polygon, input *ShapeCastInput) CastOutput {
 	pairInput := shapeCastPair(input, MakeProxy(shape.Vertices[:shape.Count], shape.Radius))
-	return ShapeCast(&pairInput)
+	return CastShape(&pairInput)
 }
 
 // CollideMoverAndCircle ports b2CollideMoverAndCircle.
 func CollideMoverAndCircle(mover *Capsule, shape *Circle) PlaneResult {
 	zero := QZero()
 	distanceInput := DistanceInput{
-		ProxyA:     MakeProxy([]Vec2{shape.Center}, zero),
-		ProxyB:     MakeProxy([]Vec2{mover.Center1, mover.Center2}, mover.Radius),
-		TransformA: TransformIdentity(),
-		TransformB: TransformIdentity(),
-		UseRadii:   false,
+		ProxyA:    MakeProxy([]Vec2{shape.Center}, zero),
+		ProxyB:    MakeProxy([]Vec2{mover.Center1, mover.Center2}, mover.Radius),
+		Transform: TransformIdentity(),
+		UseRadii:  false,
 	}
 	totalRadius := mover.Radius.Add(shape.Radius)
 
 	var cache SimplexCache
-	distanceOutput := ShapeDistance(&distanceInput, &cache, nil)
+	distanceOutput := ComputeShapeDistance(&distanceInput, &cache, nil)
 	if !totalRadius.Less(distanceOutput.Distance) {
 		return PlaneResult{
 			Plane: Plane{Normal: distanceOutput.Normal, Offset: totalRadius.Sub(distanceOutput.Distance)},
@@ -887,16 +864,15 @@ func CollideMoverAndCircle(mover *Capsule, shape *Circle) PlaneResult {
 func CollideMoverAndCapsule(mover *Capsule, shape *Capsule) PlaneResult {
 	zero := QZero()
 	distanceInput := DistanceInput{
-		ProxyA:     MakeProxy([]Vec2{shape.Center1, shape.Center2}, zero),
-		ProxyB:     MakeProxy([]Vec2{mover.Center1, mover.Center2}, mover.Radius),
-		TransformA: TransformIdentity(),
-		TransformB: TransformIdentity(),
-		UseRadii:   false,
+		ProxyA:    MakeProxy([]Vec2{shape.Center1, shape.Center2}, zero),
+		ProxyB:    MakeProxy([]Vec2{mover.Center1, mover.Center2}, mover.Radius),
+		Transform: TransformIdentity(),
+		UseRadii:  false,
 	}
 	totalRadius := mover.Radius.Add(shape.Radius)
 
 	var cache SimplexCache
-	distanceOutput := ShapeDistance(&distanceInput, &cache, nil)
+	distanceOutput := ComputeShapeDistance(&distanceInput, &cache, nil)
 	if !totalRadius.Less(distanceOutput.Distance) {
 		return PlaneResult{
 			Plane: Plane{Normal: distanceOutput.Normal, Offset: totalRadius.Sub(distanceOutput.Distance)},
@@ -911,16 +887,15 @@ func CollideMoverAndCapsule(mover *Capsule, shape *Capsule) PlaneResult {
 // CollideMoverAndPolygon ports b2CollideMoverAndPolygon.
 func CollideMoverAndPolygon(mover *Capsule, shape *Polygon) PlaneResult {
 	distanceInput := DistanceInput{
-		ProxyA:     MakeProxy(shape.Vertices[:shape.Count], shape.Radius),
-		ProxyB:     MakeProxy([]Vec2{mover.Center1, mover.Center2}, mover.Radius),
-		TransformA: TransformIdentity(),
-		TransformB: TransformIdentity(),
-		UseRadii:   false,
+		ProxyA:    MakeProxy(shape.Vertices[:shape.Count], shape.Radius),
+		ProxyB:    MakeProxy([]Vec2{mover.Center1, mover.Center2}, mover.Radius),
+		Transform: TransformIdentity(),
+		UseRadii:  false,
 	}
 	totalRadius := mover.Radius.Add(shape.Radius)
 
 	var cache SimplexCache
-	distanceOutput := ShapeDistance(&distanceInput, &cache, nil)
+	distanceOutput := ComputeShapeDistance(&distanceInput, &cache, nil)
 	if !totalRadius.Less(distanceOutput.Distance) {
 		return PlaneResult{
 			Plane: Plane{Normal: distanceOutput.Normal, Offset: totalRadius.Sub(distanceOutput.Distance)},
@@ -936,16 +911,15 @@ func CollideMoverAndPolygon(mover *Capsule, shape *Polygon) PlaneResult {
 func CollideMoverAndSegment(mover *Capsule, shape *Segment) PlaneResult {
 	zero := QZero()
 	distanceInput := DistanceInput{
-		ProxyA:     MakeProxy([]Vec2{shape.Point1, shape.Point2}, zero),
-		ProxyB:     MakeProxy([]Vec2{mover.Center1, mover.Center2}, mover.Radius),
-		TransformA: TransformIdentity(),
-		TransformB: TransformIdentity(),
-		UseRadii:   false,
+		ProxyA:    MakeProxy([]Vec2{shape.Point1, shape.Point2}, zero),
+		ProxyB:    MakeProxy([]Vec2{mover.Center1, mover.Center2}, mover.Radius),
+		Transform: TransformIdentity(),
+		UseRadii:  false,
 	}
 	totalRadius := mover.Radius
 
 	var cache SimplexCache
-	distanceOutput := ShapeDistance(&distanceInput, &cache, nil)
+	distanceOutput := ComputeShapeDistance(&distanceInput, &cache, nil)
 	if !totalRadius.Less(distanceOutput.Distance) {
 		return PlaneResult{
 			Plane: Plane{Normal: distanceOutput.Normal, Offset: totalRadius.Sub(distanceOutput.Distance)},

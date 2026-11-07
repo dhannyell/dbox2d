@@ -1,9 +1,20 @@
 // SPDX-License-Identifier: MIT
-// Link against the frozen Box2D v3.1.1 checkout. See README.md.
+// Link against a frozen Box2D checkout, v3.1.1 or v3.2.0. See README.md.
+// CONFORMANCE_V32 selects the v3.2 API and the v2 trace format.
 #include "box2d/box2d.h"
 #include "benchmarks.h"
 #include "determinism.h"
+#if defined( CONFORMANCE_V32 )
+#include "utils.h"
+#define TRACE_VERSION "v2"
+#else
 #include "random.h"
+#define TRACE_VERSION "v1"
+#endif
+
+#if !defined( CONFORMANCE_REF )
+#error "CONFORMANCE_REF must name the reference commit"
+#endif
 
 #include <errno.h>
 #include <inttypes.h>
@@ -116,8 +127,8 @@ static FILE* openTrace( const char* outputDirectory, const char* kind, const cha
 
 static void writeHeader( FILE* file, const char* kind, const char* name )
 {
-	fprintf( file, "# dbox2d conformance trace v1 kind=%s name=%s ref=0aa402e cc=%s flags=%s\n", kind, name, COMPILER_ID,
-			 TRACE_FLAGS );
+	fprintf( file, "# dbox2d conformance trace " TRACE_VERSION " kind=%s name=%s ref=" CONFORMANCE_REF " cc=%s flags=%s\n", kind,
+			 name, COMPILER_ID, TRACE_FLAGS );
 }
 
 static uint32_t floatBits( float value )
@@ -131,6 +142,27 @@ static void writeFloat( FILE* file, float value )
 {
 	fprintf( file, " %08" PRIx32, floatBits( value ) );
 }
+
+#if defined( CONFORMANCE_V32 ) && defined( BOX2D_DOUBLE_PRECISION )
+// Large-world builds trace positions as 64-bit doubles: 16 hex digits instead of 8.
+static uint64_t doubleBits( double value )
+{
+	uint64_t bits;
+	memcpy( &bits, &value, sizeof( bits ) );
+	return bits;
+}
+
+static void writePosition( FILE* file, b2Pos value )
+{
+	fprintf( file, " %016" PRIx64 " %016" PRIx64, doubleBits( value.x ), doubleBits( value.y ) );
+}
+#elif defined( CONFORMANCE_V32 )
+static void writePosition( FILE* file, b2Pos value )
+{
+	writeFloat( file, value.x );
+	writeFloat( file, value.y );
+}
+#endif
 
 static void writeInt( FILE* file, int value )
 {
@@ -229,6 +261,25 @@ static void writeCache( FILE* file, b2SimplexCache value )
 	}
 }
 
+#if defined( CONFORMANCE_V32 )
+// The v3.2 colliders return a manifold in frame A: no anchors, no rolling impulse.
+typedef b2LocalManifold TraceManifold;
+
+static void writeManifold( FILE* file, b2LocalManifold value )
+{
+	writeVec2( file, value.normal );
+	writeInt( file, value.pointCount );
+	for ( int i = 0; i < value.pointCount; ++i )
+	{
+		b2LocalManifoldPoint point = value.points[i];
+		writeVec2( file, point.point );
+		writeFloat( file, point.separation );
+		writeInt( file, point.id );
+	}
+}
+#else
+typedef b2Manifold TraceManifold;
+
 static void writeManifold( FILE* file, b2Manifold value )
 {
 	writeVec2( file, value.normal );
@@ -244,6 +295,7 @@ static void writeManifold( FILE* file, b2Manifold value )
 		writeInt( file, point.id );
 	}
 }
+#endif
 
 static void writeDistanceOutput( FILE* file, b2DistanceOutput value )
 {
@@ -410,6 +462,33 @@ static void makePairTransforms( int caseIndex, float extent, bool oneSided, b2Tr
 	transformB->p = b2Add( transformA->p, b2RotateVector( transformA->q, localOffset ) );
 }
 
+// v1 records shape A, transform A, shape B, transform B. v2 records shape A, shape B and the
+// relative transform of B in A that the v3.2 colliders take, computed by the reference.
+#if defined( CONFORMANCE_V32 )
+#define WRITE_PAIR( writeA, a, writeB, b )                                                                                       \
+	do                                                                                                                           \
+	{                                                                                                                            \
+		writeA( file, a );                                                                                                       \
+		writeB( file, b );                                                                                                       \
+		writeTransform( file, relative );                                                                                        \
+	}                                                                                                                            \
+	while ( 0 )
+#define COLLIDE( fcn, a, b ) fcn( &a, &b, relative )
+#define COLLIDE_CACHED( fcn, a, b ) fcn( &a, &b, relative, &cache )
+#else
+#define WRITE_PAIR( writeA, a, writeB, b )                                                                                       \
+	do                                                                                                                           \
+	{                                                                                                                            \
+		writeA( file, a );                                                                                                       \
+		writeTransform( file, transformA );                                                                                      \
+		writeB( file, b );                                                                                                       \
+		writeTransform( file, transformB );                                                                                      \
+	}                                                                                                                            \
+	while ( 0 )
+#define COLLIDE( fcn, a, b ) fcn( &a, transformA, &b, transformB )
+#define COLLIDE_CACHED( fcn, a, b ) fcn( &a, transformA, &b, transformB, &cache )
+#endif
+
 static void writeCollisionTrace( const char* outputDirectory, const char* name, CollisionKind kind )
 {
 	FILE* file = openTrace( outputDirectory, "functions", name );
@@ -425,8 +504,11 @@ static void writeCollisionTrace( const char* outputDirectory, const char* name, 
 		bool oneSided = kind == collideChainSegmentAndCircle || kind == collideChainSegmentAndCapsule ||
 						kind == collideChainSegmentAndPolygon;
 		makePairTransforms( caseIndex, extent, oneSided, &transformA, &transformB );
+#if defined( CONFORMANCE_V32 )
+		b2Transform relative = b2InvMulTransforms( transformA, transformB );
+#endif
 
-		b2Manifold manifold = { 0 };
+		TraceManifold manifold = { 0 };
 		b2SimplexCache cache = { 0 };
 		fprintf( file, "case %d", caseIndex );
 
@@ -436,11 +518,8 @@ static void writeCollisionTrace( const char* outputDirectory, const char* name, 
 			{
 				b2Circle shapeA = makeCircle( caseIndex, extent );
 				b2Circle shapeB = makeCircle( caseIndex + 7, extent );
-				writeCircle( file, shapeA );
-				writeTransform( file, transformA );
-				writeCircle( file, shapeB );
-				writeTransform( file, transformB );
-				manifold = b2CollideCircles( &shapeA, transformA, &shapeB, transformB );
+				WRITE_PAIR( writeCircle, shapeA, writeCircle, shapeB );
+				manifold = COLLIDE( b2CollideCircles, shapeA, shapeB );
 				break;
 			}
 
@@ -448,11 +527,8 @@ static void writeCollisionTrace( const char* outputDirectory, const char* name, 
 			{
 				b2Capsule shapeA = makeCapsule( caseIndex, extent );
 				b2Circle shapeB = makeCircle( caseIndex + 7, extent );
-				writeCapsule( file, shapeA );
-				writeTransform( file, transformA );
-				writeCircle( file, shapeB );
-				writeTransform( file, transformB );
-				manifold = b2CollideCapsuleAndCircle( &shapeA, transformA, &shapeB, transformB );
+				WRITE_PAIR( writeCapsule, shapeA, writeCircle, shapeB );
+				manifold = COLLIDE( b2CollideCapsuleAndCircle, shapeA, shapeB );
 				break;
 			}
 
@@ -460,11 +536,8 @@ static void writeCollisionTrace( const char* outputDirectory, const char* name, 
 			{
 				b2Polygon shapeA = makePolygon( caseIndex, extent );
 				b2Circle shapeB = makeCircle( caseIndex + 7, extent );
-				writePolygon( file, shapeA );
-				writeTransform( file, transformA );
-				writeCircle( file, shapeB );
-				writeTransform( file, transformB );
-				manifold = b2CollidePolygonAndCircle( &shapeA, transformA, &shapeB, transformB );
+				WRITE_PAIR( writePolygon, shapeA, writeCircle, shapeB );
+				manifold = COLLIDE( b2CollidePolygonAndCircle, shapeA, shapeB );
 				break;
 			}
 
@@ -472,11 +545,8 @@ static void writeCollisionTrace( const char* outputDirectory, const char* name, 
 			{
 				b2Capsule shapeA = makeCapsule( caseIndex, extent );
 				b2Capsule shapeB = makeCapsule( caseIndex + 7, extent );
-				writeCapsule( file, shapeA );
-				writeTransform( file, transformA );
-				writeCapsule( file, shapeB );
-				writeTransform( file, transformB );
-				manifold = b2CollideCapsules( &shapeA, transformA, &shapeB, transformB );
+				WRITE_PAIR( writeCapsule, shapeA, writeCapsule, shapeB );
+				manifold = COLLIDE( b2CollideCapsules, shapeA, shapeB );
 				break;
 			}
 
@@ -484,11 +554,8 @@ static void writeCollisionTrace( const char* outputDirectory, const char* name, 
 			{
 				b2Segment shapeA = makeSegment( caseIndex, extent );
 				b2Capsule shapeB = makeCapsule( caseIndex + 7, extent );
-				writeSegment( file, shapeA );
-				writeTransform( file, transformA );
-				writeCapsule( file, shapeB );
-				writeTransform( file, transformB );
-				manifold = b2CollideSegmentAndCapsule( &shapeA, transformA, &shapeB, transformB );
+				WRITE_PAIR( writeSegment, shapeA, writeCapsule, shapeB );
+				manifold = COLLIDE( b2CollideSegmentAndCapsule, shapeA, shapeB );
 				break;
 			}
 
@@ -496,11 +563,8 @@ static void writeCollisionTrace( const char* outputDirectory, const char* name, 
 			{
 				b2Polygon shapeA = makePolygon( caseIndex, extent );
 				b2Capsule shapeB = makeCapsule( caseIndex + 7, extent );
-				writePolygon( file, shapeA );
-				writeTransform( file, transformA );
-				writeCapsule( file, shapeB );
-				writeTransform( file, transformB );
-				manifold = b2CollidePolygonAndCapsule( &shapeA, transformA, &shapeB, transformB );
+				WRITE_PAIR( writePolygon, shapeA, writeCapsule, shapeB );
+				manifold = COLLIDE( b2CollidePolygonAndCapsule, shapeA, shapeB );
 				break;
 			}
 
@@ -508,11 +572,8 @@ static void writeCollisionTrace( const char* outputDirectory, const char* name, 
 			{
 				b2Polygon shapeA = makePolygon( caseIndex, extent );
 				b2Polygon shapeB = makePolygon( caseIndex + 7, extent );
-				writePolygon( file, shapeA );
-				writeTransform( file, transformA );
-				writePolygon( file, shapeB );
-				writeTransform( file, transformB );
-				manifold = b2CollidePolygons( &shapeA, transformA, &shapeB, transformB );
+				WRITE_PAIR( writePolygon, shapeA, writePolygon, shapeB );
+				manifold = COLLIDE( b2CollidePolygons, shapeA, shapeB );
 				break;
 			}
 
@@ -520,11 +581,8 @@ static void writeCollisionTrace( const char* outputDirectory, const char* name, 
 			{
 				b2Segment shapeA = makeSegment( caseIndex, extent );
 				b2Circle shapeB = makeCircle( caseIndex + 7, extent );
-				writeSegment( file, shapeA );
-				writeTransform( file, transformA );
-				writeCircle( file, shapeB );
-				writeTransform( file, transformB );
-				manifold = b2CollideSegmentAndCircle( &shapeA, transformA, &shapeB, transformB );
+				WRITE_PAIR( writeSegment, shapeA, writeCircle, shapeB );
+				manifold = COLLIDE( b2CollideSegmentAndCircle, shapeA, shapeB );
 				break;
 			}
 
@@ -532,11 +590,8 @@ static void writeCollisionTrace( const char* outputDirectory, const char* name, 
 			{
 				b2Segment shapeA = makeSegment( caseIndex, extent );
 				b2Polygon shapeB = makePolygon( caseIndex + 7, extent );
-				writeSegment( file, shapeA );
-				writeTransform( file, transformA );
-				writePolygon( file, shapeB );
-				writeTransform( file, transformB );
-				manifold = b2CollideSegmentAndPolygon( &shapeA, transformA, &shapeB, transformB );
+				WRITE_PAIR( writeSegment, shapeA, writePolygon, shapeB );
+				manifold = COLLIDE( b2CollideSegmentAndPolygon, shapeA, shapeB );
 				break;
 			}
 
@@ -544,11 +599,8 @@ static void writeCollisionTrace( const char* outputDirectory, const char* name, 
 			{
 				b2ChainSegment shapeA = makeChainSegment( caseIndex, extent );
 				b2Circle shapeB = makeCircle( caseIndex + 7, extent );
-				writeChainSegment( file, shapeA );
-				writeTransform( file, transformA );
-				writeCircle( file, shapeB );
-				writeTransform( file, transformB );
-				manifold = b2CollideChainSegmentAndCircle( &shapeA, transformA, &shapeB, transformB );
+				WRITE_PAIR( writeChainSegment, shapeA, writeCircle, shapeB );
+				manifold = COLLIDE( b2CollideChainSegmentAndCircle, shapeA, shapeB );
 				break;
 			}
 
@@ -556,12 +608,9 @@ static void writeCollisionTrace( const char* outputDirectory, const char* name, 
 			{
 				b2ChainSegment shapeA = makeChainSegment( caseIndex, extent );
 				b2Capsule shapeB = makeCapsule( caseIndex + 7, extent );
-				writeChainSegment( file, shapeA );
-				writeTransform( file, transformA );
-				writeCapsule( file, shapeB );
-				writeTransform( file, transformB );
+				WRITE_PAIR( writeChainSegment, shapeA, writeCapsule, shapeB );
 				writeCache( file, cache );
-				manifold = b2CollideChainSegmentAndCapsule( &shapeA, transformA, &shapeB, transformB, &cache );
+				manifold = COLLIDE_CACHED( b2CollideChainSegmentAndCapsule, shapeA, shapeB );
 				break;
 			}
 
@@ -569,12 +618,9 @@ static void writeCollisionTrace( const char* outputDirectory, const char* name, 
 			{
 				b2ChainSegment shapeA = makeChainSegment( caseIndex, extent );
 				b2Polygon shapeB = makePolygon( caseIndex + 7, extent );
-				writeChainSegment( file, shapeA );
-				writeTransform( file, transformA );
-				writePolygon( file, shapeB );
-				writeTransform( file, transformB );
+				WRITE_PAIR( writeChainSegment, shapeA, writePolygon, shapeB );
 				writeCache( file, cache );
-				manifold = b2CollideChainSegmentAndPolygon( &shapeA, transformA, &shapeB, transformB, &cache );
+				manifold = COLLIDE_CACHED( b2CollideChainSegmentAndPolygon, shapeA, shapeB );
 				break;
 			}
 		}
@@ -639,6 +685,19 @@ static void writeDistanceTrace( const char* outputDirectory )
 		b2DistanceInput input = { 0 };
 		input.proxyA = makeRandomProxy( caseIndex, 1, extent );
 		input.proxyB = makeRandomProxy( caseIndex, 2, extent );
+#if defined( CONFORMANCE_V32 )
+		b2Transform transformA, transformB;
+		makePairTransforms( caseIndex, extent, false, &transformA, &transformB );
+		input.transform = b2InvMulTransforms( transformA, transformB );
+		input.useRadii = ( caseIndex & 1 ) != 0;
+		b2SimplexCache cache = { 0 };
+		b2DistanceOutput output = b2ComputeShapeDistance( &input, &cache, NULL, 0 );
+
+		fprintf( file, "case %d", caseIndex );
+		writeProxy( file, input.proxyA );
+		writeProxy( file, input.proxyB );
+		writeTransform( file, input.transform );
+#else
 		makePairTransforms( caseIndex, extent, false, &input.transformA, &input.transformB );
 		input.useRadii = ( caseIndex & 1 ) != 0;
 		b2SimplexCache cache = { 0 };
@@ -649,6 +708,7 @@ static void writeDistanceTrace( const char* outputDirectory )
 		writeProxy( file, input.proxyB );
 		writeTransform( file, input.transformA );
 		writeTransform( file, input.transformB );
+#endif
 		writeInt( file, input.useRadii ? 1 : 0 );
 		fprintf( file, " |" );
 		writeDistanceOutput( file, output );
@@ -711,7 +771,11 @@ static void writeTOITrace( const char* outputDirectory )
 			input.sweepB.c2 = b2Sub( center, offset );
 		}
 
+#if defined( CONFORMANCE_V32 )
+		b2TOIOutput output = b2ComputeTimeOfImpact( &input );
+#else
 		b2TOIOutput output = b2TimeOfImpact( &input );
+#endif
 		fprintf( file, "case %d", caseIndex );
 		writeProxy( file, input.proxyA );
 		writeProxy( file, input.proxyB );
@@ -721,6 +785,10 @@ static void writeTOITrace( const char* outputDirectory )
 		fprintf( file, " |" );
 		writeInt( file, output.state );
 		writeFloat( file, output.fraction );
+#if defined( CONFORMANCE_V32 )
+		writeVec2( file, output.point );
+		writeVec2( file, output.normal );
+#endif
 		fputc( '\n', file );
 		hitCount += output.state == b2_toiStateHit;
 	}
@@ -891,7 +959,11 @@ static void collectBodies( b2WorldId worldId, BodyList* list )
 {
 	list->count = 0;
 	b2AABB bounds = { { -1.0e6f, -1.0e6f }, { 1.0e6f, 1.0e6f } };
+#if defined( CONFORMANCE_V32 )
+	b2World_OverlapAABB( worldId, b2Pos_zero, bounds, b2DefaultQueryFilter(), collectBody, list );
+#else
 	b2World_OverlapAABB( worldId, bounds, b2DefaultQueryFilter(), collectBody, list );
+#endif
 	qsort( list->ids, list->count, sizeof( b2BodyId ), compareBodyIds );
 
 	int uniqueCount = 0;
@@ -917,15 +989,37 @@ static uint64_t foldFloat( uint64_t hash, float value )
 	return hash;
 }
 
+#if defined( CONFORMANCE_V32 ) && defined( BOX2D_DOUBLE_PRECISION )
+static uint64_t foldPosition( uint64_t hash, double value )
+{
+	uint64_t word = doubleBits( value );
+	for ( int i = 0; i < 8; ++i )
+	{
+		hash ^= word & UINT64_C( 0xff );
+		hash *= UINT64_C( 1099511628211 );
+		word >>= 8;
+	}
+	return hash;
+}
+#else
+#define foldPosition foldFloat
+#endif
+
+#if defined( CONFORMANCE_V32 )
+typedef b2Pos TracePos;
+#else
+typedef b2Vec2 TracePos;
+#endif
+
 static uint64_t hashBodies( const BodyList* list )
 {
 	uint64_t hash = UINT64_C( 14695981039346656037 );
 	for ( int i = 0; i < list->count; ++i )
 	{
-		b2Vec2 position = b2Body_GetPosition( list->ids[i] );
+		TracePos position = b2Body_GetPosition( list->ids[i] );
 		b2Rot rotation = b2Body_GetRotation( list->ids[i] );
-		hash = foldFloat( hash, position.x );
-		hash = foldFloat( hash, position.y );
+		hash = foldPosition( hash, position.x );
+		hash = foldPosition( hash, position.y );
 		hash = foldFloat( hash, rotation.c );
 		hash = foldFloat( hash, rotation.s );
 	}
@@ -956,10 +1050,14 @@ static void writeStep( FILE* file, int step, int totalSteps, const BodyList* lis
 	{
 		for ( int i = 0; i < list->count; ++i )
 		{
-			b2Vec2 position = b2Body_GetPosition( list->ids[i] );
+			TracePos position = b2Body_GetPosition( list->ids[i] );
 			b2Rot rotation = b2Body_GetRotation( list->ids[i] );
 			fprintf( file, "body %d", i );
+#if defined( CONFORMANCE_V32 )
+			writePosition( file, position );
+#else
 			writeVec2( file, position );
+#endif
 			writeRot( file, rotation );
 			fputc( '\n', file );
 		}

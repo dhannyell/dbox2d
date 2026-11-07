@@ -1,4 +1,4 @@
-// Ported from samples/donut.cpp of Box2D v3.1.1
+// Ported from samples/donut.cpp of Box2D v3.2.0
 
 package samples
 
@@ -43,10 +43,10 @@ func (d *donut) create(worldId b2.WorldId, position b2.Vec2, scale b2.Q, groupIn
 
 	for i := range donutSideCount {
 		rot := b2.MakeRot(b2.QFromRatio(i, donutSideCount))
-		bodyDef.Position = b2.Vec2{
+		bodyDef.Position = b2.ToPos(b2.Vec2{
 			X: radius.Mul(rot.Cos).Add(position.X),
 			Y: radius.Mul(rot.Sin).Add(position.Y),
-		}
+		})
 		bodyDef.Rotation = rot
 		d.bodyIds[i] = b2.CreateBody(worldId, &bodyDef)
 		b2.CreateCapsuleShape(d.bodyIds[i], &shapeDef, &capsule)
@@ -55,17 +55,18 @@ func (d *donut) create(worldId b2.WorldId, position b2.Vec2, scale b2.Q, groupIn
 	weldDef := b2.DefaultWeldJointDef()
 	weldDef.AngularHertz = b2.F(5)
 	weldDef.AngularDampingRatio = b2.QZero()
-	weldDef.LocalAnchorA = b2.Vec2{Y: length.Mul(b2.QHalf())}
-	weldDef.LocalAnchorB = b2.Vec2{Y: length.Mul(b2.QHalf()).Neg()}
+	weldDef.Base.LocalFrameA.P = b2.Vec2{Y: length.Mul(b2.QHalf())}
+	weldDef.Base.LocalFrameB.P = b2.Vec2{Y: length.Mul(b2.QHalf()).Neg()}
+	weldDef.Base.DrawScale = b2.QHalf().Mul(scale)
 	prevBodyId := d.bodyIds[donutSideCount-1]
 	for i := range donutSideCount {
-		weldDef.BodyIdA = prevBodyId
-		weldDef.BodyIdB = d.bodyIds[i]
+		weldDef.Base.BodyIdA = prevBodyId
+		weldDef.Base.BodyIdB = d.bodyIds[i]
 		rotA := prevBodyId.GetRotation()
 		rotB := d.bodyIds[i].GetRotation()
-		weldDef.ReferenceAngle = b2.RelativeAngle(rotB, rotA)
+		weldDef.Base.LocalFrameA.Q = b2.InvMulRot(rotA, rotB)
 		d.jointIds[i] = b2.CreateWeldJoint(worldId, &weldDef)
-		prevBodyId = weldDef.BodyIdB
+		prevBodyId = weldDef.Base.BodyIdB
 	}
 	d.isSpawned = true
 }

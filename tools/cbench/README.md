@@ -9,7 +9,7 @@ The two sides are:
 | side | harness | build |
 | --- | --- | --- |
 | Go | `TestSceneBench` in `bench_scene_test.go` | `dbox2d_simd`, `GOEXPERIMENT=simd`, Go 1.27.0 |
-| C | `tools/cbench` | Box2D v3.1.1 with `BOX2D_AVX2=ON` |
+| C | `tools/cbench` | Box2D v3.2.0, which picks AVX2 at run time (v3.1.1 needs `BOX2D_AVX2=ON`) |
 
 Both select the width-8 AVX2 lane path, so the comparison holds the
 algorithm, the lane width and the FMA rule fixed and varies only the
@@ -35,13 +35,13 @@ work, so `step_sum_ms` is the number that compares the two solvers and
 
 ## Reproduce
 
-The reference tree is not vendored. Clone Box2D v3.1.1 anywhere and name it
+The reference tree is not vendored. Clone Box2D v3.2.0 anywhere and name it
 with `BOX2D_SOURCE_DIR`; the default is a sibling checkout named `box2d`, so
 a clone next to this repository needs no flag. Configure refuses to proceed
 when the path holds no Box2D source.
 
 ```sh
-git clone --branch v3.1.1 --depth 1 https://github.com/erincatto/box2d ../box2d
+git clone --branch v3.2.0 --depth 1 https://github.com/erincatto/box2d ../box2d
 ```
 
 ```sh
@@ -112,7 +112,8 @@ Create the directory before the first run.
 ## Workers
 
 `b2CreateWorld` keeps `workerCount` only when `enqueueTask` and `finishTask`
-are both set (`src/world.c:224`). A harness that sets the count alone gets a
+are both set (`src/physics_world.c:285` in v3.2, `src/world.c:224` in
+v3.1.1). A harness that sets the count alone gets a
 world silently reset to one worker, so `--workers=8` would have measured
 single-threaded C against multi-threaded Go and called the difference a
 language gap.
@@ -124,6 +125,12 @@ box2d actually uses instead: split a range into chunks of at least
 `minRange`, run them on `workerCount` threads with distinct worker indices,
 and let the enqueueing thread take chunks while it waits, which is what
 `enkiWaitForTaskSet` does and what makes a one-worker run create no threads.
+
+v3.2 changed the contract: `enqueueTask` receives a whole task, which runs
+exactly once, and box2d splits the work itself. Under `CBENCH_V32`, set when
+the tree has `include/box2d/math_types.h`, the pool queues each task as one
+chunk of one item. The C harness passes no capacity hints, because the port
+has none.
 
 The port needs no equivalent: it carries its own executor, so `WorkerCount`
 alone is enough.
@@ -147,7 +154,10 @@ Drop `GOEXPERIMENT=simd`, or build with the Go 1.26 toolchain, and the same
 build tags quietly select the generic width-4 path. The build succeeds and
 the tests pass; only the measurement is wrong.
 
-On the C side `src/CMakeLists.txt` sets `BOX2D_AVX2` `PRIVATE` on the box2d
+On the C side v3.2 compiles the width-8 solver under a `target("avx2")`
+pragma and selects it at run time from CPUID. The harness reports the width
+that `b2GetSIMDWidth` returns, so a CPU without AVX2 reads as `sse2`. Under
+v3.1.1, `src/CMakeLists.txt` sets `BOX2D_AVX2` `PRIVATE` on the box2d
 target, so a harness that includes `core.h` without it reports `sse2` while
 linking an AVX2 library. `tools/cbench/CMakeLists.txt` passes the definition
 to the harness for that reason.
@@ -156,9 +166,10 @@ Both harnesses abort when the runtime path is not the one asked for.
 
 ## The clock
 
-`b2GetTicks` in `src/timer.c` reaches for `QueryPerformanceCounter` only
-under `_MSC_VER`. Built with MinGW it falls through to a stub that returns
-zero, so the reference cannot time itself in that configuration.
+In v3.1.1, `b2GetTicks` in `src/timer.c` reaches for
+`QueryPerformanceCounter` only under `_MSC_VER`. Built with MinGW it falls
+through to a stub that returns zero, so the reference cannot time itself in
+that configuration. v3.2 tests `_WIN32` instead.
 
 The Go monotonic clock on Windows quantises to the system tick, measured at
 500 microseconds here: a 4.5 ms step reads with double-digit percent error
@@ -171,39 +182,38 @@ compare two files that did not use the same clock.
 ## Measured
 
 AMD Ryzen 7 5800X3D, Windows/amd64, sixteen logical cores, GCC 13.2.0,
-Go 1.27.0, three repeats. Solver ms is the sum of the per-step minima, which
-is the number that compares the two solvers.
+Go 1.27.0, three repeats, Box2D v3.2.0 against the v3.2 port. Solver ms is
+the sum of the per-step minima, which is the number that compares the two
+solvers.
 
-| workers | port over reference | with PGO | reference over its x1 | port over its x1 | reference efficiency | port efficiency |
-| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1 | 1.35x | 1.30x | 1.00x | 1.00x | 100% | 100% |
-| 2 | 1.29x | 1.26x | 1.73x | 1.82x | 87% | 91% |
-| 4 | 1.24x | 1.20x | 2.78x | 3.03x | 70% | 76% |
-| 8 | 1.29x | 1.24x | 3.99x | 4.18x | 50% | 52% |
+| workers | port over reference | reference over its x1 | port over its x1 | reference efficiency | port efficiency |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 1.85x | 1.00x | 1.00x | 100% | 100% |
+| 2 | 1.68x | 1.72x | 1.88x | 86% | 94% |
+| 4 | 1.70x | 2.87x | 3.12x | 72% | 78% |
+| 8 | 1.88x | 4.13x | 4.05x | 52% | 51% |
 
 Every figure is a geometric mean over the seven scenes: ratios compose by
-multiplication, so an arithmetic mean of them is biased upward. The PGO
-column is the ratio composed with the profile's own gain, measured against a
-`-pgo=off` build in the same sitting, because a profile and a no-profile
-sweep taken hours apart compare the machine as much as the code.
-
-The port keeps slightly more of its single-thread speed as threads are
-added, so parallel efficiency at eight workers is 52 percent for the port
-against 50 percent for the reference; the gap is single-thread work, not
-the executor. At one worker the per-scene ratios run 1.21x to 1.44x; at
-eight they run 1.19x to 1.39x.
+multiplication, so an arithmetic mean of them is biased upward. At one worker
+the per-scene ratios run 1.52x to 2.12x; at eight they run 1.74x to 2.04x.
 
 Solver ms at eight workers:
 
 | scene | bodies | c-avx2 ms | go-avx2 ms | ratio |
 | --- | ---: | ---: | ---: | ---: |
-| joint_grid | 10000 | 752 | 939 | 1.25x |
-| large_pyramid | 5051 | 386 | 511 | 1.32x |
-| many_pyramids | 22001 | 458 | 639 | 1.39x |
-| rain | 1 | 2430 | 2882 | 1.19x |
-| smash | 9601 | 649 | 856 | 1.32x |
-| spinner | 3040 | 1466 | 1881 | 1.28x |
-| tumbler | 2026 | 623 | 812 | 1.30x |
+| joint_grid | 10000 | 443 | 803 | 1.81x |
+| large_pyramid | 5051 | 188 | 347 | 1.84x |
+| many_pyramids | 22001 | 200 | 347 | 1.74x |
+| rain | 1 | 1303 | 2426 | 1.86x |
+| smash | 9601 | 263 | 536 | 2.04x |
+| spinner | 6078 | 1905 | 3813 | 2.00x |
+| tumbler | 2026 | 305 | 570 | 1.87x |
+
+The v3.1.1 sweep, Box2D v3.1.1 against the v1.0.0 port, put the port at 1.35x
+on one worker and 1.29x on eight. Box2D v3.2 takes about half the solver
+time of v3.1.1 on the five scenes the two versions share, so the ratios of
+the two sweeps do not compare; the port itself got faster. `benchscale`
+refuses `spinner` across the versions because its body count changed.
 
 `benchcmp` prints a repeat spread per scene and marks a scene noisy past five
 percent. At three repeats on this machine every scene sits under four

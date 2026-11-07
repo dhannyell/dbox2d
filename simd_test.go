@@ -239,7 +239,7 @@ func buildMixedRestitution(t *testing.T, worldId WorldId) {
 func boxWithRestitution(worldId WorldId, position Vec2, restitution Q) BodyId {
 	boxDef := DefaultBodyDef()
 	boxDef.Type = DynamicBody
-	boxDef.Position = position
+	boxDef.Position = ToPos(position)
 	boxId := CreateBody(worldId, &boxDef)
 	shapeDef := DefaultShapeDef()
 	shapeDef.Material.Restitution = restitution
@@ -259,7 +259,7 @@ func buildHeavyLanding(t *testing.T, worldId WorldId) {
 
 	bodyDef := DefaultBodyDef()
 	bodyDef.Type = DynamicBody
-	bodyDef.Position = v2(0, 4)
+	bodyDef.Position = ToPos(v2(0, 4))
 	bodyDef.LinearVelocity = v2(0, -20)
 	bodyId := CreateBody(worldId, &bodyDef)
 	shapeDef.Density = QFromInt(500) // 2 m x 2 m, so 2000 kg

@@ -47,6 +47,11 @@ var (
 	// The float mode squares FLT_EPSILON for squared-length comparisons.
 	scalarEpsilonSq = scalarEpsilon.Mul(scalarEpsilon)
 
+	// normalizeFloor is 1000 * FLT_MIN, the squared length at or below which
+	// the reference treats a vector as zero. The constant rounds once to
+	// float32, as the C product does.
+	normalizeFloor = Q{v: float32(1000 * 0x1p-126)}
+
 	// The float mode uses 10 * FLT_EPSILON for sensor overlap tests.
 	sensorOverlapDistance = QFromInt(10).Mul(scalarEpsilon)
 
@@ -95,6 +100,10 @@ func QMaxValue() Q { return Q{math.MaxFloat32} }
 
 // QMinValue returns the smallest finite float32 scalar.
 func QMinValue() Q { return Q{-math.MaxFloat32} }
+
+// qInfinity returns positive infinity. The tree seeds its empty nodes with
+// it, as b2MakeEmptyNode does with INFINITY.
+func qInfinity() Q { return Q{float32(math.Inf(1))} }
 
 // RotIdentity returns the rotation by zero turns.
 func RotIdentity() Rot { return Rot{Sin: QZero(), Cos: QOne()} }
@@ -190,38 +199,30 @@ func angleToTurns(a Q) Q { return a.Div(floatTau) }
 
 func angleRadians(a Q) Q { return a }
 
-// relativeAngle is b2RelativeAngle: the angle of b relative to a, in
-// radians.
-func relativeAngle(b, a Rot) Q {
-	s := b.Sin.Mul(a.Cos).Sub(b.Cos.Mul(a.Sin))
-	c := b.Cos.Mul(a.Cos).Add(b.Sin.Mul(a.Sin))
+// relativeAngle is b2RelativeAngle(a, b): the angle of b relative to a,
+// b - a, in radians.
+func relativeAngle(a, b Rot) Q {
+	s := a.Cos.Mul(b.Sin).Sub(a.Sin.Mul(b.Cos))
+	c := a.Cos.Mul(b.Cos).Add(a.Sin.Mul(b.Sin))
 	return atan2Radians(s, c)
 }
 
-// unwindAngle is b2UnwindAngle, remainderf by two pi. The remainder of two
-// float32 values is exact, so the float64 remainder rounds to it unchanged.
-//
-// math.Remainder is a software loop and the C side is one libm call, so
-// the two common cases are handled inline with the bits the remainder
-// would produce. The nearest multiple of tau is zero up to and including
-// pi, where ties round to even, so the angle returns unchanged. For an
-// angle strictly between pi and three pi the multiple is one, and the
-// difference with tau is exact by Sterbenz, because the angle lies within
-// a factor of two of tau. Everything else, including NaN, takes the slow
-// path. TestUnwindAngleMatchesRemainder pins the bits.
+// unwindAngle is b2UnwindAngle of v3.2. The angle is clamped to one million
+// and reduced in float64: adding and removing 1.5 * 2^52 rounds the number
+// of turns to the nearest integer, ties to even. The conversions keep the
+// product apart from the subtraction, so no target fuses them.
 func unwindAngle(a Q) Q {
-	if -floatPi.v <= a.v && a.v <= floatPi.v {
-		return a
+	x := a.v
+	if x < -1e6 {
+		x = -1e6
+	} else if x > 1e6 {
+		x = 1e6
 	}
-	if floatPi.v < a.v && a.v < floatThreePi {
-		return Q{a.v - floatTau.v}
-	}
-	if -floatThreePi < a.v && a.v < -floatPi.v {
-		// Negated so that exactly minus tau yields the negative zero of
-		// the remainder rather than the positive zero of the sum.
-		return Q{-(-a.v - floatTau.v)}
-	}
-	return Q{float32(math.Remainder(float64(a.v), float64(floatTau.v)))}
+	const roundToNearest = 6755399441055744.0
+	twoPi := float64(floatTau.v)
+	d := float64(x)
+	k := float64(d/twoPi+roundToNearest) - roundToNearest
+	return Q{float32(d - float64(k*twoPi))}
 }
 
 // Add returns q+o.
@@ -237,6 +238,18 @@ func (q Q) Mul(o Q) Q { return Q{float32(q.v * o.v)} }
 func (q Q) Div(o Q) Q { return Q{float32(q.v / o.v)} }
 
 // Sqrt returns the square root, rounded once to float32.
+// qSubSum returns a - (b + c) with one rounding to float32, as upstream
+// computes the fat bounds in double.
+func qSubSum(a, b, c Q) Q {
+	return Q{float32(float64(a.v) - (float64(b.v) + float64(c.v)))}
+}
+
+// qAddSum returns a + (b + c) with one rounding to float32, as upstream
+// computes the fat bounds in double.
+func qAddSum(a, b, c Q) Q {
+	return Q{float32(float64(a.v) + (float64(b.v) + float64(c.v)))}
+}
+
 func (q Q) Sqrt() Q { return Q{float32(math.Sqrt(float64(q.v)))} }
 
 // Neg returns -q.
@@ -336,15 +349,28 @@ func (v Vec2) LenSq() Q { return v.Dot(v) }
 // Len returns the length of the vector.
 func (v Vec2) Len() Q { return v.LenSq().Sqrt() }
 
-// Normalize returns a unit vector with the same direction as v. The zero
-// vector returns the zero vector.
+// Normalize returns a unit vector with the same direction as v. A vector
+// whose squared length is at or below 1000 * FLT_MIN returns the zero
+// vector, as b2Normalize does.
 func (v Vec2) Normalize() Vec2 {
-	length := v.Len()
-	if length.Less(scalarEpsilon) {
-		return Vec2{}
+	lengthSquared := v.LenSq()
+	if normalizeFloor.Less(lengthSquared) {
+		s := QOne().Div(lengthSquared.Sqrt())
+		return Vec2{X: s.Mul(v.X), Y: s.Mul(v.Y)}
 	}
-	invLength := QOne().Div(length)
-	return Vec2{X: invLength.Mul(v.X), Y: invLength.Mul(v.Y)}
+	return Vec2{}
+}
+
+// getLengthAndNormalize follows b2GetLengthAndNormalize: at or below the
+// floor of Normalize the length is zero too.
+func getLengthAndNormalize(v Vec2) (Q, Vec2) {
+	lengthSquared := v.LenSq()
+	if normalizeFloor.Less(lengthSquared) {
+		length := lengthSquared.Sqrt()
+		s := QOne().Div(length)
+		return length, Vec2{X: s.Mul(v.X), Y: s.Mul(v.Y)}
+	}
+	return QZero(), Vec2{}
 }
 
 // Distance returns the distance between v and o.
@@ -401,6 +427,10 @@ func belowEpsilon(x Q) bool { return x.Less(scalarEpsilon) }
 // belowEpsilonSq reports whether a squared length is below float32 rounding
 // noise.
 func belowEpsilonSq(x Q) bool { return x.Less(scalarEpsilonSq) }
+
+// belowNormalizeFloor reports whether a squared length is below
+// 1000 * FLT_MIN, the floor of b2Normalize.
+func belowNormalizeFloor(x Q) bool { return x.Less(normalizeFloor) }
 
 // sensorOverlaps reports whether a sensor overlap distance is below the
 // float32 sensor threshold.
@@ -463,7 +493,9 @@ func prepareContacts32(*stepContext) {}
 
 func warmStartContacts32(int, int, *stepContext, int) {}
 
-func solveContacts32(int, int, *stepContext, int, bool) {}
+func pushContacts32(int, int, *stepContext, int) {}
+
+func solveContacts32(int, int, *stepContext, int) {}
 
 func applyRestitution32(int, int, *stepContext, int) {}
 

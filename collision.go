@@ -88,7 +88,7 @@ type MassData struct {
 	// Center is the centroid of the shape, relative to the shape origin.
 	Center Vec2
 
-	// RotationalInertia is measured about the local origin.
+	// RotationalInertia is measured about the center of mass.
 	RotationalInertia Q
 }
 
@@ -165,16 +165,12 @@ type Hull struct {
 // ManifoldPoint is one contact point of a contact manifold. The solver uses
 // speculative collision, so a point may still be separated.
 type ManifoldPoint struct {
-	// Point is the contact point in world space. Use it for debugging only,
-	// because it loses precision far from the origin.
-	Point Vec2
-
-	// AnchorA is the contact point relative to the origin of shape A, in
-	// world space. Inside the solver it is relative to the center of mass.
+	// AnchorA is the contact point relative to the center of mass of body A,
+	// in world space.
 	AnchorA Vec2
 
-	// AnchorB is the contact point relative to the origin of shape B, in
-	// world space. Inside the solver it is relative to the center of mass.
+	// AnchorB is the contact point relative to the center of mass of body B,
+	// in world space.
 	AnchorB Vec2
 
 	// Separation is negative when the shapes penetrate.
@@ -191,8 +187,12 @@ type ManifoldPoint struct {
 	TotalNormalImpulse Q
 
 	// NormalVelocity is the relative normal velocity before the solve. It
-	// feeds the hit events. A negative value means the shapes approach.
+	// feeds the hit events. A negative value means the shapes approach. It
+	// is only computed for contacts with hit events or restitution.
 	NormalVelocity Q
+
+	// BaseSeparation is the separation cached for contact recycling.
+	BaseSeparation Q
 
 	// Id identifies the contact point between the two shapes.
 	Id uint16
@@ -217,6 +217,32 @@ type Manifold struct {
 	PointCount int
 }
 
+// LocalManifoldPoint is one contact point of a LocalManifold. It corresponds
+// to b2LocalManifoldPoint in include/box2d/collision.h.
+type LocalManifoldPoint struct {
+	// Point is the contact point in frame A.
+	Point Vec2
+
+	// Separation is negative when the shapes penetrate.
+	Separation Q
+
+	// Id identifies the contact point between the two shapes.
+	Id uint16
+}
+
+// LocalManifold is the output of the collide functions, in the frame of
+// shape A. It corresponds to b2LocalManifold in include/box2d/collision.h.
+type LocalManifold struct {
+	// Normal is the unit normal in frame A. It points from A to B.
+	Normal Vec2
+
+	// Points holds the contact points. Two are possible in 2D.
+	Points [2]LocalManifoldPoint
+
+	// PointCount is zero, one or two.
+	PointCount int
+}
+
 // SimplexCache warm starts the distance solver between two calls. The zero
 // value is an empty cache; ShapeDistance fills it. It corresponds to
 // b2SimplexCache in include/box2d/collision.h.
@@ -231,7 +257,7 @@ type SimplexCache struct {
 	IndexB [3]uint8
 }
 
-// DistanceInput is the input of ShapeDistance. It corresponds to
+// DistanceInput is the input of ComputeShapeDistance. It corresponds to
 // b2DistanceInput in include/box2d/collision.h.
 type DistanceInput struct {
 	// ProxyA is the proxy of shape A.
@@ -240,17 +266,15 @@ type DistanceInput struct {
 	// ProxyB is the proxy of shape B.
 	ProxyB ShapeProxy
 
-	// TransformA is the world transform of shape A.
-	TransformA Transform
-
-	// TransformB is the world transform of shape B.
-	TransformB Transform
+	// Transform is the transform of shape B in the frame of shape A,
+	// InvMulTransforms(worldA, worldB). The query runs in frame A.
+	Transform Transform
 
 	// UseRadii asks the solver to subtract the proxy radii.
 	UseRadii bool
 }
 
-// DistanceOutput is the output of ShapeDistance. It corresponds to
+// DistanceOutput is the output of ComputeShapeDistance, in frame A. It corresponds to
 // b2DistanceOutput in include/box2d/collision.h.
 type DistanceOutput struct {
 	// PointA is the closest point on shape A.
@@ -304,7 +328,7 @@ type Simplex struct {
 	Count int
 }
 
-// ShapeCastPairInput is the input of ShapeCast. It corresponds to
+// ShapeCastPairInput is the input of CastShape. It corresponds to
 // b2ShapeCastPairInput in include/box2d/collision.h.
 type ShapeCastPairInput struct {
 	// ProxyA is the proxy of shape A.
@@ -313,13 +337,10 @@ type ShapeCastPairInput struct {
 	// ProxyB is the proxy of shape B.
 	ProxyB ShapeProxy
 
-	// TransformA is the world transform of shape A.
-	TransformA Transform
+	// Transform is the transform of shape B in the frame of shape A.
+	Transform Transform
 
-	// TransformB is the world transform of shape B.
-	TransformB Transform
-
-	// TranslationB is the translation of shape B.
+	// TranslationB is the translation of shape B, in frame A.
 	TranslationB Vec2
 
 	// MaxFraction is the fraction of the translation to consider. It is
@@ -392,11 +413,17 @@ const (
 	TOIStateSeparated
 )
 
-// TOIOutput is the output of TimeOfImpact. It corresponds to b2TOIOutput
+// TOIOutput is the output of ComputeTimeOfImpact. It corresponds to b2TOIOutput
 // in include/box2d/collision.h.
 type TOIOutput struct {
 	// State is the type of result.
 	State TOIState
+
+	// Point is the hit point.
+	Point Vec2
+
+	// Normal is the hit normal.
+	Normal Vec2
 
 	// Fraction is the sweep time of the collision.
 	Fraction Q

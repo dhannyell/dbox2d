@@ -35,8 +35,8 @@ func TestBodyOwnsAnIsland(t *testing.T) {
 	}
 
 	isl := &w.islands[dynamic.islandId]
-	if isl.bodyCount != 1 || isl.headBody != dynamic.id || isl.tailBody != dynamic.id {
-		t.Errorf("the island lists %d bodies with head %d and tail %d", isl.bodyCount, isl.headBody, isl.tailBody)
+	if len(isl.bodies) != 1 || isl.bodies[0] != dynamic.id || dynamic.islandIndex != 0 {
+		t.Errorf("the island lists bodies %v, body island index %d", isl.bodies, dynamic.islandIndex)
 	}
 	validateIsland(w, dynamic.islandId)
 	validateSolverSets(w)
@@ -48,8 +48,9 @@ func TestBodyOwnsAnIsland(t *testing.T) {
 	validateSolverSets(w)
 }
 
-// TestLinkContactJoinsIslands pins the union-find rule: the root of body A
-// is always the parent, and the merge appends the child at the tail.
+// TestLinkContactJoinsIslands pins the merge rule: a link merges the
+// islands at once, the island with more bodies survives (the island of
+// body A on a tie), and the bodies of the smaller island append in order.
 func TestLinkContactJoinsIslands(t *testing.T) {
 	worldId := createTestWorld(t)
 	w := getWorldFromId(worldId)
@@ -60,52 +61,37 @@ func TestLinkContactJoinsIslands(t *testing.T) {
 	bodyA := getBodyFullId(w, idA)
 	bodyB := getBodyFullId(w, idB)
 	bodyC := getBodyFullId(w, idC)
-	rootId := bodyA.islandId
+	islandOfB := bodyB.islandId
 
-	// B-C first, then A-B: the root of A must win over the root of B.
+	// B-C first: a tie keeps the island of B.
 	cBC := linkTouching(t, w, idB, idC)
-	if w.islands[bodyC.islandId].parentIsland != bodyB.islandId {
-		t.Fatalf("the island of C has parent %d, want the island of B", w.islands[bodyC.islandId].parentIsland)
-	}
-	if cBC.islandId != bodyB.islandId {
-		t.Errorf("the contact B-C sits in island %d, want the island of B", cBC.islandId)
+	if bodyC.islandId != islandOfB || cBC.islandId != islandOfB {
+		t.Fatalf("C and B-C sit in islands %d and %d, want the island of B %d", bodyC.islandId, cBC.islandId, islandOfB)
 	}
 
+	// A-B next: the island of B is bigger and survives.
 	cAB := linkTouching(t, w, idA, idB)
-	if w.islands[bodyB.islandId].parentIsland != rootId {
-		t.Fatalf("the island of B has parent %d, want the island of A", w.islands[bodyB.islandId].parentIsland)
-	}
-	if cAB.islandId != rootId {
-		t.Errorf("the contact A-B sits in island %d, want the island of A", cAB.islandId)
-	}
-
-	mergeAwakeIslands(w)
-
 	if w.islandIdPool.idCount() != 1 {
 		t.Fatalf("%d islands survive the merge, want 1", w.islandIdPool.idCount())
 	}
 	for _, b := range []*body{bodyA, bodyB, bodyC} {
-		if b.islandId != rootId {
-			t.Errorf("body %d sits in island %d, want %d", b.id, b.islandId, rootId)
+		if b.islandId != islandOfB {
+			t.Errorf("body %d sits in island %d, want %d", b.id, b.islandId, islandOfB)
 		}
 	}
-	isl := &w.islands[rootId]
-	if isl.parentIsland != nullIndex {
-		t.Errorf("the root island has parent %d", isl.parentIsland)
+	isl := &w.islands[islandOfB]
+	if len(isl.bodies) != 3 || isl.bodies[0] != bodyB.id || isl.bodies[1] != bodyC.id || isl.bodies[2] != bodyA.id {
+		t.Errorf("the merged island lists bodies %v, want B, C, A", isl.bodies)
 	}
-	// The merge walks the awake islands in reverse, so C joins before B.
-	if isl.headBody != bodyA.id || isl.tailBody != bodyB.id || isl.bodyCount != 3 {
-		t.Errorf("the merged body list runs %d..%d over %d bodies, want A..B over 3", isl.headBody, isl.tailBody, isl.bodyCount)
+	if len(isl.contacts) != 2 || isl.contacts[0].contactId != cBC.contactId || isl.contacts[1].contactId != cAB.contactId {
+		t.Errorf("the merged island lists contacts %v, want B-C, A-B", isl.contacts)
 	}
-	if isl.contactCount != 2 || isl.headContact != cAB.contactId || isl.tailContact != cBC.contactId {
-		t.Errorf("the merged contact list runs %d..%d over %d contacts, want A-B..B-C over 2", isl.headContact, isl.tailContact, isl.contactCount)
-	}
-	validateIsland(w, rootId)
+	validateIsland(w, islandOfB)
 	validateSolverSets(w)
 }
 
 // TestUnlinkAndSplitSeparateIslands pins the split: an unlinked contact
-// marks the island, and the depth first search rebuilds one island per
+// marks the island, and the union-find pass rebuilds one island per
 // connected component.
 func TestUnlinkAndSplitSeparateIslands(t *testing.T) {
 	worldId := createTestWorld(t)
@@ -120,16 +106,13 @@ func TestUnlinkAndSplitSeparateIslands(t *testing.T) {
 
 	cAB := linkTouching(t, w, idA, idB)
 	cBC := linkTouching(t, w, idB, idC)
-	mergeAwakeIslands(w)
 	baseId := bodyA.islandId
 
-	// The narrowphase clears the flag before it unlinks; the split trusts
-	// the flag.
 	cBC.flags &^= contactTouchingFlag
 	unlinkContact(w, cBC)
 	isl := &w.islands[baseId]
-	if isl.constraintRemoveCount != 1 || isl.contactCount != 1 {
-		t.Fatalf("the unlink left %d removed and %d live contacts, want 1 and 1", isl.constraintRemoveCount, isl.contactCount)
+	if isl.constraintRemoveCount != 1 || len(isl.contacts) != 1 {
+		t.Fatalf("the unlink left %d removed and %d live contacts, want 1 and 1", isl.constraintRemoveCount, len(isl.contacts))
 	}
 	if cBC.islandId != nullIndex {
 		t.Errorf("the unlinked contact keeps island %d", cBC.islandId)
@@ -150,8 +133,8 @@ func TestUnlinkAndSplitSeparateIslands(t *testing.T) {
 	if cAB.islandId != bodyA.islandId {
 		t.Errorf("the contact A-B sits in island %d, want %d", cAB.islandId, bodyA.islandId)
 	}
-	if w.islands[bodyC.islandId].contactCount != 0 {
-		t.Errorf("the island of C has %d contacts", w.islands[bodyC.islandId].contactCount)
+	if n := len(w.islands[bodyC.islandId].contacts); n != 0 {
+		t.Errorf("the island of C has %d contacts", n)
 	}
 	if w.arena.allocation != 0 {
 		t.Errorf("the split leaves %d bytes in the arena", w.arena.allocation)
@@ -172,14 +155,13 @@ func TestDestroyContactLeavesTheIsland(t *testing.T) {
 	bodyA := getBodyFullId(w, idA)
 
 	c := startTouching(t, w, idA, idB)
-	mergeAwakeIslands(w)
 	islandId := bodyA.islandId
 
 	destroyContact(w, c, false)
 
 	isl := &w.islands[islandId]
-	if isl.contactCount != 0 || isl.constraintRemoveCount != 1 {
-		t.Errorf("the island keeps %d contacts with %d removed, want 0 and 1", isl.contactCount, isl.constraintRemoveCount)
+	if len(isl.contacts) != 0 || isl.constraintRemoveCount != 1 {
+		t.Errorf("the island keeps %d contacts with %d removed, want 0 and 1", len(isl.contacts), isl.constraintRemoveCount)
 	}
 	validateIsland(w, islandId)
 	validateSolverSets(w)
@@ -200,14 +182,13 @@ func linkHandJoint(t *testing.T, w *world, idA, idB BodyId) *joint {
 	}
 	j := &w.joints[jointId]
 	*j = joint{
-		jointId:    jointId,
-		setIndex:   awakeSet,
-		colorIndex: nullIndex,
-		localIndex: nullIndex,
-		islandId:   nullIndex,
-		islandPrev: nullIndex,
-		islandNext: nullIndex,
-		jointType:  FilterJoint,
+		jointId:     jointId,
+		setIndex:    awakeSet,
+		colorIndex:  nullIndex,
+		localIndex:  nullIndex,
+		islandId:    nullIndex,
+		islandIndex: nullIndex,
+		jointType:   FilterJoint,
 	}
 
 	j.edges[0] = jointEdge{bodyId: bodyA.id, prevKey: nullIndex, nextKey: bodyA.headJointKey}
@@ -234,7 +215,7 @@ func linkHandJoint(t *testing.T, w *world, idA, idB BodyId) *joint {
 	js.bodyIdB = bodyB.id
 	js.jointType = FilterJoint
 
-	linkJoint(w, j, true)
+	linkJoint(w, j)
 	return j
 }
 
@@ -262,8 +243,8 @@ func TestLinkJointJoinsIslands(t *testing.T) {
 
 	jGA := linkHandJoint(t, w, groundId, idA)
 	isl := &w.islands[bodyA.islandId]
-	if isl.jointCount != 2 || isl.headJoint != jGA.jointId || isl.tailJoint != jAB.jointId {
-		t.Errorf("the island lists %d joints with head %d and tail %d", isl.jointCount, isl.headJoint, isl.tailJoint)
+	if len(isl.joints) != 2 || isl.joints[0].jointId != jAB.jointId || isl.joints[1].jointId != jGA.jointId {
+		t.Errorf("the island lists joints %v, want A-B, ground-A", isl.joints)
 	}
 	if w.islandIdPool.idCount() != 1 {
 		t.Errorf("%d islands survive the merge, want 1", w.islandIdPool.idCount())
@@ -293,13 +274,13 @@ func TestUnlinkJointSplitsTheIsland(t *testing.T) {
 
 	unlinkJoint(w, jBC)
 	isl := &w.islands[baseId]
-	if isl.constraintRemoveCount != 1 || isl.jointCount != 1 {
-		t.Fatalf("the unlink left %d removed and %d live joints, want 1 and 1", isl.constraintRemoveCount, isl.jointCount)
+	if isl.constraintRemoveCount != 1 || len(isl.joints) != 1 {
+		t.Fatalf("the unlink left %d removed and %d live joints, want 1 and 1", isl.constraintRemoveCount, len(isl.joints))
 	}
 	validateIsland(w, baseId)
 
-	// The split walks the body joint lists, so the unlinked joint leaves
-	// them first.
+	// The split reads the island links only; the joint still leaves the
+	// body lists, as a destroyed joint does.
 	removeHandJointEdges(w, jBC)
 
 	splitIsland(w, baseId)

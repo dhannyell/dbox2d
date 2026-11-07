@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2022 Erin Catto
 // SPDX-License-Identifier: MIT
-// Ported from shared/benchmarks.c of Box2D v3.1.1. Debug-only sizes use the
+// Ported from shared/benchmarks.c of Box2D v3.2.0. Debug-only sizes use the
 // release values.
 
 // Package shared is the shared/ directory of the reference: the benchmark
@@ -75,21 +75,21 @@ func BuildJointGrid(worldId WorldId, opts Options) StepFn {
 			} else {
 				bodyDef.Type = DynamicBody
 			}
-			bodyDef.Position = Vec2{X: QFromInt(k), Y: QFromInt(i).Neg()}
+			bodyDef.Position = ToPos(Vec2{X: QFromInt(k), Y: QFromInt(i).Neg()})
 			bodyId := CreateBody(worldId, &bodyDef)
 			CreateCircleShape(bodyId, &shapeDef, &circle)
 			if i > 0 {
-				jointDef.BodyIdA = bodies[index-1]
-				jointDef.BodyIdB = bodyId
-				jointDef.LocalAnchorA = Vec2{Y: QHalf().Neg()}
-				jointDef.LocalAnchorB = Vec2{Y: QHalf()}
+				jointDef.Base.BodyIdA = bodies[index-1]
+				jointDef.Base.BodyIdB = bodyId
+				jointDef.Base.LocalFrameA.P = Vec2{Y: QHalf().Neg()}
+				jointDef.Base.LocalFrameB.P = Vec2{Y: QHalf()}
 				CreateRevoluteJoint(worldId, &jointDef)
 			}
 			if k > 0 {
-				jointDef.BodyIdA = bodies[index-n]
-				jointDef.BodyIdB = bodyId
-				jointDef.LocalAnchorA = Vec2{X: QHalf()}
-				jointDef.LocalAnchorB = Vec2{X: QHalf().Neg()}
+				jointDef.Base.BodyIdA = bodies[index-n]
+				jointDef.Base.BodyIdB = bodyId
+				jointDef.Base.LocalFrameA.P = Vec2{X: QHalf()}
+				jointDef.Base.LocalFrameB.P = Vec2{X: QHalf().Neg()}
 				CreateRevoluteJoint(worldId, &jointDef)
 			}
 			bodies[index] = bodyId
@@ -104,7 +104,7 @@ func BuildLargePyramid(worldId WorldId, opts Options) StepFn {
 	worldId.EnableSleeping(false)
 	const baseCount = 100
 	groundDef := DefaultBodyDef()
-	groundDef.Position = Vec2{Y: QFromInt(-1)}
+	groundDef.Position = ToPos(Vec2{Y: QFromInt(-1)})
 	groundId := CreateBody(worldId, &groundDef)
 	ground := MakeBox(QFromInt(100), QOne())
 	shapeDef := DefaultShapeDef()
@@ -122,7 +122,7 @@ func BuildLargePyramid(worldId WorldId, opts Options) StepFn {
 			x := QFromInt(i + 1).Mul(half).
 				Add(QFromInt(2).Mul(QFromInt(j - i)).Mul(half)).
 				Sub(half.Mul(QFromInt(baseCount)))
-			bodyDef.Position = Vec2{X: x, Y: y}
+			bodyDef.Position = ToPos(Vec2{X: x, Y: y})
 			bodyId := CreateBody(worldId, &bodyDef)
 			CreatePolygonShape(bodyId, &shapeDef, &box)
 		}
@@ -142,7 +142,7 @@ func buildSmallPyramid(worldId WorldId, baseCount int, extent, centerX, baseY Q)
 			x := QFromInt(i + 1).Mul(extent).
 				Add(QFromInt(2).Mul(QFromInt(j - i)).Mul(extent)).
 				Add(centerX).Sub(QHalf())
-			bodyDef.Position = Vec2{X: x, Y: y}
+			bodyDef.Position = ToPos(Vec2{X: x, Y: y})
 			bodyId := CreateBody(worldId, &bodyDef)
 			CreatePolygonShape(bodyId, &shapeDef, &box)
 		}
@@ -165,8 +165,8 @@ func BuildManyPyramids(worldId WorldId, opts Options) StepFn {
 	groundY := QZero()
 	for range rowCount {
 		segment := Segment{
-			Point1: Vec2{X: groundWidth.Neg(), Y: groundY},
-			Point2: Vec2{X: groundWidth, Y: groundY},
+			Point1: Vec2{X: QHalf().Neg().Mul(groundWidth), Y: groundY},
+			Point2: Vec2{X: QHalf().Mul(groundWidth), Y: groundY},
 		}
 		CreateSegmentShape(groundId, &shapeDef, &segment)
 		groundY = groundY.Add(groundDeltaY)
@@ -177,7 +177,7 @@ func BuildManyPyramids(worldId WorldId, opts Options) StepFn {
 		for j := range columnCount {
 			centerX := QHalf().Neg().Mul(groundWidth).
 				Add(QFromInt(j).Mul(baseWidth.Add(QFromInt(2).Mul(extent)))).
-				Add(extent)
+				Add(QFromInt(2).Mul(extent))
 			buildSmallPyramid(worldId, baseCount, extent, centerX, baseY)
 		}
 		baseY = baseY.Add(groundDeltaY)
@@ -191,7 +191,7 @@ func BuildSmash(worldId WorldId, opts Options) StepFn {
 	impact := MakeBox(QFromInt(4), QFromInt(4))
 	bodyDef := DefaultBodyDef()
 	bodyDef.Type = DynamicBody
-	bodyDef.Position = Vec2{X: QFromInt(-20)}
+	bodyDef.Position = ToPos(Vec2{X: QFromInt(-20)})
 	bodyDef.LinearVelocity = Vec2{X: QFromInt(40)}
 	bodyId := CreateBody(worldId, &bodyDef)
 	shapeDef := DefaultShapeDef()
@@ -208,10 +208,10 @@ func BuildSmash(worldId WorldId, opts Options) StepFn {
 	const rows = 80
 	for i := range columns {
 		for j := range rows {
-			bodyDef.Position = Vec2{
+			bodyDef.Position = ToPos(Vec2{
 				X: QFromInt(i).Mul(d).Add(QFromInt(30)),
 				Y: QFromInt(j).Sub(QFromRatio(rows, 2)).Mul(d),
-			}
+			})
 			bodyId = CreateBody(worldId, &bodyDef)
 			CreatePolygonShape(bodyId, &shapeDef, &box)
 		}
@@ -240,7 +240,7 @@ func BuildSpinner(worldId WorldId, opts Options) StepFn {
 
 	bodyDef := DefaultBodyDef()
 	bodyDef.Type = DynamicBody
-	bodyDef.Position = Vec2{Y: QFromInt(12)}
+	bodyDef.Position = ToPos(Vec2{Y: QFromInt(12)})
 	bodyDef.EnableSleep = false
 	spinnerId := CreateBody(worldId, &bodyDef)
 	spinner := MakeRoundedBox(QMustParse("0.4"), QFromInt(20), QMustParse("0.2"))
@@ -248,12 +248,14 @@ func BuildSpinner(worldId WorldId, opts Options) StepFn {
 	shapeDef.Material.Friction = QZero()
 	CreatePolygonShape(spinnerId, &shapeDef, &spinner)
 	jointDef := DefaultRevoluteJointDef()
-	jointDef.BodyIdA = groundId
-	jointDef.BodyIdB = spinnerId
-	jointDef.LocalAnchorA = bodyDef.Position
+	jointDef.Base.BodyIdA = groundId
+	jointDef.Base.BodyIdB = spinnerId
+	jointDef.Base.LocalFrameA.P = groundId.GetLocalPoint(bodyDef.Position)
 	jointDef.EnableMotor = true
 	jointDef.MotorSpeed = QMustParse("0.7957747155")
-	jointDef.MaxMotorTorque = QFromInt(40000)
+	// The reference uses FLT_MAX; any bound that never binds gives the same
+	// impulses, and half the largest value stays valid in fixed mode.
+	jointDef.MaxMotorTorque = QMaxValue().Div(QFromInt(2))
 	spinnerJoint := CreateRevoluteJoint(worldId, &jointDef)
 
 	capsule := Capsule{Center1: Vec2{X: QMustParse("-0.25")}, Center2: Vec2{X: QMustParse("0.25")}, Radius: QMustParse("0.25")}
@@ -265,9 +267,9 @@ func BuildSpinner(worldId WorldId, opts Options) StepFn {
 	shapeDef.Material.Friction = QMustParse("0.1")
 	shapeDef.Material.Restitution = QMustParse("0.1")
 	shapeDef.Density = QMustParse("0.25")
-	x, y := QFromInt(-24), QFromInt(2)
-	for i := range 3038 {
-		bodyDef.Position = Vec2{X: x, Y: y}
+	x, y := QFromInt(-23), QFromInt(2)
+	for i := range 2 * 3038 {
+		bodyDef.Position = ToPos(Vec2{X: x, Y: y})
 		bodyId := CreateBody(worldId, &bodyDef)
 		switch i % 3 {
 		case 0:
@@ -277,13 +279,13 @@ func BuildSpinner(worldId WorldId, opts Options) StepFn {
 		case 2:
 			CreatePolygonShape(bodyId, &shapeDef, &square)
 		}
-		x = x.Add(QOne())
-		if x.Greater(QFromInt(24)) {
-			x = QFromInt(-24)
-			y = y.Add(QOne())
+		x = x.Add(QHalf())
+		if !x.Less(QFromInt(23)) {
+			x = QFromInt(-23)
+			y = y.Add(QHalf())
 		}
 	}
-	return func(int) { _ = spinnerJoint.GetAngle() }
+	return func(int) { _ = spinnerJoint.GetCurrentAngle() }
 }
 
 // BuildTumbler is CreateTumbler: a motorised hollow box full of small ones.
@@ -293,7 +295,7 @@ func BuildTumbler(worldId WorldId, opts Options) StepFn {
 	groundId := CreateBody(worldId, &groundDef)
 	bodyDef := DefaultBodyDef()
 	bodyDef.Type = DynamicBody
-	bodyDef.Position = Vec2{Y: QFromInt(10)}
+	bodyDef.Position = ToPos(Vec2{Y: QFromInt(10)})
 	tumblerId := CreateBody(worldId, &bodyDef)
 	shapeDef := DefaultShapeDef()
 	shapeDef.Density = QFromInt(50)
@@ -311,9 +313,9 @@ func BuildTumbler(worldId WorldId, opts Options) StepFn {
 		CreatePolygonShape(tumblerId, &shapeDef, &polygon)
 	}
 	jointDef := DefaultRevoluteJointDef()
-	jointDef.BodyIdA = groundId
-	jointDef.BodyIdB = tumblerId
-	jointDef.LocalAnchorA = Vec2{Y: QFromInt(10)}
+	jointDef.Base.BodyIdA = groundId
+	jointDef.Base.BodyIdB = tumblerId
+	jointDef.Base.LocalFrameA.P = Vec2{Y: QFromInt(10)}
 	jointDef.MotorSpeed = QFromRatio(25, 360)
 	jointDef.MaxMotorTorque = QFromInt(100000000)
 	jointDef.EnableMotor = true
@@ -331,7 +333,7 @@ func BuildTumbler(worldId WorldId, opts Options) StepFn {
 	for range gridCount {
 		x := QMustParse("-0.2").Mul(QFromInt(gridCount))
 		for range gridCount {
-			bodyDef.Position = Vec2{X: x, Y: y}
+			bodyDef.Position = ToPos(Vec2{X: x, Y: y})
 			bodyId := CreateBody(worldId, &bodyDef)
 			CreatePolygonShape(bodyId, &shapeDef, &box)
 			x = x.Add(QMustParse("0.4"))
@@ -363,13 +365,13 @@ func (data *rainData) createGroup(worldId WorldId, rowIndex, columnIndex int) {
 	groupIndex := rowIndex*rainColumnCount + columnIndex
 	span := QFromInt(data.gridCount).Mul(data.gridSize)
 	groupDistance := span.Div(QFromInt(rainColumnCount))
-	position := Vec2{
+	position := ToPos(Vec2{
 		X: QHalf().Neg().Mul(span).Add(groupDistance.Mul(QFromInt(columnIndex).Add(QHalf()))),
 		Y: QFromInt(40).Add(QFromInt(45).Mul(QFromInt(rowIndex))),
-	}
+	})
 	for i := range rainGroupSize {
 		data.groups[groupIndex].humans[i] = CreateHuman(worldId, position, QOne(), lit0p05, QFromInt(5), QHalf(), i+1, nil, false)
-		position.X = position.X.Add(QHalf())
+		position = OffsetPos(position, Vec2{X: QHalf()})
 	}
 }
 

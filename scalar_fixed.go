@@ -50,8 +50,20 @@ func QMustParse(s string) Q { return fixed.Q32MustParse(s) }
 // representable range saturates to it; see IsValidQ.
 func QMaxValue() Q { return fixed.Q32MaxValue() }
 
+// qSubSum returns a - (b + c). The float mode rounds once in double; fixed
+// point is exact apart from saturation.
+func qSubSum(a, b, c Q) Q { return a.Sub(b.Add(c)) }
+
+// qAddSum returns a + (b + c).
+func qAddSum(a, b, c Q) Q { return a.Add(b.Add(c)) }
+
 // QMinValue returns the smallest scalar.
 func QMinValue() Q { return fixed.Q32MinValue() }
+
+// qInfinity stands for INFINITY where the tree seeds its empty nodes.
+// Fixed point has no infinity; the largest value is only ever compared,
+// so the empty node never saturates an operation.
+func qInfinity() Q { return fixed.Q32MaxValue() }
 
 // RotIdentity returns the rotation by zero turns.
 func RotIdentity() Rot { return fixed.RotIdentity() }
@@ -73,7 +85,7 @@ func angleToTurns(a Q) Q { return a }
 func angleRadians(a Q) Q { return a.Mul(tau) }
 
 // relativeAngle returns the angle of b relative to a, in the angle unit.
-func relativeAngle(b, a Rot) Q { return RelativeAngle(b, a) }
+func relativeAngle(a, b Rot) Q { return RelativeAngle(a, b) }
 
 // unwindAngle reduces an angle in the angle unit to half a turn.
 func unwindAngle(a Q) Q { return UnwindAngle(a) }
@@ -107,6 +119,10 @@ func belowEpsilon(x Q) bool { return x.Eq(QZero()) }
 // belowEpsilonSq reports whether a squared length is below fixed-point
 // rounding noise.
 func belowEpsilonSq(x Q) bool { return x.Eq(QZero()) }
+
+// belowNormalizeFloor reports whether a squared length is zero. The float
+// floor of 1000 * FLT_MIN is far below one raw unit (D-012).
+func belowNormalizeFloor(x Q) bool { return x.Eq(QZero()) }
 
 // sensorOverlaps reports whether a sensor overlap distance is below the
 // fixed-point format's rounding noise.
@@ -178,6 +194,8 @@ func (a qc) Sub(b qc) qc        { return qc{a.v.Sub(b.v)} }
 func (a qc) Mul(b qc) qc        { return qc{a.v.MulRound(b.v)} }
 func (a qc) Neg() qc            { return qc{a.v.Neg()} }
 func (a qc) Max(b qc) qc        { return qc{a.v.Max(b.v)} }
+func (a qc) Min(b qc) qc        { return qc{a.v.Min(b.v)} }
+func (a qc) Div(b qc) qc        { return qc{a.v.Div(b.v)} }
 func (a qc) Clamp(lo, hi qc) qc { return qc{a.v.Clamp(lo.v, hi.v)} }
 func (a qc) Less(b qc) bool     { return a.v.Less(b.v) }
 func (a qc) Eq(b qc) bool       { return a.v.Eq(b.v) }
@@ -225,6 +243,8 @@ func (a qcw) Sub(b qcw) qcw        { return qcw{a.v.Sub(b.v)} }
 func (a qcw) Mul(b qcw) qcw        { return qcw{a.v.Mul(b.v)} }
 func (a qcw) Neg() qcw             { return qcw{a.v.Neg()} }
 func (a qcw) Max(b qcw) qcw        { return qcw{a.v.Max(b.v)} }
+func (a qcw) Min(b qcw) qcw        { return qcw{a.v.Min(b.v)} }
+func (a qcw) Div(b qcw) qcw        { return qcw{a.v.Div(b.v)} }
 func (a qcw) Clamp(lo, hi qcw) qcw { return qcw{a.v.Clamp(lo.v, hi.v)} }
 func (a qcw) Less(b qcw) bool      { return a.v.Less(b.v) }
 func (a qcw) Eq(b qcw) bool        { return a.v.Eq(b.v) }
@@ -301,41 +321,54 @@ func allocateContactConstraints32(w *world, context *stepContext, colors *[graph
 	}
 }
 
-// prepareContacts32 builds the Q32 constraints of every color.
+// prepareContacts32 builds the Q32 constraints of every color. A color
+// solves its Q32 contacts with the formulas of its family.
 func prepareContacts32(context *stepContext) {
 	for i := range graphColorCount {
 		color := &context.graph.colors[i]
-		prepareContactRange32(0, len(color.contacts32), context, color.contacts32, color.contactConstraints32)
+		prepareContactRange32(0, len(color.contacts32), context, color.contacts32, color.contactConstraints32, i != overflowIndex)
 	}
 }
 
 // warmStartContacts32 applies the stored impulses of a range of the Q32
 // contacts of one color.
 func warmStartContacts32(startIndex, endIndex int, context *stepContext, colorIndex int) {
-	warmStartContactRange32(startIndex, endIndex, context, context.graph.colors[colorIndex].contactConstraints32)
+	warmStartContactRange32(startIndex, endIndex, context, context.graph.colors[colorIndex].contactConstraints32, colorIndex != overflowIndex)
 }
 
-// solveContacts32 solves a range of the Q32 contacts of one color, with the
-// push-out speed and the normal impulse of its family.
-func solveContacts32(startIndex, endIndex int, context *stepContext, colorIndex int, useBias bool) {
-	pushout := context.world.contactSpeed
-	colored := colorIndex != overflowIndex
-	if !colored {
-		pushout = context.world.maxContactPushSpeed
+// pushContacts32 solves the non-penetration of a range of the Q32 contacts
+// of one color.
+func pushContacts32(startIndex, endIndex int, context *stepContext, colorIndex int) {
+	pushContactRange32(startIndex, endIndex, context, context.graph.colors[colorIndex].contactConstraints32, colorIndex != overflowIndex)
+}
+
+// solveContacts32 relaxes a range of the Q32 contacts of one color.
+func solveContacts32(startIndex, endIndex int, context *stepContext, colorIndex int) {
+	constraints := context.graph.colors[colorIndex].contactConstraints32
+	if colorIndex == overflowIndex {
+		solveContactRangeSerial32(startIndex, endIndex, context, constraints)
+		return
 	}
-	solveContactRange32(startIndex, endIndex, context, context.graph.colors[colorIndex].contactConstraints32, useBias, qcwFrom(pushout), colored)
+	solveContactRange32(startIndex, endIndex, context, constraints)
 }
 
 // applyRestitution32 applies restitution to a range of the Q32 contacts of
 // one color.
 func applyRestitution32(startIndex, endIndex int, context *stepContext, colorIndex int) {
-	applyRestitutionRange32(startIndex, endIndex, context, context.graph.colors[colorIndex].contactConstraints32)
+	applyRestitutionRange32(startIndex, endIndex, context, context.graph.colors[colorIndex].contactConstraints32, colorIndex != overflowIndex)
 }
 
 // storeImpulses32 stores the impulses of the Q32 contacts of every color.
+// It runs on the main worker.
 func storeImpulses32(context *stepContext) {
 	for i := range graphColorCount {
 		color := &context.graph.colors[i]
-		storeImpulseRange32(0, len(color.contacts32), color.contacts32, color.contactConstraints32)
+		storeImpulseRange32(0, len(color.contacts32), context, color.contacts32, color.contactConstraints32, 0)
 	}
+}
+
+// getLengthAndNormalize returns the length and the fixed-point Normalize.
+// The fixed format has no floor below one raw unit (D-012).
+func getLengthAndNormalize(v Vec2) (Q, Vec2) {
+	return v.Len(), v.Normalize()
 }

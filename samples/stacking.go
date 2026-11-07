@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2022 Erin Catto
 // SPDX-License-Identifier: MIT
-// Ported from samples/sample_stacking.cpp of Box2D v3.1.1
+// Ported from samples/sample_stacking.cpp of Box2D v3.2.0
 
 package samples
 
@@ -54,7 +54,7 @@ func NewSingleBox(ctx *SampleContext) Sample {
 
 	bodyDef.Type = b2.DynamicBody
 	box := b2.MakeBox(extent, extent)
-	bodyDef.Position = b2.Vec2{X: b2.QZero(), Y: b2.QOne()}
+	bodyDef.Position = b2.ToPos(b2.Vec2{X: b2.QZero(), Y: b2.QOne()})
 	bodyDef.LinearVelocity = b2.Vec2{X: b2.F(5), Y: b2.QZero()}
 	s.bodyId = b2.CreateBody(s.WorldId, &bodyDef)
 	b2.CreatePolygonShape(s.bodyId, &shapeDef, &box)
@@ -67,7 +67,7 @@ func (s *SingleBox) Step() {
 	s.Base.Step()
 
 	position := s.bodyId.GetPosition()
-	s.DrawTextLine("(x, y) = (%.2g, %.2g)", ToFloat64(position.X), ToFloat64(position.Y))
+	s.DrawTextLine("(x, y) = (%.2g, %.2g)", ToFloat64(b2.ToVec2(position).X), ToFloat64(b2.ToVec2(position).Y))
 }
 
 // TiltedStack creates ten columns of ten rounded boxes with a small offset.
@@ -92,7 +92,7 @@ func NewTiltedStack(ctx *SampleContext) Sample {
 
 	{
 		bodyDef := b2.DefaultBodyDef()
-		bodyDef.Position = b2.V2(0, -1)
+		bodyDef.Position = b2.ToPos(b2.V2(0, -1))
 		groundID := b2.CreateBody(s.WorldId, &bodyDef)
 
 		box := b2.MakeBox(b2.F(1000), b2.QOne())
@@ -121,10 +121,10 @@ func NewTiltedStack(ctx *SampleContext) Sample {
 			bodyDef.Type = b2.DynamicBody
 
 			n := j*tiltedStackRows + i
-			bodyDef.Position = b2.Vec2{
+			bodyDef.Position = b2.ToPos(b2.Vec2{
 				X: x.Add(offset.Mul(b2.F(i))),
 				Y: b2.QFromRatio(1, 2).Add(b2.F(i)),
-			}
+			})
 			bodyID := b2.CreateBody(s.WorldId, &bodyDef)
 
 			s.bodies[n] = bodyID
@@ -137,7 +137,7 @@ func NewTiltedStack(ctx *SampleContext) Sample {
 
 const (
 	verticalStackMaxColumns = 10
-	verticalStackMaxRows    = 15
+	verticalStackMaxRows    = 160
 	verticalStackMaxBullets = 8
 )
 
@@ -176,13 +176,13 @@ func NewVerticalStack(ctx *SampleContext) Sample {
 
 		segment := b2.Segment{
 			Point1: b2.V2(10, 0),
-			Point2: b2.V2(10, 20),
+			Point2: b2.V2(10, 80),
 		}
 		b2.CreateSegmentShape(groundID, &shapeDef, &segment)
 
 		segment = b2.Segment{
-			Point1: b2.V2(-30, 0),
-			Point2: b2.V2(30, 0),
+			Point1: b2.V2(-100, 0),
+			Point2: b2.V2(100, 0),
 		}
 		b2.CreateSegmentShape(groundID, &shapeDef, &segment)
 	}
@@ -238,10 +238,10 @@ func (s *VerticalStack) createStacks() {
 			if i%2 == 0 {
 				shift = offset.Neg()
 			}
-			bodyDef.Position = b2.Vec2{
+			bodyDef.Position = b2.ToPos(b2.Vec2{
 				X: x.Add(shift),
 				Y: b2.QFromRatio(1, 2).Add(b2.F(i)),
-			}
+			})
 			bodyID := b2.CreateBody(s.WorldId, &bodyDef)
 
 			s.bodies[n] = bodyID
@@ -285,10 +285,10 @@ func (s *VerticalStack) fireBullets() {
 	for i := range s.bulletCount {
 		bodyDef := b2.DefaultBodyDef()
 		bodyDef.Type = b2.DynamicBody
-		bodyDef.Position = b2.Vec2{
+		bodyDef.Position = b2.ToPos(b2.Vec2{
 			X: b2.F(-26.7).Sub(b2.F(i)),
 			Y: b2.F(6),
-		}
+		})
 		// Bullet speed is linear velocity, so it is not converted to turns.
 		speed := shared.RandomFloatRange(b2.F(200), b2.F(300))
 		bodyDef.LinearVelocity = b2.Vec2{X: speed}
@@ -302,6 +302,16 @@ func (s *VerticalStack) fireBullets() {
 		}
 		s.bullets[i] = bulletID
 	}
+}
+
+// Keyboard fires the bullets on B, as the reference does.
+func (s *VerticalStack) Keyboard(key Key) {
+	if key == KeyB {
+		s.destroyBullets()
+		s.fireBullets()
+		return
+	}
+	s.Base.Keyboard(key)
 }
 
 // UpdateGui exposes the stack and bullet controls in reference order.
@@ -318,7 +328,7 @@ func (s *VerticalStack) UpdateGui() {
 	gui.SliderInt("Bullets", &s.bulletCount, 1, verticalStackMaxBullets)
 	gui.Combo("Bullet Shape", &s.bulletType, shapeTypes)
 
-	if gui.Button("Fire Bullets") || s.keyDown(KeyB) {
+	if gui.Button("Fire Bullets") {
 		s.destroyBullets()
 		s.fireBullets()
 	}
@@ -380,10 +390,11 @@ func NewCircleStack(ctx *SampleContext) Sample {
 	shapeDef := b2.DefaultShapeDef()
 	shapeDef.EnableHitEvents = true
 	shapeDef.Material.Friction = b2.QZero()
+	shapeDef.Material.Restitution = b2.F(0.8)
 
 	y := b2.QFromRatio(3, 4)
-	for i := range 10 {
-		bodyDef.Position.Y = y
+	for i := range 4 {
+		setPosY(&bodyDef.Position, y)
 		bodyID := b2.CreateBody(s.WorldId, &bodyDef)
 		shapeDef.UserData = shapeIndex
 		shapeDef.Density = b2.F(1 + 4*i)
@@ -402,7 +413,7 @@ func (s *CircleStack) Step() {
 	for _, event := range events.HitEvents {
 		indexA, _ := event.ShapeIdA.GetUserData().(int)
 		indexB, _ := event.ShapeIdB.GetUserData().(int)
-		s.Context.Draw.DrawPoint(event.Point, b2.F(10), b2.ColorWhite)
+		s.Context.Draw.DrawPointFcn(event.Point, b2.F(10), b2.ColorWhite)
 		s.events = append(s.events, circleStackEvent{indexA: indexA, indexB: indexB})
 	}
 
@@ -427,7 +438,7 @@ func NewCapsuleStack(ctx *SampleContext) Sample {
 
 	{
 		bodyDef := b2.DefaultBodyDef()
-		bodyDef.Position = b2.V2(0, -1)
+		bodyDef.Position = b2.ToPos(b2.V2(0, -1))
 		groundID := b2.CreateBody(s.WorldId, &bodyDef)
 
 		shapeDef := b2.DefaultShapeDef()
@@ -447,7 +458,7 @@ func NewCapsuleStack(ctx *SampleContext) Sample {
 
 	y := b2.F(2).Mul(a)
 	for range 20 {
-		bodyDef.Position.Y = y
+		setPosY(&bodyDef.Position, y)
 		bodyID := b2.CreateBody(s.WorldId, &bodyDef)
 		b2.CreateCapsuleShape(bodyID, &shapeDef, &capsule)
 		y = y.Add(b2.F(3).Mul(a))
@@ -539,15 +550,15 @@ func (s *Cliff) createBodies() {
 			offset = b2.F(-4)
 		}
 
-		bodyDef.Position = b2.Vec2{X: b2.F(-9).Add(offset), Y: b2.F(4.25)}
+		bodyDef.Position = b2.ToPos(b2.Vec2{X: b2.F(-9).Add(offset), Y: b2.F(4.25)})
 		s.bodyIDs[0] = b2.CreateBody(s.WorldId, &bodyDef)
 		b2.CreateCapsuleShape(s.bodyIDs[0], &shapeDef, &capsule)
 
-		bodyDef.Position = b2.Vec2{X: b2.F(2).Add(offset), Y: b2.F(4.75)}
+		bodyDef.Position = b2.ToPos(b2.Vec2{X: b2.F(2).Add(offset), Y: b2.F(4.75)})
 		s.bodyIDs[1] = b2.CreateBody(s.WorldId, &bodyDef)
 		b2.CreateCapsuleShape(s.bodyIDs[1], &shapeDef, &capsule)
 
-		bodyDef.Position = b2.Vec2{X: b2.F(13).Add(offset), Y: b2.F(4.75)}
+		bodyDef.Position = b2.ToPos(b2.Vec2{X: b2.F(13).Add(offset), Y: b2.F(4.75)})
 		s.bodyIDs[2] = b2.CreateBody(s.WorldId, &bodyDef)
 		b2.CreateCapsuleShape(s.bodyIDs[2], &shapeDef, &capsule)
 	}
@@ -557,15 +568,15 @@ func (s *Cliff) createBodies() {
 		shapeDef.Material.Friction = b2.QFromRatio(1, 100)
 		bodyDef.LinearVelocity = b2.Vec2{X: b2.F(2.5).Mul(sign)}
 
-		bodyDef.Position = b2.V2(-11.0, 4.5)
+		bodyDef.Position = b2.ToPos(b2.V2(-11.0, 4.5))
 		s.bodyIDs[3] = b2.CreateBody(s.WorldId, &bodyDef)
 		b2.CreatePolygonShape(s.bodyIDs[3], &shapeDef, &square)
 
-		bodyDef.Position = b2.V2(0, 5)
+		bodyDef.Position = b2.ToPos(b2.V2(0, 5))
 		s.bodyIDs[4] = b2.CreateBody(s.WorldId, &bodyDef)
 		b2.CreatePolygonShape(s.bodyIDs[4], &shapeDef, &square)
 
-		bodyDef.Position = b2.V2(11, 5)
+		bodyDef.Position = b2.ToPos(b2.V2(11, 5))
 		s.bodyIDs[5] = b2.CreateBody(s.WorldId, &bodyDef)
 		b2.CreatePolygonShape(s.bodyIDs[5], &shapeDef, &square)
 	}
@@ -580,15 +591,15 @@ func (s *Cliff) createBodies() {
 			offset = b2.F(4)
 		}
 
-		bodyDef.Position = b2.Vec2{X: b2.F(-13).Add(offset), Y: b2.F(4.5)}
+		bodyDef.Position = b2.ToPos(b2.Vec2{X: b2.F(-13).Add(offset), Y: b2.F(4.5)})
 		s.bodyIDs[6] = b2.CreateBody(s.WorldId, &bodyDef)
 		b2.CreateCircleShape(s.bodyIDs[6], &shapeDef, &circle)
 
-		bodyDef.Position = b2.Vec2{X: b2.F(-2).Add(offset), Y: b2.F(5)}
+		bodyDef.Position = b2.ToPos(b2.Vec2{X: b2.F(-2).Add(offset), Y: b2.F(5)})
 		s.bodyIDs[7] = b2.CreateBody(s.WorldId, &bodyDef)
 		b2.CreateCircleShape(s.bodyIDs[7], &shapeDef, &circle)
 
-		bodyDef.Position = b2.Vec2{X: b2.F(9).Add(offset), Y: b2.F(5)}
+		bodyDef.Position = b2.ToPos(b2.Vec2{X: b2.F(9).Add(offset), Y: b2.F(5)})
 		s.bodyIDs[8] = b2.CreateBody(s.WorldId, &bodyDef)
 		b2.CreateCircleShape(s.bodyIDs[8], &shapeDef, &circle)
 	}
@@ -701,9 +712,9 @@ func NewArch(ctx *SampleContext) Sample {
 
 	box := b2.MakeBox(b2.F(2), b2.QHalf())
 	for i := range 4 {
-		bodyDef.Position = b2.Vec2{
+		bodyDef.Position = b2.ToPos(b2.Vec2{
 			Y: b2.QHalf().Add(ps2[8].Y).Add(b2.F(i)),
-		}
+		})
 		bodyID := b2.CreateBody(s.WorldId, &bodyDef)
 		b2.CreatePolygonShape(bodyID, &shapeDef, &box)
 	}
@@ -727,7 +738,7 @@ func NewDoubleDomino(ctx *SampleContext) Sample {
 
 	{
 		bodyDef := b2.DefaultBodyDef()
-		bodyDef.Position = b2.V2(0, -1)
+		bodyDef.Position = b2.ToPos(b2.V2(0, -1))
 		groundID := b2.CreateBody(s.WorldId, &bodyDef)
 		box := b2.MakeBox(b2.F(100), b2.F(1))
 		shapeDef := b2.DefaultShapeDef()
@@ -742,13 +753,13 @@ func NewDoubleDomino(ctx *SampleContext) Sample {
 	count := 15
 	x := b2.QFromRatio(-count, 2)
 	for i := range count {
-		bodyDef.Position = b2.Vec2{X: x, Y: b2.QHalf()}
+		bodyDef.Position = b2.ToPos(b2.Vec2{X: x, Y: b2.QHalf()})
 		bodyID := b2.CreateBody(s.WorldId, &bodyDef)
 		b2.CreatePolygonShape(bodyID, &shapeDef, &box)
 		if i == 0 {
 			bodyID.ApplyLinearImpulse(
 				b2.V2(0.2, 0.0),
-				b2.Vec2{X: x, Y: b2.F(1)},
+				b2.ToPos(b2.Vec2{X: x, Y: b2.F(1)}),
 				true,
 			)
 		}
@@ -824,7 +835,7 @@ func NewConfined(ctx *SampleContext) Sample {
 		for range confinedGridCount {
 			x := b2.F(-8.75).Add(b2.F(s.column).Mul(step))
 			y := b2.F(1.5).Add(b2.F(s.row).Mul(step))
-			bodyDef.Position = b2.Vec2{X: x, Y: y}
+			bodyDef.Position = b2.ToPos(b2.Vec2{X: x, Y: y})
 			bodyID := b2.CreateBody(s.WorldId, &bodyDef)
 			b2.CreateCircleShape(bodyID, &shapeDef, &circle)
 			s.count++
@@ -851,7 +862,7 @@ func NewCardHouse(ctx *SampleContext) Sample {
 	}
 
 	bodyDef := b2.DefaultBodyDef()
-	bodyDef.Position = b2.V2(0, -2)
+	bodyDef.Position = b2.ToPos(b2.V2(0, -2))
 	groundID := b2.CreateBody(s.WorldId, &bodyDef)
 	shapeDef := b2.DefaultShapeDef()
 	shapeDef.Material.Friction = b2.F(0.7)
@@ -873,22 +884,22 @@ func NewCardHouse(ctx *SampleContext) Sample {
 		z := z0
 		for i := range nb {
 			if i != nb-1 {
-				bodyDef.Position = b2.Vec2{
+				bodyDef.Position = b2.ToPos(b2.Vec2{
 					X: z.Add(b2.F(0.25)),
 					Y: y.Add(cardHeight).Sub(b2.F(0.015)),
-				}
+				})
 				bodyDef.Rotation = b2.MakeRot(angle2)
 				bodyID := b2.CreateBody(s.WorldId, &bodyDef)
 				b2.CreatePolygonShape(bodyID, &shapeDef, &cardBox)
 			}
 
-			bodyDef.Position = b2.Vec2{X: z, Y: y}
+			bodyDef.Position = b2.ToPos(b2.Vec2{X: z, Y: y})
 			bodyDef.Rotation = b2.MakeRot(angle1)
 			bodyID := b2.CreateBody(s.WorldId, &bodyDef)
 			b2.CreatePolygonShape(bodyID, &shapeDef, &cardBox)
 
 			z = z.Add(b2.F(0.175))
-			bodyDef.Position = b2.Vec2{X: z, Y: y}
+			bodyDef.Position = b2.ToPos(b2.Vec2{X: z, Y: y})
 			bodyDef.Rotation = b2.MakeRot(angle0)
 			bodyID = b2.CreateBody(s.WorldId, &bodyDef)
 			b2.CreatePolygonShape(bodyID, &shapeDef, &cardBox)

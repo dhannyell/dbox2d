@@ -40,7 +40,7 @@ func createGopher(worldId b2.WorldId, position b2.Vec2, scale float64, groupInde
 		ox, oy float64
 	}
 	newPart := func(ox, oy float64) part {
-		bodyDef.Position = position.Add(b2.Vec2{X: q(ox), Y: q(oy)})
+		bodyDef.Position = b2.ToPos(position.Add(b2.Vec2{X: q(ox), Y: q(oy)}))
 		return part{id: b2.CreateBody(worldId, &bodyDef), ox: ox, oy: oy}
 	}
 	box := func(p part, def *b2.ShapeDef, color uint32, x, y, hw, hh, r float64) {
@@ -79,9 +79,9 @@ func createGopher(worldId b2.WorldId, position b2.Vec2, scale float64, groupInde
 			limit float64
 		}{{arm, 0.15}, {foot, 0.06}} {
 			jd := b2.DefaultRevoluteJointDef()
-			jd.BodyIdA = body.id
-			jd.BodyIdB = limb.p.id
-			jd.LocalAnchorA = b2.Vec2{X: q(limb.p.ox - body.ox), Y: q(limb.p.oy - body.oy)}
+			jd.Base.BodyIdA = body.id
+			jd.Base.BodyIdB = limb.p.id
+			jd.Base.LocalFrameA.P = b2.Vec2{X: q(limb.p.ox - body.ox), Y: q(limb.p.oy - body.oy)}
 			jd.EnableLimit = true
 			jd.LowerAngle = FromFloat64(-limb.limit)
 			jd.UpperAngle = FromFloat64(limb.limit)
@@ -90,7 +90,7 @@ func createGopher(worldId b2.WorldId, position b2.Vec2, scale float64, groupInde
 			jd.EnableSpring = true
 			jd.Hertz = b2.F(5)
 			jd.DampingRatio = b2.QHalf()
-			jd.DrawSize = q(0.05)
+			jd.Base.DrawScale = q(0.05)
 			b2.CreateRevoluteJoint(worldId, &jd)
 		}
 		g.bodies[1+2*i] = arm.id

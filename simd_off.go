@@ -15,8 +15,8 @@ func colorContactConstraintCount(contactCount int) int { return contactCount }
 func contactStageCount(context *stepContext) int { return len(context.contacts) }
 
 // runContactStageBlock selects scalar prepare/store work in this build.
-func runContactStageBlock(stage *solverStage, context *stepContext, startIndex, endIndex int) {
-	runContactStageBlockScalar(stage, context, startIndex, endIndex)
+func runContactStageBlock(stage *solverStage, context *stepContext, startIndex, endIndex, workerIndex int) {
+	runContactStageBlockScalar(stage, context, startIndex, endIndex, workerIndex)
 }
 
 // runGraphContactFamilyBlock selects the scalar graph-contact family in this build.

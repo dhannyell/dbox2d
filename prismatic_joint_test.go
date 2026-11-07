@@ -21,14 +21,14 @@ func slidingBox(t *testing.T, worldId WorldId, position Vec2, def *PrismaticJoin
 
 	boxDef := DefaultBodyDef()
 	boxDef.Type = DynamicBody
-	boxDef.Position = position
+	boxDef.Position = ToPos(position)
 	boxId := CreateBody(worldId, &boxDef)
 	shapeDef := DefaultShapeDef()
 	unit := MakeBox(QHalf(), QHalf())
 	CreatePolygonShape(boxId, &shapeDef, &unit)
 
-	def.BodyIdA = groundId
-	def.BodyIdB = boxId
+	def.Base.BodyIdA = groundId
+	def.Base.BodyIdB = boxId
 	jointId := CreatePrismaticJoint(worldId, def)
 	return getBodyFullId(w, boxId), getJointFullId(w, jointId)
 }
@@ -50,7 +50,7 @@ func TestPrismaticBlockHoldsTheLine(t *testing.T) {
 
 	context := jointContext(w)
 	prepareJointsTask(0, len(context.joints), context)
-	solveJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex, false)
+	solveJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex, false, 0)
 
 	tolerance := qUlps(1 << 12)
 	js := getJointSim(w, j)
@@ -87,7 +87,7 @@ func TestPrismaticUpperLimitStopsTheSlide(t *testing.T) {
 
 	context := jointContext(w)
 	prepareJointsTask(0, len(context.joints), context)
-	solveJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex, false)
+	solveJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex, false, 0)
 
 	tolerance := qUlps(1 << 12)
 	js := getJointSim(w, j)
@@ -121,7 +121,7 @@ func TestPrismaticMotorSaturatesAtTheForce(t *testing.T) {
 
 	context := jointContext(w)
 	prepareJointsTask(0, len(context.joints), context)
-	solveJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex, false)
+	solveJointsTask(0, len(context.graph.colors[j.colorIndex].jointSims), context, j.colorIndex, false, 0)
 
 	tolerance := qUlps(1 << 12)
 	js := getJointSim(w, j)
@@ -152,27 +152,36 @@ type f64PrismaticJoint struct {
 	springImpulse, motorImpulse, lowerImpulse, upperImpulse float64
 	hertz, dampingRatio, targetTranslation, maxMotorForce   float64
 	motorSpeed, lowerTranslation, upperTranslation          float64
-	anchorA, anchorB, axisA, deltaCenter                    f64Vec
-	deltaAngle, axialMass                                   float64
+	frameA, frameB                                          f64Frame
+	deltaCenter                                             f64Vec
 	springSoftness                                          f64Softness
 	enableSpring, enableLimit, enableMotor                  bool
 }
 
+// f64SolvePrismaticJoint mirrors b2SolvePrismaticJoint of v3.2: the axial
+// mass is computed in the solve, and a limit acts only within a quarter of
+// the limit range.
 func f64SolvePrismaticJoint(joint *f64PrismaticJoint, stateA, stateB *f64State, h, invH float64, useBias bool) {
 	mA, mB, iA, iB := joint.mA, joint.mB, joint.iA, joint.iB
 
 	vA, wA := stateA.v, stateA.w
 	vB, wB := stateB.v, stateB.w
 
-	rA := f64Rotate(stateA.dqc, stateA.dqs, joint.anchorA)
-	rB := f64Rotate(stateB.dqc, stateB.dqs, joint.anchorB)
+	rA := f64Rotate(stateA.dqc, stateA.dqs, joint.frameA.p)
+	rB := f64Rotate(stateB.dqc, stateB.dqs, joint.frameB.p)
 
 	d := f64Add(f64Add(f64Sub(stateB.dp, stateA.dp), joint.deltaCenter), f64Sub(rB, rA))
-	axisA := f64Rotate(stateA.dqc, stateA.dqs, joint.axisA)
+	axisA := f64Rotate(stateA.dqc, stateA.dqs, f64Vec{joint.frameA.c, joint.frameA.s})
 	translation := f64Dot(axisA, d)
 
 	a1 := f64Cross(f64Add(d, rA), axisA)
 	a2 := f64Cross(rB, axisA)
+
+	k := mA + mB + iA*a1*a1 + iB*a2*a2
+	axialMass := 0.0
+	if k > 0 {
+		axialMass = 1 / k
+	}
 
 	axial := func(impulse float64) {
 		P := f64Scale(impulse, axisA)
@@ -190,14 +199,14 @@ func f64SolvePrismaticJoint(joint *f64PrismaticJoint, stateA, stateB *f64State, 
 		impulseScale := joint.springSoftness.impulseScale
 
 		Cdot := axialCdot()
-		deltaImpulse := -massScale*joint.axialMass*(Cdot+bias) - impulseScale*joint.springImpulse
+		deltaImpulse := -massScale*axialMass*(Cdot+bias) - impulseScale*joint.springImpulse
 		joint.springImpulse += deltaImpulse
 		axial(deltaImpulse)
 	}
 
 	if joint.enableMotor {
 		Cdot := axialCdot()
-		impulse := joint.axialMass * (joint.motorSpeed - Cdot)
+		impulse := axialMass * (joint.motorSpeed - Cdot)
 		oldImpulse := joint.motorImpulse
 		maxImpulse := h * joint.maxMotorForce
 		joint.motorImpulse = math.Max(-maxImpulse, math.Min(joint.motorImpulse+impulse, maxImpulse))
@@ -206,39 +215,48 @@ func f64SolvePrismaticJoint(joint *f64PrismaticJoint, stateA, stateB *f64State, 
 	}
 
 	if joint.enableLimit {
+		speculativeDistance := 0.25 * (joint.upperTranslation - joint.lowerTranslation)
 		{
 			C := translation - joint.lowerTranslation
-			bias, massScale, impulseScale := 0.0, 1.0, 0.0
-			if C > 0 {
-				bias = C * invH
-			} else if useBias {
-				bias = joint.constraintSoftness.biasRate * C
-				massScale = joint.constraintSoftness.massScale
-				impulseScale = joint.constraintSoftness.impulseScale
+			if C < speculativeDistance {
+				bias, massScale, impulseScale := 0.0, 1.0, 0.0
+				if C > 0 {
+					bias = math.Min(C, 1) * invH
+				} else if useBias {
+					bias = joint.constraintSoftness.biasRate * C
+					massScale = joint.constraintSoftness.massScale
+					impulseScale = joint.constraintSoftness.impulseScale
+				}
+				oldImpulse := joint.lowerImpulse
+				Cdot := axialCdot()
+				impulse := -axialMass*massScale*(Cdot+bias) - impulseScale*oldImpulse
+				joint.lowerImpulse = math.Max(oldImpulse+impulse, 0)
+				impulse = joint.lowerImpulse - oldImpulse
+				axial(impulse)
+			} else {
+				joint.lowerImpulse = 0
 			}
-			oldImpulse := joint.lowerImpulse
-			Cdot := axialCdot()
-			impulse := -joint.axialMass*massScale*(Cdot+bias) - impulseScale*oldImpulse
-			joint.lowerImpulse = math.Max(oldImpulse+impulse, 0)
-			impulse = joint.lowerImpulse - oldImpulse
-			axial(impulse)
 		}
 		{
 			C := joint.upperTranslation - translation
-			bias, massScale, impulseScale := 0.0, 1.0, 0.0
-			if C > 0 {
-				bias = C * invH
-			} else if useBias {
-				bias = joint.constraintSoftness.biasRate * C
-				massScale = joint.constraintSoftness.massScale
-				impulseScale = joint.constraintSoftness.impulseScale
+			if C < speculativeDistance {
+				bias, massScale, impulseScale := 0.0, 1.0, 0.0
+				if C > 0 {
+					bias = math.Min(C, 1) * invH
+				} else if useBias {
+					bias = joint.constraintSoftness.biasRate * C
+					massScale = joint.constraintSoftness.massScale
+					impulseScale = joint.constraintSoftness.impulseScale
+				}
+				oldImpulse := joint.upperImpulse
+				Cdot := -axialCdot()
+				impulse := -axialMass*massScale*(Cdot+bias) - impulseScale*oldImpulse
+				joint.upperImpulse = math.Max(oldImpulse+impulse, 0)
+				impulse = joint.upperImpulse - oldImpulse
+				axial(-impulse)
+			} else {
+				joint.upperImpulse = 0
 			}
-			oldImpulse := joint.upperImpulse
-			Cdot := -axialCdot()
-			impulse := -joint.axialMass*massScale*(Cdot+bias) - impulseScale*oldImpulse
-			joint.upperImpulse = math.Max(oldImpulse+impulse, 0)
-			impulse = joint.upperImpulse - oldImpulse
-			axial(-impulse)
 		}
 	}
 
@@ -252,7 +270,7 @@ func f64SolvePrismaticJoint(joint *f64PrismaticJoint, stateA, stateB *f64State, 
 		bias := f64Vec{}
 		massScale, impulseScale := 1.0, 0.0
 		if useBias {
-			C := f64Vec{f64Dot(perpA, d), f64RelativeAngle(stateB.dqc, stateB.dqs, stateA.dqc, stateA.dqs) + joint.deltaAngle}
+			C := f64Vec{f64Dot(perpA, d), f64FrameAngle(stateA, stateB, joint.frameA, joint.frameB)}
 			bias = f64Scale(joint.constraintSoftness.biasRate, C)
 			massScale = joint.constraintSoftness.massScale
 			impulseScale = joint.constraintSoftness.impulseScale
@@ -298,11 +316,12 @@ func TestSolvePrismaticJointTracksTheFloat64Mirror(t *testing.T) {
 	idA, idB := mirrorBodies(t, worldId)
 
 	def := DefaultPrismaticJointDef()
-	def.BodyIdA, def.BodyIdB = idA, idB
-	def.LocalAnchorA = qv("0.5", "0.25")
-	def.LocalAnchorB = qv("-1", "0.25")
-	def.LocalAxisA = qv("1", "0.5")
-	def.ReferenceAngle = QMustParse("0.02")
+	def.Base.BodyIdA, def.Base.BodyIdB = idA, idB
+	def.Base.LocalFrameA.P = qv("0.5", "0.25")
+	def.Base.LocalFrameB.P = qv("-1", "0.25")
+	// The axis (1, 0.5) and a reference angle of 0.02 turn, as frames.
+	def.Base.LocalFrameA.Q = MakeRotFromUnitVector(qv("1", "0.5").Normalize())
+	def.Base.LocalFrameB.Q = MulRot(def.Base.LocalFrameA.Q, MakeRot(QMustParse("-0.02")))
 	def.EnableSpring = true
 	def.Hertz = QFromInt(2)
 	def.DampingRatio = QHalf()
@@ -334,12 +353,9 @@ func TestSolvePrismaticJointTracksTheFloat64Mirror(t *testing.T) {
 		motorSpeed:         qToF64(p.motorSpeed),
 		lowerTranslation:   qToF64(p.lowerTranslation),
 		upperTranslation:   qToF64(p.upperTranslation),
-		anchorA:            vecToF64(p.anchorA),
-		anchorB:            vecToF64(p.anchorB),
-		axisA:              vecToF64(p.axisA),
+		frameA:             frameToF64(p.frameA),
+		frameB:             frameToF64(p.frameB),
 		deltaCenter:        vecToF64(p.deltaCenter),
-		deltaAngle:         radiansF64(p.deltaAngle),
-		axialMass:          qToF64(p.axialMass),
 		enableSpring:       true,
 		enableLimit:        true,
 		enableMotor:        true,
@@ -375,8 +391,8 @@ func TestPrismaticJointAccessorsRoundTrip(t *testing.T) {
 	bodyId := CreateBody(worldId, &bodyDef)
 
 	def := DefaultPrismaticJointDef()
-	def.BodyIdA = groundId
-	def.BodyIdB = bodyId
+	def.Base.BodyIdA = groundId
+	def.Base.BodyIdB = bodyId
 	jointId := CreatePrismaticJoint(worldId, &def)
 	tolerance := qUlps(1 << 12)
 
@@ -391,7 +407,7 @@ func TestPrismaticJointAccessorsRoundTrip(t *testing.T) {
 		{"spring damping ratio", func() { jointId.SetSpringDampingRatio(QHalf()) }, jointId.GetSpringDampingRatio, QHalf()},
 		{"lower limit", func() { jointId.SetLimits(QFromInt(-1), QFromInt(2)) }, jointId.GetLowerLimit, QFromInt(-1)},
 		{"upper limit", func() { jointId.SetLimits(QFromInt(-1), QFromInt(2)) }, jointId.GetUpperLimit, QFromInt(2)},
-		{"motor speed", func() { jointId.SetMotorSpeed(QFromRatio(1, 2)) }, jointId.GetMotorSpeed, QFromRatio(1, 2)},
+		{"motor speed", func() { jointId.SetTargetMotorSpeed(QFromRatio(1, 2)) }, jointId.GetTargetMotorSpeed, QFromRatio(1, 2)},
 		{"maximum motor force", func() { jointId.SetMaxMotorForce(QFromInt(5)) }, jointId.GetMaxMotorForce, QFromInt(5)},
 	}
 	for _, tc := range qCases {
@@ -428,15 +444,14 @@ func TestPrismaticJointGetTranslation(t *testing.T) {
 	groundId := CreateBody(worldId, &groundDef)
 	bodyDef := DefaultBodyDef()
 	bodyDef.Type = DynamicBody
-	bodyDef.Position = Vec2{X: QHalf()}
+	bodyDef.Position = ToPos(Vec2{X: QHalf()})
 	bodyId := CreateBody(worldId, &bodyDef)
 
 	def := DefaultPrismaticJointDef()
-	def.BodyIdA = groundId
-	def.BodyIdB = bodyId
-	def.LocalAxisA = Vec2{X: QOne()}
+	def.Base.BodyIdA = groundId
+	def.Base.BodyIdB = bodyId
 	jointId := CreatePrismaticJoint(worldId, &def)
-	if got := jointId.GetTranslation(); !withinQ(got, QHalf(), qUlps(1<<12)) {
+	if got := jointId.GetCurrentTranslation(); !withinQ(got, QHalf(), qUlps(1<<12)) {
 		t.Errorf("translation = %v, want 0.5", got)
 	}
 }

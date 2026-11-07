@@ -21,13 +21,15 @@ type contactConstraintPoint32 struct {
 	relativeVelocity   qcw
 	normalImpulse      qcw
 	tangentImpulse     qcw
+	restitutionImpulse qcw
 	totalNormalImpulse qaw
 	normalMass         qcw
 	tangentMass        qcw
 }
 
 // contactConstraint32 is the solver view of one touching contact. It
-// corresponds to b2ContactConstraint in src/contact_solver.h.
+// corresponds to b2ContactConstraint in src/contact_solver.h and to one
+// lane of b2ContactConstraintWide in src/contact_solver_wide.inl.
 type contactConstraint32 struct {
 	indexA             int
 	indexB             int
@@ -45,13 +47,14 @@ type contactConstraint32 struct {
 	pointCount         int
 }
 
-// contactSoft32 is a softness on the contact grid.
+// contactSoft32 is a softness on the contact grid. pushRate is the bias rate
+// scaled by the mass scale, the product the push stage applies.
 type contactSoft32 struct {
-	biasRate, massScale, impulseScale qcw
+	pushRate, massScale, impulseScale qcw
 }
 
 func contactSoftFrom32(s softness) contactSoft32 {
-	return contactSoft32{biasRate: qcwFrom(s.biasRate), massScale: qcwFrom(s.massScale), impulseScale: qcwFrom(s.impulseScale)}
+	return contactSoft32{pushRate: qcwFrom(s.massScale.Mul(s.biasRate)), massScale: qcwFrom(s.massScale), impulseScale: qcwFrom(s.impulseScale)}
 }
 
 // The prepare stage computes in Q and rounds each result to the contact
@@ -75,25 +78,30 @@ func loadContactBody32(state *bodyState) contactBody32 {
 	}
 }
 
+// store writes the velocity back to a dynamic body. A static or kinematic
+// body keeps its velocity, so contacts may share it inside one color.
 func (b *contactBody32) store(state *bodyState) {
+	if state.flags&bodyDynamicFlag == 0 {
+		return
+	}
 	state.linearVelocity = Vec2{X: b.vx.toQ(), Y: b.vy.toQ()}
 	state.angularVelocity = b.w.toQ()
 }
 
-// velocityAt returns the velocity of the body at the anchor r.
-func (b *contactBody32) velocityAt(r vec2cw) vec2cw {
-	w := b.w.narrow()
-	return vec2cw{X: b.vx.narrow().Add(w.Neg().Mul(r.Y)), Y: b.vy.narrow().Add(w.Mul(r.X))}
+// subImpulse applies the impulse (px, py) with the angular impulse to the
+// first body of a contact.
+func (b *contactBody32) subImpulse(invMass, invI, px, py, angular qcw) {
+	b.vx = b.vx.Sub(invMass.Mul(px).widen())
+	b.vy = b.vy.Sub(invMass.Mul(py).widen())
+	b.w = b.w.Sub(invI.Mul(angular).widen())
 }
 
-// applyContactImpulse32 applies the impulse p at the anchors rA and rB.
-func applyContactImpulse32(bodyA, bodyB *contactBody32, constraint *contactConstraint32, rA, rB, p vec2cw) {
-	bodyA.vx = bodyA.vx.Sub(constraint.invMassA.Mul(p.X).widen())
-	bodyA.vy = bodyA.vy.Sub(constraint.invMassA.Mul(p.Y).widen())
-	bodyA.w = bodyA.w.Sub(constraint.invIA.Mul(crossc32(rA, p)).widen())
-	bodyB.vx = bodyB.vx.Add(constraint.invMassB.Mul(p.X).widen())
-	bodyB.vy = bodyB.vy.Add(constraint.invMassB.Mul(p.Y).widen())
-	bodyB.w = bodyB.w.Add(constraint.invIB.Mul(crossc32(rB, p)).widen())
+// addImpulse applies the impulse (px, py) with the angular impulse to the
+// second body of a contact.
+func (b *contactBody32) addImpulse(invMass, invI, px, py, angular qcw) {
+	b.vx = b.vx.Add(invMass.Mul(px).widen())
+	b.vy = b.vy.Add(invMass.Mul(py).widen())
+	b.w = b.w.Add(invI.Mul(angular).widen())
 }
 
 func vec2cFrom32(v Vec2) vec2cw { return vec2cw{X: qcwFrom(v.X), Y: qcwFrom(v.Y)} }
@@ -102,12 +110,42 @@ func rotcFrom32(r Rot) rotcw { return rotcw{Sin: qcwFrom(r.Sin), Cos: qcwFrom(r.
 
 func crossc32(a, b vec2cw) qcw { return a.X.Mul(b.Y).Sub(a.Y.Mul(b.X)) }
 
-// The scalar family serves every color. Contacts of one active color share
-// no dynamic body, while overflow stages remain whole-color operations. The
+// The reference compares lanes with b2MaxW and b2MinW, which keep the first
+// operand on a tie, and scalars with b2MaxFloat and b2MinFloat, which keep
+// the second. Max and Min keep the argument on a tie, so maxW32 and minW32 swap
+// the operands. Only the sign of a zero can tell the two apart.
+func maxW32(a, b qcw) qcw { return b.Max(a) }
+
+func minW32(a, b qcw) qcw { return b.Min(a) }
+
+// laneGroupAny32 reports whether a constraint of the lane group of index has
+// a nonzero value of field. A colored stage that skips work for a whole
+// lane group tests the group, not the contact (laneGroupWidth).
+func laneGroupAny32(constraints []contactConstraint32, index int, field func(*contactConstraint32) qcw) bool {
+	start := index &^ (laneGroupWidth - 1)
+	end := min(start+laneGroupWidth, len(constraints))
+	zero := qcw{}
+	for i := start; i < end; i++ {
+		if !field(&constraints[i]).Eq(zero) {
+			return true
+		}
+	}
+	return false
+}
+
+func constraintRestitution32(c *contactConstraint32) qcw { return c.restitution }
+
+func constraintRollingResistance32(c *contactConstraint32) qcw { return c.rollingResistance }
+
+// The scalar family serves every color. A colored stage runs one lane of
+// the wide stages of src/contact_solver_wide.inl and an overflow stage runs
+// the stage of src/contact_solver.c; each rounds the same values in its own
+// order. A colored constraint always solves two points: the second point of
+// a one point manifold is zero, as the manifold point the lane reads. The
 // overflow stages also run the Q32 tail of their color; the active colors
 // run theirs as the last unit of the color (runGraphContactBlock).
 
-func prepareContactRange32(startIndex, endIndex int, context *stepContext, contacts []*contactSim, constraints []contactConstraint32) {
+func prepareContactRange32(startIndex, endIndex int, context *stepContext, contacts []*contactSim, constraints []contactConstraint32, colored bool) {
 	w := context.world
 	awakeStates := context.states
 	constraints = constraints[startIndex:endIndex]
@@ -123,6 +161,7 @@ func prepareContactRange32(startIndex, endIndex int, context *stepContext, conta
 	if w.enableWarmStarting {
 		warmStartScale = one
 	}
+	anyRestitution := false
 
 	for i := range endIndex - startIndex {
 		cs := contacts[i]
@@ -147,11 +186,17 @@ func prepareContactRange32(startIndex, endIndex int, context *stepContext, conta
 		constraint.tangentSpeed = qcwFrom(cs.tangentSpeed)
 		constraint.pointCount = pointCount
 
+		// Only sample the normal velocity when restitution or a hit event
+		// needs it.
+		haveRestitution := zero.Less(cs.restitution)
+		sampleVelocity := haveRestitution || cs.simFlags&simEnableHitEvent != 0
+		anyRestitution = anyRestitution || haveRestitution
+
 		vA := Vec2Zero()
 		wA := zero
 		mA := cs.invMassA
 		iA := cs.invIA
-		if indexA != nullIndex {
+		if sampleVelocity && indexA != nullIndex {
 			stateA := &awakeStates[indexA]
 			vA = stateA.linearVelocity
 			wA = stateA.angularVelocity
@@ -161,7 +206,7 @@ func prepareContactRange32(startIndex, endIndex int, context *stepContext, conta
 		wB := zero
 		mB := cs.invMassB
 		iB := cs.invIB
-		if indexB != nullIndex {
+		if sampleVelocity && indexB != nullIndex {
 			stateB := &awakeStates[indexB]
 			vB = stateB.linearVelocity
 			wB = stateB.angularVelocity
@@ -192,6 +237,7 @@ func prepareContactRange32(startIndex, endIndex int, context *stepContext, conta
 		normal := manifold.Normal
 		tangent := RightPerp(normal)
 
+		constraint.points[1] = contactConstraintPoint32{}
 		for j := range pointCount {
 			mp := &manifold.Points[j]
 			cp := &constraint.points[j]
@@ -199,6 +245,7 @@ func prepareContactRange32(startIndex, endIndex int, context *stepContext, conta
 			cp.normalImpulse = qcwFrom(warmStartScale.Mul(mp.NormalImpulse))
 			cp.tangentImpulse = qcwFrom(warmStartScale.Mul(mp.TangentImpulse))
 			cp.totalNormalImpulse = qaw{}
+			cp.restitutionImpulse = qcw{}
 
 			rA := mp.AnchorA
 			rB := mp.AnchorB
@@ -209,25 +256,40 @@ func prepareContactRange32(startIndex, endIndex int, context *stepContext, conta
 
 			rnA := Cross(rA, normal)
 			rnB := Cross(rB, normal)
-			kNormal := mA.Add(mB).Add(iA.Mul(rnA).Mul(rnA)).Add(iB.Mul(rnB).Mul(rnB))
+			rtA := Cross(rA, tangent)
+			rtB := Cross(rB, tangent)
+			var kNormal, kTangent Q
+			if colored {
+				kNormal = mA.Add(mB).Add(iA.Mul(rnA.Mul(rnA))).Add(iB.Mul(rnB.Mul(rnB)))
+				kTangent = mA.Add(mB).Add(iA.Mul(rtA.Mul(rtA))).Add(iB.Mul(rtB.Mul(rtB)))
+			} else {
+				kNormal = mA.Add(mB).Add(iA.Mul(rnA).Mul(rnA)).Add(iB.Mul(rnB).Mul(rnB))
+				kTangent = mA.Add(mB).Add(iA.Mul(rtA).Mul(rtA)).Add(iB.Mul(rtB).Mul(rtB))
+			}
 			cp.normalMass = qcw{}
 			if zero.Less(kNormal) {
 				cp.normalMass = qcwFrom(one.Div(kNormal))
 			}
-
-			rtA := Cross(rA, tangent)
-			rtB := Cross(rB, tangent)
-			kTangent := mA.Add(mB).Add(iA.Mul(rtA).Mul(rtA)).Add(iB.Mul(rtB).Mul(rtB))
 			cp.tangentMass = qcw{}
 			if zero.Less(kTangent) {
 				cp.tangentMass = qcwFrom(one.Div(kTangent))
 			}
 
-			// Save relative velocity for restitution
-			vrA := vA.Add(CrossSV(wA, rA))
-			vrB := vB.Add(CrossSV(wB, rB))
-			cp.relativeVelocity = qcwFrom(normal.Dot(vrB.Sub(vrA)))
+			// Relative velocity at contact
+			cp.relativeVelocity = qcw{}
+			mp.NormalVelocity = zero
+			if sampleVelocity {
+				dvx := vB.X.Sub(wB.Mul(rB.Y)).Sub(vA.X.Sub(wA.Mul(rA.Y)))
+				dvy := vB.Y.Add(wB.Mul(rB.X)).Sub(vA.Y.Add(wA.Mul(rA.X)))
+				vn := dvx.Mul(normal.X).Add(dvy.Mul(normal.Y))
+				cp.relativeVelocity = qcwFrom(vn)
+				mp.NormalVelocity = vn
+			}
 		}
+	}
+
+	if anyRestitution {
+		context.anyRestitution.Store(true)
 	}
 }
 
@@ -245,10 +307,17 @@ func constraintStates32(states []bodyState, dummy *bodyState, constraint *contac
 	return stateA, stateB
 }
 
-func warmStartContactRange32(startIndex, endIndex int, context *stepContext, constraints []contactConstraint32) {
-	w := context.world
-	awake := &w.solverSets[awakeSet]
-	states := awake.bodyStates
+// solvedPointCount32 returns the points a stage solves: two in a colored
+// stage, the manifold points in an overflow stage.
+func solvedPointCount32(constraint *contactConstraint32, colored bool) int {
+	if colored {
+		return 2
+	}
+	return constraint.pointCount
+}
+
+func warmStartContactRange32(startIndex, endIndex int, context *stepContext, constraints []contactConstraint32, colored bool) {
+	states := context.states
 	constraints = constraints[startIndex:endIndex]
 
 	// This is a dummy state to represent a static body because static bodies don't have a solver body.
@@ -261,10 +330,12 @@ func warmStartContactRange32(startIndex, endIndex int, context *stepContext, con
 		bodyA := loadContactBody32(stateA)
 		bodyB := loadContactBody32(stateB)
 
-		// Stiffer for static contacts to avoid bodies getting pushed through the ground
+		mA, iA := constraint.invMassA, constraint.invIA
+		mB, iB := constraint.invMassB, constraint.invIB
+
 		normal := constraint.normal
 		tangent := vec2cw{X: normal.Y, Y: normal.X.Neg()}
-		pointCount := constraint.pointCount
+		pointCount := solvedPointCount32(constraint, colored)
 
 		for j := range pointCount {
 			cp := &constraint.points[j]
@@ -273,32 +344,33 @@ func warmStartContactRange32(startIndex, endIndex int, context *stepContext, con
 			rA := cp.anchorA
 			rB := cp.anchorB
 
-			P := normal.Mul(cp.normalImpulse).Add(tangent.Mul(cp.tangentImpulse))
-			applyContactImpulse32(&bodyA, &bodyB, constraint, rA, rB, P)
+			P := vec2cw{
+				X: cp.normalImpulse.Mul(normal.X).Add(cp.tangentImpulse.Mul(tangent.X)),
+				Y: cp.normalImpulse.Mul(normal.Y).Add(cp.tangentImpulse.Mul(tangent.Y)),
+			}
+			bodyA.subImpulse(mA, iA, P.X, P.Y, crossc32(rA, P))
+			bodyB.addImpulse(mB, iB, P.X, P.Y, crossc32(rB, P))
+
+			cp.totalNormalImpulse = cp.totalNormalImpulse.Add(cp.normalImpulse.widen())
 		}
 
-		bodyA.w = bodyA.w.Sub(constraint.invIA.Mul(constraint.rollingImpulse).widen())
-		bodyB.w = bodyB.w.Add(constraint.invIB.Mul(constraint.rollingImpulse).widen())
+		bodyA.w = bodyA.w.Sub(iA.Mul(constraint.rollingImpulse).widen())
+		bodyB.w = bodyB.w.Add(iB.Mul(constraint.rollingImpulse).widen())
 
 		bodyA.store(stateA)
 		bodyB.store(stateB)
 	}
 }
 
-// Colored contacts clamp by the contact speed, per b2SolveContactsTask.
-
-// Overflow contacts clamp by the push speed, per b2SolveOverflowContacts.
-
-// solveContactRange32 solves the contacts of one range. colored selects the
-// normal impulse of b2SolveContactsTask, which groups its products apart
-// from b2SolveOverflowContacts; each rounds the same values differently.
-func solveContactRange32(startIndex, endIndex int, context *stepContext, constraints []contactConstraint32, useBias bool, pushout qcw, colored bool) {
-	w := context.world
-	awake := &w.solverSets[awakeSet]
-	states := awake.bodyStates
+// pushContactRange32 solves the non-penetration of one range, with no
+// friction and no restitution. Point 2 sees the impulse of point 1 through
+// the coupling of the two points.
+func pushContactRange32(startIndex, endIndex int, context *stepContext, constraints []contactConstraint32, colored bool) {
+	states := context.states
 	constraints = constraints[startIndex:endIndex]
 
 	invH := qcwFrom(context.invH)
+	contactSpeed := qcwFrom(context.world.contactSpeed)
 
 	// This is a dummy body to represent a static body since static bodies don't have a solver body.
 	dummyState := identityBodyState()
@@ -317,166 +389,450 @@ func solveContactRange32(startIndex, endIndex int, context *stepContext, constra
 
 		dp := vec2cFrom32(stateB.deltaPosition).Sub(vec2cFrom32(stateA.deltaPosition))
 
+		mA, iA := constraint.invMassA, constraint.invIA
+		mB, iB := constraint.invMassB, constraint.invIB
 		normal := constraint.normal
-		tangent := vec2cw{X: normal.Y, Y: normal.X.Neg()}
-		friction := constraint.friction
 		soft := constraint.softness
 
-		pointCount := constraint.pointCount
-		totalNormalImpulse := qaw{}
+		wA := bodyA.w.narrow()
+		wB := bodyB.w.narrow()
+		dn := bodyB.vx.Sub(bodyA.vx).narrow().Mul(normal.X).Add(bodyB.vy.Sub(bodyA.vy).narrow().Mul(normal.Y))
 
-		// Non-penetration
+		var rnA, rnB, impulses [2]qcw
+		pointCount := solvedPointCount32(constraint, colored)
 		for j := range pointCount {
 			cp := &constraint.points[j]
 
-			// fixed anchor points
-			rA := cp.anchorA
-			rB := cp.anchorB
-
 			// compute current separation
 			// this is subject to round-off error if the anchor is far from the body center of mass
-			ds := dp.Add(dqB.Apply(rB).Sub(dqA.Apply(rA)))
-			s := cp.baseSeparation.Add(ds.Dot(normal))
+			ds := dp.Add(dqB.Apply(cp.anchorB).Sub(dqA.Apply(cp.anchorA)))
+			s := normal.Dot(ds).Add(cp.baseSeparation)
 
-			velocityBias := zero
+			// Apply speculative bias if separation is greater than zero,
+			// otherwise apply soft constraint bias. The contact speed limits
+			// stiffness, it does not increase it.
+			velocityBias := s.Mul(invH)
 			massScale := one
 			impulseScale := zero
-			if zero.Less(s) {
-				// speculative bias
-				velocityBias = s.Mul(invH)
-			} else if useBias {
-				velocityBias = soft.biasRate.Mul(s).Max(pushout.Neg())
+			if !zero.Less(s) {
+				velocityBias = maxW32(soft.pushRate.Mul(s), contactSpeed.Neg())
 				massScale = soft.massScale
 				impulseScale = soft.impulseScale
 			}
 
-			// relative normal velocity at contact
-			vn := bodyB.velocityAt(rB).Sub(bodyA.velocityAt(rA)).Dot(normal)
+			rnA[j] = crossc32(cp.anchorA, normal)
+			rnB[j] = crossc32(cp.anchorB, normal)
 
-			// incremental normal impulse, clamped as an accumulated impulse
-			var newImpulse qcw
+			// Relative normal velocity at contact.
+			var vn qcw
 			if colored {
-				negImpulse := cp.normalMass.Mul(massScale.Mul(vn.Add(velocityBias))).Add(impulseScale.Mul(cp.normalImpulse))
-				newImpulse = cp.normalImpulse.Sub(negImpulse).Max(zero)
+				vn = dn.Add(wB.Mul(rnB[j]).Sub(wA.Mul(rnA[j])))
 			} else {
-				impulse := cp.normalMass.Neg().Mul(massScale).Mul(vn.Add(velocityBias)).Sub(impulseScale.Mul(cp.normalImpulse))
-				newImpulse = cp.normalImpulse.Add(impulse).Max(zero)
+				vn = dn.Add(wB.Mul(rnB[j])).Sub(wA.Mul(rnA[j]))
 			}
-			impulse := newImpulse.Sub(cp.normalImpulse)
-			cp.normalImpulse = newImpulse
-			cp.totalNormalImpulse = cp.totalNormalImpulse.Add(newImpulse.widen())
-			totalNormalImpulse = totalNormalImpulse.Add(newImpulse.widen())
+			if j == 1 {
+				// Point 2 only depends on the impulse from point 1.
+				var k qcw
+				if colored {
+					k = mA.Add(mB).Add(iA.Mul(rnA[0]).Mul(rnA[1]).Add(iB.Mul(rnB[0]).Mul(rnB[1])))
+				} else {
+					k = mA.Add(mB).Add(iA.Mul(rnA[0]).Mul(rnA[1])).Add(iB.Mul(rnB[0]).Mul(rnB[1]))
+				}
+				vn = vn.Add(k.Mul(impulses[0]))
+			}
 
-			// apply normal impulse
-			applyContactImpulse32(&bodyA, &bodyB, constraint, rA, rB, normal.Mul(impulse))
+			negImpulse := cp.normalMass.Mul(massScale.Mul(vn).Add(velocityBias)).Add(impulseScale.Mul(cp.normalImpulse))
+			impulse := maxW32(negImpulse.Neg(), cp.normalImpulse.Neg())
+			cp.normalImpulse = cp.normalImpulse.Add(impulse)
+			cp.totalNormalImpulse = cp.totalNormalImpulse.Add(impulse.widen())
+			impulses[j] = impulse
 		}
 
-		// Friction
-		for j := range pointCount {
-			cp := &constraint.points[j]
+		impulse := impulses[0].Add(impulses[1])
+		px := impulse.Mul(normal.X)
+		py := impulse.Mul(normal.Y)
+		angularA := impulses[0].Mul(rnA[0]).Add(impulses[1].Mul(rnA[1]))
+		angularB := impulses[0].Mul(rnB[0]).Add(impulses[1].Mul(rnB[1]))
 
-			// fixed anchor points
-			rA := cp.anchorA
-			rB := cp.anchorB
-
-			// relative tangent velocity at contact
-			// vt = dot(vrB - sB * tangent - (vrA + sA * tangent), tangent)
-			//    = dot(vrB - vrA, tangent) - (sA + sB)
-			vt := bodyB.velocityAt(rB).Sub(bodyA.velocityAt(rA)).Dot(tangent).Sub(constraint.tangentSpeed)
-
-			// incremental tangent impulse
-			impulse := cp.tangentMass.Mul(vt.Neg())
-
-			// clamp the accumulated force
-			maxFriction := friction.Mul(cp.normalImpulse)
-			newImpulse := cp.tangentImpulse.Add(impulse).Clamp(maxFriction.Neg(), maxFriction)
-			impulse = newImpulse.Sub(cp.tangentImpulse)
-			cp.tangentImpulse = newImpulse
-
-			// apply tangent impulse
-			applyContactImpulse32(&bodyA, &bodyB, constraint, rA, rB, tangent.Mul(impulse))
-		}
-
-		// Rolling resistance
-		{
-			deltaLambda := constraint.rollingMass.Neg().Mul(bodyB.w.Sub(bodyA.w).narrow())
-			lambda := constraint.rollingImpulse
-			maxLambda := rollingBound32(constraint.rollingResistance, totalNormalImpulse)
-			constraint.rollingImpulse = lambda.Add(deltaLambda).Clamp(maxLambda.Neg(), maxLambda)
-			deltaLambda = constraint.rollingImpulse.Sub(lambda)
-
-			bodyA.w = bodyA.w.Sub(constraint.invIA.Mul(deltaLambda).widen())
-			bodyB.w = bodyB.w.Add(constraint.invIB.Mul(deltaLambda).widen())
-		}
+		bodyA.subImpulse(mA, iA, px, py, angularA)
+		bodyB.addImpulse(mB, iB, px, py, angularB)
 
 		bodyA.store(stateA)
 		bodyB.store(stateB)
 	}
 }
 
-func applyRestitutionRange32(startIndex, endIndex int, context *stepContext, constraints []contactConstraint32) {
-	w := context.world
-	awake := &w.solverSets[awakeSet]
-	states := awake.bodyStates
+// solveContactRange32 relaxes the colored contacts of one range of a color.
+// constraints is the whole color: the rolling resistance runs for a lane
+// group with any rolling resistance.
+func solveContactRange32(startIndex, endIndex int, context *stepContext, constraints []contactConstraint32) {
+	states := context.states
+	invH := qcwFrom(context.invH)
+
+	// This is a dummy body to represent a static body since static bodies don't have a solver body.
+	dummyState := identityBodyState()
+
+	zero := qcw{}
+	for i := startIndex; i < endIndex; i++ {
+		constraint := &constraints[i]
+
+		stateA, stateB := constraintStates32(states, &dummyState, constraint)
+		bodyA := loadContactBody32(stateA)
+		dqA := rotcFrom32(stateA.deltaRotation)
+
+		bodyB := loadContactBody32(stateB)
+		dqB := rotcFrom32(stateB.deltaRotation)
+
+		dp := vec2cFrom32(stateB.deltaPosition).Sub(vec2cFrom32(stateA.deltaPosition))
+
+		mA, iA := constraint.invMassA, constraint.invIA
+		mB, iB := constraint.invMassB, constraint.invIB
+		normal := constraint.normal
+		tangent := vec2cw{X: normal.Y, Y: normal.X.Neg()}
+		c1 := &constraint.points[0]
+		c2 := &constraint.points[1]
+
+		// Speculative bias, positive if separated and zero if overlapped
+		s1 := normal.Dot(dp.Add(dqB.Apply(c1.anchorB).Sub(dqA.Apply(c1.anchorA)))).Add(c1.baseSeparation)
+		velocityBias1 := maxW32(zero, s1.Mul(invH))
+		s2 := normal.Dot(dp.Add(dqB.Apply(c2.anchorB).Sub(dqA.Apply(c2.anchorA)))).Add(c2.baseSeparation)
+		velocityBias2 := maxW32(zero, s2.Mul(invH))
+
+		rnA1 := crossc32(c1.anchorA, normal)
+		rnB1 := crossc32(c1.anchorB, normal)
+		rnA2 := crossc32(c2.anchorA, normal)
+		rnB2 := crossc32(c2.anchorB, normal)
+		rtA1 := crossc32(c1.anchorA, tangent)
+		rtB1 := crossc32(c1.anchorB, tangent)
+		rtA2 := crossc32(c2.anchorA, tangent)
+		rtB2 := crossc32(c2.anchorB, tangent)
+
+		wnA1 := iA.Mul(rnA1)
+		wnB1 := iB.Mul(rnB1)
+		wnA2 := iA.Mul(rnA2)
+		wnB2 := iB.Mul(rnB2)
+		wtA1 := iA.Mul(rtA1)
+		wtB1 := iB.Mul(rtB1)
+
+		invMass := mA.Add(mB)
+		k21 := invMass.Add(wnA1.Mul(rnA2).Add(wnB1.Mul(rnB2)))
+		k31 := wnA1.Mul(rtA1).Add(wnB1.Mul(rtB1))
+		k32 := wnA2.Mul(rtA1).Add(wnB2.Mul(rtB1))
+		k41 := wnA1.Mul(rtA2).Add(wnB1.Mul(rtB2))
+		k42 := wnA2.Mul(rtA2).Add(wnB2.Mul(rtB2))
+		k43 := invMass.Add(wtA1.Mul(rtA2).Add(wtB1.Mul(rtB2)))
+
+		wA := bodyA.w.narrow()
+		wB := bodyB.w.narrow()
+		dvx := bodyB.vx.Sub(bodyA.vx).narrow()
+		dvy := bodyB.vy.Sub(bodyA.vy).narrow()
+		dn := dvx.Mul(normal.X).Add(dvy.Mul(normal.Y))
+		dt := dvx.Mul(tangent.X).Add(dvy.Mul(tangent.Y)).Sub(constraint.tangentSpeed)
+
+		vn1 := dn.Add(wB.Mul(rnB1).Sub(wA.Mul(rnA1)))
+		vn2 := dn.Add(wB.Mul(rnB2).Sub(wA.Mul(rnA2)))
+		vt1 := dt.Add(wB.Mul(rtB1).Sub(wA.Mul(rtA1)))
+		vt2 := dt.Add(wB.Mul(rtB2).Sub(wA.Mul(rtA2)))
+
+		normalImpulse1 := maxW32(c1.normalMass.Mul(vn1.Add(velocityBias1)).Neg(), c1.normalImpulse.Neg())
+		c1.normalImpulse = c1.normalImpulse.Add(normalImpulse1)
+		c1.totalNormalImpulse = c1.totalNormalImpulse.Add(normalImpulse1.widen())
+
+		vn2 = vn2.Add(k21.Mul(normalImpulse1))
+
+		normalImpulse2 := maxW32(c2.normalMass.Mul(vn2.Add(velocityBias2)).Neg(), c2.normalImpulse.Neg())
+		c2.normalImpulse = c2.normalImpulse.Add(normalImpulse2)
+		c2.totalNormalImpulse = c2.totalNormalImpulse.Add(normalImpulse2.widen())
+
+		vt1 = vt1.Add(k31.Mul(normalImpulse1)).Add(k32.Mul(normalImpulse2))
+		vt2 = vt2.Add(k41.Mul(normalImpulse1)).Add(k42.Mul(normalImpulse2))
+
+		angularA := normalImpulse1.Mul(rnA1).Add(normalImpulse2.Mul(rnA2))
+		angularB := normalImpulse1.Mul(rnB1).Add(normalImpulse2.Mul(rnB2))
+
+		// Rolling resistance
+		if laneGroupAny32(constraints, i, constraintRollingResistance32) {
+			relativeW := wA.Sub(wB).Sub(wnA1.Add(wnB1).Mul(normalImpulse1).Add(wnA2.Add(wnB2).Mul(normalImpulse2)))
+			k := iA.Add(iB)
+			deltaLambda := zero
+			if zero.Less(k) {
+				deltaLambda = relativeW.Div(k)
+			}
+			lambda := constraint.rollingImpulse
+			maxLambda := constraint.rollingResistance.Mul(c1.normalImpulse.Add(c2.normalImpulse))
+			constraint.rollingImpulse = lambda.Add(deltaLambda).Clamp(maxLambda.Neg(), maxLambda)
+			deltaLambda = constraint.rollingImpulse.Sub(lambda)
+
+			wtA2 := iA.Mul(rtA2)
+			wtB2 := iB.Mul(rtB2)
+			vt1 = vt1.Add(wtA1.Add(wtB1).Mul(deltaLambda))
+			vt2 = vt2.Add(wtA2.Add(wtB2).Mul(deltaLambda))
+
+			angularA = angularA.Add(deltaLambda)
+			angularB = angularB.Add(deltaLambda)
+		}
+
+		maxFriction1 := constraint.friction.Mul(c1.normalImpulse)
+		tangentImpulse1 := c1.tangentMass.Mul(vt1).Neg()
+		tangentImpulse1 = maxW32(maxFriction1.Neg().Sub(c1.tangentImpulse), minW32(tangentImpulse1, maxFriction1.Sub(c1.tangentImpulse)))
+		c1.tangentImpulse = c1.tangentImpulse.Add(tangentImpulse1)
+
+		vt2 = vt2.Add(k43.Mul(tangentImpulse1))
+
+		maxFriction2 := constraint.friction.Mul(c2.normalImpulse)
+		tangentImpulse2 := c2.tangentMass.Mul(vt2).Neg()
+		tangentImpulse2 = maxW32(maxFriction2.Neg().Sub(c2.tangentImpulse), minW32(tangentImpulse2, maxFriction2.Sub(c2.tangentImpulse)))
+		c2.tangentImpulse = c2.tangentImpulse.Add(tangentImpulse2)
+
+		angularA = angularA.Add(tangentImpulse1.Mul(rtA1).Add(tangentImpulse2.Mul(rtA2)))
+		angularB = angularB.Add(tangentImpulse1.Mul(rtB1).Add(tangentImpulse2.Mul(rtB2)))
+
+		normalImpulse := normalImpulse1.Add(normalImpulse2)
+		tangentImpulse := tangentImpulse1.Add(tangentImpulse2)
+		px := normalImpulse.Mul(normal.X).Add(tangentImpulse.Mul(tangent.X))
+		py := normalImpulse.Mul(normal.Y).Add(tangentImpulse.Mul(tangent.Y))
+
+		bodyA.subImpulse(mA, iA, px, py, angularA)
+		bodyB.addImpulse(mB, iB, px, py, angularB)
+
+		bodyA.store(stateA)
+		bodyB.store(stateB)
+	}
+}
+
+// solveContactRangeSerial32 relaxes the overflow contacts of one range, in
+// the order of b2SolveContacts_Overflow.
+func solveContactRangeSerial32(startIndex, endIndex int, context *stepContext, constraints []contactConstraint32) {
+	states := context.states
 	constraints = constraints[startIndex:endIndex]
 
-	threshold := qcwFrom(w.restitutionThreshold)
+	invH := qcwFrom(context.invH)
 
-	// dummy state to represent a static body
+	// This is a dummy body to represent a static body since static bodies don't have a solver body.
 	dummyState := identityBodyState()
 
 	zero := qcw{}
 	for i := range endIndex - startIndex {
 		constraint := &constraints[i]
 
+		stateA, stateB := constraintStates32(states, &dummyState, constraint)
+		bodyA := loadContactBody32(stateA)
+		dqA := rotcFrom32(stateA.deltaRotation)
+
+		bodyB := loadContactBody32(stateB)
+		dqB := rotcFrom32(stateB.deltaRotation)
+
+		dp := vec2cFrom32(stateB.deltaPosition).Sub(vec2cFrom32(stateA.deltaPosition))
+
+		mA, iA := constraint.invMassA, constraint.invIA
+		mB, iB := constraint.invMassB, constraint.invIB
+		normal := constraint.normal
+		tangent := vec2cw{X: normal.Y, Y: normal.X.Neg()}
+		friction := constraint.friction
+		pointCount := constraint.pointCount
+
+		wA := bodyA.w.narrow()
+		wB := bodyB.w.narrow()
+		dvx := bodyB.vx.Sub(bodyA.vx).narrow()
+		dvy := bodyB.vy.Sub(bodyA.vy).narrow()
+		vnc := dvx.Mul(normal.X).Add(dvy.Mul(normal.Y))
+
+		// vt = dot(vrB - sB * tangent - (vrA + sA * tangent), tangent)
+		//    = dot(vrB - vrA, tangent) - (sA + sB)
+		vtc := dvx.Mul(tangent.X).Add(dvy.Mul(tangent.Y)).Sub(constraint.tangentSpeed)
+
+		var normalImpulses, tangentImpulses [2]qcw
+
+		// Cache cross products
+		var rnA, rnB, rtA, rtB [2]qcw
+		for j := range pointCount {
+			cp := &constraint.points[j]
+			rnA[j] = crossc32(cp.anchorA, normal)
+			rnB[j] = crossc32(cp.anchorB, normal)
+			rtA[j] = crossc32(cp.anchorA, tangent)
+			rtB[j] = crossc32(cp.anchorB, tangent)
+		}
+
+		totalNormalImpulse := qaw{}
+		for j := range pointCount {
+			cp := &constraint.points[j]
+
+			// Compute current separation.
+			// This is subject to round-off error if the anchor is far from the body center of mass.
+			ds := dp.Add(dqB.Apply(cp.anchorB).Sub(dqA.Apply(cp.anchorA)))
+			s := cp.baseSeparation.Add(ds.Dot(normal))
+
+			// Speculative bias, zero when overlapped.
+			velocityBias := zero
+			if zero.Less(s) {
+				velocityBias = s.Mul(invH)
+			}
+
+			// Relative normal velocity at contact.
+			vn := vnc.Add(wB.Mul(rnB[j])).Sub(wA.Mul(rnA[j]))
+			for k := range j {
+				// This allows getting point 2 normal velocity with only one dependency.
+				vn = vn.Add(mA.Add(mB).Add(iA.Mul(rnA[k]).Mul(rnA[j])).Add(iB.Mul(rnB[k]).Mul(rnB[j])).Mul(normalImpulses[k]))
+			}
+
+			impulse := cp.normalMass.Neg().Mul(vn.Add(velocityBias)).Max(cp.normalImpulse.Neg())
+			cp.normalImpulse = cp.normalImpulse.Add(impulse)
+			cp.totalNormalImpulse = cp.totalNormalImpulse.Add(impulse.widen())
+			normalImpulses[j] = impulse
+
+			// This is used for rolling resistance
+			totalNormalImpulse = totalNormalImpulse.Add(cp.normalImpulse.widen())
+		}
+
+		// Rolling resistance
+		var rollingImpulse qcw
+		{
+			cdot := wB.Sub(wA)
+			for j := range pointCount {
+				cdot = cdot.Add(iA.Mul(rnA[j]).Add(iB.Mul(rnB[j])).Mul(normalImpulses[j]))
+			}
+
+			lambda := constraint.rollingImpulse
+			maxLambda := rollingBound32(constraint.rollingResistance, totalNormalImpulse)
+			constraint.rollingImpulse = lambda.Sub(constraint.rollingMass.Mul(cdot)).Clamp(maxLambda.Neg(), maxLambda)
+			rollingImpulse = constraint.rollingImpulse.Sub(lambda)
+		}
+
+		// Friction
+		for j := range pointCount {
+			cp := &constraint.points[j]
+
+			// relative tangent velocity at contact
+			vt := vtc.Add(wB.Mul(rtB[j])).Sub(wA.Mul(rtA[j])).Add(iA.Mul(rtA[j]).Add(iB.Mul(rtB[j])).Mul(rollingImpulse))
+			for k := range pointCount {
+				vt = vt.Add(iA.Mul(rtA[j]).Mul(rnA[k]).Add(iB.Mul(rtB[j]).Mul(rnB[k])).Mul(normalImpulses[k]))
+			}
+			for k := range j {
+				vt = vt.Add(mA.Add(mB).Add(iA.Mul(rtA[k]).Mul(rtA[j])).Add(iB.Mul(rtB[k]).Mul(rtB[j])).Mul(tangentImpulses[k]))
+			}
+
+			// clamp the accumulated force
+			maxFriction := friction.Mul(cp.normalImpulse)
+			impulse := cp.tangentMass.Neg().Mul(vt).Clamp(maxFriction.Neg().Sub(cp.tangentImpulse), maxFriction.Sub(cp.tangentImpulse))
+			cp.tangentImpulse = cp.tangentImpulse.Add(impulse)
+			tangentImpulses[j] = impulse
+		}
+
+		normalImpulse := zero
+		tangentImpulse := zero
+		angularA := rollingImpulse
+		angularB := rollingImpulse
+		for j := range pointCount {
+			normalImpulse = normalImpulse.Add(normalImpulses[j])
+			tangentImpulse = tangentImpulse.Add(tangentImpulses[j])
+			angularA = angularA.Add(normalImpulses[j].Mul(rnA[j]).Add(tangentImpulses[j].Mul(rtA[j])))
+			angularB = angularB.Add(normalImpulses[j].Mul(rnB[j]).Add(tangentImpulses[j].Mul(rtB[j])))
+		}
+
+		px := normalImpulse.Mul(normal.X).Add(tangentImpulse.Mul(tangent.X))
+		py := normalImpulse.Mul(normal.Y).Add(tangentImpulse.Mul(tangent.Y))
+		bodyA.subImpulse(mA, iA, px, py, angularA)
+		bodyB.addImpulse(mB, iB, px, py, angularB)
+
+		bodyA.store(stateA)
+		bodyB.store(stateB)
+	}
+}
+
+// applyRestitutionRange32 applies Poisson restitution to one range: a point
+// that approached faster than the threshold and was compressed gets back at
+// most the restitution times its compression impulse, so no energy is
+// gained. constraints is the whole color, because a colored stage skips a
+// lane group only when no lane has restitution.
+func applyRestitutionRange32(startIndex, endIndex int, context *stepContext, constraints []contactConstraint32, colored bool) {
+	w := context.world
+	states := context.states
+
+	negThreshold := qcwFrom(w.restitutionThreshold).Neg()
+	invH := qcwFrom(context.invH)
+	propagate := w.enableRestitutionPropagation
+
+	// dummy state to represent a static body
+	dummyState := identityBodyState()
+
+	zero := qcw{}
+	for i := startIndex; i < endIndex; i++ {
+		constraint := &constraints[i]
 		restitution := constraint.restitution
-		if restitution.Eq(zero) {
-			continue
+		if !propagate {
+			if colored {
+				if !laneGroupAny32(constraints, i, constraintRestitution32) {
+					continue
+				}
+			} else if restitution.Eq(zero) {
+				continue
+			}
 		}
 
 		stateA, stateB := constraintStates32(states, &dummyState, constraint)
 		bodyA := loadContactBody32(stateA)
+		dqA := rotcFrom32(stateA.deltaRotation)
+
 		bodyB := loadContactBody32(stateB)
+		dqB := rotcFrom32(stateB.deltaRotation)
 
+		dp := vec2cFrom32(stateB.deltaPosition).Sub(vec2cFrom32(stateA.deltaPosition))
+
+		mA, iA := constraint.invMassA, constraint.invIA
+		mB, iB := constraint.invMassB, constraint.invIB
 		normal := constraint.normal
-		pointCount := constraint.pointCount
+		haveRestitution := zero.Less(restitution)
+		pointCount := solvedPointCount32(constraint, colored)
 
-		// it is possible to get more accurate restitution by iterating
-		// this only makes a difference if there are two contact points
-		// for (int iter = 0; iter < 10; ++iter)
-		{
-			for j := range pointCount {
-				cp := &constraint.points[j]
+		for j := range pointCount {
+			cp := &constraint.points[j]
 
-				// if the normal impulse is zero then there was no collision
-				// this skips speculative contact points that didn't generate an impulse
-				// The max normal impulse is used in case there was a collision that moved away within the sub-step process
-				if threshold.Neg().Less(cp.relativeVelocity) || cp.totalNormalImpulse.Eq(qaw{}) {
-					continue
-				}
+			rA := cp.anchorA
+			rB := cp.anchorB
 
-				// fixed anchor points
-				rA := cp.anchorA
-				rB := cp.anchorB
-
-				// relative normal velocity at contact
-				vn := bodyB.velocityAt(rB).Sub(bodyA.velocityAt(rA)).Dot(normal)
-
-				// compute normal impulse
-				impulse := cp.normalMass.Neg().Mul(vn.Add(restitution.Mul(cp.relativeVelocity)))
-
-				// clamp the accumulated impulse
-				// todo should this be stored?
-				newImpulse := cp.normalImpulse.Add(impulse).Max(zero)
-				impulse = newImpulse.Sub(cp.normalImpulse)
-				cp.normalImpulse = newImpulse
-
-				// Add the incremental impulse rather than the full impulse because this is not a sub-step
-				cp.totalNormalImpulse = cp.totalNormalImpulse.Add(impulse.widen())
-
-				// apply contact impulse
-				applyContactImpulse32(&bodyA, &bodyB, constraint, rA, rB, normal.Mul(impulse))
+			normalMass := cp.normalMass
+			if !propagate && !haveRestitution {
+				normalMass = zero
 			}
+
+			// The total normal impulse is 0 for speculative points.
+			compressionImpulse := cp.totalNormalImpulse.Sub(cp.restitutionImpulse.widen()).narrow()
+			armed := haveRestitution && cp.relativeVelocity.Less(negThreshold) && zero.Less(compressionImpulse)
+
+			var velocityBias qcw
+			if armed {
+				velocityBias = restitution.Mul(cp.relativeVelocity)
+			} else {
+				ds := dp.Add(dqB.Apply(rB).Sub(dqA.Apply(rA)))
+				s := normal.Dot(ds).Add(cp.baseSeparation)
+				velocityBias = maxW32(zero, s.Mul(invH))
+			}
+
+			wA := bodyA.w.narrow()
+			wB := bodyB.w.narrow()
+			dvx := bodyB.vx.narrow().Sub(wB.Mul(rB.Y)).Sub(bodyA.vx.narrow().Sub(wA.Mul(rA.Y)))
+			dvy := bodyB.vy.narrow().Add(wB.Mul(rB.X)).Sub(bodyA.vy.narrow().Add(wA.Mul(rA.X)))
+			vn := dvx.Mul(normal.X).Add(dvy.Mul(normal.Y))
+
+			negImpulse := normalMass.Mul(vn.Add(velocityBias))
+			newImpulse := maxW32(cp.normalImpulse.Sub(negImpulse), zero)
+			impulse := newImpulse.Sub(cp.normalImpulse)
+
+			approachImpulse := minW32(maxW32(normalMass.Mul(vn).Neg(), zero), maxW32(impulse, zero))
+			if armed {
+				// Poisson kinetic restitution guarantees no energy gain.
+				allowance := restitution.Mul(compressionImpulse.Add(approachImpulse)).Sub(cp.restitutionImpulse)
+				impulse = minW32(impulse, approachImpulse.Add(maxW32(allowance, zero)))
+			}
+
+			cp.normalImpulse = cp.normalImpulse.Add(impulse)
+			cp.restitutionImpulse = cp.restitutionImpulse.Add(impulse.Sub(approachImpulse))
+			cp.totalNormalImpulse = cp.totalNormalImpulse.Add(impulse.widen())
+
+			px := impulse.Mul(normal.X)
+			py := impulse.Mul(normal.Y)
+			bodyA.subImpulse(mA, iA, px, py, rA.X.Mul(py).Sub(rA.Y.Mul(px)))
+			bodyB.addImpulse(mB, iB, px, py, rB.X.Mul(py).Sub(rB.Y.Mul(px)))
 		}
 
 		bodyA.store(stateA)
@@ -484,22 +840,43 @@ func applyRestitutionRange32(startIndex, endIndex int, context *stepContext, con
 	}
 }
 
-func storeImpulseRange32(startIndex, endIndex int, contacts []*contactSim, constraints []contactConstraint32) {
+// storeImpulseRange32 writes the impulses back to the manifolds and flags the
+// contacts with a hit event candidate, so the serial report reads only
+// those.
+func storeImpulseRange32(startIndex, endIndex int, context *stepContext, contacts []*contactSim, constraints []contactConstraint32, workerIndex int) {
+	w := context.world
+	taskContext := &w.taskContexts[workerIndex]
+	negHitThreshold := w.hitEventThreshold.Neg()
+	zero := QZero()
 	constraints = constraints[startIndex:endIndex]
 	contacts = contacts[startIndex:endIndex]
 
 	for i := range endIndex - startIndex {
 		constraint := &constraints[i]
-		manifold := &contacts[i].manifold
+		cs := contacts[i]
+		manifold := &cs.manifold
 		pointCount := manifold.PointCount
 
 		for j := range pointCount {
-			manifold.Points[j].NormalImpulse = constraint.points[j].normalImpulse.toQ()
-			manifold.Points[j].TangentImpulse = constraint.points[j].tangentImpulse.toQ()
-			manifold.Points[j].TotalNormalImpulse = constraint.points[j].totalNormalImpulse.toQ()
-			manifold.Points[j].NormalVelocity = constraint.points[j].relativeVelocity.toQ()
+			mp := &manifold.Points[j]
+			mp.NormalImpulse = constraint.points[j].normalImpulse.toQ()
+			mp.TangentImpulse = constraint.points[j].tangentImpulse.toQ()
+			mp.TotalNormalImpulse = constraint.points[j].totalNormalImpulse.toQ()
 		}
 
 		manifold.RollingImpulse = constraint.rollingImpulse.toQ()
+
+		if cs.simFlags&simEnableHitEvent != 0 {
+			for j := range pointCount {
+				mp := &manifold.Points[j]
+
+				// Need to check total impulse because the point may be speculative and not colliding
+				if mp.NormalVelocity.Less(negHitThreshold) && zero.Less(mp.TotalNormalImpulse) {
+					taskContext.hitEventBitSet.setBit(cs.contactId)
+					taskContext.hasHitEvents = true
+					break
+				}
+			}
+		}
 	}
 }

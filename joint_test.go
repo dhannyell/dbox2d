@@ -10,40 +10,44 @@ import (
 
 // createEachJoint creates one joint of every type between two bodies and
 // returns the ids in JointType order.
-func createEachJoint(t *testing.T, worldId WorldId, idA, idB BodyId) [8]JointId {
+func createEachJoint(t *testing.T, worldId WorldId, idA, idB BodyId) [9]JointId {
 	t.Helper()
-	var ids [8]JointId
+	var ids [9]JointId
 
 	distance := DefaultDistanceJointDef()
-	distance.BodyIdA, distance.BodyIdB = idA, idB
+	distance.Base.BodyIdA, distance.Base.BodyIdB = idA, idB
 	ids[DistanceJoint] = CreateDistanceJoint(worldId, &distance)
 
 	filter := DefaultFilterJointDef()
-	filter.BodyIdA, filter.BodyIdB = idA, idB
+	filter.Base.BodyIdA, filter.Base.BodyIdB = idA, idB
 	ids[FilterJoint] = CreateFilterJoint(worldId, &filter)
 
 	motor := DefaultMotorJointDef()
-	motor.BodyIdA, motor.BodyIdB = idA, idB
+	motor.Base.BodyIdA, motor.Base.BodyIdB = idA, idB
 	ids[MotorJoint] = CreateMotorJoint(worldId, &motor)
 
-	mouse := DefaultMouseJointDef()
-	mouse.BodyIdA, mouse.BodyIdB = idA, idB
-	ids[MouseJoint] = CreateMouseJoint(worldId, &mouse)
+	mover := DefaultMoverJointDef()
+	mover.Base.BodyIdA, mover.Base.BodyIdB = idA, idB
+	ids[MoverJoint] = CreateMoverJoint(worldId, &mover)
+
+	pogo := DefaultPogoJointDef()
+	pogo.Base.BodyIdA, pogo.Base.BodyIdB = idA, idB
+	ids[PogoJoint] = CreatePogoJoint(worldId, &pogo)
 
 	prismatic := DefaultPrismaticJointDef()
-	prismatic.BodyIdA, prismatic.BodyIdB = idA, idB
+	prismatic.Base.BodyIdA, prismatic.Base.BodyIdB = idA, idB
 	ids[PrismaticJoint] = CreatePrismaticJoint(worldId, &prismatic)
 
 	revolute := DefaultRevoluteJointDef()
-	revolute.BodyIdA, revolute.BodyIdB = idA, idB
+	revolute.Base.BodyIdA, revolute.Base.BodyIdB = idA, idB
 	ids[RevoluteJoint] = CreateRevoluteJoint(worldId, &revolute)
 
 	weld := DefaultWeldJointDef()
-	weld.BodyIdA, weld.BodyIdB = idA, idB
+	weld.Base.BodyIdA, weld.Base.BodyIdB = idA, idB
 	ids[WeldJoint] = CreateWeldJoint(worldId, &weld)
 
 	wheel := DefaultWheelJointDef()
-	wheel.BodyIdA, wheel.BodyIdB = idA, idB
+	wheel.Base.BodyIdA, wheel.Base.BodyIdB = idA, idB
 	ids[WheelJoint] = CreateWheelJoint(worldId, &wheel)
 
 	return ids
@@ -81,8 +85,8 @@ func TestEachJointTypeTakesItsOwnColor(t *testing.T) {
 
 	bodyA := getBodyFullId(w, idA)
 	bodyB := getBodyFullId(w, idB)
-	if bodyA.jointCount != 8 || bodyB.jointCount != 8 {
-		t.Errorf("the bodies count %d and %d joints, want 8", bodyA.jointCount, bodyB.jointCount)
+	if bodyA.jointCount != 9 || bodyB.jointCount != 9 {
+		t.Errorf("the bodies count %d and %d joints, want 9", bodyA.jointCount, bodyB.jointCount)
 	}
 	if bodyA.islandId != bodyB.islandId {
 		t.Errorf("the joints did not merge the islands")
@@ -108,7 +112,7 @@ func TestJointToAStaticBodyKeepsTheColorFree(t *testing.T) {
 	idA := addDynamicCircle(t, worldId, v2(0, 2))
 
 	def := DefaultRevoluteJointDef()
-	def.BodyIdA, def.BodyIdB = groundId, idA
+	def.Base.BodyIdA, def.Base.BodyIdB = groundId, idA
 	jointId := CreateRevoluteJoint(worldId, &def)
 
 	j := getJointFullId(w, jointId)
@@ -136,7 +140,7 @@ func TestJointBetweenStaticBodiesHasNoIsland(t *testing.T) {
 	idB := addStaticCircle(t, worldId, v2(2, 0))
 
 	def := DefaultWeldJointDef()
-	def.BodyIdA, def.BodyIdB = idA, idB
+	def.Base.BodyIdA, def.Base.BodyIdB = idA, idB
 	jointId := CreateWeldJoint(worldId, &def)
 
 	j := getJointFullId(w, jointId)
@@ -161,7 +165,7 @@ func TestJointWakesTheSleepingBody(t *testing.T) {
 	idC := addDynamicCircle(t, worldId, v2(5, 0))
 
 	def := DefaultDistanceJointDef()
-	def.BodyIdA, def.BodyIdB = idC, idA
+	def.Base.BodyIdA, def.Base.BodyIdB = idC, idA
 	jointId := CreateDistanceJoint(worldId, &def)
 
 	j := getJointFullId(w, jointId)
@@ -179,8 +183,8 @@ func TestJointWakesTheSleepingBody(t *testing.T) {
 }
 
 // TestJointToASleepingBodySleeps pins the sleeping branch: a joint between
-// a static body and a sleeping body joins the sleeping set, the removal
-// fixes the moved sim, and DestroyJoint wakes the bodies.
+// a static body and a sleeping body joins the sleeping set, and the
+// removal wakes the bodies, as b2DestroyJointInternal does in v3.2.
 func TestJointToASleepingBodySleeps(t *testing.T) {
 	worldId := createTestWorld(t)
 	w := getWorldFromId(worldId)
@@ -188,10 +192,10 @@ func TestJointToASleepingBodySleeps(t *testing.T) {
 	idA, idB, sleepIndex := sleepPair(t, w, worldId)
 
 	defA := DefaultRevoluteJointDef()
-	defA.BodyIdA, defA.BodyIdB = groundId, idA
+	defA.Base.BodyIdA, defA.Base.BodyIdB = groundId, idA
 	jointIdA := CreateRevoluteJoint(worldId, &defA)
 	defB := DefaultRevoluteJointDef()
-	defB.BodyIdA, defB.BodyIdB = groundId, idB
+	defB.Base.BodyIdA, defB.Base.BodyIdB = groundId, idB
 	jointIdB := CreateRevoluteJoint(worldId, &defB)
 
 	jA := getJointFullId(w, jointIdA)
@@ -205,17 +209,14 @@ func TestJointToASleepingBodySleeps(t *testing.T) {
 	}
 	validateWorld(w)
 
-	// The first removal swaps the second sim into slot zero.
-	destroyJointInternal(w, jA, false)
-	if jB.localIndex != 0 || w.solverSets[sleepIndex].jointSims[0].jointId != jB.jointId {
-		t.Errorf("the moved joint is at %d", jB.localIndex)
+	// The removal wakes the island, so the other joint moves with it.
+	destroyJointInternal(w, jA)
+	if bodyA.setIndex != awakeSet || jB.setIndex != awakeSet {
+		t.Errorf("destroyJointInternal left body A in set %d and joint B in set %d", bodyA.setIndex, jB.setIndex)
 	}
 	validateWorld(w)
 
 	DestroyJoint(jointIdB)
-	if bodyA.setIndex != awakeSet {
-		t.Errorf("DestroyJoint left body A in set %d", bodyA.setIndex)
-	}
 	validateWorld(w)
 }
 
@@ -236,7 +237,7 @@ func TestJointWithoutCollisionRemovesTheContact(t *testing.T) {
 	}
 
 	def := DefaultRevoluteJointDef()
-	def.BodyIdA, def.BodyIdB = groundId, boxId
+	def.Base.BodyIdA, def.Base.BodyIdB = groundId, boxId
 	CreateRevoluteJoint(worldId, &def)
 
 	if w.contactIdPool.idCount() != 0 || box.contactCount != 0 {
@@ -262,10 +263,10 @@ func TestDestroyBodyDestroysItsJoints(t *testing.T) {
 	idC := addDynamicCircle(t, worldId, v2(6, 0))
 
 	defAB := DefaultWeldJointDef()
-	defAB.BodyIdA, defAB.BodyIdB = idA, idB
+	defAB.Base.BodyIdA, defAB.Base.BodyIdB = idA, idB
 	CreateWeldJoint(worldId, &defAB)
 	defAC := DefaultWeldJointDef()
-	defAC.BodyIdA, defAC.BodyIdB = idA, idC
+	defAC.Base.BodyIdA, defAC.Base.BodyIdB = idA, idC
 	CreateWeldJoint(worldId, &defAC)
 
 	DestroyBody(idA)
@@ -281,21 +282,28 @@ func TestDestroyBodyDestroysItsJoints(t *testing.T) {
 	validateWorld(w)
 }
 
-// TestRevoluteRejectsAFullTurnLimit pins the angle unit of the limit
-// check: the reference bound of 0.99 pi is 0.495 turns.
-func TestRevoluteRejectsAFullTurnLimit(t *testing.T) {
+// TestRevoluteClampsAFullTurnLimit pins the v3.2 limit rule: a limit past
+// 0.99 half turns is clamped there, not rejected.
+func TestRevoluteClampsAFullTurnLimit(t *testing.T) {
 	worldId := createTestWorld(t)
 	idA := addDynamicCircle(t, worldId, v2(0, 0))
 	idB := addDynamicCircle(t, worldId, v2(3, 0))
 
 	def := DefaultRevoluteJointDef()
-	def.BodyIdA, def.BodyIdB = idA, idB
+	def.Base.BodyIdA, def.Base.BodyIdB = idA, idB
 	def.EnableLimit = true
+	def.LowerAngle = QHalf().Neg()
 	def.UpperAngle = QHalf()
-	requirePanic(t, func() { CreateRevoluteJoint(worldId, &def) })
+	jointId := CreateRevoluteJoint(worldId, &def)
 
-	def.UpperAngle = QMustParse("0.495")
-	CreateRevoluteJoint(worldId, &def)
+	want := QMustParse("0.495")
+	tolerance := QMustParse("0.000001")
+	if got := jointId.GetUpperLimit(); !withinQ(got, want, tolerance) {
+		t.Errorf("upper limit = %v, want %v", got, want)
+	}
+	if got := jointId.GetLowerLimit(); !withinQ(got, want.Neg(), tolerance) {
+		t.Errorf("lower limit = %v, want %v", got, want.Neg())
+	}
 }
 
 func TestJointAccessorsRoundTrip(t *testing.T) {
@@ -304,19 +312,17 @@ func TestJointAccessorsRoundTrip(t *testing.T) {
 	idB := addDynamicCircle(t, worldId, v2(3, 0))
 
 	def := DefaultRevoluteJointDef()
-	def.BodyIdA, def.BodyIdB = idA, idB
+	def.Base.BodyIdA, def.Base.BodyIdB = idA, idB
 	jointId := CreateRevoluteJoint(worldId, &def)
 
-	anchorA := Vec2{X: QMustParse("0.25"), Y: QMustParse("-0.5")}
-	anchorB := Vec2{X: QMustParse("-0.75"), Y: QMustParse("0.125")}
-	referenceAngle := QMustParse("0.125")
+	frameA := Transform{P: Vec2{X: QMustParse("0.25"), Y: QMustParse("-0.5")}, Q: MakeRot(QMustParse("0.125"))}
+	frameB := Transform{P: Vec2{X: QMustParse("-0.75"), Y: QMustParse("0.125")}, Q: MakeRot(QMustParse("-0.25"))}
 	hertz := QFromInt(30)
 	dampingRatio := QMustParse("0.75")
 	userData := "joint data"
 
-	jointId.SetLocalAnchorA(anchorA)
-	jointId.SetLocalAnchorB(anchorB)
-	jointId.SetReferenceAngle(referenceAngle)
+	jointId.SetLocalFrameA(frameA)
+	jointId.SetLocalFrameB(frameB)
 	jointId.SetUserData(userData)
 	jointId.SetCollideConnected(true)
 	jointId.SetConstraintTuning(hertz, dampingRatio)
@@ -326,9 +332,8 @@ func TestJointAccessorsRoundTrip(t *testing.T) {
 		got  any
 		want any
 	}{
-		{"local anchor A", jointId.GetLocalAnchorA(), anchorA},
-		{"local anchor B", jointId.GetLocalAnchorB(), anchorB},
-		{"reference angle", jointId.GetReferenceAngle(), referenceAngle},
+		{"local frame A", jointId.GetLocalFrameA(), frameA},
+		{"local frame B", jointId.GetLocalFrameB(), frameB},
 		{"user data", jointId.GetUserData(), userData},
 		{"collide connected", jointId.GetCollideConnected(), true},
 	}
@@ -359,7 +364,7 @@ func TestSetCollideConnectedTogglesContact(t *testing.T) {
 	w := getWorldFromId(worldId)
 
 	def := DefaultRevoluteJointDef()
-	def.BodyIdA, def.BodyIdB = bodyA, bodyB
+	def.Base.BodyIdA, def.Base.BodyIdB = bodyA, bodyB
 	jointId := CreateRevoluteJoint(worldId, &def)
 
 	dt := stepDt()
@@ -404,7 +409,7 @@ func TestGetConstraintForceMatchesWeight(t *testing.T) {
 	staticId := CreateBody(worldId, &staticDef)
 	dynamicDef := DefaultBodyDef()
 	dynamicDef.Type = DynamicBody
-	dynamicDef.Position = Vec2{Y: QFromInt(-1)}
+	dynamicDef.Position = ToPos(Vec2{Y: QFromInt(-1)})
 	dynamicDef.EnableSleep = false
 	dynamicId := CreateBody(worldId, &dynamicDef)
 	shapeDef := DefaultShapeDef()
@@ -412,8 +417,8 @@ func TestGetConstraintForceMatchesWeight(t *testing.T) {
 	CreatePolygonShape(dynamicId, &shapeDef, &box)
 
 	def := DefaultRevoluteJointDef()
-	def.BodyIdA, def.BodyIdB = staticId, dynamicId
-	def.LocalAnchorB = Vec2{Y: QOne()}
+	def.Base.BodyIdA, def.Base.BodyIdB = staticId, dynamicId
+	def.Base.LocalFrameB.P = Vec2{Y: QOne()}
 	jointId := CreateRevoluteJoint(worldId, &def)
 
 	for range 60 {
@@ -436,21 +441,21 @@ func TestGetLinearAndAngularSeparation(t *testing.T) {
 	bodyB := CreateBody(worldId, &staticDef)
 
 	def := DefaultRevoluteJointDef()
-	def.BodyIdA, def.BodyIdB = bodyA, bodyB
+	def.Base.BodyIdA, def.Base.BodyIdB = bodyA, bodyB
 	def.EnableLimit = true
 	def.LowerAngle = QZero()
 	def.UpperAngle = QZero()
 	jointId := CreateRevoluteJoint(worldId, &def)
 
 	separation := QMustParse("0.1")
-	bodyB.SetTransform(Vec2{X: separation}, MakeRot(QZero()))
+	bodyB.SetTransform(ToPos(Vec2{X: separation}), MakeRot(QZero()))
 	tolerance := QMustParse("0.0001")
 	if got := jointId.GetLinearSeparation(); !withinQ(got, separation, tolerance) {
 		t.Errorf("linear separation = %v, want %v", got, separation)
 	}
 
 	quarterTurn := QMustParse("0.25")
-	bodyB.SetTransform(Vec2{X: separation}, MakeRot(quarterTurn))
+	bodyB.SetTransform(ToPos(Vec2{X: separation}), MakeRot(quarterTurn))
 	if got := jointId.GetAngularSeparation(); !withinQ(got, quarterTurn, tolerance) {
 		t.Errorf("angular separation = %v, want %v turns", got, quarterTurn)
 	}

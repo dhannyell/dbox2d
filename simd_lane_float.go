@@ -2,6 +2,8 @@
 
 package b2
 
+import "unsafe"
+
 // The float lane paths share these element types and conversions; each path
 // adds its own laneW.
 
@@ -48,3 +50,26 @@ func (a accW) SubBounded(b accW) accW { return a.Sub(b) }
 
 // rollingBoundW returns the rolling resistance bound rr·total per lane.
 func rollingBoundW(rr laneW, total accW) laneW { return rr.Mul(total) }
+
+// laneDivPositive returns a/k in the lanes where k is positive and zero in
+// the others.
+func laneDivPositive(a, k laneW) laneW {
+	zero := laneZero()
+	return laneBlend(k.Greater(zero), a.Div(k), zero)
+}
+
+// blendAccW selects a where the mask is set and b otherwise.
+func blendAccW(m maskW, a, b accW) accW { return laneBlend(m, a, b) }
+
+// laneSlotsInPlace reports that laneSlots addresses the lanes of the vector
+// itself, so a lane written through it needs no load afterwards.
+const laneSlotsInPlace = true
+
+// laneSlots returns the lanes of v as an array. A float lane vector is
+// wideWidth lane scalars in memory, so the writes land in v directly.
+func laneSlots(v *laneW, _ *[wideWidth]laneScalar) *[wideWidth]laneScalar {
+	return (*[wideWidth]laneScalar)(unsafe.Pointer(v))
+}
+
+// A float lane vector must be exactly wideWidth lane scalars.
+var _ [unsafe.Sizeof(laneW{})]struct{} = [wideWidth * unsafe.Sizeof(laneScalar(0))]struct{}{}

@@ -21,19 +21,22 @@ type Settings struct {
 	SingleStep      bool
 	UseCameraBounds bool
 
-	DrawJointExtras      bool
-	DrawBounds           bool
-	DrawMass             bool
-	DrawBodyNames        bool
-	DrawContactPoints    bool
-	DrawContactNormals   bool
-	DrawContactImpulses  bool
-	DrawContactFeatures  bool
-	DrawFrictionImpulses bool
-	DrawIslands          bool
-	DrawGraphColors      bool
-	DrawCounters         bool
-	DrawProfile          bool
+	DrawJointExtras     bool
+	DrawBounds          bool
+	DrawMass            bool
+	DrawBodyNames       bool
+	DrawContactPoints   bool
+	DrawContactNormals  bool
+	DrawContactForces   bool
+	DrawContactFeatures bool
+	DrawFrictionForces  bool
+	DrawIslands         bool
+	DrawGraphColors     bool
+	DrawCounters        bool
+	DrawProfile         bool
+
+	RestitutionIterations        int
+	EnableRestitutionPropagation bool
 
 	EnableWarmStarting bool
 	EnableContinuous   bool
@@ -47,13 +50,14 @@ type Settings struct {
 // DefaultSettings returns the settings the reference app starts with.
 func DefaultSettings() Settings {
 	return Settings{
-		Hertz:              60,
-		SubStepCount:       4,
-		WorkerCount:        1,
-		EnableWarmStarting: true,
-		EnableContinuous:   true,
-		EnableSleep:        true,
-		DrawShapes:         true,
-		DrawJoints:         true,
+		Hertz:                 60,
+		SubStepCount:          4,
+		RestitutionIterations: 2,
+		WorkerCount:           1,
+		EnableWarmStarting:    true,
+		EnableContinuous:      true,
+		EnableSleep:           true,
+		DrawShapes:            true,
+		DrawJoints:            true,
 	}
 }

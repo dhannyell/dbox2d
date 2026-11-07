@@ -22,6 +22,10 @@ const (
 	stageStoreImpulses
 )
 
+// laneGroupWidth is the lane count of the reference build the traces come
+// from: four scalar lanes, under BOX2D_DISABLE_SIMD.
+const laneGroupWidth = 4
+
 type solverBlockType int
 
 const (
@@ -94,11 +98,6 @@ func integrateVelocitiesTask(startIndex, endIndex int, context *stepContext) {
 
 	gravity := context.world.gravity
 	h := context.h
-	maxLinearSpeed := context.maxLinearVelocity
-	// D-004: MaxRotation is in turns; one turn scales it to radians exactly.
-	maxAngularSpeed := maxRotation.Mul(tau).Mul(context.invDt)
-	maxLinearSpeedSquared := maxLinearSpeed.Mul(maxLinearSpeed)
-	maxAngularSpeedSquared := maxAngularSpeed.Mul(maxAngularSpeed)
 
 	zero := QZero()
 	one := QOne()
@@ -128,37 +127,25 @@ func integrateVelocitiesTask(startIndex, endIndex int, context *stepContext) {
 		linearVelocityDelta := sim.force.Mul(h.Mul(sim.invMass)).Add(gravity.Mul(h.Mul(gravityScale)))
 		angularVelocityDelta := h.Mul(sim.invInertia).Mul(sim.torque)
 
-		v = Vec2{
+		state.linearVelocity = Vec2{
 			X: linearVelocityDelta.X.Add(linearDamping.scale(v.X)),
 			Y: linearVelocityDelta.Y.Add(linearDamping.scale(v.Y)),
 		}
-		omega = angularVelocityDelta.Add(angularDamping.scale(omega))
-
-		// Clamp to max linear speed
-		if maxLinearSpeedSquared.Less(v.Dot(v)) {
-			ratio := maxLinearSpeed.Div(v.Len())
-			v = v.Mul(ratio)
-			sim.isSpeedCapped = true
-		}
-
-		// Clamp to max angular speed
-		if maxAngularSpeedSquared.Less(omega.Mul(omega)) && !sim.allowFastRotation {
-			ratio := maxAngularSpeed.Div(omega.Abs())
-			omega = omega.Mul(ratio)
-			sim.isSpeedCapped = true
-		}
-
-		state.linearVelocity = v
-		state.angularVelocity = omega
+		state.angularVelocity = angularVelocityDelta.Add(angularDamping.scale(omega))
 	}
 }
 
-// integratePositionsTask advances the position deltas of the awake bodies by
-// the sub-step time. It corresponds to b2IntegratePositionsTask in
-// src/solver.c.
+// integratePositionsTask applies the motion locks and the speed limits, then
+// advances the position deltas of the awake bodies by the sub-step time. It
+// corresponds to b2IntegratePositionsTask in src/solver.c.
 func integratePositionsTask(startIndex, endIndex int, context *stepContext) {
 	states := context.states
 	h := context.h
+	maxLinearSpeed := context.maxLinearVelocity
+	// D-004: MaxRotation is in turns; one turn scales it to radians exactly.
+	maxAngularSpeed := maxRotation.Mul(tau).Mul(context.invDt)
+	maxLinearSpeedSquared := maxLinearSpeed.Mul(maxLinearSpeed)
+	maxAngularSpeedSquared := maxAngularSpeed.Mul(maxAngularSpeed)
 
 	if endIndex < startIndex {
 		panic("dbox2d: the task range is inverted")
@@ -166,12 +153,43 @@ func integratePositionsTask(startIndex, endIndex int, context *stepContext) {
 
 	for i := startIndex; i < endIndex; i++ {
 		state := &states[i]
-		state.deltaRotation = integrateRotation(state.deltaRotation, h.Mul(state.angularVelocity))
-		state.deltaPosition = MulAdd(state.deltaPosition, h, state.linearVelocity)
+
+		v := state.linearVelocity
+		omega := state.angularVelocity
+
+		// Motion locks - these can be viewed as a constraint that comes last
+		if state.flags&bodyLockLinearX != 0 {
+			v.X = QZero()
+		}
+		if state.flags&bodyLockLinearY != 0 {
+			v.Y = QZero()
+		}
+		if state.flags&bodyLockAngularZ != 0 {
+			omega = QZero()
+		}
+
+		// Clamp to max linear speed
+		if maxLinearSpeedSquared.Less(v.Dot(v)) {
+			ratio := maxLinearSpeed.Div(v.Len())
+			v = v.Mul(ratio)
+			state.flags |= bodyIsSpeedCapped
+		}
+
+		// Clamp to max angular speed
+		if maxAngularSpeedSquared.Less(omega.Mul(omega)) && state.flags&bodyAllowFastRotation == 0 {
+			ratio := maxAngularSpeed.Div(omega.Abs())
+			omega = omega.Mul(ratio)
+			state.flags |= bodyIsSpeedCapped
+		}
+
+		state.linearVelocity = v
+		state.angularVelocity = omega
+		state.deltaPosition = MulAdd(state.deltaPosition, h, v)
+		state.deltaRotation = integrateRotation(state.deltaRotation, h.Mul(omega))
 	}
 }
 
-func executeBlock(stage *solverStage, context *stepContext, block *solverBlock) {
+func executeBlock(stage *solverStage, context *stepContext, block *solverBlock, workerIndex int) {
 	startIndex := block.startIndex
 	endIndex := startIndex + block.count
 	blockType := solverBlockType(block.blockType)
@@ -180,7 +198,7 @@ func executeBlock(stage *solverStage, context *stepContext, block *solverBlock) 
 	case stagePrepareJoints:
 		prepareJointsTask(startIndex, endIndex, context)
 	case stagePrepareContacts:
-		runContactStageBlock(stage, context, startIndex, endIndex)
+		runContactStageBlock(stage, context, startIndex, endIndex, workerIndex)
 	case stageIntegrateVelocities:
 		integrateVelocitiesTask(startIndex, endIndex, context)
 	case stageWarmStart:
@@ -195,7 +213,7 @@ func executeBlock(stage *solverStage, context *stepContext, block *solverBlock) 
 		case graphContactBlock:
 			runGraphContactBlock(stage, context, startIndex, endIndex)
 		case graphJointBlock:
-			solveJointsTask(startIndex, endIndex, context, stage.colorIndex, true)
+			solveJointsTask(startIndex, endIndex, context, stage.colorIndex, true, workerIndex)
 		}
 	case stageIntegratePositions:
 		integratePositionsTask(startIndex, endIndex, context)
@@ -204,14 +222,14 @@ func executeBlock(stage *solverStage, context *stepContext, block *solverBlock) 
 		case graphContactBlock:
 			runGraphContactBlock(stage, context, startIndex, endIndex)
 		case graphJointBlock:
-			solveJointsTask(startIndex, endIndex, context, stage.colorIndex, false)
+			solveJointsTask(startIndex, endIndex, context, stage.colorIndex, false, workerIndex)
 		}
 	case stageRestitution:
 		if blockType == graphContactBlock {
 			runGraphContactBlock(stage, context, startIndex, endIndex)
 		}
 	case stageStoreImpulses:
-		runContactStageBlock(stage, context, startIndex, endIndex)
+		runContactStageBlock(stage, context, startIndex, endIndex, workerIndex)
 	}
 }
 
@@ -239,7 +257,7 @@ func executeStage(stage *solverStage, context *stepContext, previousSyncIndex, s
 
 	blockIndex := startIndex
 	for blocks[blockIndex].syncIndex.CompareAndSwap(int32(previousSyncIndex), int32(syncIndex)) {
-		executeBlock(stage, context, &blocks[blockIndex])
+		executeBlock(stage, context, &blocks[blockIndex], workerIndex)
 		completedCount += 1
 		blockIndex += 1
 		if blockIndex >= blockCount {
@@ -256,7 +274,7 @@ func executeStage(stage *solverStage, context *stepContext, previousSyncIndex, s
 			break
 		}
 
-		executeBlock(stage, context, &blocks[blockIndex])
+		executeBlock(stage, context, &blocks[blockIndex], workerIndex)
 		completedCount += 1
 		blockIndex -= 1
 	}
@@ -267,7 +285,7 @@ func executeStage(stage *solverStage, context *stepContext, previousSyncIndex, s
 func executeMainStage(stage *solverStage, context *stepContext, syncBits uint32) {
 	if context.workerCount == 1 {
 		for i := range stage.blocks {
-			executeBlock(stage, context, &stage.blocks[i])
+			executeBlock(stage, context, &stage.blocks[i], 0)
 		}
 		return
 	}
@@ -277,7 +295,7 @@ func executeMainStage(stage *solverStage, context *stepContext, syncBits uint32)
 		return
 	}
 	if blockCount == 1 {
-		executeBlock(stage, context, &stage.blocks[0])
+		executeBlock(stage, context, &stage.blocks[0], 0)
 		return
 	}
 
@@ -357,7 +375,7 @@ func solverMainTask(context *stepContext) {
 
 		useBias := true
 		solveOverflowJoints(context, useBias)
-		solveOverflowContacts(context, useBias)
+		pushOverflowContacts(context)
 		for range activeColorCount {
 			syncBits = uint32(graphSyncIndex)<<16 | uint32(iterStageIndex)
 			executeMainStage(&stages[iterStageIndex], context, syncBits)
@@ -374,7 +392,7 @@ func solverMainTask(context *stepContext) {
 
 		useBias = false
 		solveOverflowJoints(context, useBias)
-		solveOverflowContacts(context, useBias)
+		solveOverflowContacts(context)
 		for range activeColorCount {
 			syncBits = uint32(graphSyncIndex)<<16 | uint32(iterStageIndex)
 			executeMainStage(&stages[iterStageIndex], context, syncBits)
@@ -385,15 +403,22 @@ func solverMainTask(context *stepContext) {
 	}
 
 	stageIndex += 2 + 3*activeColorCount
-	applyOverflowRestitution(context)
-	iterStageIndex := stageIndex
-	for range activeColorCount {
-		syncBits = uint32(graphSyncIndex)<<16 | uint32(iterStageIndex)
-		executeMainStage(&stages[iterStageIndex], context, syncBits)
-		iterStageIndex += 1
+
+	restitutionIterations := context.world.restitutionIterations
+	if restitutionIterations > 0 && context.anyRestitution.Load() {
+		for range restitutionIterations {
+			applyOverflowRestitution(context)
+			iterStageIndex := stageIndex
+			for range activeColorCount {
+				syncBits = uint32(graphSyncIndex)<<16 | uint32(iterStageIndex)
+				executeMainStage(&stages[iterStageIndex], context, syncBits)
+				iterStageIndex += 1
+			}
+			graphSyncIndex += 1
+		}
+		context.world.profile.Restitution += millisecondsAndReset(&ticks)
 	}
 	stageIndex += activeColorCount
-	context.world.profile.ApplyRestitution += millisecondsAndReset(&ticks)
 
 	storeOverflowImpulses(context)
 	storeImpulses32(context)
@@ -440,14 +465,22 @@ func solverWorkerTask(worker workerContext) {
 // queries of the continuous stage. It corresponds to b2ContinuousContext
 // in src/solver.c.
 type continuousContext struct {
-	world       *world
-	fastBodySim *bodySim
-	fastShape   *shape
-	centroid1   Vec2
-	centroid2   Vec2
-	sweep       Sweep
-	fraction    Q
+	world           *world
+	fastBodySim     *bodySim
+	fastShape       *shape
+	centroid1       Vec2
+	centroid2       Vec2
+	sweep           Sweep
+	base            Pos
+	fraction        Q
+	sensorHits      [maxContinuousSensorHits]sensorHit
+	sensorFractions [maxContinuousSensorHits]Q
+	sensorCount     int
 }
+
+// maxContinuousSensorHits bounds the sensors one fast body can cross in a
+// step. It corresponds to B2_MAX_CONTINUOUS_SENSOR_HITS in src/solver.c.
+const maxContinuousSensorHits = 8
 
 // queryCallback runs for each proxy the swept box of the fast shape
 // touches and shortens the fraction on a time of impact. The method value
@@ -475,8 +508,9 @@ func (ctx *continuousContext) queryCallback(_ int, userData uint64) bool {
 		return true
 	}
 
-	// Skip sensors
-	if s.sensorIndex != nullIndex {
+	// Skip sensors unless the shapes want sensor events
+	isSensor := s.sensorIndex != nullIndex
+	if isSensor && (!s.enableSensorEvents || !fastShape.enableSensorEvents) {
 		return true
 	}
 
@@ -489,12 +523,14 @@ func (ctx *continuousContext) queryCallback(_ int, userData uint64) bool {
 	b := &w.bodies[s.bodyId]
 
 	sim := getBodySim(w, b)
-	if b.bodyType != StaticBody && !fastBodySim.isBullet {
+	if b.bodyType != StaticBody && fastBodySim.flags&bodyIsBullet == 0 {
 		panic("dbox2d: a fast body swept a moving body")
 	}
 
 	// Skip bullets
-	if sim.isBullet {
+	// Warning: it is only safe to read flags from other bodies, not body
+	// sims because there are body sim flag writes in the continuous solver.
+	if b.flags&bodyIsBullet != 0 {
 		return true
 	}
 
@@ -506,7 +542,7 @@ func (ctx *continuousContext) queryCallback(_ int, userData uint64) bool {
 	}
 
 	// Custom user filtering
-	if w.customFilterFcn != nil {
+	if (s.enableCustomFiltering || fastShape.enableCustomFiltering) && w.customFilterFcn != nil {
 		idA := ShapeId{index1: int32(s.id) + 1, world0: w.worldId, generation: s.generation}
 		idB := ShapeId{index1: int32(fastShape.id) + 1, world0: w.worldId, generation: fastShape.generation}
 		if !w.customFilterFcn(idA, idB) {
@@ -514,9 +550,9 @@ func (ctx *continuousContext) queryCallback(_ int, userData uint64) bool {
 		}
 	}
 
-	// Prevent pausing on chain segment junctions
+	// Early out on fast parallel movement over a chain shape.
 	if s.shapeType == ChainSegmentShape {
-		transform := sim.transform
+		transform := ToRelativeTransform(sim.transform, ctx.base)
 		p1 := TransformPoint(transform, s.chainSegment().Segment.Point1)
 		p2 := TransformPoint(transform, s.chainSegment().Segment.Point2)
 		e := p2.Sub(p1)
@@ -524,13 +560,13 @@ func (ctx *continuousContext) queryCallback(_ int, userData uint64) bool {
 		length, e = GetLengthAndNormalize(e)
 		if linearSlop.Less(length) {
 			c1 := ctx.centroid1
-			offset1 := Cross(c1.Sub(p1), e)
+			separation1 := Cross(c1.Sub(p1), e)
 			c2 := ctx.centroid2
-			offset2 := Cross(c2.Sub(p1), e)
+			separation2 := Cross(c2.Sub(p1), e)
 
-			// todo this should use the min extent of the fast shape, not the body
-			allowedFraction := oneQuarter
-			if offset1.Less(zero) || offset1.Sub(offset2).Less(allowedFraction.Mul(fastBodySim.minExtent)) {
+			coreDistance := oneQuarter.Mul(fastBodySim.minExtent)
+
+			if separation1.Less(zero) || (separation1.Sub(separation2).Less(coreDistance) && coreDistance.Less(separation2)) {
 				// Minimal clipping
 				return true
 			}
@@ -540,14 +576,27 @@ func (ctx *continuousContext) queryCallback(_ int, userData uint64) bool {
 	var input TOIInput
 	input.ProxyA = makeShapeDistanceProxy(s)
 	input.ProxyB = makeShapeDistanceProxy(fastShape)
-	input.SweepA = makeSweep(sim)
+	input.SweepA = makeRelativeSweep(sim, ctx.base)
 	input.SweepB = ctx.sweep
 	input.MaxFraction = ctx.fraction
+
+	output := ComputeTimeOfImpact(&input)
+	if isSensor {
+		// Only accept a sensor hit that is sooner than the current solid hit.
+		if !ctx.fraction.Less(output.Fraction) && ctx.sensorCount < maxContinuousSensorHits {
+			index := ctx.sensorCount
+
+			// The hit shape is a sensor
+			ctx.sensorHits[index] = sensorHit{sensorId: s.id, visitorId: fastShape.id}
+			ctx.sensorFractions[index] = output.Fraction
+			ctx.sensorCount++
+		}
+		return true
+	}
 
 	hitFraction := ctx.fraction
 
 	didHit := false
-	output := TimeOfImpact(&input)
 	if zero.Less(output.Fraction) && output.Fraction.Less(ctx.fraction) {
 		hitFraction = output.Fraction
 		didHit = true
@@ -558,23 +607,20 @@ func (ctx *continuousContext) queryCallback(_ int, userData uint64) bool {
 		radius := oneQuarter.Mul(extent.minExtent)
 		centroidPoint := [1]Vec2{centroid}
 		input.ProxyB = MakeProxy(centroidPoint[:], radius)
-		output = TimeOfImpact(&input)
+		output = ComputeTimeOfImpact(&input)
 		if zero.Less(output.Fraction) && output.Fraction.Less(ctx.fraction) {
 			hitFraction = output.Fraction
 			didHit = true
 		}
 	}
 
-	if didHit && (s.enablePreSolveEvents || fastShape.enablePreSolveEvents) && w.preSolveFcn != nil {
-		// Pre-solve is expensive: it needs a temporary manifold. The user
-		// may edit it, but only the real manifold of the discrete solver
-		// matters, so the edit here has no effect.
-		transformA := GetSweepTransform(&input.SweepA, hitFraction)
-		transformB := GetSweepTransform(&input.SweepB, hitFraction)
-		manifold := computeManifold(s, transformA, fastShape, transformB)
+	if didHit && (s.enablePreSolveEvents || fastShape.enablePreSolveEvents) && w.preContinuousFcn != nil {
 		idA := ShapeId{index1: int32(s.id) + 1, world0: w.worldId, generation: s.generation}
 		idB := ShapeId{index1: int32(fastShape.id) + 1, world0: w.worldId, generation: fastShape.generation}
-		didHit = w.preSolveFcn(idA, idB, &manifold)
+
+		// TOI runs in the base frame, lift the hit point back to world for the callback
+		worldPoint := OffsetPos(ctx.base, output.Point)
+		didHit = w.preContinuousFcn(idA, idB, worldPoint, output.Normal)
 	}
 
 	if didHit {
@@ -587,14 +633,16 @@ func (ctx *continuousContext) queryCallback(_ int, userData uint64) bool {
 // solveContinuous sweeps one fast body against the static tree, or
 // against every tree for a bullet, and moves the body back to its first
 // time of impact. It corresponds to b2SolveContinuous in src/solver.c.
-func solveContinuous(w *world, bodySimIndex int) {
+func solveContinuous(w *world, bodySimIndex int, taskContext *taskContext, dt Q) {
 	awake := &w.solverSets[awakeSet]
 	fastBodySim := &awake.bodySims[bodySimIndex]
-	if !fastBodySim.isFast {
+	if fastBodySim.flags&bodyIsFast == 0 {
 		panic("dbox2d: the continuous stage got a slow body")
 	}
 
-	sweep := makeSweep(fastBodySim)
+	// Re-center the sweep on the fast body so the TOI and the swept query stay in precision
+	base := fastBodySim.center0
+	sweep := makeRelativeSweep(fastBodySim, base)
 
 	var xf1 Transform
 	xf1.Q = sweep.Q1
@@ -612,10 +660,11 @@ func solveContinuous(w *world, bodySimIndex int) {
 	var ctx continuousContext
 	ctx.world = w
 	ctx.sweep = sweep
+	ctx.base = base
 	ctx.fastBodySim = fastBodySim
 	ctx.fraction = QOne()
 
-	isBullet := fastBodySim.isBullet
+	isBullet := fastBodySim.flags&bodyIsBullet != 0
 
 	shapeId := fastBody.headShapeId
 	for shapeId != nullIndex {
@@ -627,8 +676,8 @@ func solveContinuous(w *world, bodySimIndex int) {
 		ctx.centroid2 = TransformPoint(xf2, fastShape.localCentroid)
 
 		box1 := fastShape.aabb
-		box2 := computeShapeAABB(fastShape, xf2)
-		box := AABBUnion(box1, box2)
+		// xf2 is in the base frame, compute the tight box near the origin then lift to world
+		box2 := offsetAABB(computeShapeAABB(fastShape, MakeWorldTransform(xf2)), base)
 
 		// Store this to avoid double computation in the case there is no impact event
 		fastShape.aabb = box2
@@ -638,11 +687,13 @@ func solveContinuous(w *world, bodySimIndex int) {
 			continue
 		}
 
-		staticTree.query(box, DefaultMaskBits, ctx.queryCallback)
+		box := AABBUnion(box1, box2)
+
+		staticTree.overlapAABB(box, DefaultMaskBits, ctx.queryCallback)
 
 		if isBullet {
-			kinematicTree.query(box, DefaultMaskBits, ctx.queryCallback)
-			dynamicTree.query(box, DefaultMaskBits, ctx.queryCallback)
+			kinematicTree.overlapAABB(box, DefaultMaskBits, ctx.queryCallback)
+			dynamicTree.overlapAABB(box, DefaultMaskBits, ctx.queryCallback)
 		}
 	}
 
@@ -652,12 +703,28 @@ func solveContinuous(w *world, bodySimIndex int) {
 		c := Lerp(sweep.C1, sweep.C2, ctx.fraction)
 		origin := c.Sub(RotateVector(q, sweep.LocalCenter))
 
-		// Advance body
-		transform := Transform{P: origin, Q: q}
+		// Advance body, lifting the base frame result back to world
+		transform := WorldTransform{P: OffsetPos(base, origin), Q: q}
 		fastBodySim.transform = transform
-		fastBodySim.center = c
+		fastBodySim.center = OffsetPos(base, c)
 		fastBodySim.rotation0 = q
-		fastBodySim.center0 = c
+		fastBodySim.center0 = fastBodySim.center
+
+		// Warning: writing to the body sim flags means we should not read from other body sim flags in this function.
+		fastBodySim.flags |= bodyHadTimeOfImpact
+
+		// Timeloss means there is a lost gravity contribution. Other forces and torques are ignored for now.
+		fastBodyState := &awake.bodyStates[bodySimIndex]
+		v := fastBodyState.linearVelocity
+		timeLoss := QOne().Sub(ctx.fraction).Mul(dt)
+		dv := w.gravity.Mul(timeLoss.Neg().Mul(fastBodySim.gravityScale))
+		if fastBodyState.flags&bodyLockLinearX != 0 {
+			dv.X = QZero()
+		}
+		if fastBodyState.flags&bodyLockLinearY != 0 {
+			dv.Y = QZero()
+		}
+		fastBodyState.linearVelocity = v.Add(dv)
 
 		// Update body move event
 		w.bodyMoveEvents[bodySimIndex].Transform = transform
@@ -671,22 +738,20 @@ func solveContinuous(w *world, bodySimIndex int) {
 			s := &w.shapes[shapeId]
 
 			// Must recompute aabb at the interpolated transform
-			aabb := computeShapeAABB(s, transform)
-			aabb.LowerBound.X = aabb.LowerBound.X.Sub(speculativeDistance)
-			aabb.LowerBound.Y = aabb.LowerBound.Y.Sub(speculativeDistance)
-			aabb.UpperBound.X = aabb.UpperBound.X.Add(speculativeDistance)
-			aabb.UpperBound.Y = aabb.UpperBound.Y.Add(speculativeDistance)
+			aabb := computeFatShapeAABB(s, transform, speculativeDistance)
 			s.aabb = aabb
 
-			if !AABBContains(s.fatAABB, aabb) {
-				fatAABB := AABB{
-					LowerBound: Vec2{X: aabb.LowerBound.X.Sub(aabbMargin), Y: aabb.LowerBound.Y.Sub(aabbMargin)},
-					UpperBound: Vec2{X: aabb.UpperBound.X.Add(aabbMargin), Y: aabb.UpperBound.Y.Add(aabbMargin)},
-				}
-				s.fatAABB = fatAABB
+			if !AABBContains(w.fatAABBs[s.id], aabb) {
+				fatAABB := fattenAABB(aabb, s.aabbMargin)
+				w.fatAABBs[s.id] = fatAABB
 
-				s.enlargedAABB = true
-				fastBodySim.enlargeAABB = true
+				// Regular bodies mark the hierarchy as enlarged using atomic operations.
+				// Bullets are handled separately at a later stage.
+				if fastBodySim.flags&bodyIsBullet == 0 {
+					w.broadPhase.markProxyMoved(s.proxyKey, fatAABB)
+				} else {
+					fastBodySim.flags |= bodyEnlargeBulletBounds
+				}
 			}
 
 			shapeId = s.nextShapeId
@@ -705,18 +770,30 @@ func solveContinuous(w *world, bodySimIndex int) {
 
 			// shape->aabb is still valid from above
 
-			if !AABBContains(s.fatAABB, s.aabb) {
-				fatAABB := AABB{
-					LowerBound: Vec2{X: s.aabb.LowerBound.X.Sub(aabbMargin), Y: s.aabb.LowerBound.Y.Sub(aabbMargin)},
-					UpperBound: Vec2{X: s.aabb.UpperBound.X.Add(aabbMargin), Y: s.aabb.UpperBound.Y.Add(aabbMargin)},
-				}
-				s.fatAABB = fatAABB
+			if !AABBContains(w.fatAABBs[s.id], s.aabb) {
+				// Note: far from the origin the margin can be snapped to
+				// the nearest ULP. So we lose the broad-phase hysteresis.
+				fatAABB := fattenAABB(s.aabb, s.aabbMargin)
+				w.fatAABBs[s.id] = fatAABB
 
-				s.enlargedAABB = true
-				fastBodySim.enlargeAABB = true
+				// Regular bodies mark the hierarchy as enlarged using atomic operations.
+				// Bullets are handled separately at a later stage.
+				if fastBodySim.flags&bodyIsBullet == 0 {
+					w.broadPhase.markProxyMoved(s.proxyKey, fatAABB)
+				} else {
+					fastBodySim.flags |= bodyEnlargeBulletBounds
+				}
 			}
 
 			shapeId = s.nextShapeId
+		}
+	}
+
+	// Push sensor hits on the task context for serial processing.
+	for i := range ctx.sensorCount {
+		// Skip any sensor hits that occurred after a solid hit
+		if ctx.sensorFractions[i].Less(ctx.fraction) {
+			taskContext.sensorHits = append(taskContext.sensorHits, ctx.sensorHits[i])
 		}
 	}
 }
@@ -739,7 +816,6 @@ func finalizeBodiesTask(startIndex, endIndex, workerIndex int, context *stepCont
 	}
 
 	taskContext := &w.taskContexts[workerIndex]
-	enlargedSimBitSet := &taskContext.enlargedSimBitSet
 	awakeIslandBitSet := &taskContext.awakeIslandBitSet
 	taskContext.bulletBodies = context.bulletBodies[startIndex:endIndex:endIndex]
 	taskContext.bulletBodyCount = 0
@@ -762,7 +838,7 @@ func finalizeBodiesTask(startIndex, endIndex, workerIndex int, context *stepCont
 			panic("dbox2d: the angular velocity is not valid")
 		}
 
-		sim.center = sim.center.Add(state.deltaPosition)
+		sim.center = OffsetPos(sim.center, state.deltaPosition)
 		sim.transform.Q = NormalizeRot(MulRot(state.deltaRotation, sim.transform.Q))
 
 		// Use the velocity of the farthest point on the body to account for
@@ -781,7 +857,7 @@ func finalizeBodiesTask(startIndex, endIndex, workerIndex int, context *stepCont
 		state.deltaPosition = Vec2Zero()
 		state.deltaRotation = RotIdentity()
 
-		sim.transform.P = sim.center.Sub(RotateVector(sim.transform.Q, sim.localCenter))
+		sim.transform.P = offsetPosSub(sim.center, RotateVector(sim.transform.Q, sim.localCenter))
 
 		// cache miss here, however I need the shape list below
 		b := &w.bodies[sim.bodyId]
@@ -795,26 +871,33 @@ func finalizeBodiesTask(startIndex, endIndex, workerIndex int, context *stepCont
 		sim.force = Vec2Zero()
 		sim.torque = zero
 
-		b.isSpeedCapped = sim.isSpeedCapped
-		sim.isSpeedCapped = false
+		// Clear the transient flags. These flags are conditionally set as
+		// part of the code below.
+		b.flags &^= bodyTransientFlags
+		sim.flags &^= bodyIsFast | bodyTransientFlags
 
-		sim.isFast = false
+		// The body state flag knows about speed capping (used for debug
+		// draw).
+		b.flags |= state.flags & bodyIsSpeedCapped
+		state.flags &^= bodyTransientFlags
 
-		if !enableSleep || !b.enableSleep || b.sleepThreshold.Less(sleepVelocity) {
+		if !enableSleep || b.flags&bodyEnableSleep == 0 || b.sleepThreshold.Less(sleepVelocity) {
 			// Body is not sleepy
 			b.sleepTime = zero
 
-			if b.bodyType == DynamicBody && enableContinuous && half.Mul(sim.minExtent).Less(maxVelocity.Mul(timeStep)) {
+			safetyFactor := b.safetyFactor
+			maxMotion := maxDeltaPosition.Max(maxVelocity.Mul(timeStep))
+			if b.bodyType == DynamicBody && enableContinuous && safetyFactor.Mul(sim.minExtent).Less(maxMotion) {
 				// This flag is only retained for debug draw
-				sim.isFast = true
+				sim.flags |= bodyIsFast
 
 				// Store in fast array for the continuous collision stage
 				// This is deterministic because the order of TOI sweeps doesn't matter
-				if sim.isBullet {
+				if sim.flags&bodyIsBullet != 0 {
 					taskContext.bulletBodies[taskContext.bulletBodyCount] = simIndex
 					taskContext.bulletBodyCount++
 				} else {
-					solveContinuous(w, simIndex)
+					solveContinuous(w, simIndex, taskContext, context.dt)
 				}
 			} else {
 				// Body is safe to advance
@@ -835,9 +918,11 @@ func finalizeBodiesTask(startIndex, endIndex, workerIndex int, context *stepCont
 			islandIndex := isl.localIndex
 			awakeIslandBitSet.setBit(islandIndex)
 		} else if isl.constraintRemoveCount > 0 {
-			// body wants to sleep but its island needs splitting first
-			if taskContext.splitSleepTime.Less(b.sleepTime) {
-				// pick the sleepiest candidate
+			// Body wants to sleep but its island needs splitting first. Track
+			// the sleepiest candidate. Break sleep time ties using the island
+			// id to ensure determinism. The cross worker reduction breaks ties
+			// the same way.
+			if taskContext.splitSleepTime.Less(b.sleepTime) || (b.sleepTime.Eq(taskContext.splitSleepTime) && b.islandId > taskContext.splitIslandId) {
 				taskContext.splitIslandId = b.islandId
 				taskContext.splitSleepTime = b.sleepTime
 			}
@@ -845,7 +930,7 @@ func finalizeBodiesTask(startIndex, endIndex, workerIndex int, context *stepCont
 
 		// Update shapes AABBs
 		transform := sim.transform
-		isFast := sim.isFast
+		isFast := sim.flags&bodyIsFast != 0
 		shapeId := b.headShapeId
 		for shapeId != nullIndex {
 			s := &w.shapes[shapeId]
@@ -854,32 +939,17 @@ func finalizeBodiesTask(startIndex, endIndex, workerIndex int, context *stepCont
 				// For fast non-bullet bodies the AABB has already been updated in solveContinuous
 				// For fast bullet bodies the AABB will be updated at a later stage
 
-				// Add to enlarged shapes regardless of AABB changes.
-				// Bit-set to keep the move array sorted
-				enlargedSimBitSet.setBit(simIndex)
 			} else {
-				aabb := computeShapeAABB(s, transform)
-				aabb.LowerBound.X = aabb.LowerBound.X.Sub(speculativeDistance)
-				aabb.LowerBound.Y = aabb.LowerBound.Y.Sub(speculativeDistance)
-				aabb.UpperBound.X = aabb.UpperBound.X.Add(speculativeDistance)
-				aabb.UpperBound.Y = aabb.UpperBound.Y.Add(speculativeDistance)
+				// Update bounds for slow bodies, including slow bullets.
+				aabb := computeFatShapeAABB(s, transform, speculativeDistance)
 				s.aabb = aabb
 
-				if s.enlargedAABB {
-					panic("dbox2d: the shape is still marked enlarged")
-				}
+				if !AABBContains(w.fatAABBs[s.id], aabb) {
+					fatAABB := fattenAABB(aabb, s.aabbMargin)
+					w.fatAABBs[s.id] = fatAABB
 
-				if !AABBContains(s.fatAABB, aabb) {
-					fatAABB := AABB{
-						LowerBound: Vec2{X: aabb.LowerBound.X.Sub(aabbMargin), Y: aabb.LowerBound.Y.Sub(aabbMargin)},
-						UpperBound: Vec2{X: aabb.UpperBound.X.Add(aabbMargin), Y: aabb.UpperBound.Y.Add(aabbMargin)},
-					}
-					s.fatAABB = fatAABB
-
-					s.enlargedAABB = true
-
-					// Bit-set to keep the move array sorted
-					enlargedSimBitSet.setBit(simIndex)
+					// Mark the hierarchy as enlarged using atomic operations.
+					w.broadPhase.markProxyMoved(s.proxyKey, fatAABB)
 				}
 			}
 
@@ -890,10 +960,11 @@ func finalizeBodiesTask(startIndex, endIndex, workerIndex int, context *stepCont
 
 // bulletBodyTask sweeps a range of bullet bodies. It corresponds to
 // b2BulletBodyTask in src/solver.c.
-func bulletBodyTask(startIndex, endIndex, _ int, context *stepContext) {
+func bulletBodyTask(startIndex, endIndex, workerIndex int, context *stepContext) {
 	w := context.world
+	taskContext := &w.taskContexts[workerIndex]
 	for i := startIndex; i < endIndex; i++ {
-		solveContinuous(w, context.bulletBodies[i])
+		solveContinuous(w, context.bulletBodies[i], taskContext, context.dt)
 	}
 }
 
@@ -1144,11 +1215,6 @@ func buildSolverStages(w *world, context *stepContext, awakeBodyCount int) {
 func solve(w *world, context *stepContext) {
 	w.stepIndex += 1
 
-	// Merge islands
-	mergeIslandsStart := time.Now()
-	mergeAwakeIslands(w)
-	w.profile.MergeIslands = millisecondsSince(mergeIslandsStart)
-
 	// Are there any awake bodies? This scenario should not be important for profiling.
 	awake := &w.solverSets[awakeSet]
 	awakeBodyCount := len(awake.bodySims)
@@ -1206,7 +1272,7 @@ func solve(w *world, context *stepContext) {
 		allocateContactConstraints32(w, context, colors)
 		buildSolverStages(w, context, awakeBodyCount)
 
-		w.profile.PrepareStages = millisecondsSince(prepareStagesStart)
+		w.profile.SolverSetup = millisecondsSince(prepareStagesStart)
 
 		// The constraint stages run as one persistent-pool job per worker.
 		solveConstraintsStart := time.Now()
@@ -1218,23 +1284,40 @@ func solve(w *world, context *stepContext) {
 		// The split writes the islands and their links, which the script
 		// never reads; the body finalize must wait for it.
 		w.taskCount++
+
+		// The joint solve flags the joints that cross a threshold by id.
+		// The contact store flags the contacts with a hit event candidate.
+		jointIdCapacity := w.jointIdPool.idCapacity()
+		contactIdCapacity := w.contactIdPool.idCapacity()
+		for i := range w.taskContexts {
+			taskContext := &w.taskContexts[i]
+			setBitCountAndClear(&taskContext.jointStateBitSet, jointIdCapacity)
+			setBitCountAndClear(&taskContext.hitEventBitSet, contactIdCapacity)
+			taskContext.hasHitEvents = false
+		}
+		context.anyRestitution.Store(false)
+
 		w.executor.runContextWithSide(solverTask, sideFn, context)
 		w.splitIslandId = nullIndex
 
-		w.profile.SolveConstraints = millisecondsSince(solveConstraintsStart)
+		w.profile.Constraints = millisecondsSince(solveConstraintsStart)
 
 		transformsStart := time.Now()
 
-		// Prepare the enlarged body and island bit sets used in body finalization.
+		// Prepare the island bit sets used in body finalization.
 		awakeIslandCount := len(awake.islandSims)
 		for i := range w.workerCount {
 			taskContext := &w.taskContexts[i]
-			setBitCountAndClear(&taskContext.enlargedSimBitSet, awakeBodyCount)
 			setBitCountAndClear(&taskContext.awakeIslandBitSet, awakeIslandCount)
 			taskContext.splitIslandId = nullIndex
 			taskContext.splitSleepTime = QZero()
 			taskContext.bulletBodyCount = 0
+			taskContext.sensorHits = taskContext.sensorHits[:0]
 		}
+
+		// Finish the tree rebuild that was queued earlier in the time step.
+		// This must be complete before touching the broad-phase.
+		w.treeTask.wait()
 
 		// Finalize bodies. Must happen after the constraint solver and after island splitting.
 		w.taskCount++
@@ -1247,9 +1330,6 @@ func solve(w *world, context *stepContext) {
 			context.bulletBodyCount += taskContext.bulletBodyCount
 		}
 
-		for i := 1; i < w.workerCount; i++ {
-			inPlaceUnion(&w.taskContexts[0].enlargedSimBitSet, &w.taskContexts[i].enlargedSimBitSet)
-		}
 		for i := range graphColorCount {
 			colors[i].contacts = nil
 			colors[i].contacts32 = nil
@@ -1278,6 +1358,37 @@ func solve(w *world, context *stepContext) {
 		w.profile.Transforms = millisecondsSince(transformsStart)
 	}
 
+	// Report joint events
+	{
+		jointEventsStart := time.Now()
+
+		// Gather bits for all joints that have force/torque events
+		jointStateBitSet := &w.taskContexts[0].jointStateBitSet
+		for i := 1; i < len(w.taskContexts); i++ {
+			inPlaceUnion(jointStateBitSet, &w.taskContexts[i].jointStateBitSet)
+		}
+
+		for k, word := range jointStateBitSet.bits {
+			for word != 0 {
+				jointId := 64*k + bits.TrailingZeros64(word)
+				j := &w.joints[jointId]
+				if j.setIndex != awakeSet {
+					panic("dbox2d: a joint event comes from a joint that is not awake")
+				}
+
+				w.jointEvents = append(w.jointEvents, JointEvent{
+					JointId:  JointId{index1: int32(jointId) + 1, world0: w.worldId, generation: j.generation},
+					UserData: j.userData,
+				})
+
+				// Clear the smallest set bit
+				word &= word - 1
+			}
+		}
+
+		w.profile.JointEvents = millisecondsSince(jointEventsStart)
+	}
+
 	// Report hit events
 	{
 		hitEventsStart := time.Now()
@@ -1286,22 +1397,46 @@ func solve(w *world, context *stepContext) {
 			panic("dbox2d: the hit events are not clear")
 		}
 
+		// Skip unless a worker flagged a hit event candidate in the store.
+		anyHitEvents := false
+		for i := range w.taskContexts {
+			if w.taskContexts[i].hasHitEvents {
+				anyHitEvents = true
+				break
+			}
+		}
+
 		threshold := w.hitEventThreshold
 		colors := &w.constraintGraph.colors
 		zero := QZero()
-		for i := range graphColorCount {
-			color := &colors[i]
-			contactSims := color.contactSims
-			for j := range contactSims {
-				cs := &contactSims[j]
-				if cs.simFlags&simEnableHitEvent == 0 {
-					continue
+		hitEventBitSet := &w.taskContexts[0].hitEventBitSet
+		if anyHitEvents {
+			// Union the worker bits into the bits of worker 0.
+			for i := 1; i < len(w.taskContexts); i++ {
+				if w.taskContexts[i].hasHitEvents {
+					inPlaceUnion(hitEventBitSet, &w.taskContexts[i].hitEventBitSet)
 				}
+			}
+		}
+		for k, word := range hitEventBitSet.bits {
+			if !anyHitEvents {
+				break
+			}
+			for word != 0 {
+				ctz := bits.TrailingZeros64(word)
+				word &= word - 1
+				contactId := 64*k + ctz
+
+				contact := &w.contacts[contactId]
+				if contact.setIndex != awakeSet || contact.colorIndex == nullIndex {
+					panic("dbox2d: a hit event contact is not in the graph")
+				}
+				cs := &colors[contact.colorIndex].contactSims[contact.localIndex]
 
 				event := ContactHitEvent{}
 				event.ApproachSpeed = threshold
 
-				hit := false
+				var bestPoint *ManifoldPoint
 				pointCount := cs.manifold.PointCount
 				for k := range pointCount {
 					mp := &cs.manifold.Points[k]
@@ -1310,15 +1445,26 @@ func solve(w *world, context *stepContext) {
 					// Need to check total impulse because the point may be speculative and not colliding
 					if event.ApproachSpeed.Less(approachSpeed) && zero.Less(mp.TotalNormalImpulse) {
 						event.ApproachSpeed = approachSpeed
-						event.Point = mp.Point
-						hit = true
+						bestPoint = mp
 					}
 				}
 
-				if hit {
+				if bestPoint != nil {
 					event.Normal = cs.manifold.Normal
+
+					// The world point comes from a body center of mass and the
+					// matching anchor. A static body has not moved, so prefer
+					// it when a moving body strikes the world.
+					bodyA := &w.bodies[w.shapes[cs.shapeIdA].bodyId]
+					bodyB := &w.bodies[w.shapes[cs.shapeIdB].bodyId]
+					if bodyA.bodyType != StaticBody && bodyB.bodyType == StaticBody {
+						event.Point = OffsetPos(getBodySim(w, bodyB).center, bestPoint.AnchorB)
+					} else {
+						event.Point = OffsetPos(getBodySim(w, bodyA).center, bestPoint.AnchorA)
+					}
 					event.ShapeIdA = shapeIdOf(w, &w.shapes[cs.shapeIdA])
 					event.ShapeIdB = shapeIdOf(w, &w.shapes[cs.shapeIdB])
+					event.ContactId = contactIdOf(w, &w.contacts[cs.contactId])
 					w.contactHitEvents = append(w.contactHitEvents, event)
 				}
 			}
@@ -1331,65 +1477,15 @@ func solve(w *world, context *stepContext) {
 	{
 		refitStart := time.Now()
 
-		// Finish the tree rebuild that started in collide. It must be
-		// complete before the broad-phase is touched.
-		w.treeTask.wait()
-
-		enlargedBodyBitSet := &w.taskContexts[0].enlargedSimBitSet
-
-		// Enlarge broad-phase proxies and build move array
-		// Apply shape AABB changes to broad-phase. This also create the move array which must be
-		// in deterministic order. Sim bodies are tracked because the number of shape ids can be huge.
-		broadPhase := &w.broadPhase
-		bodySimArray := awake.bodySims
-
-		for k := range enlargedBodyBitSet.bits {
-			word := enlargedBodyBitSet.bits[k]
-			for word != 0 {
-				ctz := bits.TrailingZeros64(word)
-				bodySimIndex := 64*k + ctz
-
-				bodySim := &bodySimArray[bodySimIndex]
-
-				b := &w.bodies[bodySim.bodyId]
-
-				shapeId := b.headShapeId
-				if bodySim.isBullet && bodySim.isFast {
-					// Fast bullet bodies don't have their final AABB yet
-					for shapeId != nullIndex {
-						s := &w.shapes[shapeId]
-
-						// Shape is fast. It's aabb will be enlarged in continuous collision.
-						// Update the move array here for determinism because bullets are processed
-						// below in non-deterministic order.
-						broadPhase.bufferMove(s.proxyKey)
-
-						shapeId = s.nextShapeId
-					}
-				} else {
-					for shapeId != nullIndex {
-						s := &w.shapes[shapeId]
-
-						// The AABB may not have been enlarged, despite the body being flagged as enlarged.
-						// For example, a body with multiple shapes may have not have all shapes enlarged.
-						// A fast body may have been flagged as enlarged despite having no shapes enlarged.
-						if s.enlargedAABB {
-							broadPhase.enlargeProxy(s.proxyKey, s.fatAABB)
-							s.enlargedAABB = false
-						}
-
-						shapeId = s.nextShapeId
-					}
-				}
-
-				// Clear the smallest set bit
-				word = word & (word - 1)
-			}
-		}
+		bp := &w.broadPhase
+		bp.trees[KinematicBody].refit()
+		bp.trees[DynamicBody].refit()
 
 		w.profile.Refit = millisecondsSince(refitStart)
 	}
 
+	// Bullets are processed after the broad-phase refit so they can query
+	// the final non-bullet world.
 	// Continuous collision of the bullet bodies. The proxy refit remains serial.
 	if context.bulletBodyCount > 0 {
 		bulletsStart := time.Now()
@@ -1408,38 +1504,30 @@ func solve(w *world, context *stepContext) {
 
 		for _, simIndex := range bulletBodySimIndices {
 			bulletBodySim := &bodySimArray[simIndex]
-			if !bulletBodySim.enlargeAABB {
+			if bulletBodySim.flags&bodyEnlargeBulletBounds == 0 {
 				continue
 			}
 
 			// clear flag
-			bulletBodySim.enlargeAABB = false
+			bulletBodySim.flags &^= bodyEnlargeBulletBounds
 
 			bulletBody := &w.bodies[bulletBodySim.bodyId]
 
 			shapeId := bulletBody.headShapeId
 			for shapeId != nullIndex {
 				s := &w.shapes[shapeId]
-				if !s.enlargedAABB {
-					shapeId = s.nextShapeId
-					continue
-				}
-
-				// clear flag
-				s.enlargedAABB = false
-
 				proxyKey := s.proxyKey
 				proxyId := proxyIdOf(proxyKey)
 				if proxyTypeOf(proxyKey) != DynamicBody {
 					panic("dbox2d: a bullet shape is not in the dynamic tree")
 				}
 
-				// all fast bullet shapes should already be in the move buffer
-				if !broadPhase.moveSet.containsKey(uint64(proxyKey) + 1) {
-					panic("dbox2d: a bullet shape is not in the move buffer")
+				// Double check containment because a bullet can have multiple
+				// shapes and maybe just one needs an update.
+				treeAABB := dynamicTree.getProxyBounds(proxyId)
+				if !AABBContains(treeAABB, w.fatAABBs[s.id]) {
+					dynamicTree.enlargeProxy(proxyId, w.fatAABBs[s.id])
 				}
-
-				dynamicTree.enlargeProxy(proxyId, s.fatAABB)
 
 				shapeId = s.nextShapeId
 			}
@@ -1454,6 +1542,23 @@ func solve(w *world, context *stepContext) {
 	context.bulletBodyMem = nil
 	context.bulletBodyCount = 0
 
+	// Report sensor hits. This may include bullets sensor hits.
+	{
+		sensorHitsStart := time.Now()
+
+		for i := range w.workerCount {
+			for _, hit := range w.taskContexts[i].sensorHits {
+				sensorShape := &w.shapes[hit.sensorId]
+				visitor := &w.shapes[hit.visitorId]
+
+				s := &w.sensors[sensorShape.sensorIndex]
+				s.hits = append(s.hits, shapeRef{shapeId: hit.visitorId, generation: visitor.generation})
+			}
+		}
+
+		w.profile.SensorHits = millisecondsSince(sensorHitsStart)
+	}
+
 	// Island sleeping
 	// This must be done last because putting islands to sleep invalidates the enlarged body bits.
 	if w.enableSleep {
@@ -1463,13 +1568,15 @@ func solve(w *world, context *stepContext) {
 		if w.splitIslandId != nullIndex {
 			panic("dbox2d: the split candidate is not clear")
 		}
-		// The ranges are fixed and ascending, so the first worker wins a
-		// tie, as the first body wins inside a worker. The reference breaks
-		// ties by island id because of work stealing.
 		splitSleepTimer := QZero()
 		for i := range w.workerCount {
 			taskContext := &w.taskContexts[i]
-			if taskContext.splitIslandId != nullIndex && splitSleepTimer.Less(taskContext.splitSleepTime) {
+			if taskContext.splitIslandId != nullIndex && !taskContext.splitSleepTime.Less(splitSleepTimer) {
+				// Tie breaking for determinism. Largest island id wins.
+				if taskContext.splitSleepTime.Eq(splitSleepTimer) && taskContext.splitIslandId < w.splitIslandId {
+					continue
+				}
+
 				w.splitIslandId = taskContext.splitIslandId
 				splitSleepTimer = taskContext.splitSleepTime
 			}
@@ -1507,12 +1614,12 @@ func resizeMoveEvents(events []BodyMoveEvent, count int) []BodyMoveEvent {
 }
 
 // runContactStageBlockScalar keeps flat prepare/store work behind the family hook.
-func runContactStageBlockScalar(stage *solverStage, context *stepContext, startIndex, endIndex int) {
+func runContactStageBlockScalar(stage *solverStage, context *stepContext, startIndex, endIndex, workerIndex int) {
 	switch stage.stageType {
 	case stagePrepareContacts:
 		prepareContactsTask(startIndex, endIndex, context)
 	case stageStoreImpulses:
-		storeImpulsesTask(startIndex, endIndex, context)
+		storeImpulsesTask(startIndex, endIndex, context, workerIndex)
 	}
 }
 
@@ -1523,9 +1630,9 @@ func runGraphContactBlockScalar(stage *solverStage, context *stepContext, startI
 	case stageWarmStart:
 		warmStartContactsTask(startIndex, endIndex, context, stage.colorIndex)
 	case stageSolve:
-		solveContactsTask(startIndex, endIndex, context, stage.colorIndex, true)
+		pushContactsTask(startIndex, endIndex, context, stage.colorIndex)
 	case stageRelax:
-		solveContactsTask(startIndex, endIndex, context, stage.colorIndex, false)
+		solveContactsTask(startIndex, endIndex, context, stage.colorIndex)
 	case stageRestitution:
 		applyRestitutionTask(startIndex, endIndex, context, stage.colorIndex)
 	}
@@ -1554,9 +1661,9 @@ func runGraphContactBlock(stage *solverStage, context *stepContext, startIndex, 
 	case stageWarmStart:
 		warmStartContacts32(start32, end32, context, stage.colorIndex)
 	case stageSolve:
-		solveContacts32(start32, end32, context, stage.colorIndex, true)
+		pushContacts32(start32, end32, context, stage.colorIndex)
 	case stageRelax:
-		solveContacts32(start32, end32, context, stage.colorIndex, false)
+		solveContacts32(start32, end32, context, stage.colorIndex)
 	case stageRestitution:
 		applyRestitution32(start32, end32, context, stage.colorIndex)
 	}

@@ -30,7 +30,6 @@ func TestRemoveSwapNoClearTypesHaveNoPointers(t *testing.T) {
 	types := []reflect.Type{
 		reflect.TypeFor[bodySim](),
 		reflect.TypeFor[bodyState](),
-		reflect.TypeFor[movePair](),
 		reflect.TypeFor[contactSim](),
 		reflect.TypeFor[jointSim](),
 		reflect.TypeFor[islandSim](),
@@ -52,7 +51,6 @@ func sleepPair(t *testing.T, w *world, worldId WorldId) (idA, idB BodyId, sleepI
 	idA = addDynamicCircle(t, worldId, v2(0, 0))
 	idB = addDynamicCircle(t, worldId, v2(1, 0))
 	startTouching(t, w, idA, idB)
-	mergeAwakeIslands(w)
 
 	bodyA := getBodyFullId(w, idA)
 	trySleepIsland(w, bodyA.islandId)
@@ -63,7 +61,7 @@ func sleepPair(t *testing.T, w *world, worldId WorldId) (idA, idB BodyId, sleepI
 func addStaticCircle(t *testing.T, worldId WorldId, position Vec2) BodyId {
 	t.Helper()
 	bodyDef := DefaultBodyDef()
-	bodyDef.Position = position
+	bodyDef.Position = ToPos(position)
 	bodyId := CreateBody(worldId, &bodyDef)
 	shapeDef := DefaultShapeDef()
 	circle := Circle{Radius: QHalf()}
@@ -300,7 +298,7 @@ func TestJointSleepsAndWakesWithTheIsland(t *testing.T) {
 	idA := addDynamicCircle(t, worldId, v2(0, 0))
 	idB := addDynamicCircle(t, worldId, v2(3, 0))
 	def := DefaultRevoluteJointDef()
-	def.BodyIdA, def.BodyIdB = idA, idB
+	def.Base.BodyIdA, def.Base.BodyIdB = idA, idB
 	jointId := CreateRevoluteJoint(worldId, &def)
 	j := getJointFullId(w, jointId)
 	bodyA := getBodyFullId(w, idA)
@@ -349,7 +347,7 @@ func TestJointBetweenSleepingSetsMergesThem(t *testing.T) {
 	idA1, _, set1 := sleepPair(t, w, worldId)
 	groundId := addStaticCircle(t, worldId, v2(0, -3))
 	holdDef := DefaultRevoluteJointDef()
-	holdDef.BodyIdA, holdDef.BodyIdB = groundId, idA1
+	holdDef.Base.BodyIdA, holdDef.Base.BodyIdB = groundId, idA1
 	holdId := CreateRevoluteJoint(worldId, &holdDef)
 
 	idA2 := addDynamicCircle(t, worldId, v2(5, 0))
@@ -358,7 +356,7 @@ func TestJointBetweenSleepingSetsMergesThem(t *testing.T) {
 	set2 := bodyA2.setIndex
 
 	def := DefaultDistanceJointDef()
-	def.BodyIdA, def.BodyIdB = idA1, idA2
+	def.Base.BodyIdA, def.Base.BodyIdB = idA1, idA2
 	jointId := CreateDistanceJoint(worldId, &def)
 
 	j := getJointFullId(w, jointId)
@@ -390,7 +388,7 @@ func TestTransferJointMovesBetweenSets(t *testing.T) {
 	idA := addDynamicCircle(t, worldId, v2(5, 0))
 	idB := addDynamicCircle(t, worldId, v2(8, 0))
 	def := DefaultWeldJointDef()
-	def.BodyIdA, def.BodyIdB = idA, idB
+	def.Base.BodyIdA, def.Base.BodyIdB = idA, idB
 	jointId := CreateWeldJoint(worldId, &def)
 	j := getJointFullId(w, jointId)
 	colorIndex := j.colorIndex

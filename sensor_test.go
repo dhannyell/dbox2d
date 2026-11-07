@@ -8,7 +8,7 @@ import (
 func addSensorBox(t *testing.T, worldId WorldId, position Vec2, halfWidth, halfHeight Q) (BodyId, ShapeId) {
 	t.Helper()
 	bodyDef := DefaultBodyDef()
-	bodyDef.Position = position
+	bodyDef.Position = ToPos(position)
 	bodyId := CreateBody(worldId, &bodyDef)
 	shapeDef := DefaultShapeDef()
 	shapeDef.IsSensor = true
@@ -21,7 +21,7 @@ func addSensorVisitorBox(t *testing.T, worldId WorldId, position Vec2, halfWidth
 	t.Helper()
 	bodyDef := DefaultBodyDef()
 	bodyDef.Type = DynamicBody
-	bodyDef.Position = position
+	bodyDef.Position = ToPos(position)
 	bodyId := CreateBody(worldId, &bodyDef)
 	shapeDef := DefaultShapeDef()
 	shapeDef.EnableSensorEvents = enableEvents
@@ -79,17 +79,19 @@ func TestSensorEventsAreWorkerCountIndependent(t *testing.T) {
 		}
 		switch step {
 		case 0:
-			visitorOne.SetTransform(v2(10, 0), RotIdentity())
-			visitorFour.SetTransform(v2(10, 0), RotIdentity())
+			visitorOne.SetTransform(ToPos(v2(10, 0)), RotIdentity())
+			visitorFour.SetTransform(ToPos(v2(10, 0)), RotIdentity())
 		case 1:
-			visitorOne.SetTransform(Vec2Zero(), RotIdentity())
-			visitorFour.SetTransform(Vec2Zero(), RotIdentity())
+			visitorOne.SetTransform(ToPos(Vec2Zero()), RotIdentity())
+			visitorFour.SetTransform(ToPos(Vec2Zero()), RotIdentity())
 		}
 	}
 }
 
-// TestSensorBeginAndEndAroundAFallingBox pins one begin step followed
-// immediately by one end step as a box falls through a thin sensor.
+// TestSensorBeginAndEndAroundAFallingBox pins one begin step followed by one
+// end step as a box falls through a thin sensor. The box is fast for its
+// size, so continuous sensor hits keep the touch while the sweep starts within
+// the time of impact target (linear slop) of the sensor: end on step 3.
 func TestSensorBeginAndEndAroundAFallingBox(t *testing.T) {
 	worldId := createTestWorld(t)
 	thin := QMustParse("0.0005")
@@ -134,8 +136,8 @@ func TestSensorBeginAndEndAroundAFallingBox(t *testing.T) {
 	if endStep == -1 {
 		t.Fatal("the falling box produced no sensor end event")
 	}
-	if endStep != beginStep+1 {
-		t.Fatalf("sensor begin and end events occurred on steps %d and %d, want consecutive steps", beginStep, endStep)
+	if beginStep != 0 || endStep != 3 {
+		t.Fatalf("sensor begin and end events occurred on steps %d and %d, want 0 and 3", beginStep, endStep)
 	}
 }
 
@@ -279,5 +281,83 @@ func TestSensorTouchingEdgeIsNotOverlap(t *testing.T) {
 	worldId.Step(stepDt(), 4)
 	if events := worldId.GetSensorEvents(); len(events.BeginEvents) != 0 {
 		t.Fatalf("boxes separated by one linear slop report %d sensor begin events", len(events.BeginEvents))
+	}
+}
+
+// addFastVisitorCircle adds a small dynamic circle that crosses dx meters in
+// one step, so only the continuous sweep can see what it passes.
+func addFastVisitorCircle(t *testing.T, worldId WorldId, position Vec2, dx Q) (BodyId, ShapeId) {
+	t.Helper()
+	bodyDef := DefaultBodyDef()
+	bodyDef.Type = DynamicBody
+	bodyDef.Position = ToPos(position)
+	bodyDef.GravityScale = QZero()
+	bodyDef.LinearVelocity = Vec2{X: dx.Div(stepDt())}
+	bodyId := CreateBody(worldId, &bodyDef)
+	shapeDef := DefaultShapeDef()
+	shapeDef.EnableSensorEvents = true
+	circle := Circle{Radius: QMustParse("0.1")}
+	return bodyId, CreateCircleShape(bodyId, &shapeDef, &circle)
+}
+
+// TestContinuousSensorHitReportsTheCrossing checks that a fast body that
+// jumps over a thin sensor in one step still begins and ends a touch.
+func TestContinuousSensorHitReportsTheCrossing(t *testing.T) {
+	worldId := createTestWorld(t)
+	thin := QMustParse("0.05")
+	_, sensorShapeId := addSensorBox(t, worldId, Vec2Zero(), thin, QOne())
+	_, visitorShapeId := addFastVisitorCircle(t, worldId, v2(-5, 0), QFromInt(10))
+
+	worldId.Step(stepDt(), 4)
+	events := worldId.GetSensorEvents()
+	if len(events.BeginEvents) != 1 {
+		t.Fatalf("begin events = %+v, want one", events.BeginEvents)
+	}
+	begin := events.BeginEvents[0]
+	if begin.SensorShapeId != sensorShapeId || begin.VisitorShapeId != visitorShapeId {
+		t.Fatalf("begin event = %+v, want sensor %v and visitor %v", begin, sensorShapeId, visitorShapeId)
+	}
+
+	worldId.Step(stepDt(), 4)
+	events = worldId.GetSensorEvents()
+	if len(events.EndEvents) != 1 || len(events.BeginEvents) != 0 {
+		t.Fatalf("second step events = %+v, want one end and no begin", events)
+	}
+}
+
+// TestContinuousSensorHitStopsAtTheWall checks that a sensor behind a solid
+// wall reports nothing when the sweep stops at the wall.
+func TestContinuousSensorHitStopsAtTheWall(t *testing.T) {
+	worldId := createTestWorld(t)
+	thin := QMustParse("0.05")
+	addSensorBox(t, worldId, Vec2Zero(), thin, QOne())
+
+	wallDef := DefaultBodyDef()
+	wallDef.Position = ToPos(v2(-1, 0))
+	wallId := CreateBody(worldId, &wallDef)
+	wallShapeDef := DefaultShapeDef()
+	wall := MakeBox(thin, QOne())
+	CreatePolygonShape(wallId, &wallShapeDef, &wall)
+
+	addFastVisitorCircle(t, worldId, v2(-5, 0), QFromInt(10))
+	for step := range 3 {
+		worldId.Step(stepDt(), 4)
+		if events := worldId.GetSensorEvents(); len(events.BeginEvents) != 0 {
+			t.Fatalf("step %d begin events = %+v, want none", step, events.BeginEvents)
+		}
+	}
+}
+
+// TestContinuousSensorHitNeedsSensorEvents checks that a visitor without
+// sensor events does not record a hit.
+func TestContinuousSensorHitNeedsSensorEvents(t *testing.T) {
+	worldId := createTestWorld(t)
+	addSensorBox(t, worldId, Vec2Zero(), QMustParse("0.05"), QOne())
+	_, visitorShapeId := addFastVisitorCircle(t, worldId, v2(-5, 0), QFromInt(10))
+	visitorShapeId.EnableSensorEvents(false)
+
+	worldId.Step(stepDt(), 4)
+	if events := worldId.GetSensorEvents(); len(events.BeginEvents) != 0 {
+		t.Fatalf("begin events = %+v, want none", events.BeginEvents)
 	}
 }

@@ -117,11 +117,11 @@ jobs:
             printf 'Unexpected fixed-layer imports in float mode:\n%s\n' "$leaks"
             exit 1
           fi
-          if grep -rn 'QFromFloat64\|QToFloat64' --include=*.go . | grep -v '_test.go\|scalar.go\|scalar_fixed.go\|scalar_float.go\|samples/camera.go\|samples/determinism_float.go'; then
+          if grep -rn 'QFromFloat64\|QToFloat64' --include=*.go . | grep -v '_test.go\|scalar.go\|scalar_fixed.go\|scalar_float.go\|samples/camera.go\|samples/determinism_float.go\|pos_double.go\|display only:'; then
             echo "float64 conversion helpers leaked into production code"
             exit 1
           fi
-          if grep -rl 'go:build' --include=*.go . | grep -v '_test.go\|scalar_fixed.go\|scalar_float.go\|executor.go\|executor_wasm.go\|samples/\|simd_lane_\|simd_off.go\|contact_solver_simd.go\|contact_solver_q32.go\|internal/q32gen/\|spin_asm.go\|spin_stub.go\|validate_debug.go\|validate_release.go\|pair_order_sorted.go\|pair_order_upstream.go'; then
+          if grep -rl 'go:build' --include=*.go . | grep -v '_test.go\|scalar_fixed.go\|scalar_float.go\|executor.go\|executor_wasm.go\|samples/\|simd_lane_\|simd_off.go\|contact_solver_simd.go\|contact_solver_q32.go\|internal/q32gen/\|spin_asm.go\|spin_stub.go\|validate_debug.go\|validate_release.go\|pair_order_sorted.go\|pair_order_upstream.go\|pos_alias.go\|pos_double.go\|pos_fixed_double.go\|contact_solver_wide_\|simd_groupmask_'; then
             echo "unexpected build tags found"
             exit 1
           fi
@@ -131,8 +131,8 @@ jobs:
             exit 1
           fi
           epsilon="$(grep -chE 'scalarEpsilon|belowEpsilon|sensorOverlaps' aabb.go geometry.go distance.go manifold.go sensor.go world.go | paste -sd+ | bc)"
-          if [ "$epsilon" != "23" ]; then
-            echo "expected 23 epsilon references, got $epsilon"
+          if [ "$epsilon" != "22" ]; then
+            echo "expected 22 epsilon references, got $epsilon"
             exit 1
           fi
           # b2ValidateSolverSets is empty unless B2_VALIDATE is set. The
@@ -160,11 +160,6 @@ jobs:
       - name: Test with the solver-set validation on
         if: matrix.goarch == 'amd64' && matrix.tags == ''
         run: go test -timeout 600s -tags dbox2d_validate ./...
-      # With the pair order of the reference (D-013), float mode must match
-      # every conformance scene bit for bit.
-      - name: Test with the upstream pair order
-        if: (matrix.goarch == 'amd64' || matrix.goarch == 'arm64') && (matrix.tags == '' || matrix.tags == 'dbox2d_simd')
-        run: go test -timeout 600s -tags "${{ matrix.tags }},dbox2d_upstream_pairs" ./...
 
   wide:
     name: wide (${{ matrix.path }}, ${{ matrix.mode }})

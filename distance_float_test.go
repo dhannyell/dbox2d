@@ -3,6 +3,6 @@
 package b2_test
 
 const (
-	shapeDistanceWitness uint64 = 3202552416264004737
+	shapeDistanceWitness uint64 = 13785257025705437457 // v3.2: outputs in frame A
 	timeOfImpactWitness  uint64 = 14841800280018974121
 )

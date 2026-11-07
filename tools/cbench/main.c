@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Scene benchmark for the frozen Box2D v3.1.1 checkout. It is the C side of
+// Scene benchmark for a Box2D v3.2.0 or v3.1.1 checkout. It is the C side of
 // the port comparison; the Go side is TestSceneBench in scenebench_test.go.
 // Both run the same scenes for the same step counts, leave the first step
 // untimed, time the rest as one block, keep the minimum of the repeats, and
@@ -83,7 +83,13 @@ static double benchMilliseconds( int64_t ticks )
 #define COMPILER_ID "unknown"
 #endif
 
-#if defined( B2_SIMD_AVX2 )
+#if defined( CBENCH_V32 ) && ( defined( B2_SIMD_SSE2 ) || defined( B2_SIMD_AVX2 ) )
+// v3.2 picks the AVX2 lanes at run time when the CPU has them; the label
+// follows the width the library reports.
+int b2GetSIMDWidth( void );
+#define LANE_PATH ( b2GetSIMDWidth() == 8 ? "avx2" : "sse2" )
+#define LANE_WIDTH b2GetSIMDWidth()
+#elif defined( B2_SIMD_AVX2 )
 #define LANE_PATH "avx2"
 #elif defined( B2_SIMD_NEON )
 #define LANE_PATH "neon"
@@ -91,6 +97,10 @@ static double benchMilliseconds( int64_t ticks )
 #define LANE_PATH "sse2"
 #else
 #define LANE_PATH "generic"
+#endif
+
+#ifndef LANE_WIDTH
+#define LANE_WIDTH B2_SIMD_WIDTH
 #endif
 
 typedef void CreateFcn( b2WorldId worldId );
@@ -162,7 +172,11 @@ static void collectBodies( b2WorldId worldId, BodyList* list )
 {
 	list->count = 0;
 	b2AABB bounds = { { -1.0e6f, -1.0e6f }, { 1.0e6f, 1.0e6f } };
+#ifdef CBENCH_V32
+	b2World_OverlapAABB( worldId, b2Pos_zero, bounds, b2DefaultQueryFilter(), collectBody, list );
+#else
 	b2World_OverlapAABB( worldId, bounds, b2DefaultQueryFilter(), collectBody, list );
+#endif
 	qsort( list->ids, (size_t)list->count, sizeof( b2BodyId ), compareBodyIds );
 
 	int uniqueCount = 0;
@@ -308,7 +322,7 @@ int main( int argc, char** argv )
 	fprintf( out, "  \"schema\": 1,\n" );
 	fprintf( out, "  \"arm\": \"%s\",\n", arm );
 	fprintf( out, "  \"lane_path\": \"%s\",\n", LANE_PATH );
-	fprintf( out, "  \"lane_width\": %d,\n", B2_SIMD_WIDTH );
+	fprintf( out, "  \"lane_width\": %d,\n", LANE_WIDTH );
 	fprintf( out, "  \"clock\": \"%s\",\n", CLOCK_NAME );
 	fprintf( out, "  \"workers\": %d,\n", workerCount );
 	fprintf( out, "  \"repeats\": %d,\n", repeats );

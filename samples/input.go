@@ -62,6 +62,9 @@ const (
 	KeyLeftShift   Key = 340
 	KeyLeftControl Key = 341
 
+	KeyComma  Key = 44
+	KeyPeriod Key = 46
+
 	KeyLeftBracket  Key = 91
 	KeyRightBracket Key = 93
 )

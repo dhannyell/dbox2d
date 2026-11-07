@@ -2,3 +2,7 @@
 # platforms. A Windows clone must never receive CRLF: generated code and
 # reference source compare byte for byte.
 * text=auto eol=lf
+
+# Recording goldens are raw bytes.
+*.b2rec binary
+*.snapshot binary

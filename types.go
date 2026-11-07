@@ -35,6 +35,14 @@ type WorldDef struct {
 	// The hertz and the damping ratio set the speed itself.
 	MaxContactPushSpeed Q
 
+	// RestitutionIterations is the number of restitution passes after the
+	// sub-steps, in [0, 63]. More passes resolve stacked bounces better.
+	RestitutionIterations int
+
+	// EnableRestitutionPropagation lets the restitution passes also solve
+	// the contacts without restitution, so a bounce travels through a stack.
+	EnableRestitutionPropagation bool
+
 	// Maximum linear speed, usually in meters per second.
 	MaximumLinearSpeed Q
 
@@ -68,6 +76,14 @@ type Counters struct {
 	BodyCount, ShapeCount, ContactCount, JointCount, IslandCount, StackUsed, StaticTreeHeight, TreeHeight int
 	TaskCount                                                                                             int
 	ColorCounts                                                                                           [graphColorCount]int
+
+	// AwakeContactCount is the number of contacts the collide pass
+	// touches: the graph contacts and the awake non-touching contacts.
+	AwakeContactCount int
+
+	// RecycledContactCount is the number of contacts recycled in the last
+	// step.
+	RecycledContactCount int
 }
 
 // Profile holds the wall-clock cost of the last Step, in milliseconds.
@@ -76,31 +92,32 @@ type Profile struct {
 	Pairs               float64
 	Collide             float64
 	Solve               float64
-	MergeIslands        float64
-	PrepareStages       float64
-	SolveConstraints    float64
+	SolverSetup         float64
+	Constraints         float64
 	PrepareConstraints  float64
 	IntegrateVelocities float64
 	WarmStart           float64
 	SolveImpulses       float64
 	IntegratePositions  float64
 	RelaxImpulses       float64
-	ApplyRestitution    float64
+	Restitution         float64
 	StoreImpulses       float64
 	SplitIslands        float64
 	Transforms          float64
+	JointEvents         float64
 	HitEvents           float64
 	Refit               float64
 	Bullets             float64
+	SensorHits          float64
 	SleepIslands        float64
 	Sensors             float64
 }
 
 // FrictionCallback mixes the friction values of two shapes.
-type FrictionCallback func(frictionA Q, userMaterialIdA int, frictionB Q, userMaterialIdB int) Q
+type FrictionCallback func(frictionA Q, userMaterialIdA uint64, frictionB Q, userMaterialIdB uint64) Q
 
 // RestitutionCallback mixes the restitution values of two shapes.
-type RestitutionCallback func(restitutionA Q, userMaterialIdA int, restitutionB Q, userMaterialIdB int) Q
+type RestitutionCallback func(restitutionA Q, userMaterialIdA uint64, restitutionB Q, userMaterialIdB uint64) Q
 
 // CustomFilterFcn decides whether two shapes may collide. It corresponds to
 // b2CustomFilterFcn; return false to reject the pair. With several workers
@@ -109,22 +126,31 @@ type RestitutionCallback func(restitutionA Q, userMaterialIdA int, restitutionB 
 // call concurrently.
 type CustomFilterFcn func(shapeIdA, shapeIdB ShapeId) bool
 
-// PreSolveFcn inspects a contact manifold before the solver runs. It
-// corresponds to b2PreSolveFcn; return false to disable the contact this step.
-// With several workers it runs on worker goroutines while the step mutates
-// the world: it must not call the world API or query it, must not panic, and
-// must be safe to call concurrently.
-type PreSolveFcn func(shapeIdA, shapeIdB ShapeId, manifold *Manifold) bool
+// PreSolveFcn inspects a contact manifold before the solver runs. It may
+// edit the manifold; a point count of zero disables the contact this step.
+// It corresponds to b2PreSolveCallbackFcn. With several workers it runs on
+// worker goroutines while the step mutates the world: it must not call the
+// world API or query it, must not panic, and must be safe to call
+// concurrently.
+type PreSolveFcn func(shapeIdA, shapeIdB ShapeId, manifold *Manifold)
+
+// PreContinuousFcn inspects a time of impact event of the continuous
+// stage, with the world hit point and normal; return false to skip the
+// event. It runs only for shapes with pre-solve events enabled. It
+// corresponds to b2PreContinuousCallbackFcn and has the threading rules of
+// PreSolveFcn.
+type PreContinuousFcn func(shapeIdA, shapeIdB ShapeId, point Pos, normal Vec2) bool
 
 // DefaultWorldDef returns the default world definition.
 func DefaultWorldDef() WorldDef {
 	return WorldDef{
-		Gravity:              Vec2{Y: QFromInt(-10)},
-		RestitutionThreshold: QOne(),
-		HitEventThreshold:    QOne(),
-		ContactHertz:         QFromInt(30),
-		ContactDampingRatio:  QFromInt(10),
-		MaxContactPushSpeed:  QFromInt(3),
+		Gravity:               Vec2{Y: QFromInt(-10)},
+		RestitutionThreshold:  QOne(),
+		HitEventThreshold:     QOne(),
+		ContactHertz:          QFromInt(30),
+		ContactDampingRatio:   QFromInt(10),
+		MaxContactPushSpeed:   QFromInt(3),
+		RestitutionIterations: 2,
 		// 400 meters per second, faster than the speed of sound
 		MaximumLinearSpeed: QFromInt(400),
 		WorkerCount:        1,
@@ -154,6 +180,18 @@ const (
 	BodyTypeCount = 3
 )
 
+// MotionLocks restrict the body movement. It corresponds to b2MotionLocks.
+type MotionLocks struct {
+	// Prevent translation along the x-axis.
+	LinearX bool
+
+	// Prevent translation along the y-axis.
+	LinearY bool
+
+	// Prevent rotation around the z-axis.
+	AngularZ bool
+}
+
 // BodyDef holds the data to construct a rigid body. It is a temporary bundle
 // of creation parameters; shapes come after construction.
 // Initialize it with DefaultBodyDef.
@@ -163,7 +201,7 @@ type BodyDef struct {
 
 	// The initial world position. Create a body at its final position:
 	// creating it at the origin and moving it costs nearly twice as much.
-	Position Vec2
+	Position Pos
 
 	// The initial world rotation. Use MakeRot for an angle in turns.
 	Rotation Rot
@@ -191,7 +229,15 @@ type BodyDef struct {
 	// Sleep speed threshold, default 0.05 meters per second.
 	SleepThreshold Q
 
-	// Optional body name for debugging, up to 31 bytes.
+	// Continuous collision safety factor. The solver only uses continuous
+	// collision when the body risks tunneling. If moving N meters risks
+	// tunneling, the body is fast once it moves more than SafetyFactor times
+	// N meters in one full time step. Non-dimensional. The recommended range
+	// is [0.01, 0.5]; the default 0.5 favors performance with a low
+	// tunneling risk.
+	SafetyFactor Q
+
+	// Optional body name for debugging, up to 10 bytes.
 	Name string
 
 	// Application data attached to the body.
@@ -203,8 +249,8 @@ type BodyDef struct {
 	// Whether the body starts awake.
 	IsAwake bool
 
-	// Prevent the body from rotating. Useful for characters.
-	FixedRotation bool
+	// Motion locks to restrict linear and angular movement.
+	MotionLocks MotionLocks
 
 	// Treat the body as a high speed object that performs continuous
 	// collision against dynamic and kinematic bodies, but not against other
@@ -219,6 +265,10 @@ type BodyDef struct {
 	// bodies, like wheels.
 	AllowFastRotation bool
 
+	// Let the contacts of the body keep their manifold while the bodies
+	// barely move. A contact recycles only when both bodies enable it.
+	EnableContactRecycling bool
+
 	// internalValue proves that DefaultBodyDef ran. upstream internalValue
 	internalValue int
 }
@@ -226,14 +276,16 @@ type BodyDef struct {
 // DefaultBodyDef returns the default body definition.
 func DefaultBodyDef() BodyDef {
 	return BodyDef{
-		Type:           StaticBody,
-		Rotation:       RotIdentity(),
-		SleepThreshold: defaultSleepThreshold,
-		GravityScale:   QOne(),
-		EnableSleep:    true,
-		IsAwake:        true,
-		IsEnabled:      true,
-		internalValue:  secretCookie,
+		Type:                   StaticBody,
+		Rotation:               RotIdentity(),
+		SleepThreshold:         defaultSleepThreshold,
+		SafetyFactor:           QHalf(),
+		GravityScale:           QOne(),
+		EnableSleep:            true,
+		IsAwake:                true,
+		EnableContactRecycling: true,
+		IsEnabled:              true,
+		internalValue:          secretCookie,
 	}
 }
 
@@ -280,7 +332,7 @@ type ExplosionDef struct {
 	MaskBits uint64
 
 	// Position is the center of the explosion in world space.
-	Position Vec2
+	Position Pos
 
 	// Radius is the full-impulse radius of the explosion.
 	Radius Q
@@ -332,7 +384,7 @@ type SurfaceMaterial struct {
 
 	// Application material identifier, returned with query results. The
 	// world does not use it.
-	UserMaterialId int
+	UserMaterialId uint64
 
 	// Custom debug draw color.
 	CustomColor uint32
@@ -359,6 +411,10 @@ type ShapeDef struct {
 
 	// Collision filtering data.
 	Filter Filter
+
+	// Enable custom filtering. Only one of the two shapes needs to enable
+	// it. See WorldId.SetCustomFilterCallback.
+	EnableCustomFiltering bool
 
 	// A sensor generates overlap events and never a collision response.
 	IsSensor bool
@@ -408,8 +464,18 @@ type ChainDef struct {
 	// Application data attached to the chain's segments.
 	UserData any
 
-	// An array of at least four points. The points are copied during creation.
+	// An array of at least 2 points (open chain) or 3 points (loop). The
+	// points are copied during creation.
 	Points []Vec2
+
+	// The ghost point before the first point of an open chain. It must be
+	// set: the default is an infinity sentinel that CreateChain rejects.
+	// Ignored for loops.
+	Ghost1 Vec2
+
+	// The ghost point after the last point of an open chain. It must be
+	// set like Ghost1. Ignored for loops.
+	Ghost2 Vec2
 
 	// One material for every segment, or one material shared by all segments.
 	Materials []SurfaceMaterial
@@ -431,6 +497,8 @@ type ChainDef struct {
 // b2DefaultChainDef.
 func DefaultChainDef() ChainDef {
 	return ChainDef{
+		Ghost1:        Vec2{X: qInfinity(), Y: qInfinity()},
+		Ghost2:        Vec2{X: qInfinity(), Y: qInfinity()},
 		Materials:     []SurfaceMaterial{DefaultSurfaceMaterial()},
 		Filter:        DefaultFilter(),
 		internalValue: secretCookie,
@@ -440,6 +508,10 @@ func DefaultChainDef() ChainDef {
 // ContactData reports the manifold of a touching contact on a body. It
 // corresponds to b2ContactData in include/box2d/types.h.
 type ContactData struct {
+	// ContactId identifies the contact. It may be held across steps but
+	// can become stale; check ContactId.IsValid before using it.
+	ContactId ContactId
+
 	// ShapeIdA is the first shape in the contact.
 	ShapeIdA ShapeId
 
@@ -458,9 +530,10 @@ type ContactBeginTouchEvent struct {
 	// ShapeIdB is the second shape.
 	ShapeIdB ShapeId
 
-	// Manifold is the initial contact manifold. The world records it
-	// before the solver runs, so every impulse is zero.
-	Manifold Manifold
+	// ContactId is the transient contact id. The world may destroy the
+	// contact when it is modified or simulated; check ContactId.IsValid
+	// before using it. ContactId.GetData returns the manifold.
+	ContactId ContactId
 }
 
 // ContactEndTouchEvent reports that two shapes stopped touching. Any
@@ -472,6 +545,9 @@ type ContactEndTouchEvent struct {
 
 	// ShapeIdB is the second shape. It may be destroyed; see IsValid.
 	ShapeIdB ShapeId
+
+	// ContactId is the contact. It may be destroyed; see IsValid.
+	ContactId ContactId
 }
 
 // ContactHitEvent reports that two shapes collided faster than the hit
@@ -484,9 +560,12 @@ type ContactHitEvent struct {
 	// ShapeIdB is the second shape.
 	ShapeIdB ShapeId
 
+	// ContactId is the contact. It may be destroyed; see IsValid.
+	ContactId ContactId
+
 	// Point is where the shapes hit at the start of the step. It is the
 	// mid-point between the two surfaces.
-	Point Vec2
+	Point Pos
 
 	// Normal points from shape A to shape B.
 	Normal Vec2
@@ -529,7 +608,7 @@ type SensorEvents struct {
 // it can sleep the object of the body. With sleep disabled, every dynamic
 // and kinematic body reports on every step.
 type BodyMoveEvent struct {
-	Transform  Transform
+	Transform  WorldTransform
 	BodyId     BodyId
 	UserData   any
 	FellAsleep bool
@@ -552,7 +631,7 @@ type OverlapResultFcn func(shapeId ShapeId) bool
 // shape, 0 to stop, the fraction to clip the ray for the closest hit, or
 // 1 to continue. It corresponds to b2CastResultFcn in
 // include/box2d/types.h; the closure carries the context.
-type CastResultFcn func(shapeId ShapeId, point, normal Vec2, fraction Q) Q
+type CastResultFcn func(shapeId ShapeId, point Pos, normal Vec2, fraction Q) Q
 
 // PlaneResultFcn receives each collision plane a mover query finds.
 // Return true to keep gathering planes. It corresponds to
@@ -566,7 +645,7 @@ type PlaneResultFcn func(shapeId ShapeId, result *PlaneResult) bool
 // include/box2d/types.h.
 type RayResult struct {
 	ShapeId    ShapeId
-	Point      Vec2
+	Point      Pos
 	Normal     Vec2
 	Fraction   Q
 	NodeVisits int
@@ -579,38 +658,99 @@ type JointType int
 
 // Joint types. upstream b2JointType
 const (
+	// DistanceJoint constrains the distance between two points.
 	DistanceJoint JointType = iota
+	// FilterJoint filters collision between two bodies.
 	FilterJoint
+	// MotorJoint fully controls the movement of a body.
 	MotorJoint
-	MouseJoint
+	// MoverJoint controls the movement of the dynamic character mover.
+	MoverJoint
+	// PogoJoint is the ground interaction of the dynamic character mover.
+	PogoJoint
+	// PrismaticJoint slides along an axis.
 	PrismaticJoint
+	// RevoluteJoint rotates around a pivot.
 	RevoluteJoint
+	// WeldJoint brings two bodies together with some flex.
 	WeldJoint
+	// WheelJoint spins a wheel with a shock absorber.
 	WheelJoint
 )
 
-// DistanceJointDef configures a distance joint: a point on each body kept
-// at a fixed length, or within a length range. Initialize it with
-// DefaultDistanceJointDef.
-type DistanceJointDef struct {
+// JointDef is the base definition of every joint type. The local frames
+// are measured from the body origin rather than the center of mass because
+// the center of mass may be unknown when the joint is made, and because
+// adding or removing shapes would otherwise break the joint. It corresponds
+// to b2JointDef.
+type JointDef struct {
+	// Application data attached to the joint.
+	UserData any
+
 	// The first attached body.
 	BodyIdA BodyId
 
 	// The second attached body.
 	BodyIdB BodyId
 
-	// The local anchor point relative to the origin of body A.
-	LocalAnchorA Vec2
+	// The first local joint frame.
+	LocalFrameA Transform
 
-	// The local anchor point relative to the origin of body B.
-	LocalAnchorB Vec2
+	// The second local joint frame.
+	LocalFrameB Transform
+
+	// Force threshold for joint events.
+	ForceThreshold Q
+
+	// Torque threshold for joint events.
+	TorqueThreshold Q
+
+	// Constraint stiffness in cycles per second (advanced).
+	ConstraintHertz Q
+
+	// Constraint damping ratio (advanced).
+	ConstraintDampingRatio Q
+
+	// Debug draw scale.
+	DrawScale Q
+
+	// Set this flag to true if the attached bodies should collide.
+	CollideConnected bool
+}
+
+// defaultJointDef corresponds to b2DefaultJointDef in src/joint.c.
+func defaultJointDef() JointDef {
+	return JointDef{
+		LocalFrameA:            Transform{Q: RotIdentity()},
+		LocalFrameB:            Transform{Q: RotIdentity()},
+		ForceThreshold:         QMaxValue(),
+		TorqueThreshold:        QMaxValue(),
+		ConstraintHertz:        QFromInt(60),
+		ConstraintDampingRatio: QFromInt(2),
+		DrawScale:              QOne(),
+	}
+}
+
+// DistanceJointDef configures a distance joint: the origin of local frame
+// A and the origin of local frame B kept at a fixed length, or within a
+// length range. Useful for ropes and springs. Initialize it with
+// DefaultDistanceJointDef.
+type DistanceJointDef struct {
+	// Base joint definition.
+	Base JointDef
 
 	// The rest length of the joint. Clamped to a stable minimum value.
 	Length Q
 
 	// Enable the distance constraint to behave like a spring. If false the
-	// distance joint is rigid, otherwise the limit and the motor apply.
+	// distance joint is rigid, overriding the limit and the motor.
 	EnableSpring bool
+
+	// The lower spring force controls how much tension it can sustain.
+	LowerSpringForce Q
+
+	// The upper spring force controls how much compression it can sustain.
+	UpperSpringForce Q
 
 	// The spring linear stiffness in cycles per second.
 	Hertz Q
@@ -637,12 +777,6 @@ type DistanceJointDef struct {
 	// The desired motor speed, usually in meters per second.
 	MotorSpeed Q
 
-	// Set this flag to true if the attached bodies should collide.
-	CollideConnected bool
-
-	// Application data attached to the joint.
-	UserData any
-
 	// internalValue proves that DefaultDistanceJointDef ran. upstream
 	// internalValue
 	internalValue int
@@ -651,114 +785,20 @@ type DistanceJointDef struct {
 // DefaultDistanceJointDef returns the default distance joint definition.
 func DefaultDistanceJointDef() DistanceJointDef {
 	return DistanceJointDef{
-		Length:        QOne(),
-		MaxLength:     Huge,
-		internalValue: secretCookie,
-	}
-}
-
-// MotorJointDef configures a motor joint: it drives the relative
-// transform of two bodies toward an offset. Initialize it with
-// DefaultMotorJointDef.
-type MotorJointDef struct {
-	// The first attached body.
-	BodyIdA BodyId
-
-	// The second attached body.
-	BodyIdB BodyId
-
-	// Position of body B minus the position of body A, in the frame of
-	// body A, in meters.
-	LinearOffset Vec2
-
-	// The angle of body B minus the angle of body A, in turns.
-	AngularOffset Q
-
-	// The maximum motor force in newtons.
-	MaxForce Q
-
-	// The maximum motor torque in newton-meters.
-	MaxTorque Q
-
-	// Position correction factor in the range [0, 1].
-	CorrectionFactor Q
-
-	// Set this flag to true if the attached bodies should collide.
-	CollideConnected bool
-
-	// Application data attached to the joint.
-	UserData any
-
-	// internalValue proves that DefaultMotorJointDef ran. upstream
-	// internalValue
-	internalValue int
-}
-
-// DefaultMotorJointDef returns the default motor joint definition.
-func DefaultMotorJointDef() MotorJointDef {
-	return MotorJointDef{
-		MaxForce:         QOne(),
-		MaxTorque:        QOne(),
-		CorrectionFactor: defaultCorrectionFactor,
+		Base:             defaultJointDef(),
+		LowerSpringForce: QMaxValue().Neg(),
+		UpperSpringForce: QMaxValue(),
+		Length:           QOne(),
+		MaxLength:        Huge,
 		internalValue:    secretCookie,
 	}
 }
 
-// MouseJointDef configures a mouse joint: it drags a point on body B
-// toward a world target with a spring. Body A is a ground reference and
-// gets no reaction. Initialize it with DefaultMouseJointDef.
-type MouseJointDef struct {
-	// The first attached body. It is unused here, but it plays a role in
-	// the solver order.
-	BodyIdA BodyId
-
-	// The second attached body.
-	BodyIdB BodyId
-
-	// The initial target point in world space.
-	Target Vec2
-
-	// Stiffness in cycles per second.
-	Hertz Q
-
-	// Damping ratio, non-dimensional.
-	DampingRatio Q
-
-	// Maximum force, usually in newtons.
-	MaxForce Q
-
-	// Set this flag to true if the attached bodies should collide.
-	CollideConnected bool
-
-	// Application data attached to the joint.
-	UserData any
-
-	// internalValue proves that DefaultMouseJointDef ran. upstream
-	// internalValue
-	internalValue int
-}
-
-// DefaultMouseJointDef returns the default mouse joint definition.
-func DefaultMouseJointDef() MouseJointDef {
-	return MouseJointDef{
-		Hertz:         QFromInt(4),
-		DampingRatio:  QOne(),
-		MaxForce:      QOne(),
-		internalValue: secretCookie,
-	}
-}
-
 // FilterJointDef configures a filter joint: it only disables collision
-// between two bodies. Initialize it with DefaultFilterJointDef.
+// between two specific bodies. Initialize it with DefaultFilterJointDef.
 type FilterJointDef struct {
-	// The first attached body.
-	BodyIdA BodyId
-
-	// The second attached body.
-	BodyIdB BodyId
-
-	// Application data attached to the joint.
-	UserData any
+	// Base joint definition.
+	Base JointDef
 
 	// internalValue proves that DefaultFilterJointDef ran. upstream
 	// internalValue
@@ -767,35 +807,133 @@ type FilterJointDef struct {
 
 // DefaultFilterJointDef returns the default filter joint definition.
 func DefaultFilterJointDef() FilterJointDef {
-	return FilterJointDef{internalValue: secretCookie}
+	return FilterJointDef{Base: defaultJointDef(), internalValue: secretCookie}
 }
 
-// PrismaticJointDef configures a prismatic joint: body B translates along
-// an axis fixed in body A, with no relative rotation. Initialize it with
-// DefaultPrismaticJointDef.
+// MotorJointDef configures a motor joint: it controls the relative
+// velocity and the relative transform of two bodies. With a velocity of
+// zero it acts like top-down friction. Move local frame A to change the
+// target transform. Initialize it with DefaultMotorJointDef.
+type MotorJointDef struct {
+	// Base joint definition.
+	Base JointDef
+
+	// The desired linear velocity.
+	LinearVelocity Vec2
+
+	// The maximum velocity force in newtons.
+	MaxVelocityForce Q
+
+	// The desired angular velocity in turns per second.
+	AngularVelocity Q
+
+	// The maximum velocity torque in newton-meters.
+	MaxVelocityTorque Q
+
+	// Linear spring stiffness in cycles per second, for position control.
+	LinearHertz Q
+
+	// Linear spring damping ratio.
+	LinearDampingRatio Q
+
+	// Maximum spring force in newtons.
+	MaxSpringForce Q
+
+	// Angular spring stiffness in cycles per second, for position control.
+	AngularHertz Q
+
+	// Angular spring damping ratio.
+	AngularDampingRatio Q
+
+	// Maximum spring torque in newton-meters.
+	MaxSpringTorque Q
+
+	// internalValue proves that DefaultMotorJointDef ran. upstream
+	// internalValue
+	internalValue int
+}
+
+// DefaultMotorJointDef returns the default motor joint definition. Every
+// setting starts at zero.
+func DefaultMotorJointDef() MotorJointDef {
+	return MotorJointDef{Base: defaultJointDef(), internalValue: secretCookie}
+}
+
+// MoverJointDef configures a mover joint: it moves a dynamic character
+// mover through velocity commands. The x and y directions are handled
+// separately. It does not affect rotation. Initialize it with
+// DefaultMoverJointDef.
+type MoverJointDef struct {
+	// Base joint definition.
+	Base JointDef
+
+	// The desired linear velocity.
+	LinearVelocity Vec2
+
+	// The maximum velocity force in newtons, per axis.
+	MaxVelocityForce Vec2
+
+	// internalValue proves that DefaultMoverJointDef ran. upstream
+	// internalValue
+	internalValue int
+}
+
+// DefaultMoverJointDef returns the default mover joint definition.
+func DefaultMoverJointDef() MoverJointDef {
+	return MoverJointDef{Base: defaultJointDef(), internalValue: secretCookie}
+}
+
+// PogoJointDef configures a pogo joint: the ground spring of the dynamic
+// character mover. Initialize it with DefaultPogoJointDef.
+type PogoJointDef struct {
+	// Base joint definition.
+	Base JointDef
+
+	// Normal vector at the contact.
+	Normal Vec2
+
+	// The spring stiffness in cycles per second.
+	Hertz Q
+
+	// The spring damping ratio, non-dimensional.
+	DampingRatio Q
+
+	// Spring length.
+	RestLength Q
+
+	// Maximum tension force. Controls how sticky the mover is to the
+	// ground.
+	MaxTensionForce Q
+
+	// Maximum compression force. How hard the pogo pushes the mover up
+	// from the ground.
+	MaxCompressionForce Q
+
+	// The initial internal impulse. The pogo is typically recreated every
+	// frame; this moves the internal state forward for a smoother spring.
+	Impulse Q
+
+	// The initial internal velocity. The pogo is typically recreated every
+	// frame; this moves the internal state forward for a smoother spring.
+	Velocity Q
+
+	// internalValue proves that DefaultPogoJointDef ran. upstream
+	// internalValue
+	internalValue int
+}
+
+// DefaultPogoJointDef returns the default pogo joint definition.
+func DefaultPogoJointDef() PogoJointDef {
+	return PogoJointDef{Base: defaultJointDef(), internalValue: secretCookie}
+}
+
+// PrismaticJointDef configures a prismatic joint: body B slides along the
+// x-axis of local frame A and cannot rotate relative to body A. The
+// translation is zero when the local frame origins coincide in world space.
+// Initialize it with DefaultPrismaticJointDef.
 type PrismaticJointDef struct {
-	// The first attached body.
-	BodyIdA BodyId
-
-	// The second attached body.
-	BodyIdB BodyId
-
-	// The local anchor point relative to the origin of body A.
-	LocalAnchorA Vec2
-
-	// The local anchor point relative to the origin of body B.
-	LocalAnchorB Vec2
-
-	// The local translation unit axis in body A.
-	LocalAxisA Vec2
-
-	// The constrained angle between the bodies: angle of B minus angle of
-	// A, in turns.
-	ReferenceAngle Q
-
-	// The target translation for the joint in meters. The spring-damper
-	// pulls toward this translation.
-	TargetTranslation Q
+	// Base joint definition.
+	Base JointDef
 
 	// Enable a linear spring along the prismatic joint axis.
 	EnableSpring bool
@@ -805,6 +943,10 @@ type PrismaticJointDef struct {
 
 	// The spring damping ratio, non-dimensional.
 	DampingRatio Q
+
+	// The target translation for the joint in meters. The spring-damper
+	// drives toward this translation.
+	TargetTranslation Q
 
 	// Enable and disable the joint limit.
 	EnableLimit bool
@@ -824,12 +966,6 @@ type PrismaticJointDef struct {
 	// The desired motor speed, usually in meters per second.
 	MotorSpeed Q
 
-	// Set this flag to true if the attached bodies should collide.
-	CollideConnected bool
-
-	// Application data attached to the joint.
-	UserData any
-
 	// internalValue proves that DefaultPrismaticJointDef ran. upstream
 	// internalValue
 	internalValue int
@@ -837,32 +973,17 @@ type PrismaticJointDef struct {
 
 // DefaultPrismaticJointDef returns the default prismatic joint definition.
 func DefaultPrismaticJointDef() PrismaticJointDef {
-	return PrismaticJointDef{
-		LocalAxisA:    Vec2{X: QOne()},
-		internalValue: secretCookie,
-	}
+	return PrismaticJointDef{Base: defaultJointDef(), internalValue: secretCookie}
 }
 
-// RevoluteJointDef configures a revolute joint: a shared anchor point
-// with free relative rotation. Initialize it with DefaultRevoluteJointDef.
+// RevoluteJointDef configures a revolute joint: the origin of local frame
+// B is fixed to the origin of local frame A, with free relative rotation.
+// Initialize it with DefaultRevoluteJointDef.
 type RevoluteJointDef struct {
-	// The first attached body.
-	BodyIdA BodyId
+	// Base joint definition.
+	Base JointDef
 
-	// The second attached body.
-	BodyIdB BodyId
-
-	// The local anchor point relative to the origin of body A.
-	LocalAnchorA Vec2
-
-	// The local anchor point relative to the origin of body B.
-	LocalAnchorB Vec2
-
-	// The angle of body B minus the angle of body A in the reference
-	// state, in turns. It is clamped to [-0.5, 0.5] turns.
-	ReferenceAngle Q
-
-	// The target angle for the joint in turns. The spring-damper pulls
+	// The target angle for the joint in turns. The spring-damper drives
 	// toward this angle.
 	TargetAngle Q
 
@@ -878,12 +999,12 @@ type RevoluteJointDef struct {
 	// Enable and disable the joint limit.
 	EnableLimit bool
 
-	// The lower angle for the joint limit in turns. Must be greater than
-	// -0.495 turns.
+	// The lower angle for the joint limit in turns. Minimum of -0.495
+	// turns.
 	LowerAngle Q
 
-	// The upper angle for the joint limit in turns. Must be less than
-	// 0.495 turns.
+	// The upper angle for the joint limit in turns. Maximum of 0.495
+	// turns.
 	UpperAngle Q
 
 	// Enable and disable the joint motor.
@@ -895,15 +1016,6 @@ type RevoluteJointDef struct {
 	// The desired motor speed in turns per second.
 	MotorSpeed Q
 
-	// DrawSize scales the debug draw of the joint.
-	DrawSize Q
-
-	// Set this flag to true if the attached bodies should collide.
-	CollideConnected bool
-
-	// Application data attached to the joint.
-	UserData any
-
 	// internalValue proves that DefaultRevoluteJointDef ran. upstream
 	// internalValue
 	internalValue int
@@ -911,31 +1023,16 @@ type RevoluteJointDef struct {
 
 // DefaultRevoluteJointDef returns the default revolute joint definition.
 func DefaultRevoluteJointDef() RevoluteJointDef {
-	return RevoluteJointDef{
-		DrawSize:      defaultDrawSize,
-		internalValue: secretCookie,
-	}
+	return RevoluteJointDef{Base: defaultJointDef(), internalValue: secretCookie}
 }
 
-// WeldJointDef configures a weld joint: it holds the relative transform
-// of two bodies, rigidly or with a spring. Initialize it with
+// WeldJointDef configures a weld joint: it holds local frame B on local
+// frame A, rigidly or with springs that mimic a soft body. The approximate
+// solver cannot hold many bodies together rigidly. Initialize it with
 // DefaultWeldJointDef.
 type WeldJointDef struct {
-	// The first attached body.
-	BodyIdA BodyId
-
-	// The second attached body.
-	BodyIdB BodyId
-
-	// The local anchor point relative to the origin of body A.
-	LocalAnchorA Vec2
-
-	// The local anchor point relative to the origin of body B.
-	LocalAnchorB Vec2
-
-	// The angle of body B minus the angle of body A in the reference
-	// state, in turns.
-	ReferenceAngle Q
+	// Base joint definition.
+	Base JointDef
 
 	// Linear stiffness in cycles per second. Zero means rigid.
 	LinearHertz Q
@@ -943,17 +1040,11 @@ type WeldJointDef struct {
 	// Angular stiffness in cycles per second. Zero means rigid.
 	AngularHertz Q
 
-	// Linear damping ratio, non-dimensional.
+	// Linear damping ratio, non-dimensional. Use 1 for critical damping.
 	LinearDampingRatio Q
 
-	// Angular damping ratio, non-dimensional.
+	// Angular damping ratio, non-dimensional. Use 1 for critical damping.
 	AngularDampingRatio Q
-
-	// Set this flag to true if the attached bodies should collide.
-	CollideConnected bool
-
-	// Application data attached to the joint.
-	UserData any
 
 	// internalValue proves that DefaultWeldJointDef ran. upstream
 	// internalValue
@@ -962,27 +1053,16 @@ type WeldJointDef struct {
 
 // DefaultWeldJointDef returns the default weld joint definition.
 func DefaultWeldJointDef() WeldJointDef {
-	return WeldJointDef{internalValue: secretCookie}
+	return WeldJointDef{Base: defaultJointDef(), internalValue: secretCookie}
 }
 
-// WheelJointDef configures a wheel joint: body B rotates freely about a
-// point on an axis fixed in body A, with a suspension spring along the
-// axis. Initialize it with DefaultWheelJointDef.
+// WheelJointDef configures a wheel joint: body B is a wheel that rotates
+// freely and slides along the x-axis of local frame A, with a suspension
+// spring. The translation is zero when the local frame origins coincide in
+// world space. Initialize it with DefaultWheelJointDef.
 type WheelJointDef struct {
-	// The first attached body.
-	BodyIdA BodyId
-
-	// The second attached body.
-	BodyIdB BodyId
-
-	// The local anchor point relative to the origin of body A.
-	LocalAnchorA Vec2
-
-	// The local anchor point relative to the origin of body B.
-	LocalAnchorB Vec2
-
-	// The local translation unit axis in body A.
-	LocalAxisA Vec2
+	// Base joint definition.
+	Base JointDef
 
 	// Enable a linear spring along the local axis.
 	EnableSpring bool
@@ -1011,15 +1091,20 @@ type WheelJointDef struct {
 	// The desired motor speed in turns per second.
 	MotorSpeed Q
 
-	// Set this flag to true if the attached bodies should collide.
-	CollideConnected bool
-
-	// Application data attached to the joint.
-	UserData any
-
 	// internalValue proves that DefaultWheelJointDef ran. upstream
 	// internalValue
 	internalValue int
+}
+
+// JointEvent reports an awake joint whose force or torque exceeded its
+// threshold. The observed force and torque are not returned. It
+// corresponds to b2JointEvent.
+type JointEvent struct {
+	// JointId is the joint.
+	JointId JointId
+
+	// UserData is the joint user data, for convenience.
+	UserData any
 }
 
 // HexColor is an RGB color encoded as 0xRRGGBB.
@@ -1319,61 +1404,80 @@ const (
 	ColorBox2DYellow HexColor = 0xFFEE8C
 )
 
-// DrawPolygonFcn draws a closed polygon in counter-clockwise order.
-type DrawPolygonFcn func(vertices []Vec2, color HexColor)
+// DrawPolygonFcn draws a closed polygon, given in counter-clockwise order in
+// the local frame of transform.
+type DrawPolygonFcn func(transform WorldTransform, vertices []Vec2, color HexColor)
 
-// DrawSolidPolygonFcn draws a solid polygon with a rounded radius.
-type DrawSolidPolygonFcn func(transform Transform, vertices []Vec2, radius Q, color HexColor)
+// DrawSolidPolygonFcn draws a solid polygon with a rounded radius, given in
+// the local frame of transform.
+type DrawSolidPolygonFcn func(transform WorldTransform, vertices []Vec2, radius Q, color HexColor)
 
 // DrawCircleFcn draws a circle outline.
-type DrawCircleFcn func(center Vec2, radius Q, color HexColor)
+type DrawCircleFcn func(center Pos, radius Q, color HexColor)
 
-// DrawSolidCircleFcn draws a solid circle.
-type DrawSolidCircleFcn func(transform Transform, radius Q, color HexColor)
+// DrawSolidCircleFcn draws a solid circle whose center is given in the local
+// frame of transform.
+type DrawSolidCircleFcn func(transform WorldTransform, center Vec2, radius Q, color HexColor)
 
 // DrawSolidCapsuleFcn draws a solid capsule.
-type DrawSolidCapsuleFcn func(p1, p2 Vec2, radius Q, color HexColor)
+type DrawSolidCapsuleFcn func(p1, p2 Pos, radius Q, color HexColor)
 
-// DrawSegmentFcn draws a line segment.
-type DrawSegmentFcn func(p1, p2 Vec2, color HexColor)
+// DrawLineFcn draws a line segment.
+type DrawLineFcn func(p1, p2 Pos, color HexColor)
 
 // DrawTransformFcn draws a transform with a host-selected scale.
-type DrawTransformFcn func(transform Transform)
+type DrawTransformFcn func(transform WorldTransform)
 
 // DrawPointFcn draws a point of the requested size.
-type DrawPointFcn func(p Vec2, size Q, color HexColor)
+type DrawPointFcn func(p Pos, size Q, color HexColor)
 
 // DrawStringFcn draws a world-space string.
-type DrawStringFcn func(p Vec2, s string, color HexColor)
+type DrawStringFcn func(p Pos, s string, color HexColor)
 
-// DebugDraw holds the callbacks and options used by WorldId.Draw.
-// Set the option fields to choose what the callbacks receive.
+// DrawBoundsFcn draws a bounding box.
+type DrawBoundsFcn func(aabb AABB, color HexColor)
+
+// DebugDraw holds the callbacks and options used by WorldId.Draw. Callbacks
+// receive world coordinates. Start from DefaultDebugDraw, which fills every
+// callback with a no-op and opens the drawing bounds to the whole world. It
+// corresponds to b2DebugDraw in include/box2d/types.h.
 type DebugDraw struct {
-	// DrawPolygon draws a closed polygon provided in CCW order.
-	DrawPolygon DrawPolygonFcn
-	// DrawSolidPolygon draws a solid closed polygon provided in CCW order.
-	DrawSolidPolygon DrawSolidPolygonFcn
-	// DrawCircle draws a circle.
-	DrawCircle DrawCircleFcn
-	// DrawSolidCircle draws a solid circle.
-	DrawSolidCircle DrawSolidCircleFcn
-	// DrawSolidCapsule draws a solid capsule.
-	DrawSolidCapsule DrawSolidCapsuleFcn
-	// DrawSegment draws a line segment.
-	DrawSegment DrawSegmentFcn
-	// DrawTransform draws a transform at a host-chosen length scale.
-	DrawTransform DrawTransformFcn
-	// DrawPoint draws a point.
-	DrawPoint DrawPointFcn
-	// DrawString draws a string in world space.
-	DrawString DrawStringFcn
+	// DrawPolygonFcn draws a closed polygon provided in CCW order.
+	DrawPolygonFcn DrawPolygonFcn
+	// DrawSolidPolygonFcn draws a solid closed polygon provided in CCW order.
+	DrawSolidPolygonFcn DrawSolidPolygonFcn
+	// DrawCircleFcn draws a circle.
+	DrawCircleFcn DrawCircleFcn
+	// DrawSolidCircleFcn draws a solid circle.
+	DrawSolidCircleFcn DrawSolidCircleFcn
+	// DrawSolidCapsuleFcn draws a solid capsule.
+	DrawSolidCapsuleFcn DrawSolidCapsuleFcn
+	// DrawLineFcn draws a line segment.
+	DrawLineFcn DrawLineFcn
+	// DrawTransformFcn draws a transform at a host-chosen length scale.
+	DrawTransformFcn DrawTransformFcn
+	// DrawPointFcn draws a point.
+	DrawPointFcn DrawPointFcn
+	// DrawStringFcn draws a string in world space.
+	DrawStringFcn DrawStringFcn
+	// DrawBoundsFcn draws a bounding box.
+	DrawBoundsFcn DrawBoundsFcn
 
-	// DrawingBounds is the region used when UseDrawingBounds restricts drawing.
+	// DrawingBounds is the world region to draw. An empty box draws nothing.
 	DrawingBounds AABB
-	// UseDrawingBounds restricts drawing to DrawingBounds; depth sorting may be unstable.
-	UseDrawingBounds bool
+	// ForceScale scales the drawn contact and friction forces.
+	ForceScale Q
+	// JointScale scales every joint drawing.
+	JointScale Q
+
+	// DrawContacts draws contact points.
+	DrawContacts bool
+	// DrawAnchorA draws contact points at anchor A instead of anchor B.
+	DrawAnchorA bool
 	// DrawShapes draws shapes.
 	DrawShapes bool
+	// DrawChainNormals draws chain segment normals.
+	DrawChainNormals bool
 	// DrawJoints draws joints.
 	DrawJoints bool
 	// DrawJointExtras draws additional information for joints.
@@ -1384,41 +1488,52 @@ type DebugDraw struct {
 	DrawMass bool
 	// DrawBodyNames draws body names.
 	DrawBodyNames bool
-	// DrawContacts draws contact points.
-	DrawContacts bool
 	// DrawGraphColors visualizes the graph coloring used for contacts and joints.
 	DrawGraphColors bool
-	// DrawContactNormals draws contact normals.
-	DrawContactNormals bool
-	// DrawContactImpulses draws contact normal impulses.
-	DrawContactImpulses bool
 	// DrawContactFeatures draws contact feature ids.
 	DrawContactFeatures bool
-	// DrawFrictionImpulses draws contact friction impulses.
-	DrawFrictionImpulses bool
+	// DrawContactNormals draws contact normals.
+	DrawContactNormals bool
+	// DrawContactForces draws contact normal forces.
+	DrawContactForces bool
+	// DrawFrictionForces draws contact friction forces.
+	DrawFrictionForces bool
 	// DrawIslands draws islands as bounding boxes.
 	DrawIslands bool
 }
 
-// DefaultDebugDraw returns a debug drawer whose callbacks are safe no-ops.
+// DefaultDebugDraw returns a debug drawer whose callbacks are safe no-ops,
+// whose drawing bounds cover the world and which draws shapes. It
+// corresponds to b2DefaultDebugDraw in src/types.c.
 func DefaultDebugDraw() DebugDraw {
+	// Half the largest value keeps the box width representable in fixed
+	// mode (D-009); the reference uses FLT_MAX.
+	maxValue := QMaxValue().Mul(QHalf())
 	return DebugDraw{
-		DrawPolygon:      func([]Vec2, HexColor) {},
-		DrawSolidPolygon: func(Transform, []Vec2, Q, HexColor) {},
-		DrawCircle:       func(Vec2, Q, HexColor) {},
-		DrawSolidCircle:  func(Transform, Q, HexColor) {},
-		DrawSolidCapsule: func(Vec2, Vec2, Q, HexColor) {},
-		DrawSegment:      func(Vec2, Vec2, HexColor) {},
-		DrawTransform:    func(Transform) {},
-		DrawPoint:        func(Vec2, Q, HexColor) {},
-		DrawString:       func(Vec2, string, HexColor) {},
+		DrawPolygonFcn:      func(WorldTransform, []Vec2, HexColor) {},
+		DrawSolidPolygonFcn: func(WorldTransform, []Vec2, Q, HexColor) {},
+		DrawCircleFcn:       func(Pos, Q, HexColor) {},
+		DrawSolidCircleFcn:  func(WorldTransform, Vec2, Q, HexColor) {},
+		DrawSolidCapsuleFcn: func(Pos, Pos, Q, HexColor) {},
+		DrawLineFcn:         func(Pos, Pos, HexColor) {},
+		DrawTransformFcn:    func(WorldTransform) {},
+		DrawPointFcn:        func(Pos, Q, HexColor) {},
+		DrawStringFcn:       func(Pos, string, HexColor) {},
+		DrawBoundsFcn:       func(AABB, HexColor) {},
+		DrawingBounds: AABB{
+			LowerBound: Vec2{X: maxValue.Neg(), Y: maxValue.Neg()},
+			UpperBound: Vec2{X: maxValue, Y: maxValue},
+		},
+		ForceScale: QOne(),
+		JointScale: QOne(),
+		DrawShapes: true,
 	}
 }
 
 // DefaultWheelJointDef returns the default wheel joint definition.
 func DefaultWheelJointDef() WheelJointDef {
 	return WheelJointDef{
-		LocalAxisA:    Vec2{Y: QOne()},
+		Base:          defaultJointDef(),
 		EnableSpring:  true,
 		Hertz:         QOne(),
 		DampingRatio:  defaultWheelDampingRatio,

@@ -6,7 +6,7 @@
 [![License](https://img.shields.io/github/license/dhannyell/dbox2d)](LICENSE)
 [![Go version](https://img.shields.io/github/go-mod/go-version/dhannyell/dbox2d)](go.mod)
 
-**dbox2d** is an idiomatic, pure Go port of the **[Box2D](https://box2d.org) v3.1.1** physics engine.
+**dbox2d** is an idiomatic, pure Go port of the **[Box2D](https://box2d.org) v3.2.0** physics engine.
 
 It offers two scalar modes from the same solver: `float32` is the default, and
 `-tags dbox2d_fixed` selects Q32.32 fixed-point arithmetic. Both modes are
@@ -21,7 +21,7 @@ The browser demo requires WebGPU and run on a single thread due to limitations i
 
 ## Highlights
 
-- Box2D v3.1.1's public API, expressed in Go style.
+- Box2D v3.2.0's public API, expressed in Go style.
 - Deterministic results and a checksum over the complete world state.
 - Bodies, shapes, sensors, chains, contacts, seven joint types, queries,
   casts, continuous collision, events, and debug drawing.
@@ -111,6 +111,14 @@ follow different trajectories. `ScalarMode` reports the active mode.
 | default | `float32` | General use, multiplayer, rollback, and authoritative simulation with a controlled build matrix |
 | `-tags dbox2d_fixed` | Signed Q32.32 fixed point | A stronger cross-platform reproducibility contract |
 
+`-tags dbox2d_double` is the large-world mode of Box2D v3.2.0
+(`BOX2D_DOUBLE_PRECISION`). Body positions and world transforms are `float64`
+(`Pos`, `WorldTransform`) while the solver stays `float32`, so a world far from
+the origin keeps its precision. It builds on the float mode, matches the
+upstream double traces bit for bit, and cannot be combined with
+`dbox2d_fixed`. `IsDoublePrecision` reports it. Its checksum is not comparable
+to the default one.
+
 Float is deterministic for a specific supported build and target. A silently
 introduced fused multiply-add (FMA), compiler change, or other floating-point
 variation can make two peers take different paths while each continues to
@@ -179,18 +187,11 @@ budgets. See DIVERGENCES.md D-018.
 
 ### Reproducing Box2D bit for bit
 
-With `-tags dbox2d_upstream_pairs`, float mode reproduces the output bits of
-the reference built without SIMD and without FMA: every frozen scene trace
-matches over its full length, in the scalar and the SIMD families alike.
-
-```sh
-go test -tags dbox2d_upstream_pairs ./...
-```
-
-The tag restores the broadphase pair order of Box2D, which follows the walk of
-the tree. The default build sorts those pairs instead, so its world does not
-depend on tree topology, and it parts from the reference wherever the two
-orders differ (DIVERGENCES.md D-013). CI runs both.
+Box2D v3.2 sorts the new broadphase pairs by shape pair key, and the port
+follows that order, so the world does not depend on the tree topology and no
+build tag is needed. Up to v1.0.0 the reference followed the walk of the tree
+and the `dbox2d_upstream_pairs` tag reproduced it (DIVERGENCES.md D-013).
+The frozen scene traces are being regenerated against v3.2.
 
 ### SIMD
 
@@ -222,6 +223,16 @@ the C API's `void*` context.
 `DefaultDebugDraw` provides no-op callbacks. Implement the operations your
 host needs and call `worldId.Draw(&draw)`; the library walks the world and the
 host decides how to render it.
+
+## Recording, snapshots and replay
+
+`WorldId.StartRecording` writes every API call and a state hash per step in
+the Box2D v3.2.0 recording format. `GetSnapshot`, `RestoreFromSnapshot` and
+`CreateWorldFromSnapshot` save and roll back a world, and `CreateReplay` plays
+a recording with seek, frame queries and divergence detection. Float and
+double builds read and write the upstream bytes (checked against files made by
+`tools/recordgolden`); the fixed build uses an 8 byte scalar and its own
+layout hash, see D-022. Recording costs one nil check per call when off.
 
 ## Compatibility with Box2D
 
@@ -260,21 +271,47 @@ multiply-add disabled in the C build because the port never emits it, and
 validation off in both. Solver milliseconds are the sum of the per-step
 minima, and each figure is a geometric mean over the seven scenes.
 
-| Workers | Port over reference | With PGO | Reference speedup | Port speedup | Reference efficiency | Port efficiency |
-| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1 | 1.35x | 1.30x | 1.00x | 1.00x | 100% | 100% |
-| 2 | 1.29x | 1.26x | 1.73x | 1.82x | 87% | 91% |
-| 4 | 1.24x | 1.20x | 2.78x | 3.03x | 70% | 76% |
-| 8 | 1.29x | 1.24x | 3.99x | 4.18x | 50% | 52% |
+| Workers | Port over reference | Reference speedup | Port speedup | Reference efficiency | Port efficiency |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 1.85x | 1.00x | 1.00x | 100% | 100% |
+| 2 | 1.68x | 1.72x | 1.88x | 86% | 94% |
+| 4 | 1.70x | 2.87x | 3.12x | 72% | 78% |
+| 8 | 1.88x | 4.13x | 4.05x | 52% | 51% |
 
-The port scales slightly better than the reference at every worker count,
-so the gap is single-thread work rather than the executor. The per-scene
-ratios at one worker run 1.21x to 1.44x; at eight they run 1.19x to 1.39x,
-with `many_pyramids` the slowest scene on both counts.
+The per-scene ratios at one worker run 1.52x to 2.12x; at eight they run
+1.74x to 2.04x. The contact stages are close to the reference: in
+`large_pyramid` at one worker the relax stage takes 187 ms against 167 ms.
+Most of the remaining gap is contact preparation, impulse storage, the
+broad phase and the narrow phase.
 
-The port also lands on the same result bits at every worker count, in all
-seven scenes. The reference does so in six; its `rain` hash changes with the
-worker count, reproducibly.
+Box2D v3.2 is itself about twice as fast as v3.1.1 on these scenes, so the
+ratio above is wider than the 1.35x the v3.1.1 port held against its own
+reference, even though this port is faster than that one. Five scenes are
+unchanged between the two versions: `joint_grid`, `large_pyramid`, `rain`,
+`smash` and `tumbler`. Over those five, solver time against the v3.1.1 port
+(v1.0.0) is:
+
+| Workers | v3.2 port over v3.1.1 port |
+| ---: | ---: |
+| 1 | 0.70x |
+| 2 | 0.68x |
+| 4 | 0.68x |
+| 8 | 0.71x |
+
+Over the same five scenes Box2D v3.2 takes 0.51x of the solver time of
+v3.1.1 at one worker and 0.48x at eight.
+
+`spinner` and `many_pyramids` changed in v3.2 (twice the bodies in
+`spinner`, a new ground and offsets in `many_pyramids`), so they are left out
+of that comparison.
+
+Both sides land on the same result bits at every worker count, in all seven
+scenes.
+
+On amd64 the warm start, push and relax stages run AVX2 kernels generated by
+[tools/asmgen](tools/asmgen) from the Go stages, one operation at a time and
+in the same order, so they round as the Go code does. A test runs each kernel
+against its Go counterpart on random input and requires the same bits.
 
 Measured on an AMD Ryzen 7 5800X3D, Windows/amd64, sixteen logical cores,
 GCC 13.2.0, Go 1.27.0, three repeats.
@@ -282,11 +319,11 @@ GCC 13.2.0, Go 1.27.0, three repeats.
 ### Running the comparison
 
 The harness is in the tree, so the numbers above can be checked rather than
-taken. The reference is not vendored: clone Box2D v3.1.1 beside this
+taken. The reference is not vendored: clone Box2D v3.2.0 beside this
 repository, or pass `-DBOX2D_SOURCE_DIR=<path>`.
 
 ```sh
-git clone --branch v3.1.1 --depth 1 https://github.com/erincatto/box2d ../box2d
+git clone --branch v3.2.0 --depth 1 https://github.com/erincatto/box2d ../box2d
 cmake -S tools/cbench -B build/cbench -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build/cbench
 ```
@@ -316,10 +353,10 @@ the repository: one is a single machine on a single day.
 
 ### Profile-guided optimization
 
-A profile takes 3 to 6 percent off the solver: 2.7 percent on one worker and
-5 to 6 percent from two workers up, in all seven scenes. It changes no result
-bits. The checksum witnesses, the conformance traces under
-`dbox2d_upstream_pairs`, the no-FMA gate and the per-scene hashes all hold
+Measured on the v3.1.1 port, a profile takes 3 to 6 percent off the solver:
+2.7 percent on one worker and 5 to 6 percent from two workers up, in all
+seven scenes. It changes no result
+bits. The checksum witnesses, the conformance traces, the no-FMA gate and the per-scene hashes all hold
 with a profile applied, because every float product already sits inside an
 explicit rounding conversion, and a fused multiply-add cannot cross that
 barrier.

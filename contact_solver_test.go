@@ -54,7 +54,7 @@ func restingBox(t *testing.T) (*world, *body, *stepContext) {
 	w := getWorldFromId(worldId)
 
 	groundDef := DefaultBodyDef()
-	groundDef.Position = Vec2{Y: QHalf().Neg()}
+	groundDef.Position = ToPos(Vec2{Y: QHalf().Neg()})
 	groundId := CreateBody(worldId, &groundDef)
 	shapeDef := DefaultShapeDef()
 	ground := MakeBox(QFromInt(5), QHalf())
@@ -62,7 +62,7 @@ func restingBox(t *testing.T) (*world, *body, *stepContext) {
 
 	boxDef := DefaultBodyDef()
 	boxDef.Type = DynamicBody
-	boxDef.Position = Vec2{Y: QHalf()}
+	boxDef.Position = ToPos(Vec2{Y: QHalf()})
 	boxId := CreateBody(worldId, &boxDef)
 	unit := MakeBox(QHalf(), QHalf())
 	CreatePolygonShape(boxId, &shapeDef, &unit)
@@ -143,9 +143,17 @@ func TestPrepareOverflowContactsBuildsTheMasses(t *testing.T) {
 	state := getBodyState(w, box)
 	state.linearVelocity = Vec2{Y: QFromInt(-3)}
 
+	// Without restitution or hit events the prepare does not sample the
+	// approach speed.
+	overflow := &w.constraintGraph.colors[overflowIndex]
+	prepareOverflowContacts(context)
+	if !overflow.contactConstraints[0].points[0].relativeVelocity.toQ().Eq(QZero()) {
+		t.Errorf("the prepare sampled the velocity without restitution or hit events")
+	}
+	overflow.contactSims[0].simFlags |= simEnableHitEvent
 	prepareOverflowContacts(context)
 
-	constraint := &w.constraintGraph.colors[overflowIndex].contactConstraints[0]
+	constraint := &overflow.contactConstraints[0]
 	if constraint.indexA != nullIndex || constraint.indexB != box.localIndex {
 		t.Fatalf("the constraint points at bodies %d and %d", constraint.indexA, constraint.indexB)
 	}
@@ -210,14 +218,14 @@ func TestRestingBoxHoldsItsGround(t *testing.T) {
 	for range 60 {
 		// The collide pass refreshes the separation on each step. The box
 		// does not rotate, so the anchors stay put.
-		m.Points[0].Separation = sim.center.Y.Sub(QHalf())
+		m.Points[0].Separation = posY(sim.center).Sub(QHalf())
 		prepareOverflowContacts(context)
 		for range context.subStepCount {
 			integrateVelocitiesTask(0, 1, context)
 			warmStartOverflowContacts(context)
-			solveOverflowContacts(context, true)
+			pushOverflowContacts(context)
 			integratePositionsTask(0, 1, context)
-			solveOverflowContacts(context, false)
+			solveOverflowContacts(context)
 		}
 		applyOverflowRestitution(context)
 		storeOverflowImpulses(context)
@@ -227,7 +235,7 @@ func TestRestingBoxHoldsItsGround(t *testing.T) {
 	}
 
 	tolerance := QMustParse("0.001")
-	if !withinQ(sim.center.Y, QHalf(), tolerance) {
+	if !withinQ(posY(sim.center), QHalf(), tolerance) {
 		t.Errorf("the box rests at y %v, want 0.5", sim.center.Y)
 	}
 	state := getBodyState(w, box)
@@ -253,7 +261,7 @@ func TestFrictionSaturatesAtTheNormalImpulse(t *testing.T) {
 	state.linearVelocity = Vec2{X: QFromInt(100), Y: QFromInt(-1)}
 
 	prepareOverflowContacts(context)
-	solveOverflowContacts(context, true)
+	solveOverflowContacts(context)
 
 	cp := &w.constraintGraph.colors[overflowIndex].contactConstraints[0].points[0]
 	constraint := &w.constraintGraph.colors[overflowIndex].contactConstraints[0]
@@ -290,7 +298,7 @@ func TestRollingBoundKeepsATwoPointTotal(t *testing.T) {
 
 // TestRestitutionNeedsTheThreshold pins the restitution gate: a fall
 // faster than the threshold bounces to restitution times the approach
-// speed; a slower fall does not bounce.
+// speed; a slower fall is only stopped, as a non-penetration solve.
 func TestRestitutionNeedsTheThreshold(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
@@ -307,13 +315,13 @@ func TestRestitutionNeedsTheThreshold(t *testing.T) {
 			state.linearVelocity = Vec2{Y: QMustParse(tc.fall)}
 
 			prepareOverflowContacts(context)
-			solveOverflowContacts(context, true)
+			pushOverflowContacts(context)
 			before := state.linearVelocity.Y
 			applyOverflowRestitution(context)
 
 			if !tc.bounce {
-				if !state.linearVelocity.Y.Eq(before) {
-					t.Errorf("a slow fall bounced to %v", state.linearVelocity.Y)
+				if !withinQ(state.linearVelocity.Y, QZero(), qUlps(16)) {
+					t.Errorf("a slow fall from %v left at %v, want 0", before, state.linearVelocity.Y)
 				}
 				return
 			}
@@ -333,9 +341,11 @@ func TestStoreOverflowImpulsesFillsTheManifold(t *testing.T) {
 	w, box, context := restingBox(t)
 	state := getBodyState(w, box)
 	state.linearVelocity = Vec2{X: QFromInt(1), Y: QFromInt(-2)}
+	w.constraintGraph.colors[overflowIndex].contactSims[0].simFlags |= simEnableHitEvent
+	setBitCountAndClear(&w.taskContexts[0].hitEventBitSet, w.contactIdPool.idCapacity())
 
 	prepareOverflowContacts(context)
-	solveOverflowContacts(context, true)
+	pushOverflowContacts(context)
 	storeOverflowImpulses(context)
 
 	cp := &w.constraintGraph.colors[overflowIndex].contactConstraints[0].points[0]

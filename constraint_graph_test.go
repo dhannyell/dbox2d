@@ -83,10 +83,11 @@ func TestGraphColorsSeparateSharedBodies(t *testing.T) {
 	validateSolverSets(w)
 }
 
-// TestStaticContactSkipsColorZero pins the static rule: a contact with a
-// static body starts at color 1 and marks only the dynamic body; the
-// static side gets no body sim and zero inverse mass.
-func TestStaticContactSkipsColorZero(t *testing.T) {
+// TestStaticContactTakesTheTopColor pins the static rule: a contact with a
+// static body scans down from the last color before the overflow and marks
+// only the dynamic body; the static side gets no body sim and zero inverse
+// mass.
+func TestStaticContactTakesTheTopColor(t *testing.T) {
 	worldId := createTestWorld(t)
 	w := getWorldFromId(worldId)
 
@@ -99,8 +100,8 @@ func TestStaticContactSkipsColorZero(t *testing.T) {
 	idA := addDynamicCircle(t, worldId, v2(0, 1))
 
 	c := startTouching(t, w, groundId, idA)
-	if c.colorIndex != 1 {
-		t.Fatalf("the static contact took color %d, want 1", c.colorIndex)
+	if c.colorIndex != overflowIndex-1 {
+		t.Fatalf("the static contact took color %d, want %d", c.colorIndex, overflowIndex-1)
 	}
 
 	cs := getContactSim(w, c)
@@ -112,27 +113,30 @@ func TestStaticContactSkipsColorZero(t *testing.T) {
 	}
 
 	ground := getBodyFullId(w, groundId)
-	if w.constraintGraph.colors[1].bodySet.getBit(ground.id) {
-		t.Errorf("color 1 marks the static body")
+	if w.constraintGraph.colors[overflowIndex-1].bodySet.getBit(ground.id) {
+		t.Errorf("the static color marks the static body")
 	}
 }
 
 // TestGraphOverflowTakesTheRest pins the overflow: a body with more
-// contacts than colors sends the rest to the last color, which keeps no
-// body set.
+// dynamic contacts than dynamic colors sends the rest to the last color,
+// which keeps no body set.
 func TestGraphOverflowTakesTheRest(t *testing.T) {
 	worldId := createTestWorld(t)
 	w := getWorldFromId(worldId)
 
 	hubId := addDynamicCircle(t, worldId, v2(0, 0))
-	contacts := make([]*contact, 0, overflowIndex+2)
-	for i := range overflowIndex + 2 {
+	contacts := make([]*contact, 0, dynamicColorCount+2)
+	for i := range dynamicColorCount + 2 {
 		otherId := addDynamicCircle(t, worldId, v2(i+1, 0))
 		contacts = append(contacts, startTouching(t, w, hubId, otherId))
 	}
 
 	for i, c := range contacts {
-		want := min(i, overflowIndex)
+		want := i
+		if i >= dynamicColorCount {
+			want = overflowIndex
+		}
 		if c.colorIndex != want {
 			t.Errorf("contact %d took color %d, want %d", i, c.colorIndex, want)
 		}
@@ -145,9 +149,9 @@ func TestGraphOverflowTakesTheRest(t *testing.T) {
 }
 
 // TestJointColorsFollowTheBodies pins the joint color rules: a joint to a
-// static body may take color zero, two joints that share a dynamic body
-// take distinct colors, and the sim moves out of a color with the joint
-// that filled its slot.
+// static body takes the top static color, a joint of two dynamic bodies
+// takes color zero, and the sim moves out of a color with the joint that
+// filled its slot.
 func TestJointColorsFollowTheBodies(t *testing.T) {
 	worldId := createTestWorld(t)
 	w := getWorldFromId(worldId)
@@ -159,25 +163,26 @@ func TestJointColorsFollowTheBodies(t *testing.T) {
 	ground := getBodyFullId(w, groundId)
 	bodyA := getBodyFullId(w, idA)
 
+	staticColor := overflowIndex - 1
 	jGA := linkHandJoint(t, w, groundId, idA)
-	if jGA.colorIndex != 0 {
-		t.Fatalf("the static joint took color %d, want 0", jGA.colorIndex)
+	if jGA.colorIndex != staticColor {
+		t.Fatalf("the static joint took color %d, want %d", jGA.colorIndex, staticColor)
 	}
-	if w.constraintGraph.colors[0].bodySet.getBit(ground.id) || !w.constraintGraph.colors[0].bodySet.getBit(bodyA.id) {
-		t.Errorf("color 0 marks the wrong body")
+	if w.constraintGraph.colors[staticColor].bodySet.getBit(ground.id) || !w.constraintGraph.colors[staticColor].bodySet.getBit(bodyA.id) {
+		t.Errorf("the static color marks the wrong body")
 	}
 
 	jAB := linkHandJoint(t, w, idA, idB)
-	if jAB.colorIndex != 1 {
-		t.Fatalf("the shared joint took color %d, want 1", jAB.colorIndex)
+	if jAB.colorIndex != 0 {
+		t.Fatalf("the dynamic joint took color %d, want 0", jAB.colorIndex)
 	}
 	validateSolverSets(w)
 
-	// Remove the first joint of color 0 after a second one enters it.
+	// Remove the first joint of the static color after a second one enters it.
 	idC := addDynamicCircle(t, worldId, v2(2, 1))
 	jGC := linkHandJoint(t, w, groundId, idC)
-	if jGC.colorIndex != 0 || jGC.localIndex != 1 {
-		t.Fatalf("the third joint took color %d slot %d, want 0 and 1", jGC.colorIndex, jGC.localIndex)
+	if jGC.colorIndex != staticColor || jGC.localIndex != 1 {
+		t.Fatalf("the third joint took color %d slot %d, want %d and 1", jGC.colorIndex, jGC.localIndex, staticColor)
 	}
 	unlinkJoint(w, jGA)
 	removeHandJointEdges(w, jGA)
@@ -188,17 +193,17 @@ func TestJointColorsFollowTheBodies(t *testing.T) {
 }
 
 // TestJointOverflowTakesTheRest pins the joint overflow: a body with more
-// joints than colors sends the rest to the last color.
+// dynamic joints than dynamic colors sends the rest to the last color.
 func TestJointOverflowTakesTheRest(t *testing.T) {
 	worldId := createTestWorld(t)
 	w := getWorldFromId(worldId)
 
 	hubId := addDynamicCircle(t, worldId, v2(0, 0))
-	for i := range graphColorCount {
+	for i := range dynamicColorCount + 2 {
 		otherId := addDynamicCircle(t, worldId, v2(i+1, 0))
 		j := linkHandJoint(t, w, hubId, otherId)
 		want := i
-		if i >= overflowIndex {
+		if i >= dynamicColorCount {
 			want = overflowIndex
 		}
 		if j.colorIndex != want {

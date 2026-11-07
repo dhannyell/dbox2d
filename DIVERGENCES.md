@@ -1,6 +1,6 @@
 # Known differences from Box2D
 
-`dbox2d` follows the Box2D v3.1.1 formulation by default. This ledger lists
+`dbox2d` follows the Box2D v3.2.0 formulation by default. This ledger lists
 the places where Go, fixed-point arithmetic, or deterministic execution
 requires a different implementation.
 
@@ -55,14 +55,17 @@ Numbering is sequential from `D-001` and never reused.
 
 ### D-003 An assertion becomes a panic
 
-- Files: validation sites throughout the solver (upstream `B2_ASSERT`)
+- Files: validation sites throughout the solver (upstream `B2_ASSERT` and
+  `B2_CHECK_INPUT`)
 - Tier: T2
 - Reason: the reference can compile assertions out; Go has no equivalent
   release switch, and continuing after a failed precondition risks corruption.
 - Behaviour: invalid preconditions panic in every build. Validation queries still
-  return booleans, while mutation during a locked step panics.
+  return booleans, while mutation during a locked step panics. Since v3.2 the
+  reference logs invalid API input and returns in release builds
+  (`B2_CHECK_INPUT`); the port keeps the debug behaviour and panics instead.
 - Test: `TestIdPoolRejectsAnUnknownIndex`, `TestStepRejectsInvalidInput`, and
-  `TestCreateChainPanicsBelowFourPoints`, plus the geometry and joint cases
+  `TestCreateChainRejectsBadDefs`, plus the geometry and joint cases
 
 ### D-004 An angle is a turn
 
@@ -142,8 +145,13 @@ Numbering is sequential from `D-001` and never reused.
 - Behaviour: fixed mode uses the largest and smallest representable values for
   search seeds and clamps. Public defaults that need an unreachable bound use
   `Huge`, including distance-joint maximum length and mover push limits.
-- Test: `TestTreeSeedNeverWins` and
-  `TestSolvePlanesSinglePlaneProjects`
+  Defaults of ±`QMaxValue` (distance spring force range, joint force and
+  torque thresholds) pass validation through `isForceBound`. The default
+  debug drawing bounds span ±half of `QMaxValue`, so their width stays
+  representable, where the reference spans ±`FLT_MAX`.
+- Test: `TestTreeSeedNeverWins`,
+  `TestSolvePlanesSinglePlaneProjects` and
+  `TestDefaultDebugDrawMatchesTheReference`
 
 ### D-010 A generated array becomes a slice
 
@@ -185,24 +193,25 @@ Numbering is sequential from `D-001` and never reused.
 - Behaviour: segment degeneracy, zero search direction, coincident closest
   points, clipping spans, sensor overlap, and explosion direction use exact
   zero tests in fixed mode. Nonzero values take the regular path; float mode
-  keeps the reference epsilon checks.
+  keeps the reference epsilon checks. Since v3.2 the `Normalize` and
+  `GetLengthAndNormalize` floor and the GJK stop test are `1000 * FLT_MIN`
+  in float mode (`belowNormalizeFloor`); fixed mode tests for exact zero.
 - Test: `TestSegmentDistanceHandlesDegenerateSegments`,
   `TestSensorTouchingEdgeIsNotOverlap`, and
   `TestExplodeImpulseByDistance`
 
-### D-013 The pairs of a moved proxy are sorted by shape id
+### D-013 The pairs of a moved proxy are sorted by shape id (retired)
 
-- File: `broad_phase.go` (upstream `b2PairQueryCallback`)
-- Tier: T2
-- Reason: the reference's tree-walk order depends on tree topology and can
-  change contact creation order.
-- Behaviour: new pairs for one moved proxy are appended and sorted by
-  `(shapeIdA, shapeIdB)`; moved proxies retain move-buffer order. The default
-  therefore remains independent of equivalent tree topology. The
-  `dbox2d_upstream_pairs` tag restores reference prepend order and gives up
-  that independence.
-- Test: `TestBroadPhasePairsAreSortedByShapeId`,
-  `TestChecksumIgnoresTheTreeTopology`, and `TestConformance`
+- File: `broad_phase.go` (upstream `b2UpdateBroadPhasePairs`)
+- Tier: none since v1.1.0
+- Retired: Box2D v3.2.0 radix-sorts every new pair by its shape pair key
+  before it creates the contacts, so the reference order no longer depends on
+  the tree topology. The port follows that order and the
+  `dbox2d_upstream_pairs` tag is gone. Up to v1.0.0 the port sorted the pairs
+  of each moved proxy by `(shapeIdA, shapeIdB)` while the reference followed
+  the tree walk.
+- Test: `TestBroadPhasePairsAreSortedByShapeId` and
+  `TestChecksumIgnoresTheTreeTopology`
 
 ### D-014 A callback with a context becomes a closure
 
@@ -216,7 +225,7 @@ Numbering is sequential from `D-001` and never reused.
   protect that property.
 - Test: `TestTreeQueryReportsTheOverlaps`, `TestShapeQueriesMatchBruteForce`,
   `TestSetFrictionCallbackAffectsNextContact`, and
-  `TestPreSolveFalseLetsTheBoxThrough`
+  `TestPreSolveZeroPointsLetsTheBoxThrough`
 
 ### D-015 The memory dump writes to an io.Writer
 
@@ -245,15 +254,9 @@ Numbering is sequential from `D-001` and never reused.
   caller. Callbacks run on worker goroutines and `Counters.TaskCount` reports
   the last step's tasks.
 
-  Box2D v3.1.1 has a sleep-selection tie bug: the candidate chosen inside a
-  worker depends on the order in which islands are visited, while the final
-  reduction uses the island id. As a result, the upstream `rain` scene starts
-  diverging at step 450 when the worker count changes, despite the upstream
-  documentation promising identical results for every thread count. The port
-  keeps the single-worker choice and applies it in a fixed order, so its result
-  is independent of worker count. Upstream fixed the tie after v3.1.1 in commit
-  `436365a246` (PR #1065); moving to that release will change the witnesses and
-  traces.
+  Up to v1.0.0 the port also kept its own sleep-candidate tie break, because
+  Box2D v3.1.1 picked the candidate by island visit order. Box2D v3.2.0 breaks
+  the tie by island id (upstream PR #1065), and the port follows it.
 - Test: `TestStepIsWorkerCountIndependent`,
   `TestSensorEventsAreWorkerCountIndependent`, `TestCountersReportTasks`,
   and the executor tests
@@ -283,9 +286,11 @@ Numbering is sequential from `D-001` and never reused.
 - Behaviour: frozen traces cover 17 collision/function files and 8 scene files.
   The generator uses the pinned reference without SIMD or FMA. Float function
   traces are exact except for the documented `make_rot` budget; fixed traces
-  use absolute budgets. Float scene traces match bit for bit with
-  `dbox2d_upstream_pairs`; the default sorted-pair build is checked with
-  step-one budgets and diagnostic later hashes. Fixed scene traces use
+  use absolute budgets. Float scene traces match bit for bit through every
+  step, in the default build and under `dbox2d_simd`; up to v1.0.0 they
+  needed the retired `dbox2d_upstream_pairs` tag (D-013). The `spinner`
+  motor torque is `FLT_MAX` in the reference and half of `QMaxValue` in the
+  port, a bound that never binds in either (D-009). Fixed scene traces use
   fixed-mode budgets and saturation gates. The traces also caught two port
   bugs: colored contacts used `maxContactPushSpeed` instead of `contactSpeed`,
   and grouped the normal-impulse expression differently from the reference.
@@ -301,6 +306,9 @@ Numbering is sequential from `D-001` and never reused.
 - Reason: the reference selects SIMD lanes at compile time; colors rarely
   contain a multiple of the lane width, and the port needs one scalar oracle.
 - Behaviour: `dbox2d_simd` adds a padded lane path beside the scalar path.
+  It runs the push, relax and Poisson restitution stages of
+  `src/contact_solver_wide.inl`, one lane per constraint in the order of the
+  scalar colored stages, which skip work per group of four lanes.
   Native widths are 8 on amd64 AVX2 and 4 on arm64 NEON; WebAssembly and other
   targets use a generic path, with scalar fallback where required. Padding
   never writes back. Each lane uses separate rounded multiply/add operations,
@@ -323,3 +331,86 @@ Numbering is sequential from `D-001` and never reused.
 - Test: `TestHeavyBoxRestsOnTheGround`,
   `TestStepPartitionsContactsByTheLaneWindow`, `TestQ32ContactSolverIsFresh`,
   and the conformance saturation gate
+
+### D-021 The normal velocity is sampled per contact
+
+- Files: `contact_solver.go` and `contact_solver_simd.go` (upstream
+  `b2PrepareContacts_Wide`)
+- Tier: T2
+- Reason: the reference samples the approach speed for a whole lane group
+  when any lane of the group has restitution or hit events; the port decides
+  per contact, so the result does not depend on the lane layout.
+- Behaviour: a colored contact without restitution and without hit events
+  reports a zero `ManifoldPoint.NormalVelocity`, where the reference may
+  report the sampled speed because a neighbouring lane needed it. The solver
+  reads the speed only for restitution and hit events, so the simulation is
+  unchanged.
+- Test: `TestPrepareOverflowContactsBuildsTheMasses` and the scene traces
+
+### D-022 Fixed mode writes an 8 byte Q
+
+- Files: `snapshot.go`, `recording.go`, `clayout.go`
+- Tier: T2
+- Reason: a Q32.32 scalar does not fit the 4 bytes that the upstream format
+  gives a float, and widening it keeps every bit of state.
+- Behaviour: under `dbox2d_fixed` every `Q` is 8 raw bytes, and the layout
+  hash mixes the scalar size, the snapshot flag 0x4 and a recording header
+  `reserved2` of 0x00584651. Upstream tools refuse these files by hash; float
+  and double builds read and write the upstream bytes unchanged.
+- Test: `TestRollback`, `TestRecordReplayRoundTrip` (all modes)
+
+### D-023 Layouts come from reflected plans
+
+- Files: `clayout.go`, `snapshot.go`
+- Tier: T2
+- Reason: Go struct layout is not the C layout the format copies.
+- Behaviour: each serialized struct is described by an ordered plan whose
+  offsets and sizes equal the C ones in float and double. The unions of the
+  geometry and the joint payload take the upstream sizes (144 and 160 bytes)
+  when `Q` is 4 bytes and the largest member otherwise. Padding at union tails
+  is written as zeros where upstream writes whatever the allocator left.
+- Test: `TestGoldenSnapshotMatchesUpstream`, `TestGoldenRecordingMatchesUpstream`
+
+### D-024 Restore and record drop Go-only state
+
+- Files: `snapshot.go`, `recording.go`
+- Tier: T2
+- Reason: pointers, callbacks and `UserData` cannot be serialized.
+- Behaviour: `RestoreFromSnapshot` clears the user data of bodies, shapes and
+  joints. Recording refuses to start while a pre-solve or custom filter
+  callback is set. A null name is read back as an empty string.
+- Test: `TestRollback`
+
+### D-025 Angles cross the wire in the unit of the sims
+
+- Files: `recording.go`, `replay_dispatch.go`, `body.go`, `joint_api.go`
+- Tier: T2
+- Reason: the port's API measures angles in turns (D-001), the format in
+  radians.
+- Behaviour: an angle op records the value the setter stores, after its one
+  conversion from turns, and the replay hands that value to the same setter
+  behind the conversion. Float and double builds write radians, as upstream
+  does, and replay upstream recordings without a round trip through turns.
+  Fixed builds store their joint angles in turns, so their files (already
+  their own format, D-022) carry turns for joint angles and radians for body
+  angular velocity.
+- Test: `TestRecordReplayAngleOps`, `TestRecordReplayRoundTrip`
+
+### D-026 Op records carry the world generation
+
+- Files: `recording_ops.go`
+- Tier: T2
+- Reason: the port keeps the generation in `WorldId`.
+- Behaviour: record bytes include the generation of the world slot, so a byte
+  comparison with upstream calls `ResetWorldGenerations` first. The replay
+  checks created ids by index and generation only.
+- Test: `TestGoldenRecordingMatchesUpstream`
+
+### D-027 The replay ignores the length scale
+
+- Files: `replay.go`
+- Tier: T2
+- Reason: the port has no length units (D-002).
+- Behaviour: `ReplayInfo.LengthScale` is reported and not applied. The
+  rollback sample does not call `FinishRecording`, since it has no record UI.
+- Test: `TestGoldenReplayOfUpstreamRecording`

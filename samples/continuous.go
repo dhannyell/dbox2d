@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2022 Erin Catto
 // SPDX-License-Identifier: MIT
-// Ported from samples/sample_continuous.cpp of Box2D v3.1.1
+// Ported from samples/sample_continuous.cpp of Box2D v3.2.0
 
 package samples
 
@@ -27,6 +27,7 @@ func init() {
 	RegisterSample("Continuous", "Drop", NewDrop)
 	RegisterSample("Continuous", "Pinball", NewPinball)
 	RegisterSample("Continuous", "Wedge", NewWedge)
+	RegisterSample("Continuous", "Safety Factor", NewSafetyFactor)
 }
 
 // radiansQToTurns converts a scalar angle of the reference to turns.
@@ -82,7 +83,7 @@ func NewBounceHouse(ctx *SampleContext) Sample {
 	shapeDef := b2.DefaultShapeDef()
 	createBoxWalls(groundId, &shapeDef)
 
-	s.shapeType = launchBox
+	s.shapeType = launchCircle
 	s.bodyId = b2.BodyId{}
 	s.enableHitEvents = true
 
@@ -98,8 +99,9 @@ func (s *BounceHouse) launch() {
 	bodyDef := b2.DefaultBodyDef()
 	bodyDef.Type = b2.DynamicBody
 	bodyDef.LinearVelocity = b2.V2(10, 20)
-	bodyDef.Position = b2.V2(0, 0)
+	bodyDef.Position = b2.ToPos(b2.V2(0, 0))
 	bodyDef.GravityScale = b2.QZero()
+	bodyDef.IsBullet = true
 
 	// Circle shapes centered on the body can spin fast without risk of tunnelling.
 	bodyDef.AllowFastRotation = s.shapeType == launchCircle
@@ -108,8 +110,8 @@ func (s *BounceHouse) launch() {
 
 	shapeDef := b2.DefaultShapeDef()
 	shapeDef.Density = b2.QOne()
-	shapeDef.Material.Restitution = b2.F(1.2)
-	shapeDef.Material.Friction = b2.F(0.3)
+	shapeDef.Material.Restitution = b2.QOne()
+	shapeDef.Material.Friction = b2.QZero()
 	shapeDef.EnableHitEvents = s.enableHitEvents
 
 	if s.shapeType == launchCircle {
@@ -155,7 +157,7 @@ func (s *BounceHouse) Step() {
 			}
 		}
 
-		e.point = event.Point
+		e.point = b2.ToVec2(event.Point)
 		e.speed = event.ApproachSpeed
 		e.stepIndex = s.StepCount
 	}
@@ -164,8 +166,8 @@ func (s *BounceHouse) Step() {
 	for i := range s.hitEvents {
 		e := &s.hitEvents[i]
 		if e.stepIndex > 0 && s.StepCount <= e.stepIndex+30 {
-			draw.DrawCircle(e.point, b2.F(0.1), b2.ColorOrangeRed)
-			draw.DrawString(e.point, fmt.Sprintf("%.1f", ToFloat64(e.speed)), b2.ColorWhite)
+			draw.DrawCircleFcn(b2.ToPos(e.point), b2.F(0.1), b2.ColorOrangeRed)
+			draw.DrawStringFcn(b2.ToPos(e.point), fmt.Sprintf("%.1f", ToFloat64(e.speed)), b2.ColorWhite)
 		}
 	}
 }
@@ -206,7 +208,7 @@ func (s *BounceHumans) Step() {
 		jointHertz := b2.QOne()
 		jointDampingRatio := b2.F(0.1)
 
-		s.humans[s.humanCount] = shared.CreateHuman(s.WorldId, b2.V2(0, 5), b2.QOne(), jointFrictionTorque, jointHertz,
+		s.humans[s.humanCount] = shared.CreateHuman(s.WorldId, b2.ToPos(b2.V2(0, 5)), b2.QOne(), jointFrictionTorque, jointHertz,
 			jointDampingRatio, 1, nil, true)
 
 		s.countDown = b2.F(2)
@@ -219,7 +221,7 @@ func (s *BounceHumans) Step() {
 	gravity := b2.F(10)
 	gravityVec := b2.Vec2{X: gravity.Mul(cs1.Sin), Y: gravity.Mul(cs2.Cos)}
 	three := b2.F(3)
-	s.Context.Draw.DrawSegment(b2.Vec2{}, b2.Vec2{X: three.Mul(cs1.Sin), Y: three.Mul(cs2.Cos)}, b2.ColorWhite)
+	s.Context.Draw.DrawLineFcn(b2.ToPos(b2.Vec2{}), b2.ToPos(b2.Vec2{X: three.Mul(cs1.Sin), Y: three.Mul(cs2.Cos)}), b2.ColorWhite)
 	s.time = s.time.Add(timeStep)
 	s.countDown = s.countDown.Sub(timeStep)
 	s.WorldId.SetGravity(gravityVec)
@@ -245,7 +247,7 @@ func NewChainDrop(ctx *SampleContext) Sample {
 	}
 
 	bodyDef := b2.DefaultBodyDef()
-	bodyDef.Position = b2.V2(0, -6)
+	bodyDef.Position = b2.ToPos(b2.V2(0, -6))
 	groundId := b2.CreateBody(s.WorldId, &bodyDef)
 
 	points := []b2.Vec2{b2.V2(-10, -2), b2.V2(10, -2), b2.V2(10, 1), b2.V2(-10, 1)}
@@ -272,9 +274,9 @@ func (s *ChainDrop) launch() {
 	bodyDef := b2.DefaultBodyDef()
 	bodyDef.Type = b2.DynamicBody
 	bodyDef.LinearVelocity = b2.Vec2{Y: FromFloat64(s.speed)}
-	bodyDef.Position = b2.Vec2{Y: b2.F(10).Add(FromFloat64(s.yOffset))}
+	bodyDef.Position = b2.ToPos(b2.Vec2{Y: b2.F(10).Add(FromFloat64(s.yOffset))})
 	bodyDef.Rotation = b2.MakeRot(b2.QFromRatio(1, 4))
-	bodyDef.FixedRotation = true
+	bodyDef.MotionLocks.AngularZ = true
 	s.bodyId = b2.CreateBody(s.WorldId, &bodyDef)
 
 	shapeDef := b2.DefaultShapeDef()
@@ -351,7 +353,7 @@ func NewChainSlide(ctx *SampleContext) Sample {
 		bodyDef := b2.DefaultBodyDef()
 		bodyDef.Type = b2.DynamicBody
 		bodyDef.LinearVelocity = b2.V2(100, 0)
-		bodyDef.Position = b2.V2(-19.5, 0.5)
+		bodyDef.Position = b2.ToPos(b2.V2(-19.5, 0.5))
 		bodyId := b2.CreateBody(s.WorldId, &bodyDef)
 
 		shapeDef := b2.DefaultShapeDef()
@@ -390,7 +392,7 @@ func NewSegmentSlide(ctx *SampleContext) Sample {
 		bodyDef := b2.DefaultBodyDef()
 		bodyDef.Type = b2.DynamicBody
 		bodyDef.LinearVelocity = b2.V2(100, 0)
-		bodyDef.Position = b2.V2(-20.0, 0.7)
+		bodyDef.Position = b2.ToPos(b2.V2(-20.0, 0.7))
 		bodyId := b2.CreateBody(s.WorldId, &bodyDef)
 
 		shapeDef := b2.DefaultShapeDef()
@@ -457,7 +459,7 @@ func (s *SkinnyBox) launch() {
 
 	bodyDef := b2.DefaultBodyDef()
 	bodyDef.Type = b2.DynamicBody
-	bodyDef.Position = b2.V2(0, 8)
+	bodyDef.Position = b2.ToPos(b2.V2(0, 8))
 	bodyDef.AngularVelocity = radiansQToTurns(s.angularVelocity)
 	bodyDef.LinearVelocity = b2.V2(0, -100)
 
@@ -478,7 +480,7 @@ func (s *SkinnyBox) launch() {
 	if s.bullet {
 		polygon := b2.MakeBox(b2.F(0.25), b2.F(0.25))
 		s.x = shared.RandomFloatRange(b2.F(-1), b2.QOne())
-		bodyDef.Position = b2.Vec2{X: s.x, Y: b2.F(10)}
+		bodyDef.Position = b2.ToPos(b2.Vec2{X: s.x, Y: b2.F(10)})
 		bodyDef.LinearVelocity = b2.V2(0, -50)
 		s.bulletId = b2.CreateBody(s.WorldId, &bodyDef)
 		b2.CreatePolygonShape(s.bulletId, &shapeDef, &polygon)
@@ -652,7 +654,7 @@ func (s *GhostBumps) launch() {
 
 	bodyDef := b2.DefaultBodyDef()
 	bodyDef.Type = b2.DynamicBody
-	bodyDef.Position = b2.V2(-28, 18)
+	bodyDef.Position = b2.ToPos(b2.V2(-28, 18))
 	bodyDef.LinearVelocity = b2.V2(0, 0)
 	s.bodyId = b2.CreateBody(s.WorldId, &bodyDef)
 
@@ -742,7 +744,7 @@ func NewSpeculativeFallback(ctx *SampleContext) Sample {
 		offset := b2.F(8)
 		bodyDef := b2.DefaultBodyDef()
 		bodyDef.Type = b2.DynamicBody
-		bodyDef.Position = b2.Vec2{X: offset, Y: b2.F(12)}
+		bodyDef.Position = b2.ToPos(b2.Vec2{X: offset, Y: b2.F(12)})
 		bodyDef.LinearVelocity = b2.V2(0, -100)
 		bodyId := b2.CreateBody(s.WorldId, &bodyDef)
 
@@ -777,7 +779,7 @@ func NewSpeculativeSliver(ctx *SampleContext) Sample {
 	{
 		bodyDef := b2.DefaultBodyDef()
 		bodyDef.Type = b2.DynamicBody
-		bodyDef.Position = b2.V2(0, 12)
+		bodyDef.Position = b2.ToPos(b2.V2(0, 12))
 		bodyDef.LinearVelocity = b2.V2(0, -100)
 		bodyId := b2.CreateBody(s.WorldId, &bodyDef)
 
@@ -820,7 +822,7 @@ func NewSpeculativeGhost(ctx *SampleContext) Sample {
 		bodyDef.Type = b2.DynamicBody
 
 		// The speculative distance is 0.02 meters, so this avoid it
-		bodyDef.Position = b2.V2(0.015, 2.515)
+		bodyDef.Position = b2.ToPos(b2.V2(0.015, 2.515))
 		speed := b2.F(0.125).Mul(FromFloat64(ctx.Settings.Hertz))
 		bodyDef.LinearVelocity = b2.Vec2{X: speed, Y: speed.Neg()}
 		bodyDef.GravityScale = b2.QZero()
@@ -854,7 +856,7 @@ func NewPixelImperfect(ctx *SampleContext) Sample {
 	{
 		block4BodyDef := b2.DefaultBodyDef()
 		block4BodyDef.Type = b2.StaticBody
-		block4BodyDef.Position = b2.Vec2{X: pixels(175), Y: pixels(150)}
+		block4BodyDef.Position = b2.ToPos(b2.Vec2{X: pixels(175), Y: pixels(150)})
 		block4BodyId := b2.CreateBody(s.WorldId, &block4BodyDef)
 		block4Shape := b2.MakeBox(pixels(20), pixels(10))
 		block4ShapeDef := b2.DefaultShapeDef()
@@ -865,7 +867,7 @@ func NewPixelImperfect(ctx *SampleContext) Sample {
 	{
 		ballBodyDef := b2.DefaultBodyDef()
 		ballBodyDef.Type = b2.DynamicBody
-		ballBodyDef.Position = b2.Vec2{X: pixels(200), Y: pixels(275)}
+		ballBodyDef.Position = b2.ToPos(b2.Vec2{X: pixels(200), Y: pixels(275)})
 		ballBodyDef.GravityScale = b2.QZero()
 
 		s.ballId = b2.CreateBody(s.WorldId, &ballBodyDef)
@@ -875,7 +877,7 @@ func NewPixelImperfect(ctx *SampleContext) Sample {
 		ballShapeDef.Material.Friction = b2.QZero()
 		b2.CreatePolygonShape(s.ballId, &ballShapeDef, &ballShape)
 		s.ballId.SetLinearVelocity(b2.V2(0, -5))
-		s.ballId.SetFixedRotation(true)
+		s.ballId.SetMotionLocks(b2.MotionLocks{AngularZ: true})
 	}
 	return s
 }
@@ -886,7 +888,7 @@ func (s *PixelImperfect) Step() {
 
 	p := s.ballId.GetPosition()
 	v := s.ballId.GetLinearVelocity()
-	s.DrawTextLine("p.x = %.9f, v.y = %.9f", ToFloat64(p.X), ToFloat64(v.Y))
+	s.DrawTextLine("p.x = %.9f, v.y = %.9f", ToFloat64(b2.ToVec2(p).X), ToFloat64(v.Y))
 
 	s.Base.Step()
 }
@@ -912,7 +914,7 @@ func NewRestitutionThreshold(ctx *SampleContext) Sample {
 	{
 		block0BodyDef := b2.DefaultBodyDef()
 		block0BodyDef.Type = b2.StaticBody
-		block0BodyDef.Position = b2.Vec2{X: pixels(205), Y: pixels(120)}
+		block0BodyDef.Position = b2.ToPos(b2.Vec2{X: pixels(205), Y: pixels(120)})
 		// The reference writes 70 degrees with pi as 3.14.
 		block0BodyDef.Rotation = b2.MakeRot(radiansToTurns(70 * 3.14 / 180))
 		block0BodyId := b2.CreateBody(s.WorldId, &block0BodyDef)
@@ -926,7 +928,7 @@ func NewRestitutionThreshold(ctx *SampleContext) Sample {
 		// Make a ball
 		ballBodyDef := b2.DefaultBodyDef()
 		ballBodyDef.Type = b2.DynamicBody
-		ballBodyDef.Position = b2.Vec2{X: pixels(200), Y: pixels(250)}
+		ballBodyDef.Position = b2.ToPos(b2.Vec2{X: pixels(200), Y: pixels(250)})
 		s.ballId = b2.CreateBody(s.WorldId, &ballBodyDef)
 
 		ballShape := b2.Circle{Radius: pixels(5)}
@@ -935,8 +937,8 @@ func NewRestitutionThreshold(ctx *SampleContext) Sample {
 		ballShapeDef.Material.Restitution = b2.QOne()
 		b2.CreateCircleShape(s.ballId, &ballShapeDef, &ballShape)
 
-		s.ballId.SetLinearVelocity(b2.V2(0.0, -2.9)) // Initial velocity
-		s.ballId.SetFixedRotation(true)              // Do not rotate a ball
+		s.ballId.SetLinearVelocity(b2.V2(0.0, -2.9))            // Initial velocity
+		s.ballId.SetMotionLocks(b2.MotionLocks{AngularZ: true}) // Do not rotate a ball
 	}
 	return s
 }
@@ -947,7 +949,7 @@ func (s *RestitutionThreshold) Step() {
 
 	p := s.ballId.GetPosition()
 	v := s.ballId.GetLinearVelocity()
-	s.DrawTextLine("p.x = %.9f, v.y = %.9f", ToFloat64(p.X), ToFloat64(v.Y))
+	s.DrawTextLine("p.x = %.9f, v.y = %.9f", ToFloat64(b2.ToVec2(p).X), ToFloat64(v.Y))
 
 	s.Base.Step()
 }
@@ -956,13 +958,12 @@ func (s *RestitutionThreshold) Step() {
 type Drop struct {
 	Base
 
-	groundIds   []b2.BodyId
-	bodyIds     []b2.BodyId
-	human       shared.Human
-	frameSkip   int
-	frameCount  int
-	continuous  bool
-	speculative bool
+	groundIds  []b2.BodyId
+	bodyIds    []b2.BodyId
+	human      shared.Human
+	frameSkip  int
+	frameCount int
+	continuous bool
 }
 
 func NewDrop(ctx *SampleContext) Sample {
@@ -978,7 +979,6 @@ func NewDrop(ctx *SampleContext) Sample {
 	s.frameSkip = 0
 	s.frameCount = 0
 	s.continuous = true
-	s.speculative = true
 
 	s.scene1()
 	return s
@@ -1061,7 +1061,7 @@ func (s *Drop) scene1() {
 
 	bodyDef := b2.DefaultBodyDef()
 	bodyDef.Type = b2.DynamicBody
-	bodyDef.Position = b2.V2(0, 4)
+	bodyDef.Position = b2.ToPos(b2.V2(0, 4))
 	bodyDef.LinearVelocity = b2.V2(0, -100)
 
 	bodyId := b2.CreateBody(s.WorldId, &bodyDef)
@@ -1081,7 +1081,7 @@ func (s *Drop) scene2() {
 
 	bodyDef := b2.DefaultBodyDef()
 	bodyDef.Type = b2.DynamicBody
-	bodyDef.Position = b2.V2(0, 4)
+	bodyDef.Position = b2.ToPos(b2.V2(0, 4))
 	bodyDef.Rotation = b2.MakeRot(b2.QFromRatio(1, 4))
 	bodyDef.LinearVelocity = b2.V2(0, 0)
 	bodyDef.AngularVelocity = radiansQToTurns(b2.F(-0.5))
@@ -1105,7 +1105,7 @@ func (s *Drop) scene3() {
 	jointHertz := b2.QOne()
 	jointDampingRatio := b2.QHalf()
 
-	s.human = shared.CreateHuman(s.WorldId, b2.V2(0, 40), b2.QOne(), jointFrictionTorque, jointHertz, jointDampingRatio, 1, nil,
+	s.human = shared.CreateHuman(s.WorldId, b2.ToPos(b2.V2(0, 40)), b2.QOne(), jointFrictionTorque, jointHertz, jointDampingRatio, 1, nil,
 		true)
 
 	s.frameCount = 1
@@ -1131,7 +1131,7 @@ func (s *Drop) scene4() {
 		if i%2 == 0 {
 			shift = offset.Neg()
 		}
-		bodyDef.Position = b2.Vec2{X: b2.F(2.5).Add(shift), Y: a.Add(b2.F(2 * i).Mul(a))}
+		bodyDef.Position = b2.ToPos(b2.Vec2{X: b2.F(2.5).Add(shift), Y: a.Add(b2.F(2 * i).Mul(a))})
 		bodyId := b2.CreateBody(s.WorldId, &bodyDef)
 
 		s.bodyIds = append(s.bodyIds, bodyId)
@@ -1144,7 +1144,7 @@ func (s *Drop) scene4() {
 	{
 		bodyDef := b2.DefaultBodyDef()
 		bodyDef.Type = b2.DynamicBody
-		bodyDef.Position = b2.V2(-7.7, 1.9)
+		bodyDef.Position = b2.ToPos(b2.V2(-7.7, 1.9))
 		bodyDef.LinearVelocity = b2.V2(200, 0)
 		bodyDef.IsBullet = true
 
@@ -1173,11 +1173,6 @@ func (s *Drop) Keyboard(key Key) {
 	case KeyC:
 		s.clear()
 		s.continuous = !s.continuous
-
-	case KeyV:
-		s.clear()
-		s.speculative = !s.speculative
-		s.WorldId.EnableSpeculative(s.speculative)
 
 	case KeyS:
 		if s.frameSkip > 0 {
@@ -1249,10 +1244,10 @@ func NewPinball(ctx *SampleContext) Sample {
 		bodyDef.Type = b2.DynamicBody
 		bodyDef.EnableSleep = false
 
-		bodyDef.Position = p1
+		bodyDef.Position = b2.ToPos(p1)
 		leftFlipperId := b2.CreateBody(s.WorldId, &bodyDef)
 
-		bodyDef.Position = p2
+		bodyDef.Position = b2.ToPos(p2)
 		rightFlipperId := b2.CreateBody(s.WorldId, &bodyDef)
 
 		box := b2.MakeBox(b2.F(1.75), b2.F(0.2))
@@ -1263,23 +1258,23 @@ func NewPinball(ctx *SampleContext) Sample {
 		b2.CreatePolygonShape(rightFlipperId, &shapeDef, &box)
 
 		jointDef := b2.DefaultRevoluteJointDef()
-		jointDef.BodyIdA = groundId
-		jointDef.LocalAnchorB = b2.Vec2{}
+		jointDef.Base.BodyIdA = groundId
+		jointDef.Base.LocalFrameB.P = b2.Vec2{}
 		jointDef.EnableMotor = true
 		jointDef.MaxMotorTorque = b2.F(1000)
 		jointDef.EnableLimit = true
 
 		// 30 degrees is 1/12 turn and 5 degrees is 1/72 turn.
 		jointDef.MotorSpeed = b2.QZero()
-		jointDef.LocalAnchorA = p1
-		jointDef.BodyIdB = leftFlipperId
+		jointDef.Base.LocalFrameA.P = p1
+		jointDef.Base.BodyIdB = leftFlipperId
 		jointDef.LowerAngle = b2.QFromRatio(-1, 12)
 		jointDef.UpperAngle = b2.QFromRatio(1, 72)
 		s.leftJointId = b2.CreateRevoluteJoint(s.WorldId, &jointDef)
 
 		jointDef.MotorSpeed = b2.QZero()
-		jointDef.LocalAnchorA = p2
-		jointDef.BodyIdB = rightFlipperId
+		jointDef.Base.LocalFrameA.P = p2
+		jointDef.Base.BodyIdB = rightFlipperId
 		jointDef.LowerAngle = b2.QFromRatio(-1, 72)
 		jointDef.UpperAngle = b2.QFromRatio(1, 12)
 		s.rightJointId = b2.CreateRevoluteJoint(s.WorldId, &jointDef)
@@ -1289,7 +1284,7 @@ func NewPinball(ctx *SampleContext) Sample {
 	{
 		bodyDef := b2.DefaultBodyDef()
 		bodyDef.Type = b2.DynamicBody
-		bodyDef.Position = b2.V2(-4, 17)
+		bodyDef.Position = b2.ToPos(b2.V2(-4, 17))
 
 		bodyId := b2.CreateBody(s.WorldId, &bodyDef)
 
@@ -1301,27 +1296,27 @@ func NewPinball(ctx *SampleContext) Sample {
 		b2.CreatePolygonShape(bodyId, &shapeDef, &box2)
 
 		jointDef := b2.DefaultRevoluteJointDef()
-		jointDef.BodyIdA = groundId
-		jointDef.BodyIdB = bodyId
-		jointDef.LocalAnchorA = bodyDef.Position
-		jointDef.LocalAnchorB = b2.Vec2{}
+		jointDef.Base.BodyIdA = groundId
+		jointDef.Base.BodyIdB = bodyId
+		jointDef.Base.LocalFrameA.P = b2.ToVec2(bodyDef.Position)
+		jointDef.Base.LocalFrameB.P = b2.Vec2{}
 		jointDef.EnableMotor = true
 		jointDef.MaxMotorTorque = b2.F(0.1)
 		b2.CreateRevoluteJoint(s.WorldId, &jointDef)
 
-		bodyDef.Position = b2.V2(4, 8)
+		bodyDef.Position = b2.ToPos(b2.V2(4, 8))
 		bodyId = b2.CreateBody(s.WorldId, &bodyDef)
 		b2.CreatePolygonShape(bodyId, &shapeDef, &box1)
 		b2.CreatePolygonShape(bodyId, &shapeDef, &box2)
-		jointDef.LocalAnchorA = bodyDef.Position
-		jointDef.BodyIdB = bodyId
+		jointDef.Base.LocalFrameA.P = b2.ToVec2(bodyDef.Position)
+		jointDef.Base.BodyIdB = bodyId
 		b2.CreateRevoluteJoint(s.WorldId, &jointDef)
 	}
 
 	// Bumpers
 	{
 		bodyDef := b2.DefaultBodyDef()
-		bodyDef.Position = b2.V2(-4, 8)
+		bodyDef.Position = b2.ToPos(b2.V2(-4, 8))
 
 		bodyId := b2.CreateBody(s.WorldId, &bodyDef)
 
@@ -1331,7 +1326,7 @@ func NewPinball(ctx *SampleContext) Sample {
 		circle := b2.Circle{Radius: b2.QOne()}
 		b2.CreateCircleShape(bodyId, &shapeDef, &circle)
 
-		bodyDef.Position = b2.V2(4, 17)
+		bodyDef.Position = b2.ToPos(b2.V2(4, 17))
 		bodyId = b2.CreateBody(s.WorldId, &bodyDef)
 		b2.CreateCircleShape(bodyId, &shapeDef, &circle)
 	}
@@ -1339,7 +1334,7 @@ func NewPinball(ctx *SampleContext) Sample {
 	// Ball
 	{
 		bodyDef := b2.DefaultBodyDef()
-		bodyDef.Position = b2.V2(1, 15)
+		bodyDef.Position = b2.ToPos(b2.V2(1, 15))
 		bodyDef.Type = b2.DynamicBody
 		bodyDef.IsBullet = true
 
@@ -1352,15 +1347,22 @@ func NewPinball(ctx *SampleContext) Sample {
 	return s
 }
 
+func (s *Pinball) UpdateGui() {
+	gui := s.Context.Gui
+	gui.Begin("Pinball", 10, s.Context.Camera.Height-100, 180, 50)
+	gui.Text("Flipper: press A")
+	gui.End()
+}
+
 func (s *Pinball) Step() {
 	s.Base.Step()
 
-	if s.keyDown(KeySpace) {
-		s.leftJointId.SetMotorSpeed(radiansToTurns(20))
-		s.rightJointId.SetMotorSpeed(radiansToTurns(-20))
+	if s.keyDown(KeyA) {
+		s.leftJointId.SetTargetMotorSpeed(radiansToTurns(20))
+		s.rightJointId.SetTargetMotorSpeed(radiansToTurns(-20))
 	} else {
-		s.leftJointId.SetMotorSpeed(radiansToTurns(-10))
-		s.rightJointId.SetMotorSpeed(radiansToTurns(10))
+		s.leftJointId.SetTargetMotorSpeed(radiansToTurns(-10))
+		s.rightJointId.SetTargetMotorSpeed(radiansToTurns(10))
 	}
 }
 
@@ -1391,7 +1393,7 @@ func NewWedge(ctx *SampleContext) Sample {
 	{
 		bodyDef := b2.DefaultBodyDef()
 		bodyDef.Type = b2.DynamicBody
-		bodyDef.Position = b2.V2(-0.45, 10.75)
+		bodyDef.Position = b2.ToPos(b2.V2(-0.45, 10.75))
 		bodyDef.LinearVelocity = b2.V2(0, -200)
 
 		bodyId := b2.CreateBody(s.WorldId, &bodyDef)
@@ -1402,4 +1404,105 @@ func NewWedge(ctx *SampleContext) Sample {
 		b2.CreateCircleShape(bodyId, &shapeDef, &circle)
 	}
 	return s
+}
+
+// SafetyFactor shows how adjusting the CCD safety factor can engage
+// continuous collision at lower speeds to avoid the slight overlap that
+// happens with discrete collision detection. Mirrors the SafetyFactor sample
+// of sample_continuous.cpp. Pause, restart or press Drop, then single step.
+type SafetyFactor struct {
+	Base
+
+	bodyId       b2.BodyId
+	extent       b2.Q
+	height       float64
+	safetyFactor float64
+	overlap      b2.Q
+	lastStep     int
+}
+
+// NewSafetyFactor builds the safety factor scene.
+func NewSafetyFactor(ctx *SampleContext) Sample {
+	s := &SafetyFactor{Base: NewBase(ctx)}
+	if !ctx.Settings.Restart {
+		ctx.Camera.Center = Vec2f{X: 0, Y: 3}
+		ctx.Camera.Zoom = 6
+	}
+
+	{
+		bodyDef := b2.DefaultBodyDef()
+		bodyDef.Position = b2.ToPos(b2.V2(0, -1))
+		groundId := b2.CreateBody(s.WorldId, &bodyDef)
+
+		shapeDef := b2.DefaultShapeDef()
+		box := b2.MakeBox(b2.F(20), b2.QOne())
+		b2.CreatePolygonShape(groundId, &shapeDef, &box)
+	}
+
+	s.extent = b2.QHalf()
+	s.height = 0.3
+	s.safetyFactor = 0.1
+
+	s.launch()
+	return s
+}
+
+func (s *SafetyFactor) launch() {
+	if !s.bodyId.IsNull() {
+		b2.DestroyBody(s.bodyId)
+	}
+
+	bodyDef := b2.DefaultBodyDef()
+	bodyDef.Type = b2.DynamicBody
+	bodyDef.Position = b2.ToPos(b2.Vec2{X: b2.QZero(), Y: FromFloat64(s.height).Add(s.extent)})
+	bodyDef.SafetyFactor = FromFloat64(s.safetyFactor)
+	s.bodyId = b2.CreateBody(s.WorldId, &bodyDef)
+
+	shapeDef := b2.DefaultShapeDef()
+	box := b2.MakeSquare(s.extent)
+	b2.CreatePolygonShape(s.bodyId, &shapeDef, &box)
+
+	s.overlap = b2.QZero()
+}
+
+func (s *SafetyFactor) UpdateGui() {
+	gui := s.Context.Gui
+	gui.Begin("Safety Factor", 10, s.Context.Camera.Height-150, 240, 100)
+
+	changed := gui.SliderFloat("Height", &s.height, 0, 2)
+	changed = gui.SliderFloat("Safety", &s.safetyFactor, 0, 1) || changed
+	if gui.Button("Drop") || changed {
+		s.launch()
+	}
+
+	gui.End()
+}
+
+func (s *SafetyFactor) Step() {
+	s.Base.Step()
+
+	if s.StepCount != s.lastStep {
+		// Contacts are computed at the beginning of the step, so the manifold
+		// holds the initial separation.
+		var data [1]b2.ContactData
+		if s.bodyId.GetContactData(data[:]) == 1 {
+			m := &data[0].Manifold
+			for j := 0; j < m.PointCount; j++ {
+				s.overlap = s.overlap.Max(m.Points[j].Separation.Neg())
+			}
+		}
+	}
+	s.lastStep = s.StepCount
+
+	s.Context.Draw.DrawLineFcn(b2.ToPos(b2.Vec2{X: b2.F(-3), Y: s.overlap.Neg()}), b2.ToPos(b2.Vec2{X: b2.F(3), Y: s.overlap.Neg()}), b2.ColorRed)
+
+	var timeStep b2.Q
+	if s.Context.Settings.Hertz > 0 {
+		timeStep = b2.QOne().Div(FromFloat64(s.Context.Settings.Hertz))
+	}
+	motion := timeStep.Mul(s.bodyId.GetLinearVelocity().Len())
+
+	s.DrawTextLine("actual movement = %.3f m", ToFloat64(motion))
+	s.DrawTextLine("fast movement = %.3f m", s.safetyFactor*ToFloat64(s.extent))
+	s.DrawTextLine("overlap = %.4f m", ToFloat64(s.overlap))
 }

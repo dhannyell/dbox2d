@@ -27,7 +27,7 @@ func f64Rotate(c, s float64, v f64Vec) f64Vec {
 func f64RelativeAngle(bc, bs, ac, as float64) float64 {
 	s := bs*ac - bc*as
 	c := bc*ac + bs*as
-	return math.Atan2(s, c)
+	return f64Atan2(s, c)
 }
 
 func f64UnwindAngle(radians float64) float64 {
@@ -39,6 +39,29 @@ func f64UnwindAngle(radians float64) float64 {
 	return radians
 }
 
+// f64Frame mirrors a joint frame: a position and a rotation.
+type f64Frame struct {
+	p    f64Vec
+	c, s float64
+}
+
+func frameToF64(t Transform) f64Frame {
+	return f64Frame{vecToF64(t.P), qToF64(t.Q.Cos), qToF64(t.Q.Sin)}
+}
+
+// f64MulRot mirrors b2MulRot: the rotation q * r.
+func f64MulRot(qc, qs, rc, rs float64) (float64, float64) {
+	return qc*rc - qs*rs, qs*rc + qc*rs
+}
+
+// f64FrameAngle mirrors b2Rot_GetAngle(b2InvMulRot(qA, qB)) with
+// qA = dqA * frameA.q and qB = dqB * frameB.q.
+func f64FrameAngle(stateA, stateB *f64State, frameA, frameB f64Frame) float64 {
+	ac, as := f64MulRot(stateA.dqc, stateA.dqs, frameA.c, frameA.s)
+	bc, bs := f64MulRot(stateB.dqc, stateB.dqs, frameB.c, frameB.s)
+	return f64RelativeAngle(bc, bs, ac, as)
+}
+
 type f64RevoluteJoint struct {
 	mA, mB, iA, iB     float64
 	constraintSoftness f64Softness
@@ -46,55 +69,60 @@ type f64RevoluteJoint struct {
 	linearImpulse                                           f64Vec
 	springImpulse, motorImpulse, lowerImpulse, upperImpulse float64
 	hertz, dampingRatio, targetAngle, maxMotorTorque        float64
-	motorSpeed, referenceAngle, lowerAngle, upperAngle      float64
-	anchorA, anchorB, deltaCenter                           f64Vec
-	deltaAngle, axialMass                                   float64
+	motorSpeed, lowerAngle, upperAngle                      float64
+	frameA, frameB                                          f64Frame
+	deltaCenter                                             f64Vec
+	axialMass                                               float64
 	springSoftness                                          f64Softness
 	enableSpring, enableMotor, enableLimit                  bool
 }
 
-// f64SolveRevoluteJoint mirrors b2SolveRevoluteJoint with useBias.
+// f64SolveRevoluteJoint mirrors b2SolveRevoluteJoint of v3.2: the axial
+// impulses feed forward through angularCdot and land with the point
+// constraint.
 func f64SolveRevoluteJoint(joint *f64RevoluteJoint, stateA, stateB *f64State, h, invH float64, useBias bool) {
 	mA, mB, iA, iB := joint.mA, joint.mB, joint.iA, joint.iB
 
 	vA, wA := stateA.v, stateA.w
 	vB, wB := stateB.v, stateB.w
 
-	fixedRotation := iA+iB == 0
+	jointAngle := f64FrameAngle(stateA, stateB, joint.frameA, joint.frameB)
+
+	rA := f64Rotate(stateA.dqc, stateA.dqs, joint.frameA.p)
+	rB := f64Rotate(stateB.dqc, stateB.dqs, joint.frameB.p)
+
+	linearCdot := f64Sub(f64Add(vB, f64CrossSV(wB, rB)), f64Add(vA, f64CrossSV(wA, rA)))
+	angularCdot := wB - wA
+	axialImpulse := 0.0
+
+	k := iA + iB
+	fixedRotation := k == 0
 
 	if joint.enableSpring && !fixedRotation {
-		jointAngle := f64RelativeAngle(stateB.dqc, stateB.dqs, stateA.dqc, stateA.dqs) + joint.deltaAngle
-		jointAngleDelta := f64UnwindAngle(jointAngle - joint.targetAngle)
-
-		C := jointAngleDelta
+		C := f64UnwindAngle(jointAngle - joint.targetAngle)
 		bias := joint.springSoftness.biasRate * C
 		massScale := joint.springSoftness.massScale
 		impulseScale := joint.springSoftness.impulseScale
 
-		Cdot := wB - wA
-		impulse := -massScale*joint.axialMass*(Cdot+bias) - impulseScale*joint.springImpulse
+		impulse := -massScale*joint.axialMass*(angularCdot+bias) - impulseScale*joint.springImpulse
 		joint.springImpulse += impulse
 
-		wA -= iA * impulse
-		wB += iB * impulse
+		angularCdot += k * impulse
+		axialImpulse += impulse
 	}
 
 	if joint.enableMotor && !fixedRotation {
-		Cdot := wB - wA - joint.motorSpeed
-		impulse := -joint.axialMass * Cdot
+		Cdot := angularCdot - joint.motorSpeed
 		oldImpulse := joint.motorImpulse
 		maxImpulse := h * joint.maxMotorTorque
-		joint.motorImpulse = math.Max(-maxImpulse, math.Min(joint.motorImpulse+impulse, maxImpulse))
-		impulse = joint.motorImpulse - oldImpulse
+		impulse := math.Max(-maxImpulse-oldImpulse, math.Min(-joint.axialMass*Cdot, maxImpulse-oldImpulse))
+		joint.motorImpulse = oldImpulse + impulse
 
-		wA -= iA * impulse
-		wB += iB * impulse
+		angularCdot += k * impulse
+		axialImpulse += impulse
 	}
 
 	if joint.enableLimit && !fixedRotation {
-		jointAngle := f64RelativeAngle(stateB.dqc, stateB.dqs, stateA.dqc, stateA.dqs) + joint.deltaAngle - joint.referenceAngle
-		jointAngle = f64UnwindAngle(jointAngle)
-
 		{
 			C := jointAngle - joint.lowerAngle
 			bias := 0.0
@@ -108,14 +136,12 @@ func f64SolveRevoluteJoint(joint *f64RevoluteJoint, stateA, stateB *f64State, h,
 				impulseScale = joint.constraintSoftness.impulseScale
 			}
 
-			Cdot := wB - wA
 			oldImpulse := joint.lowerImpulse
-			impulse := -massScale*joint.axialMass*(Cdot+bias) - impulseScale*oldImpulse
-			joint.lowerImpulse = math.Max(oldImpulse+impulse, 0)
-			impulse = joint.lowerImpulse - oldImpulse
+			impulse := math.Max(-massScale*joint.axialMass*(angularCdot+bias)-impulseScale*oldImpulse, -oldImpulse)
+			joint.lowerImpulse = oldImpulse + impulse
 
-			wA -= iA * impulse
-			wB += iB * impulse
+			angularCdot += k * impulse
+			axialImpulse += impulse
 		}
 
 		{
@@ -131,22 +157,16 @@ func f64SolveRevoluteJoint(joint *f64RevoluteJoint, stateA, stateB *f64State, h,
 				impulseScale = joint.constraintSoftness.impulseScale
 			}
 
-			Cdot := wA - wB
 			oldImpulse := joint.upperImpulse
-			impulse := -massScale*joint.axialMass*(Cdot+bias) - impulseScale*oldImpulse
-			joint.upperImpulse = math.Max(oldImpulse+impulse, 0)
-			impulse = joint.upperImpulse - oldImpulse
+			impulse := math.Max(-massScale*joint.axialMass*(-angularCdot+bias)-impulseScale*oldImpulse, -oldImpulse)
+			joint.upperImpulse = oldImpulse + impulse
 
-			wA += iA * impulse
-			wB -= iB * impulse
+			axialImpulse -= impulse
 		}
 	}
 
 	{
-		rA := f64Rotate(stateA.dqc, stateA.dqs, joint.anchorA)
-		rB := f64Rotate(stateB.dqc, stateB.dqs, joint.anchorB)
-
-		Cdot := f64Vec{vB.x - wB*rB.y - (vA.x - wA*rA.y), vB.y + wB*rB.x - (vA.y + wA*rA.x)}
+		Cdot := f64Add(linearCdot, f64Scale(axialImpulse, f64Add(f64CrossSV(iA, rA), f64CrossSV(iB, rB))))
 
 		bias := f64Vec{}
 		massScale := 1.0
@@ -175,9 +195,9 @@ func f64SolveRevoluteJoint(joint *f64RevoluteJoint, stateA, stateB *f64State, h,
 		joint.linearImpulse.y += impulse.y
 
 		vA = f64Vec{vA.x - mA*impulse.x, vA.y - mA*impulse.y}
-		wA -= iA * (rA.x*impulse.y - rA.y*impulse.x)
+		wA -= iA * (rA.x*impulse.y - rA.y*impulse.x + axialImpulse)
 		vB = f64Vec{vB.x + mB*impulse.x, vB.y + mB*impulse.y}
-		wB += iB * (rB.x*impulse.y - rB.y*impulse.x)
+		wB += iB * (rB.x*impulse.y - rB.y*impulse.x + axialImpulse)
 	}
 
 	stateA.v, stateA.w = vA, wA
@@ -215,7 +235,7 @@ func makeRevoluteMirrorCase(tb testing.TB) revoluteMirrorCase {
 	makeBody := func(position Vec2, turns string) BodyId {
 		def := DefaultBodyDef()
 		def.Type = DynamicBody
-		def.Position = position
+		def.Position = ToPos(position)
 		def.Rotation = MakeRot(QMustParse(turns))
 		id := CreateBody(worldId, &def)
 		shapeDef := DefaultShapeDef()
@@ -227,9 +247,9 @@ func makeRevoluteMirrorCase(tb testing.TB) revoluteMirrorCase {
 	idB := makeBody(qv("1.5", "0.5"), "-0.04")
 
 	def := DefaultRevoluteJointDef()
-	def.BodyIdA, def.BodyIdB = idA, idB
-	def.LocalAnchorA = qv("0.5", "0.25")
-	def.LocalAnchorB = qv("-1", "0.25")
+	def.Base.BodyIdA, def.Base.BodyIdB = idA, idB
+	def.Base.LocalFrameA.P = qv("0.5", "0.25")
+	def.Base.LocalFrameB.P = qv("-1", "0.25")
 	def.EnableSpring = true
 	def.Hertz = QFromInt(2)
 	def.DampingRatio = QHalf()
@@ -271,13 +291,11 @@ func makeRevoluteMirrorCase(tb testing.TB) revoluteMirrorCase {
 		targetAngle:        radiansF64(r.targetAngle),
 		maxMotorTorque:     qToF64(r.maxMotorTorque),
 		motorSpeed:         radiansF64(r.motorSpeed),
-		referenceAngle:     radiansF64(r.referenceAngle),
 		lowerAngle:         radiansF64(r.lowerAngle),
 		upperAngle:         radiansF64(r.upperAngle),
-		anchorA:            vecToF64(r.anchorA),
-		anchorB:            vecToF64(r.anchorB),
+		frameA:             frameToF64(r.frameA),
+		frameB:             frameToF64(r.frameB),
 		deltaCenter:        vecToF64(r.deltaCenter),
-		deltaAngle:         radiansF64(r.deltaAngle),
 		enableSpring:       true,
 		enableMotor:        true,
 		enableLimit:        true,

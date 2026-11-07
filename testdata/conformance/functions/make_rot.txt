@@ -1,4 +1,4 @@
-# dbox2d conformance trace v1 kind=function name=make_rot ref=0aa402e cc=gcc-13.2.0 flags=-O3,-DNDEBUG,-std=gnu17,-ffp-contract=off,-fno-fast-math
+# dbox2d conformance trace v2 kind=function name=make_rot ref=cd26c7e cc=gcc-13.2.0 flags=-O3,-DNDEBUG,-std=gnu17,-ffp-contract=off,-fno-fast-math
 cases 1024
 case 0 3fd1eba5 | bf23342f bf453b6b
 case 1 bfd943b3 | bea6e1ba 3f720516

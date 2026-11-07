@@ -1,5 +1,22 @@
 package b2
 
+// contactLink is a contact of an island with its two body ids, so the split
+// pass never needs to touch the contact. It corresponds to b2ContactLink in
+// src/island.h.
+type contactLink struct {
+	contactId int
+	bodyIdA   int
+	bodyIdB   int
+}
+
+// jointLink is a joint of an island with its two body ids. It corresponds
+// to b2JointLink in src/island.h.
+type jointLink struct {
+	jointId int
+	bodyIdA int
+	bodyIdB int
+}
+
 // island is a persistent connected component of awake bodies, contacts and
 // joints. It corresponds to b2Island in src/island.h.
 type island struct {
@@ -12,24 +29,16 @@ type island struct {
 
 	islandId int
 
-	headBody  int
-	tailBody  int
-	bodyCount int
-
-	headContact  int
-	tailContact  int
-	contactCount int
-
-	headJoint  int
-	tailJoint  int
-	jointCount int
-
-	// parentIsland links the island to its union-find parent.
-	parentIsland int
-
 	// constraintRemoveCount counts the constraints removed from the
 	// island. A positive count marks a split candidate.
 	constraintRemoveCount int
+
+	bodies []int
+
+	// contacts and joints belong to this island. They may connect to
+	// static bodies not in the island.
+	contacts []contactLink
+	joints   []jointLink
 }
 
 // islandSim moves islands across solver sets. It corresponds to b2IslandSim
@@ -59,16 +68,9 @@ func createIsland(w *world, setIndex int) *island {
 	isl.setIndex = setIndex
 	isl.localIndex = len(set.islandSims)
 	isl.islandId = islandId
-	isl.headBody = nullIndex
-	isl.tailBody = nullIndex
-	isl.bodyCount = 0
-	isl.headContact = nullIndex
-	isl.tailContact = nullIndex
-	isl.contactCount = 0
-	isl.headJoint = nullIndex
-	isl.tailJoint = nullIndex
-	isl.jointCount = 0
-	isl.parentIsland = nullIndex
+	isl.bodies = nil
+	isl.contacts = nil
+	isl.joints = nil
 	isl.constraintRemoveCount = 0
 
 	set.islandSims = append(set.islandSims, islandSim{islandId: islandId})
@@ -86,72 +88,116 @@ func destroyIsland(w *world, islandId int) {
 	// assume island is empty
 	isl := &w.islands[islandId]
 	set := &w.solverSets[isl.setIndex]
-	var movedIndex int
-	set.islandSims, movedIndex = removeSwapNoClear(set.islandSims, isl.localIndex)
-	if movedIndex != nullIndex {
-		// Fix index on moved element
-		movedElement := &set.islandSims[isl.localIndex]
-		movedIsland := &w.islands[movedElement.islandId]
-		if movedIsland.localIndex != movedIndex {
-			panic("dbox2d: the moved island index does not match")
+	{
+		localIndex := isl.localIndex
+		lastIndex := len(set.islandSims) - 1
+		if localIndex < 0 || localIndex > lastIndex {
+			panic("dbox2d: the island local index is out of range")
 		}
-		movedIsland.localIndex = isl.localIndex
+		moveIslandId := set.islandSims[lastIndex].islandId
+		set.islandSims[localIndex] = set.islandSims[lastIndex]
+		w.islands[moveIslandId].localIndex = localIndex
+		set.islandSims = set.islandSims[:lastIndex]
 	}
 
 	// Free island and id (preserve island revision)
+	isl.bodies = nil
+	isl.contacts = nil
+	isl.joints = nil
+	isl.constraintRemoveCount = 0
+	isl.localIndex = nullIndex
 	isl.islandId = nullIndex
 	isl.setIndex = nullIndex
-	isl.localIndex = nullIndex
+
 	w.islandIdPool.freeId(islandId)
 }
 
-// addContactToIsland pushes a contact at the head of the island list. It
-// corresponds to b2AddContactToIsland in src/island.c.
+// mergeIslands moves the bodies and the constraints of the smaller island
+// into the bigger one and destroys the smaller. It returns the surviving
+// island id. It corresponds to b2MergeIslands in src/island.c.
+func mergeIslands(w *world, islandIdA, islandIdB int) int {
+	if islandIdA == islandIdB {
+		return islandIdA
+	}
+
+	if islandIdA == nullIndex {
+		return islandIdB
+	}
+
+	if islandIdB == nullIndex {
+		return islandIdA
+	}
+
+	var smallIsland, bigIsland *island
+	{
+		islandA := &w.islands[islandIdA]
+		islandB := &w.islands[islandIdB]
+
+		// Keep the biggest island to reduce cache misses
+		if len(islandA.bodies) >= len(islandB.bodies) {
+			bigIsland = islandA
+			smallIsland = islandB
+		} else {
+			bigIsland = islandB
+			smallIsland = islandA
+		}
+	}
+
+	bigIslandId := bigIsland.islandId
+
+	// Move bodies from smaller island to larger island
+	for _, bodyId := range smallIsland.bodies {
+		b := &w.bodies[bodyId]
+		b.islandId = bigIslandId
+		b.islandIndex = len(bigIsland.bodies)
+		bigIsland.bodies = append(bigIsland.bodies, bodyId)
+	}
+
+	// Migrate contacts from smaller island to larger island
+	for _, link := range smallIsland.contacts {
+		c := &w.contacts[link.contactId]
+		c.islandId = bigIslandId
+		c.islandIndex = len(bigIsland.contacts)
+		bigIsland.contacts = append(bigIsland.contacts, link)
+	}
+
+	// Migrate joints from smaller island to larger island
+	for _, link := range smallIsland.joints {
+		j := &w.joints[link.jointId]
+		j.islandId = bigIslandId
+		j.islandIndex = len(bigIsland.joints)
+		bigIsland.joints = append(bigIsland.joints, link)
+	}
+
+	// Track removed constraints
+	bigIsland.constraintRemoveCount += smallIsland.constraintRemoveCount
+
+	destroyIsland(w, smallIsland.islandId)
+
+	return bigIslandId
+}
+
+// addContactToIsland appends a contact to an island. It corresponds to
+// b2AddContactToIsland in src/island.c.
 func addContactToIsland(w *world, islandId int, c *contact) {
-	if c.islandId != nullIndex || c.islandPrev != nullIndex || c.islandNext != nullIndex {
+	if c.islandId != nullIndex || c.islandIndex != nullIndex {
 		panic("dbox2d: the contact is already in an island")
 	}
 
 	isl := &w.islands[islandId]
 
-	if isl.headContact != nullIndex {
-		c.islandNext = isl.headContact
-		headContact := &w.contacts[isl.headContact]
-		headContact.islandPrev = c.contactId
-	}
-
-	isl.headContact = c.contactId
-	if isl.tailContact == nullIndex {
-		isl.tailContact = isl.headContact
-	}
-
-	isl.contactCount += 1
 	c.islandId = islandId
+	c.islandIndex = len(isl.contacts)
+
+	isl.contacts = append(isl.contacts, contactLink{
+		contactId: c.contactId,
+		bodyIdA:   c.edges[0].bodyId,
+		bodyIdB:   c.edges[1].bodyId,
+	})
 }
 
-// findRootIsland walks to the union-find root of an island and compresses
-// the path. It returns the root and its id. It mirrors the inline loops of
-// b2LinkContact in src/island.c.
-func findRootIsland(w *world, islandId int) (*island, int) {
-	isl := &w.islands[islandId]
-	parentId := isl.parentIsland
-	for parentId != nullIndex {
-		parent := &w.islands[parentId]
-		if parent.parentIsland != nullIndex {
-			// path compression
-			isl.parentIsland = parent.parentIsland
-		}
-
-		isl = parent
-		islandId = parentId
-		parentId = isl.parentIsland
-	}
-	return isl, islandId
-}
-
-// linkContact links a touching contact into the island graph. It performs
-// union-find with path compression to join islands. It corresponds to
-// b2LinkContact in src/island.c.
+// linkContact links a touching contact into an island, merging the islands
+// of its bodies. It corresponds to b2LinkContact in src/island.c.
 func linkContact(w *world, c *contact) {
 	if c.flags&contactTouchingFlag == 0 {
 		panic("dbox2d: only a touching contact links islands")
@@ -194,37 +240,11 @@ func linkContact(w *world, c *contact) {
 		panic("dbox2d: a contact links at least one island")
 	}
 
-	if islandIdA == islandIdB {
-		// Contact in same island
-		addContactToIsland(w, islandIdA, c)
-		return
-	}
+	// Merge islands. This will destroy one of the islands.
+	finalIslandId := mergeIslands(w, islandIdA, islandIdB)
 
-	// Union-find root of islandA
-	var islandA *island
-	if islandIdA != nullIndex {
-		islandA, islandIdA = findRootIsland(w, islandIdA)
-	}
-
-	// Union-find root of islandB
-	var islandB *island
-	if islandIdB != nullIndex {
-		islandB, islandIdB = findRootIsland(w, islandIdB)
-	}
-
-	// Union-Find link island roots
-	if islandA != islandB && islandA != nil && islandB != nil {
-		if islandB.parentIsland != nullIndex {
-			panic("dbox2d: the root island has a parent")
-		}
-		islandB.parentIsland = islandIdA
-	}
-
-	if islandA != nil {
-		addContactToIsland(w, islandIdA, c)
-	} else {
-		addContactToIsland(w, islandIdB, c)
-	}
+	// Add contact to the island that survived
+	addContactToIsland(w, finalIslandId, c)
 }
 
 // unlinkContact removes a contact from its island when it stops touching
@@ -239,71 +259,55 @@ func unlinkContact(w *world, c *contact) {
 	islandId := c.islandId
 	isl := &w.islands[islandId]
 
-	if c.islandPrev != nullIndex {
-		prevContact := &w.contacts[c.islandPrev]
-		if prevContact.islandNext != c.contactId {
-			panic("dbox2d: the island contact list is not doubly linked")
+	removeIndex := c.islandIndex
+	if removeIndex < 0 || removeIndex >= len(isl.contacts) || isl.contacts[removeIndex].contactId != c.contactId {
+		panic("dbox2d: the contact island index is stale")
+	}
+
+	var movedIndex int
+	isl.contacts, movedIndex = removeSwapNoClear(isl.contacts, removeIndex)
+	if movedIndex != nullIndex {
+		// Fix islandIndex on the contact that was swapped into removeIndex
+		movedContact := &w.contacts[isl.contacts[removeIndex].contactId]
+		if movedContact.islandIndex != movedIndex {
+			panic("dbox2d: the moved contact island index does not match")
 		}
-		prevContact.islandNext = c.islandNext
+		movedContact.islandIndex = removeIndex
 	}
-
-	if c.islandNext != nullIndex {
-		nextContact := &w.contacts[c.islandNext]
-		if nextContact.islandPrev != c.contactId {
-			panic("dbox2d: the island contact list is not doubly linked")
-		}
-		nextContact.islandPrev = c.islandPrev
-	}
-
-	if isl.headContact == c.contactId {
-		isl.headContact = c.islandNext
-	}
-
-	if isl.tailContact == c.contactId {
-		isl.tailContact = c.islandPrev
-	}
-
-	if isl.contactCount <= 0 {
-		panic("dbox2d: the island contact count underflows")
-	}
-	isl.contactCount -= 1
-	isl.constraintRemoveCount += 1
 
 	c.islandId = nullIndex
-	c.islandPrev = nullIndex
-	c.islandNext = nullIndex
+	c.islandIndex = nullIndex
+	isl.constraintRemoveCount += 1
 }
 
-// addJointToIsland pushes a joint at the head of the island list. It
-// corresponds to b2AddJointToIsland in src/island.c.
+// addJointToIsland appends a joint to an island. It corresponds to
+// b2AddJointToIsland in src/island.c.
 func addJointToIsland(w *world, islandId int, j *joint) {
-	if j.islandId != nullIndex || j.islandPrev != nullIndex || j.islandNext != nullIndex {
+	if j.islandId != nullIndex || j.islandIndex != nullIndex {
 		panic("dbox2d: the joint is already in an island")
 	}
 
 	isl := &w.islands[islandId]
 
-	if isl.headJoint != nullIndex {
-		j.islandNext = isl.headJoint
-		headJoint := &w.joints[isl.headJoint]
-		headJoint.islandPrev = j.jointId
-	}
-
-	isl.headJoint = j.jointId
-	if isl.tailJoint == nullIndex {
-		isl.tailJoint = isl.headJoint
-	}
-
-	isl.jointCount += 1
 	j.islandId = islandId
+	j.islandIndex = len(isl.joints)
+
+	isl.joints = append(isl.joints, jointLink{
+		jointId: j.jointId,
+		bodyIdA: j.edges[0].bodyId,
+		bodyIdB: j.edges[1].bodyId,
+	})
 }
 
-// linkJoint links a joint into the island graph and merges the awake
-// islands at once when asked, so the island graph stays valid. It
-// corresponds to b2LinkJoint in src/island.c.
-func linkJoint(w *world, j *joint, mergeIslands bool) {
+// linkJoint links a joint into an island, merging the islands of its
+// bodies. It corresponds to b2LinkJoint in src/island.c.
+func linkJoint(w *world, j *joint) {
 	bodyA := &w.bodies[j.edges[0].bodyId]
 	bodyB := &w.bodies[j.edges[1].bodyId]
+
+	if bodyA.bodyType != DynamicBody && bodyB.bodyType != DynamicBody {
+		panic("dbox2d: a linked joint has a dynamic body")
+	}
 
 	if bodyA.setIndex == awakeSet && bodyB.setIndex >= firstSleepingSet {
 		wakeSolverSet(w, bodyB.setIndex)
@@ -318,512 +322,300 @@ func linkJoint(w *world, j *joint, mergeIslands bool) {
 		panic("dbox2d: a joint links at least one island")
 	}
 
-	if islandIdA == islandIdB {
-		// Joint in same island
-		addJointToIsland(w, islandIdA, j)
-		return
-	}
+	// Merge islands. This will destroy one of the islands.
+	finalIslandId := mergeIslands(w, islandIdA, islandIdB)
 
-	// Union-find root of islandA
-	var islandA *island
-	if islandIdA != nullIndex {
-		islandA, islandIdA = findRootIsland(w, islandIdA)
-	}
-
-	// Union-find root of islandB
-	var islandB *island
-	if islandIdB != nullIndex {
-		islandB, islandIdB = findRootIsland(w, islandIdB)
-	}
-
-	// Union-Find link island roots
-	if islandA != islandB && islandA != nil && islandB != nil {
-		if islandB.parentIsland != nullIndex {
-			panic("dbox2d: the root island has a parent")
-		}
-		islandB.parentIsland = islandIdA
-	}
-
-	if islandA != nil {
-		addJointToIsland(w, islandIdA, j)
-	} else {
-		addJointToIsland(w, islandIdB, j)
-	}
-
-	// Joints need to have islands merged immediately when they are created
-	// to keep the island graph valid.
-	// However, when a body type is being changed the merge can be deferred until
-	// all joints are linked.
-	if mergeIslands {
-		mergeAwakeIslands(w)
-	}
+	// Add joint the island that survived
+	addJointToIsland(w, finalIslandId, j)
 }
 
-// unlinkJoint removes a joint from its island. It corresponds to
-// b2UnlinkJoint in src/island.c.
+// unlinkJoint removes a joint from its island, if it has one. It
+// corresponds to b2UnlinkJoint in src/island.c.
 func unlinkJoint(w *world, j *joint) {
 	if j.islandId == nullIndex {
-		panic("dbox2d: the joint is not in an island")
+		return
 	}
 
 	// remove from island
 	islandId := j.islandId
 	isl := &w.islands[islandId]
 
-	if j.islandPrev != nullIndex {
-		prevJoint := &w.joints[j.islandPrev]
-		if prevJoint.islandNext != j.jointId {
-			panic("dbox2d: the island joint list is not doubly linked")
+	removeIndex := j.islandIndex
+	if removeIndex < 0 || removeIndex >= len(isl.joints) || isl.joints[removeIndex].jointId != j.jointId {
+		panic("dbox2d: the joint island index is stale")
+	}
+
+	var movedIndex int
+	isl.joints, movedIndex = removeSwapNoClear(isl.joints, removeIndex)
+	if movedIndex != nullIndex {
+		// Fix islandIndex on the joint that was swapped into removeIndex
+		movedJoint := &w.joints[isl.joints[removeIndex].jointId]
+		if movedJoint.islandIndex != movedIndex {
+			panic("dbox2d: the moved joint island index does not match")
 		}
-		prevJoint.islandNext = j.islandNext
+		movedJoint.islandIndex = removeIndex
 	}
-
-	if j.islandNext != nullIndex {
-		nextJoint := &w.joints[j.islandNext]
-		if nextJoint.islandPrev != j.jointId {
-			panic("dbox2d: the island joint list is not doubly linked")
-		}
-		nextJoint.islandPrev = j.islandPrev
-	}
-
-	if isl.headJoint == j.jointId {
-		isl.headJoint = j.islandNext
-	}
-
-	if isl.tailJoint == j.jointId {
-		isl.tailJoint = j.islandPrev
-	}
-
-	if isl.jointCount <= 0 {
-		panic("dbox2d: the island joint count underflows")
-	}
-	isl.jointCount -= 1
-	isl.constraintRemoveCount += 1
 
 	j.islandId = nullIndex
-	j.islandPrev = nullIndex
-	j.islandNext = nullIndex
+	j.islandIndex = nullIndex
+	isl.constraintRemoveCount += 1
 }
 
-// mergeIsland merges an island into its root island. The bodies and the
-// contacts of the child append at the tail of the root lists. It
-// corresponds to b2MergeIsland in src/island.c.
-func mergeIsland(w *world, isl *island) {
-	if isl.parentIsland == nullIndex {
-		panic("dbox2d: a root island does not merge")
+// islandFindParent finds the root of a node, halving the path on the way.
+// It corresponds to b2IslandFindParent in src/island.c.
+func islandFindParent(parents []int, node int) int {
+	// Walk the chain of parents to find the node that is its own parent (the root)
+	for parents[node] != node {
+		grandParent := parents[parents[node]]
+		parents[node] = grandParent
+		node = grandParent
 	}
 
-	rootId := isl.parentIsland
-	rootIsland := &w.islands[rootId]
-	if rootIsland.parentIsland != nullIndex {
-		panic("dbox2d: the parent island is not a root")
-	}
-
-	// remap island indices
-	bodyId := isl.headBody
-	for bodyId != nullIndex {
-		b := &w.bodies[bodyId]
-		b.islandId = rootId
-		bodyId = b.islandNext
-	}
-
-	contactId := isl.headContact
-	for contactId != nullIndex {
-		c := &w.contacts[contactId]
-		c.islandId = rootId
-		contactId = c.islandNext
-	}
-
-	jointId := isl.headJoint
-	for jointId != nullIndex {
-		j := &w.joints[jointId]
-		j.islandId = rootId
-		jointId = j.islandNext
-	}
-
-	// connect body lists
-	if rootIsland.tailBody == nullIndex {
-		panic("dbox2d: the root island has no bodies")
-	}
-	tailBody := &w.bodies[rootIsland.tailBody]
-	if tailBody.islandNext != nullIndex {
-		panic("dbox2d: the root tail body has a next body")
-	}
-	tailBody.islandNext = isl.headBody
-
-	if isl.headBody == nullIndex {
-		panic("dbox2d: the child island has no bodies")
-	}
-	headBody := &w.bodies[isl.headBody]
-	if headBody.islandPrev != nullIndex {
-		panic("dbox2d: the child head body has a previous body")
-	}
-	headBody.islandPrev = rootIsland.tailBody
-
-	rootIsland.tailBody = isl.tailBody
-	rootIsland.bodyCount += isl.bodyCount
-
-	// connect contact lists
-	if rootIsland.headContact == nullIndex {
-		// Root island has no contacts
-		if rootIsland.tailContact != nullIndex || rootIsland.contactCount != 0 {
-			panic("dbox2d: the root island contact list is inconsistent")
-		}
-		rootIsland.headContact = isl.headContact
-		rootIsland.tailContact = isl.tailContact
-		rootIsland.contactCount = isl.contactCount
-	} else if isl.headContact != nullIndex {
-		// Both islands have contacts
-		if isl.tailContact == nullIndex || isl.contactCount <= 0 {
-			panic("dbox2d: the child island contact list is inconsistent")
-		}
-		if rootIsland.tailContact == nullIndex || rootIsland.contactCount <= 0 {
-			panic("dbox2d: the root island contact list is inconsistent")
-		}
-
-		tailContact := &w.contacts[rootIsland.tailContact]
-		if tailContact.islandNext != nullIndex {
-			panic("dbox2d: the root tail contact has a next contact")
-		}
-		tailContact.islandNext = isl.headContact
-
-		headContact := &w.contacts[isl.headContact]
-		if headContact.islandPrev != nullIndex {
-			panic("dbox2d: the child head contact has a previous contact")
-		}
-		headContact.islandPrev = rootIsland.tailContact
-
-		rootIsland.tailContact = isl.tailContact
-		rootIsland.contactCount += isl.contactCount
-	}
-
-	if rootIsland.headJoint == nullIndex {
-		// Root island has no joints
-		if rootIsland.tailJoint != nullIndex || rootIsland.jointCount != 0 {
-			panic("dbox2d: a root island without a head joint has a tail or a count")
-		}
-		rootIsland.headJoint = isl.headJoint
-		rootIsland.tailJoint = isl.tailJoint
-		rootIsland.jointCount = isl.jointCount
-	} else if isl.headJoint != nullIndex {
-		// Both islands have joints
-		if isl.tailJoint == nullIndex || isl.jointCount <= 0 {
-			panic("dbox2d: the child island joint list is broken")
-		}
-		if rootIsland.tailJoint == nullIndex || rootIsland.jointCount <= 0 {
-			panic("dbox2d: the root island joint list is broken")
-		}
-
-		tailJoint := &w.joints[rootIsland.tailJoint]
-		if tailJoint.islandNext != nullIndex {
-			panic("dbox2d: the root tail joint has a next")
-		}
-		tailJoint.islandNext = isl.headJoint
-
-		headJoint := &w.joints[isl.headJoint]
-		if headJoint.islandPrev != nullIndex {
-			panic("dbox2d: the child head joint has a prev")
-		}
-		headJoint.islandPrev = rootIsland.tailJoint
-
-		rootIsland.tailJoint = isl.tailJoint
-		rootIsland.jointCount += isl.jointCount
-	}
-
-	// Track removed constraints
-	rootIsland.constraintRemoveCount += isl.constraintRemoveCount
+	return node
 }
 
-// mergeAwakeIslands merges every awake island into its root. A merged
-// island leaves the awake islandSims and returns to the pool. It
-// corresponds to b2MergeAwakeIslands in src/island.c.
-func mergeAwakeIslands(w *world) {
-	awake := &w.solverSets[awakeSet]
-	islandSims := awake.islandSims
-	awakeIslandCount := len(islandSims)
-
-	// Step 1: Ensure every child island points to its root island. This
-	// avoids merging a child island with a parent island that has already
-	// been merged with a grand-parent island.
-	for i := range awakeIslandCount {
-		islandId := islandSims[i].islandId
-
-		isl := &w.islands[islandId]
-
-		// find the root island
-		rootId := islandId
-		rootIsland := isl
-		for rootIsland.parentIsland != nullIndex {
-			parent := &w.islands[rootIsland.parentIsland]
-			if parent.parentIsland != nullIndex {
-				// path compression
-				rootIsland.parentIsland = parent.parentIsland
-			}
-
-			rootId = rootIsland.parentIsland
-			rootIsland = parent
+// islandUnion connects the components of two nodes by rank and carries the
+// per-component contact and joint counts. It corresponds to b2IslandUnion
+// in src/island.c.
+func islandUnion(parents, ranks []int, node1, node2 int, contactCounts, jointCounts []int) {
+	root1 := islandFindParent(parents, node1)
+	root2 := islandFindParent(parents, node2)
+	if root1 != root2 {
+		if ranks[root1] < ranks[root2] {
+			parents[root1] = root2
+			contactCounts[root2] += contactCounts[root1]
+			jointCounts[root2] += jointCounts[root1]
+		} else if ranks[root1] > ranks[root2] {
+			parents[root2] = root1
+			contactCounts[root1] += contactCounts[root2]
+			jointCounts[root1] += jointCounts[root2]
+		} else {
+			parents[root2] = root1
+			ranks[root1] += 1
+			contactCounts[root1] += contactCounts[root2]
+			jointCounts[root1] += jointCounts[root2]
 		}
-
-		if rootIsland != isl {
-			isl.parentIsland = rootId
-		}
-	}
-
-	// Step 2: merge every awake island into its parent (which must be a
-	// root island). Reverse to support removal from awake array.
-	for i := awakeIslandCount - 1; i >= 0; i-- {
-		islandId := islandSims[i].islandId
-		isl := &w.islands[islandId]
-
-		if isl.parentIsland == nullIndex {
-			continue
-		}
-
-		mergeIsland(w, isl)
-
-		// this call does a remove swap from the end of the island sim array
-		destroyIsland(w, islandId)
 	}
 }
 
-// splitIsland rebuilds the islands of a base island by a depth first
-// search over the touching contacts. Only an awake island with removed
-// constraints splits. It corresponds to b2SplitIsland in src/island.c.
+// splitIsland rebuilds an awake island with removed constraints into its
+// connected components using union-find. It corresponds to b2SplitIsland in
+// src/island.c.
 func splitIsland(w *world, baseId int) {
 	baseIsland := &w.islands[baseId]
-	setIndex := baseIsland.setIndex
-
-	if setIndex != awakeSet {
-		// can only split awake island
-		return
+	if baseIsland.constraintRemoveCount <= 0 {
+		panic("dbox2d: a split island has removed constraints")
+	}
+	if baseIsland.setIndex != awakeSet {
+		panic("dbox2d: only an awake island splits")
 	}
 
-	if baseIsland.constraintRemoveCount == 0 {
-		// this island doesn't need to be split
-		return
-	}
+	// Cache base island fields before createIsland, which may reallocate
+	// w.islands and invalidate the baseIsland pointer.
+	baseBodyIds := baseIsland.bodies
+	baseBodyCount := len(baseBodyIds)
+	baseContacts := baseIsland.contacts
+	baseJoints := baseIsland.joints
 
-	bodyCount := baseIsland.bodyCount
-
-	bodies := w.bodies
 	alloc := &w.arena
 
-	stack, stackMem := arenaSlice[int](alloc, bodyCount, "island stack")
-	bodyIds, bodyIdsMem := arenaSlice[int](alloc, bodyCount, "body ids")
-
-	// Build array containing all body indices from base island. These
-	// serve as seed bodies for the depth first search (DFS).
-	index := 0
-	nextBody := baseIsland.headBody
-	for nextBody != nullIndex {
-		bodyIds[index] = nextBody
-		index++
-		b := &bodies[nextBody]
-
-		// Clear visitation mark
-		b.isMarked = false
-
-		nextBody = b.islandNext
-	}
-	if index != bodyCount {
-		panic("dbox2d: the island body list and the body count disagree")
+	// No lock is needed because the allocator is not used while this task
+	// is active. Allocate contactCounts and jointCounts before ranks so
+	// ranks can be freed first.
+	parents, parentsMem := arenaSlice[int](alloc, baseBodyCount, "parents")
+	contactCounts, contactCountsMem := arenaSlice[int](alloc, baseBodyCount, "contact counts")
+	jointCounts, jointCountsMem := arenaSlice[int](alloc, baseBodyCount, "joint counts")
+	ranks, ranksMem := arenaSlice[int](alloc, baseBodyCount, "ranks")
+	for i := range baseBodyCount {
+		parents[i] = i
+		ranks[i] = 0
+		contactCounts[i] = 0
+		jointCounts[i] = 0
 	}
 
-	// Clear contact island flags. Only need to consider contacts already
-	// in the base island.
-	nextContactId := baseIsland.headContact
-	for nextContactId != nullIndex {
-		c := &w.contacts[nextContactId]
-		c.isMarked = false
-		nextContactId = c.islandNext
+	bodies := w.bodies
+
+	// Union over contacts, tracking per-component contact counts
+	for i := range baseContacts {
+		islandIndexA := bodies[baseContacts[i].bodyIdA].islandIndex
+		islandIndexB := bodies[baseContacts[i].bodyIdB].islandIndex
+
+		// Only connect non-static bodies
+		if islandIndexA != nullIndex && islandIndexB != nullIndex {
+			islandUnion(parents, ranks, islandIndexA, islandIndexB, contactCounts, jointCounts)
+			root := islandFindParent(parents, islandIndexA)
+			contactCounts[root] += 1
+		} else {
+			islandIndex := islandIndexA
+			if islandIndex == nullIndex {
+				islandIndex = islandIndexB
+			}
+			root := islandFindParent(parents, islandIndex)
+			contactCounts[root] += 1
+		}
 	}
 
-	// Clear joint island flags.
-	nextJoint := baseIsland.headJoint
-	for nextJoint != nullIndex {
-		j := &w.joints[nextJoint]
-		j.isMarked = false
-		nextJoint = j.islandNext
+	// Union over joints, tracking per-component joint counts
+	for i := range baseJoints {
+		islandIndexA := bodies[baseJoints[i].bodyIdA].islandIndex
+		islandIndexB := bodies[baseJoints[i].bodyIdB].islandIndex
+
+		// Only connect non-static bodies
+		if islandIndexA != nullIndex && islandIndexB != nullIndex {
+			islandUnion(parents, ranks, islandIndexA, islandIndexB, contactCounts, jointCounts)
+			root := islandFindParent(parents, islandIndexA)
+			jointCounts[root] += 1
+		} else {
+			islandIndex := islandIndexA
+			if islandIndex == nullIndex {
+				islandIndex = islandIndexB
+			}
+			root := islandFindParent(parents, islandIndex)
+			jointCounts[root] += 1
+		}
 	}
 
-	// Done with the base split island.
+	// Done with ranks
+	alloc.freeItem(ranksMem)
+
+	// Flatten all parent indices and count connected components.
+	componentCount := 0
+	for i := range baseBodyCount {
+		parents[i] = islandFindParent(parents, i)
+		if parents[i] == i {
+			componentCount += 1
+		}
+	}
+
+	// Early return, the island is still fully connected.
+	if componentCount == 1 {
+		baseIsland.constraintRemoveCount = 0
+		alloc.freeItem(jointCountsMem)
+		alloc.freeItem(contactCountsMem)
+		alloc.freeItem(parentsMem)
+		return
+	}
+
+	// Detach the arrays from the base island so destroyIsland leaves them.
+	baseIsland.bodies = nil
+	baseIsland.contacts = nil
+	baseIsland.joints = nil
+
+	// Nil so code below doesn't accidentally use this.
+	baseIsland = nil
+
+	// Map from body index to new island index. Only set for root bodies.
+	rootMap, rootMapMem := arenaSlice[int](alloc, baseBodyCount, "root map")
+	for i := range baseBodyCount {
+		rootMap[i] = nullIndex
+	}
+
+	componentBodyCounts, componentBodyCountsMem := arenaSlice[int](alloc, componentCount, "component body counts")
+	componentContactCounts, componentContactCountsMem := arenaSlice[int](alloc, componentCount, "component contact counts")
+	componentJointCounts, componentJointCountsMem := arenaSlice[int](alloc, componentCount, "component joint counts")
+	islandCount := 0
+
+	// Find the root body for each body and create islands as needed.
+	// Extract per-component counts from the root nodes' accumulated counts.
+	for i := range baseBodyCount {
+		rootIndex := parents[i]
+		if rootMap[rootIndex] == nullIndex {
+			rootMap[rootIndex] = islandCount
+			componentBodyCounts[islandCount] = 0
+			componentContactCounts[islandCount] = contactCounts[rootIndex]
+			componentJointCounts[islandCount] = jointCounts[rootIndex]
+			islandCount += 1
+		}
+
+		componentBodyCounts[rootMap[rootIndex]] += 1
+	}
+
+	if islandCount != componentCount {
+		panic("dbox2d: the split island count does not match the components")
+	}
+
+	// Map from new island index to island id
+	islandIds, islandIdsMem := arenaSlice[int](alloc, islandCount, "island ids")
+
+	// Create new islands and reserve body/contact/joint arrays
+	for i := range islandCount {
+		newIsland := createIsland(w, awakeSet)
+		islandIds[i] = newIsland.islandId
+
+		// Reserve arrays to avoid wasteful growth and copies.
+		newIsland.bodies = make([]int, 0, componentBodyCounts[i])
+		newIsland.contacts = make([]contactLink, 0, componentContactCounts[i])
+		newIsland.joints = make([]jointLink, 0, componentJointCounts[i])
+	}
+
+	// Assign bodies to new islands
+	for i := range baseBodyCount {
+		bodyId := baseBodyIds[i]
+		root := islandFindParent(parents, i)
+		newIslandId := islandIds[rootMap[root]]
+
+		b := &w.bodies[bodyId]
+		newIsland := &w.islands[newIslandId]
+
+		b.islandId = newIslandId
+		b.islandIndex = len(newIsland.bodies)
+		newIsland.bodies = append(newIsland.bodies, bodyId)
+	}
+
+	// Assign contacts to the island of their bodies
+	for _, link := range baseContacts {
+		c := &w.contacts[link.contactId]
+
+		// Static bodies don't have an island id.
+		targetIslandId := w.bodies[link.bodyIdA].islandId
+		if targetIslandId == nullIndex {
+			targetIslandId = w.bodies[link.bodyIdB].islandId
+		}
+
+		targetIsland := &w.islands[targetIslandId]
+		c.islandId = targetIslandId
+		c.islandIndex = len(targetIsland.contacts)
+		targetIsland.contacts = append(targetIsland.contacts, link)
+	}
+
+	// Assign joints to the island of their bodies
+	for _, link := range baseJoints {
+		j := &w.joints[link.jointId]
+
+		// Static bodies don't have an island id.
+		targetIslandId := w.bodies[link.bodyIdA].islandId
+		if targetIslandId == nullIndex {
+			targetIslandId = w.bodies[link.bodyIdB].islandId
+		}
+
+		targetIsland := &w.islands[targetIslandId]
+		j.islandId = targetIslandId
+		j.islandIndex = len(targetIsland.joints)
+		targetIsland.joints = append(targetIsland.joints, link)
+	}
+
+	// Destroy the base island
 	destroyIsland(w, baseId)
 
-	// Each island is found as a depth first search starting from a seed body
-	for i := range bodyCount {
-		seedIndex := bodyIds[i]
-		seed := &bodies[seedIndex]
-		if seed.setIndex != setIndex {
-			panic("dbox2d: the seed body left the set of the island")
-		}
-
-		if seed.isMarked {
-			// The body has already been visited
-			continue
-		}
-
-		stackCount := 0
-		stack[stackCount] = seedIndex
-		stackCount++
-		seed.isMarked = true
-
-		// Create new island
-		isl := createIsland(w, setIndex)
-
-		islandId := isl.islandId
-
-		// Perform a depth first search (DFS) on the constraint graph.
-		for stackCount > 0 {
-			// Grab the next body off the stack and add it to the island.
-			stackCount--
-			bodyId := stack[stackCount]
-			b := &bodies[bodyId]
-			if b.setIndex != awakeSet {
-				panic("dbox2d: a split visits an awake body only")
-			}
-			if !b.isMarked {
-				panic("dbox2d: a body on the stack is marked")
-			}
-
-			// Add body to island
-			b.islandId = islandId
-			if isl.tailBody != nullIndex {
-				bodies[isl.tailBody].islandNext = bodyId
-			}
-			b.islandPrev = isl.tailBody
-			b.islandNext = nullIndex
-			isl.tailBody = bodyId
-
-			if isl.headBody == nullIndex {
-				isl.headBody = bodyId
-			}
-
-			isl.bodyCount += 1
-
-			// Search all contacts connected to this body.
-			contactKey := b.headContactKey
-			for contactKey != nullIndex {
-				contactId := contactKey >> 1
-				edgeIndex := contactKey & 1
-
-				c := &w.contacts[contactId]
-				if c.contactId != contactId {
-					panic("dbox2d: the contact id does not match its slot")
-				}
-
-				// Next key
-				contactKey = c.edges[edgeIndex].nextKey
-
-				// Has this contact already been added to this island?
-				if c.isMarked {
-					continue
-				}
-
-				// Is this contact enabled and touching?
-				if c.flags&contactTouchingFlag == 0 {
-					continue
-				}
-
-				c.isMarked = true
-
-				otherEdgeIndex := edgeIndex ^ 1
-				otherBodyId := c.edges[otherEdgeIndex].bodyId
-				otherBody := &bodies[otherBodyId]
-
-				// Maybe add other body to stack
-				if !otherBody.isMarked && otherBody.setIndex != staticSet {
-					if stackCount >= bodyCount {
-						panic("dbox2d: the island stack overflows")
-					}
-					stack[stackCount] = otherBodyId
-					stackCount++
-					otherBody.isMarked = true
-				}
-
-				// Add contact to island
-				c.islandId = islandId
-				if isl.tailContact != nullIndex {
-					tailContact := &w.contacts[isl.tailContact]
-					tailContact.islandNext = contactId
-				}
-				c.islandPrev = isl.tailContact
-				c.islandNext = nullIndex
-				isl.tailContact = contactId
-
-				if isl.headContact == nullIndex {
-					isl.headContact = contactId
-				}
-
-				isl.contactCount += 1
-			}
-
-			// Search all joints connect to this body.
-			jointKey := b.headJointKey
-			for jointKey != nullIndex {
-				jointId := jointKey >> 1
-				edgeIndex := jointKey & 1
-
-				j := &w.joints[jointId]
-				if j.jointId != jointId {
-					panic("dbox2d: the joint id does not match its slot")
-				}
-
-				// Next key
-				jointKey = j.edges[edgeIndex].nextKey
-
-				// Has this joint already been added to this island?
-				if j.isMarked {
-					continue
-				}
-
-				j.isMarked = true
-
-				otherEdgeIndex := edgeIndex ^ 1
-				otherBodyId := j.edges[otherEdgeIndex].bodyId
-				otherBody := &bodies[otherBodyId]
-
-				// Don't simulate joints connected to disabled bodies.
-				if otherBody.setIndex == disabledSet {
-					continue
-				}
-
-				// Maybe add other body to stack
-				if !otherBody.isMarked && otherBody.setIndex == awakeSet {
-					if stackCount >= bodyCount {
-						panic("dbox2d: the island stack overflows")
-					}
-					stack[stackCount] = otherBodyId
-					stackCount++
-					otherBody.isMarked = true
-				}
-
-				// Add joint to island
-				j.islandId = islandId
-				if isl.tailJoint != nullIndex {
-					tailJoint := &w.joints[isl.tailJoint]
-					tailJoint.islandNext = jointId
-				}
-				j.islandPrev = isl.tailJoint
-				j.islandNext = nullIndex
-				isl.tailJoint = jointId
-
-				if isl.headJoint == nullIndex {
-					isl.headJoint = jointId
-				}
-
-				isl.jointCount += 1
-			}
-		}
-	}
-
-	alloc.freeItem(bodyIdsMem)
-	alloc.freeItem(stackMem)
+	// Free arena items in LIFO order
+	alloc.freeItem(islandIdsMem)
+	alloc.freeItem(componentJointCountsMem)
+	alloc.freeItem(componentContactCountsMem)
+	alloc.freeItem(componentBodyCountsMem)
+	alloc.freeItem(rootMapMem)
+	alloc.freeItem(jointCountsMem)
+	alloc.freeItem(contactCountsMem)
+	alloc.freeItem(parentsMem)
 }
 
-// validateIsland checks the lists and the counts of one island. The
+// validateIsland checks the arrays and the back indices of one island. The
 // reference compiles it only into validation builds; here only the tests
 // call it.
 func validateIsland(w *world, islandId int) {
+	if islandId == nullIndex {
+		return
+	}
+
 	isl := &w.islands[islandId]
 	if isl.islandId != islandId {
 		panic("dbox2d: the island id does not match its slot")
@@ -831,113 +623,55 @@ func validateIsland(w *world, islandId int) {
 	if isl.setIndex == nullIndex {
 		panic("dbox2d: the island has no set")
 	}
-	if isl.headBody == nullIndex {
+
+	if len(isl.bodies) == 0 {
 		panic("dbox2d: the island has no bodies")
 	}
-
-	{
-		if isl.tailBody == nullIndex || isl.bodyCount <= 0 {
-			panic("dbox2d: the island body list is inconsistent")
+	if len(isl.bodies) > w.bodyIdPool.idCount() {
+		panic("dbox2d: the island holds more bodies than the pool")
+	}
+	for i, bodyId := range isl.bodies {
+		b := &w.bodies[bodyId]
+		if b.islandId != islandId {
+			panic("dbox2d: a body does not point back at its island")
 		}
-		if isl.bodyCount > 1 && isl.tailBody == isl.headBody {
-			panic("dbox2d: the island body list is inconsistent")
+		if b.islandIndex != i {
+			panic("dbox2d: a body island index is stale")
 		}
-		if isl.bodyCount > w.bodyIdPool.idCount() {
-			panic("dbox2d: the island holds more bodies than the pool")
-		}
-
-		count := 0
-		bodyId := isl.headBody
-		for bodyId != nullIndex {
-			b := &w.bodies[bodyId]
-			if b.islandId != islandId {
-				panic("dbox2d: a body does not point back at its island")
-			}
-			if b.setIndex != isl.setIndex {
-				panic("dbox2d: a body and its island differ in set")
-			}
-			count += 1
-
-			if count == isl.bodyCount && bodyId != isl.tailBody {
-				panic("dbox2d: the island tail body is wrong")
-			}
-
-			bodyId = b.islandNext
-		}
-		if count != isl.bodyCount {
-			panic("dbox2d: the island body count is wrong")
+		if b.setIndex != isl.setIndex {
+			panic("dbox2d: a body and its island differ in set")
 		}
 	}
 
-	if isl.headContact != nullIndex {
-		if isl.tailContact == nullIndex || isl.contactCount <= 0 {
-			panic("dbox2d: the island contact list is inconsistent")
+	if len(isl.contacts) > w.contactIdPool.idCount() {
+		panic("dbox2d: the island holds more contacts than the pool")
+	}
+	for i := range isl.contacts {
+		c := &w.contacts[isl.contacts[i].contactId]
+		if c.setIndex != isl.setIndex {
+			panic("dbox2d: a contact and its island differ in set")
 		}
-		if isl.contactCount > 1 && isl.tailContact == isl.headContact {
-			panic("dbox2d: the island contact list is inconsistent")
+		if c.islandId != islandId {
+			panic("dbox2d: a contact does not point back at its island")
 		}
-		if isl.contactCount > w.contactIdPool.idCount() {
-			panic("dbox2d: the island holds more contacts than the pool")
+		if c.islandIndex != i {
+			panic("dbox2d: a contact island index is stale")
 		}
-
-		count := 0
-		contactId := isl.headContact
-		for contactId != nullIndex {
-			c := &w.contacts[contactId]
-			if c.setIndex != isl.setIndex {
-				panic("dbox2d: a contact and its island differ in set")
-			}
-			if c.islandId != islandId {
-				panic("dbox2d: a contact does not point back at its island")
-			}
-			count += 1
-
-			if count == isl.contactCount && contactId != isl.tailContact {
-				panic("dbox2d: the island tail contact is wrong")
-			}
-
-			contactId = c.islandNext
-		}
-		if count != isl.contactCount {
-			panic("dbox2d: the island contact count is wrong")
-		}
-	} else if isl.tailContact != nullIndex || isl.contactCount != 0 {
-		panic("dbox2d: an island without contacts has a tail or a count")
 	}
 
-	if isl.headJoint != nullIndex {
-		if isl.tailJoint == nullIndex {
-			panic("dbox2d: an island with a head joint has no tail joint")
+	if len(isl.joints) > w.jointIdPool.idCount() {
+		panic("dbox2d: the island joint count exceeds the pool")
+	}
+	for i := range isl.joints {
+		j := &w.joints[isl.joints[i].jointId]
+		if j.setIndex != isl.setIndex {
+			panic("dbox2d: a joint and its island differ in set")
 		}
-		if isl.jointCount <= 0 {
-			panic("dbox2d: an island with joints has a zero count")
+		if j.islandId != islandId {
+			panic("dbox2d: a joint does not point back at its island")
 		}
-		if isl.jointCount > 1 && isl.tailJoint == isl.headJoint {
-			panic("dbox2d: an island with several joints has one end")
+		if j.islandIndex != i {
+			panic("dbox2d: a joint island index is stale")
 		}
-		if isl.jointCount > w.jointIdPool.idCount() {
-			panic("dbox2d: the island joint count exceeds the pool")
-		}
-
-		count := 0
-		jointId := isl.headJoint
-		for jointId != nullIndex {
-			j := &w.joints[jointId]
-			if j.setIndex != isl.setIndex {
-				panic("dbox2d: a joint and its island differ in set")
-			}
-			count += 1
-
-			if count == isl.jointCount && jointId != isl.tailJoint {
-				panic("dbox2d: the island tail joint is wrong")
-			}
-
-			jointId = j.islandNext
-		}
-		if count != isl.jointCount {
-			panic("dbox2d: the island joint count is wrong")
-		}
-	} else if isl.tailJoint != nullIndex || isl.jointCount != 0 {
-		panic("dbox2d: an island without joints has a tail or a count")
 	}
 }

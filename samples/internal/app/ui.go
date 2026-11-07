@@ -27,15 +27,16 @@ func (a *App) checkboxes() []checkbox {
 		{"Sleep", &s.EnableSleep},
 		{"Warm Starting", &s.EnableWarmStarting},
 		{"Continuous", &s.EnableContinuous},
+		{"Bounce Propagation", &s.EnableRestitutionPropagation},
 		{"Shapes", &s.DrawShapes},
 		{"Joints", &s.DrawJoints},
 		{"Joint Extras", &s.DrawJointExtras},
 		{"Bounds", &s.DrawBounds},
 		{"Contact Points", &s.DrawContactPoints},
 		{"Contact Normals", &s.DrawContactNormals},
-		{"Contact Impulses", &s.DrawContactImpulses},
+		{"Contact Forces", &s.DrawContactForces},
 		{"Contact Features", &s.DrawContactFeatures},
-		{"Friction Impulses", &s.DrawFrictionImpulses},
+		{"Friction Forces", &s.DrawFrictionForces},
 		{"Mass", &s.DrawMass},
 		{"Body Names", &s.DrawBodyNames},
 		{"Graph Colors", &s.DrawGraphColors},
@@ -81,6 +82,12 @@ func (a *App) buildControls() {
 	a.mu.Label("Hertz")
 	a.mu.SliderEx(&hertz, 5, 240, 1, "%.0f hz", microui.MU_OPT_ALIGNCENTER)
 	s.Hertz = float64(hertz)
+
+	bounce := float32(s.RestitutionIterations)
+	a.mu.LayoutRow(2, []int{labelWidth, -1}, 0)
+	a.mu.Label("Bounce Iters")
+	a.mu.SliderEx(&bounce, 0, 8, 1, "%.0f", microui.MU_OPT_ALIGNCENTER)
+	s.RestitutionIterations = int(bounce + 0.5)
 
 	if runtime.GOARCH == "wasm" {
 		s.WorkerCount = 1

@@ -41,12 +41,11 @@ func TestWorldAccessorsRoundTrip(t *testing.T) {
 	worldId.SetRestitutionThreshold(QFromInt(2))
 	worldId.SetHitEventThreshold(QFromInt(3))
 	worldId.SetContactTuning(QFromInt(4), QHalf(), QFromInt(5))
-	worldId.SetMaximumLinearSpeed(QFromInt(6))
+	worldId.SetMaxLinearSpeed(QFromInt(6))
 	worldId.SetUserData("world")
 	worldId.EnableSleeping(false)
 	worldId.EnableContinuous(false)
 	worldId.EnableWarmStarting(false)
-	worldId.EnableSpeculative(false)
 
 	checks := []struct {
 		name string
@@ -55,8 +54,18 @@ func TestWorldAccessorsRoundTrip(t *testing.T) {
 	}{
 		{"restitution threshold", worldId.GetRestitutionThreshold(), QFromInt(2)},
 		{"hit event threshold", worldId.GetHitEventThreshold(), QFromInt(3)},
-		{"maximum linear speed", worldId.GetMaximumLinearSpeed(), QFromInt(6)},
+		{"maximum linear speed", worldId.GetMaxLinearSpeed(), QFromInt(6)},
 	}
+	hertz, dampingRatio, pushSpeed := worldId.GetContactTuning()
+	checks = append(checks, []struct {
+		name string
+		got  Q
+		want Q
+	}{
+		{"contact hertz", hertz, QFromInt(4)},
+		{"contact damping ratio", dampingRatio, QHalf()},
+		{"contact push speed", pushSpeed, QFromInt(5)},
+	}...)
 	for _, check := range checks {
 		if !check.got.Eq(check.want) {
 			t.Errorf("%s = %v, want %v", check.name, check.got, check.want)
@@ -80,8 +89,8 @@ func TestWorldGetCounters(t *testing.T) {
 	addDynamicBox(t, worldId, v2(2, 0))
 
 	jointDef := DefaultDistanceJointDef()
-	jointDef.BodyIdA = bodyA
-	jointDef.BodyIdB = bodyB
+	jointDef.Base.BodyIdA = bodyA
+	jointDef.Base.BodyIdB = bodyB
 	CreateDistanceJoint(worldId, &jointDef)
 	worldId.Step(stepDt(), 4)
 
@@ -128,8 +137,8 @@ func TestDumpMemoryStatsListsEverySection(t *testing.T) {
 	addDynamicBox(t, worldId, v2(2, 0))
 
 	jointDef := DefaultDistanceJointDef()
-	jointDef.BodyIdA = bodyA
-	jointDef.BodyIdB = bodyB
+	jointDef.Base.BodyIdA = bodyA
+	jointDef.Base.BodyIdB = bodyB
 	CreateDistanceJoint(worldId, &jointDef)
 	for range 4 {
 		worldId.Step(stepDt(), 4)
@@ -172,8 +181,8 @@ func TestDumpMemoryStatsListsEverySection(t *testing.T) {
 		t.Errorf("contact sim lines = %d, want 2:\n%s", got, dump)
 	}
 
-	if !regexp.MustCompile(`moveSet: \d+ \(\d+, \d+\)`).MatchString(dump) {
-		t.Errorf("moveSet line missing count/capacity suffix:\n%s", dump)
+	if !regexp.MustCompile(`pairSet: \d+ \(\d+, \d+\)`).MatchString(dump) {
+		t.Errorf("pairSet line missing count/capacity suffix:\n%s", dump)
 	}
 }
 
@@ -233,9 +242,9 @@ func TestStepFillsTheProfile(t *testing.T) {
 			p.Step, subStepCount, granularity)
 	}
 	parts := []float64{
-		p.Pairs, p.Collide, p.Solve, p.MergeIslands, p.PrepareStages, p.SolveConstraints,
+		p.Pairs, p.Collide, p.Solve, p.SolverSetup, p.Constraints,
 		p.PrepareConstraints, p.IntegrateVelocities, p.WarmStart, p.SolveImpulses, p.IntegratePositions,
-		p.RelaxImpulses, p.ApplyRestitution, p.StoreImpulses, p.SplitIslands, p.Transforms, p.HitEvents,
+		p.RelaxImpulses, p.Restitution, p.StoreImpulses, p.SplitIslands, p.Transforms, p.HitEvents,
 		p.Refit, p.Bullets, p.SleepIslands, p.Sensors,
 	}
 	for _, part := range parts {
@@ -252,7 +261,7 @@ func TestStepFillsTheProfile(t *testing.T) {
 	if top := p.Pairs + p.Collide + p.Solve + p.Sensors; top > p.Step+slack {
 		t.Errorf("Pairs+Collide+Solve+Sensors = %v, want <= Step (%v) + %v", top, p.Step, slack)
 	}
-	if sub := p.MergeIslands + p.PrepareStages + p.SolveConstraints + p.Transforms + p.HitEvents +
+	if sub := p.SolverSetup + p.Constraints + p.Transforms + p.HitEvents +
 		p.Refit + p.Bullets + p.SleepIslands; sub > p.Solve+slack {
 		t.Errorf("solve parts sum = %v, want <= Solve (%v) + %v", sub, p.Solve, slack)
 	}
@@ -266,7 +275,7 @@ func TestStepFillsTheProfile(t *testing.T) {
 func TestSetFrictionCallbackAffectsNextContact(t *testing.T) {
 	worldId := createTestWorld(t)
 	constant := QMustParse("0.75")
-	worldId.SetFrictionCallback(func(Q, int, Q, int) Q { return constant })
+	worldId.SetFrictionCallback(func(Q, uint64, Q, uint64) Q { return constant })
 	addDynamicCircle(t, worldId, v2(0, 0))
 	addDynamicCircle(t, worldId, v2(1, 0))
 	worldId.Step(stepDt(), 4)
@@ -366,7 +375,7 @@ func TestCreateAndDestroyOrdersProduceTheSameWorld(t *testing.T) {
 
 	addBody := func(worldId WorldId, position Vec2) BodyId {
 		def := bodyDef
-		def.Position = position
+		def.Position = ToPos(position)
 		bodyId := CreateBody(worldId, &def)
 		CreatePolygonShape(bodyId, &shapeDef, &box)
 		return bodyId
@@ -435,7 +444,7 @@ func TestBodyMassComesFromItsShapes(t *testing.T) {
 
 	bodyDef := DefaultBodyDef()
 	bodyDef.Type = DynamicBody
-	bodyDef.Position = v2(5, 0)
+	bodyDef.Position = ToPos(v2(5, 0))
 	bodyDef.AngularVelocity = omega
 	bodyId := CreateBody(worldId, &bodyDef)
 
@@ -455,14 +464,19 @@ func TestBodyMassComesFromItsShapes(t *testing.T) {
 	centerBefore := getBodySim(w, b).center
 	velocityBefore := getBodyState(w, b).linearVelocity
 
-	// A degenerate capsule welds into a circle at its midpoint.
+	// Since v3.2 a degenerate capsule is not created: the null id comes back
+	// and the mass is unchanged.
 	capsule := Capsule{Center1: v2(2, 0), Center2: v2(2, 0), Radius: QOne()}
-	weldedId := CreateCapsuleShape(bodyId, &shapeDef, &capsule)
-
-	welded := getShape(w, weldedId)
-	if welded.shapeType != CircleShape {
-		t.Fatalf("the welded capsule has type %d, want CircleShape", welded.shapeType)
+	if id := CreateCapsuleShape(bodyId, &shapeDef, &capsule); id != (ShapeId{}) {
+		t.Fatalf("degenerate capsule id = %v, want the null id", id)
 	}
+	if !bodyId.GetMass().Eq(wantBox.Mass) {
+		t.Fatalf("mass after the degenerate capsule = %v, want %v", bodyId.GetMass(), wantBox.Mass)
+	}
+
+	circle := Circle{Center: v2(2, 0), Radius: QOne()}
+	weldedId := CreateCircleShape(bodyId, &shapeDef, &circle)
+	welded := getShape(w, weldedId)
 
 	wantCircle := ComputeCircleMass(welded.circle(), shapeDef.Density)
 	wantTotal := wantBox.Mass.Add(wantCircle.Mass)
@@ -474,7 +488,7 @@ func TestBodyMassComesFromItsShapes(t *testing.T) {
 	// the angular velocity, in radians per second, with the displacement.
 	sim := getBodySim(w, b)
 	state := getBodyState(w, b)
-	wantVelocity := velocityBefore.Add(CrossSV(tau.Mul(omega), sim.center.Sub(centerBefore)))
+	wantVelocity := velocityBefore.Add(CrossSV(tau.Mul(omega), SubPos(sim.center, centerBefore)))
 	if !state.linearVelocity.X.Eq(wantVelocity.X) || !state.linearVelocity.Y.Eq(wantVelocity.Y) {
 		t.Errorf("velocity after the mass update = %v, want %v", state.linearVelocity, wantVelocity)
 	}
@@ -560,7 +574,7 @@ func TestOverlapAABBReportsTheFatBounds(t *testing.T) {
 	addStaticCircle(t, worldId, v2(0, 0))
 	kinematicDef := DefaultBodyDef()
 	kinematicDef.Type = KinematicBody
-	kinematicDef.Position = v2(5, 0)
+	kinematicDef.Position = ToPos(v2(5, 0))
 	kinematic := CreateBody(worldId, &kinematicDef)
 	shapeDef := DefaultShapeDef()
 	circle := Circle{Radius: QHalf()}
@@ -572,7 +586,7 @@ func TestOverlapAABBReportsTheFatBounds(t *testing.T) {
 	expected := map[ShapeId]bool{}
 	for i := range w.shapes {
 		s := &w.shapes[i]
-		if s.id != nullIndex && AABBOverlaps(s.fatAABB, query) {
+		if s.id != nullIndex && AABBOverlaps(w.fatAABBs[s.id], query) {
 			expected[shapeIdOf(w, s)] = true
 		}
 	}
@@ -581,7 +595,7 @@ func TestOverlapAABBReportsTheFatBounds(t *testing.T) {
 	}
 
 	got := map[ShapeId]bool{}
-	stats := worldId.OverlapAABB(query, DefaultQueryFilter(), func(id ShapeId) bool {
+	stats := worldId.OverlapAABB(ToPos(Vec2{}), query, DefaultQueryFilter(), func(id ShapeId) bool {
 		got[id] = true
 		return true
 	})
@@ -597,7 +611,7 @@ func TestOverlapAABBReportsTheFatBounds(t *testing.T) {
 	// A false return ends the current tree; the next tree still runs, so
 	// the two dynamic boxes yield one call and the trees three in total.
 	calls := 0
-	worldId.OverlapAABB(query, DefaultQueryFilter(), func(ShapeId) bool {
+	worldId.OverlapAABB(ToPos(Vec2{}), query, DefaultQueryFilter(), func(ShapeId) bool {
 		calls++
 		return false
 	})
@@ -607,13 +621,15 @@ func TestOverlapAABBReportsTheFatBounds(t *testing.T) {
 
 	filter := DefaultQueryFilter()
 	filter.MaskBits = 0
-	worldId.OverlapAABB(query, filter, func(ShapeId) bool {
+	worldId.OverlapAABB(ToPos(Vec2{}), query, filter, func(ShapeId) bool {
 		t.Errorf("an empty mask reported a shape")
 		return true
 	})
 
 	w.locked = true
-	requirePanic(t, func() { worldId.OverlapAABB(query, DefaultQueryFilter(), func(ShapeId) bool { return true }) })
+	requirePanic(t, func() {
+		worldId.OverlapAABB(ToPos(Vec2{}), query, DefaultQueryFilter(), func(ShapeId) bool { return true })
+	})
 	w.locked = false
 }
 
@@ -634,24 +650,24 @@ func TestCastRayClipsAcrossTheTrees(t *testing.T) {
 	filter := DefaultQueryFilter()
 
 	var hit ShapeId
-	var point Vec2
-	closest := func(id ShapeId, p, _ Vec2, fraction Q) Q {
+	var point Pos
+	closest := func(id ShapeId, p Pos, _ Vec2, fraction Q) Q {
 		hit, point = id, p
 		return fraction
 	}
-	stats := worldId.CastRay(origin, translation, filter, closest)
+	stats := worldId.CastRay(ToPos(origin), translation, filter, closest)
 	if hit != near || stats.LeafVisits < 2 {
 		t.Fatalf("the closest hit is not the near box (%d leaf visits)", stats.LeafVisits)
 	}
 	// The near box spans [-1, 1]; the hit sits on its left face.
 	eps := QOne().Div(QFromInt(1024))
-	diff := point.X.Add(QOne())
+	diff := posX(point).Add(QOne())
 	if diff.Less(eps.Neg()) || eps.Less(diff) {
-		t.Errorf("the hit point x is %v, want -1", point.X)
+		t.Errorf("the hit point x is %v, want -1", posX(point))
 	}
 
 	hit = ShapeId{}
-	worldId.CastRay(origin, translation, filter, func(id ShapeId, p, n Vec2, fraction Q) Q {
+	worldId.CastRay(ToPos(origin), translation, filter, func(id ShapeId, p Pos, n Vec2, fraction Q) Q {
 		if id == near {
 			return QOne().Neg()
 		}
@@ -663,13 +679,13 @@ func TestCastRayClipsAcrossTheTrees(t *testing.T) {
 
 	masked := DefaultQueryFilter()
 	masked.MaskBits = 0
-	worldId.CastRay(origin, translation, masked, func(ShapeId, Vec2, Vec2, Q) Q {
+	worldId.CastRay(ToPos(origin), translation, masked, func(ShapeId, Pos, Vec2, Q) Q {
 		t.Errorf("an empty mask reported a hit")
 		return QOne()
 	})
 
 	calls := 0
-	worldId.CastRay(v2(8, 0), translation, filter, func(id ShapeId, _, _ Vec2, fraction Q) Q {
+	worldId.CastRay(ToPos(v2(8, 0)), translation, filter, func(id ShapeId, _ Pos, _ Vec2, fraction Q) Q {
 		calls++
 		if id != static || !fraction.Eq(QZero()) {
 			t.Errorf("the inside origin did not report the static circle at fraction zero")
@@ -681,7 +697,7 @@ func TestCastRayClipsAcrossTheTrees(t *testing.T) {
 	}
 
 	w.locked = true
-	requirePanic(t, func() { worldId.CastRay(origin, translation, filter, closest) })
+	requirePanic(t, func() { worldId.CastRay(ToPos(origin), translation, filter, closest) })
 	w.locked = false
 }
 
@@ -693,7 +709,7 @@ func hundredShapeWorld(t *testing.T, rng *rand.Rand) WorldId {
 	for i := range 100 {
 		bodyDef := DefaultBodyDef()
 		bodyDef.Type = BodyType(i % 3)
-		bodyDef.Position = v2(rng.Intn(60), rng.Intn(60))
+		bodyDef.Position = ToPos(v2(rng.Intn(60), rng.Intn(60)))
 		bodyDef.Rotation = MakeRot(QFromRatio(rng.Intn(8), 8))
 		bodyId := CreateBody(worldId, &bodyDef)
 		shapeDef := DefaultShapeDef()
@@ -745,25 +761,25 @@ func TestShapeQueriesMatchBruteForce(t *testing.T) {
 			}
 			transform := getBodyTransformQuick(w, &w.bodies[s.bodyId])
 
-			input := DistanceInput{ProxyA: proxy, ProxyB: makeShapeDistanceProxy(s), TransformA: TransformIdentity(), TransformB: transform, UseRadii: true}
+			input := DistanceInput{ProxyA: proxy, ProxyB: makeShapeDistanceProxy(s), Transform: toTransform(transform), UseRadii: true}
 			var cache SimplexCache
-			if out := ShapeDistance(&input, &cache, nil); !tolerance.Less(out.Distance) {
+			if out := ComputeShapeDistance(&input, &cache, nil); !tolerance.Less(out.Distance) {
 				wantOverlap[shapeIdOf(w, s)] = true
 			}
 
 			castInput := ShapeCastInput{Proxy: proxy, Translation: translation, MaxFraction: one}
-			if out := shapeCastShape(&castInput, s, transform); out.Hit && out.Fraction.Less(wantCastFraction) {
+			if out := shapeCastShape(&castInput, s, toTransform(transform)); out.Hit && out.Fraction.Less(wantCastFraction) {
 				wantCast, wantCastFraction = shapeIdOf(w, s), out.Fraction
 			}
 
 			rayInput := RayCastInput{Origin: origin, Translation: translation, MaxFraction: one}
-			if out := rayCastShape(&rayInput, s, transform); out.Hit && zero.Less(out.Fraction) && out.Fraction.Less(wantRayFraction) {
+			if out := rayCastShape(&rayInput, s, toTransform(transform)); out.Hit && zero.Less(out.Fraction) && out.Fraction.Less(wantRayFraction) {
 				wantRay, wantRayFraction = shapeIdOf(w, s), out.Fraction
 			}
 		}
 
 		gotOverlap := map[ShapeId]bool{}
-		worldId.OverlapShape(&proxy, filter, func(id ShapeId) bool {
+		worldId.OverlapShape(ToPos(Vec2{}), &proxy, filter, func(id ShapeId) bool {
 			gotOverlap[id] = true
 			return true
 		})
@@ -778,7 +794,7 @@ func TestShapeQueriesMatchBruteForce(t *testing.T) {
 
 		gotCast := ShapeId{}
 		gotCastFraction := one
-		worldId.CastShape(&proxy, translation, filter, func(id ShapeId, _, _ Vec2, fraction Q) Q {
+		worldId.CastShape(ToPos(Vec2{}), &proxy, translation, filter, func(id ShapeId, _ Pos, _ Vec2, fraction Q) Q {
 			if fraction.Less(gotCastFraction) {
 				gotCast, gotCastFraction = id, fraction
 			}
@@ -788,7 +804,7 @@ func TestShapeQueriesMatchBruteForce(t *testing.T) {
 			t.Fatalf("CastShape from %v by %v found %v at %v, brute force %v at %v", origin, translation, gotCast, gotCastFraction, wantCast, wantCastFraction)
 		}
 
-		ray := worldId.CastRayClosest(origin, translation, filter)
+		ray := worldId.CastRayClosest(ToPos(origin), translation, filter)
 		if ray.Hit != (wantRay != ShapeId{}) || (ray.Hit && (ray.ShapeId != wantRay || !ray.Fraction.Eq(wantRayFraction))) {
 			t.Fatalf("CastRayClosest from %v by %v found %+v, brute force %v at %v", origin, translation, ray, wantRay, wantRayFraction)
 		}
@@ -801,14 +817,14 @@ func TestShapeQueriesMatchBruteForce(t *testing.T) {
 func TestCastMoverStopsAtTheWall(t *testing.T) {
 	worldId := createTestWorld(t)
 	wallDef := DefaultBodyDef()
-	wallDef.Position = v2(10, 0)
+	wallDef.Position = ToPos(v2(10, 0))
 	wall := CreateBody(worldId, &wallDef)
 	shapeDef := DefaultShapeDef()
 	wallBox := MakeBox(QOne(), QFromInt(5))
 	CreatePolygonShape(wall, &shapeDef, &wallBox)
 
 	mover := Capsule{Center1: v2(0, -1), Center2: v2(0, 1), Radius: QHalf()}
-	fraction := worldId.CastMover(&mover, v2(20, 0), DefaultQueryFilter())
+	fraction := worldId.CastMover(ToPos(Vec2{}), &mover, v2(20, 0), DefaultQueryFilter())
 
 	// The capsule surface reaches the face at x = 9 after 8.5 units of
 	// the 20; the sweep targets the radius less a slop.
@@ -819,22 +835,36 @@ func TestCastMoverStopsAtTheWall(t *testing.T) {
 
 	// A circle around the start overlaps the mover and does not stop it.
 	addStaticCircle(t, worldId, v2(0, 0))
-	if again := worldId.CastMover(&mover, v2(20, 0), DefaultQueryFilter()); !again.Eq(fraction) {
+	if again := worldId.CastMover(ToPos(Vec2{}), &mover, v2(20, 0), DefaultQueryFilter()); !again.Eq(fraction) {
 		t.Fatalf("an overlapping shape changed the fraction to %v", again)
 	}
 
 	thin := mover
 	thin.Radius = linearSlop
-	requirePanic(t, func() { worldId.CastMover(&thin, v2(20, 0), DefaultQueryFilter()) })
+	requirePanic(t, func() { worldId.CastMover(ToPos(Vec2{}), &thin, v2(20, 0), DefaultQueryFilter()) })
+}
+
+// addFilteredBox adds a dynamic unit box that opts in to custom filtering.
+func addFilteredBox(t *testing.T, worldId WorldId, position Vec2) BodyId {
+	t.Helper()
+	bodyDef := DefaultBodyDef()
+	bodyDef.Type = DynamicBody
+	bodyDef.Position = ToPos(position)
+	bodyId := CreateBody(worldId, &bodyDef)
+	shapeDef := DefaultShapeDef()
+	shapeDef.EnableCustomFiltering = true
+	box := MakeSquare(QOne())
+	CreatePolygonShape(bodyId, &shapeDef, &box)
+	return bodyId
 }
 
 // TestCustomFilterRejectsPair locks down that a callback returning false
-// keeps the pair from ever becoming a contact.
+// keeps the pair from ever becoming a contact when one shape opts in.
 func TestCustomFilterRejectsPair(t *testing.T) {
 	worldId := createTestWorld(t)
 	worldId.SetCustomFilterCallback(func(ShapeId, ShapeId) bool { return false })
 
-	addDynamicBox(t, worldId, v2(0, 0))
+	addFilteredBox(t, worldId, v2(0, 0))
 	addDynamicBox(t, worldId, v2(0, 0))
 
 	dt := stepDt()
@@ -850,13 +880,35 @@ func TestCustomFilterRejectsPair(t *testing.T) {
 	}
 }
 
+// TestCustomFilterNeedsOptIn checks that the callback never runs for a pair
+// in which neither shape enables custom filtering.
+func TestCustomFilterNeedsOptIn(t *testing.T) {
+	worldId := createTestWorld(t)
+	calls := 0
+	worldId.SetCustomFilterCallback(func(ShapeId, ShapeId) bool {
+		calls++
+		return false
+	})
+
+	addDynamicBox(t, worldId, v2(0, 0))
+	addDynamicBox(t, worldId, v2(0, 0))
+	worldId.Step(stepDt(), 4)
+
+	if calls != 0 {
+		t.Errorf("the callback ran %d times without an opt-in", calls)
+	}
+	if got := worldId.GetCounters().ContactCount; got != 1 {
+		t.Errorf("contact count = %d, want 1", got)
+	}
+}
+
 // TestCustomFilterAcceptingKeepsWitness locks down that an always-true
 // callback does not perturb the simulation: the checksum of a scene run
 // with the callback matches the same scene run with no callback at all.
 func TestCustomFilterAcceptingKeepsWitness(t *testing.T) {
 	buildScene := func(worldId WorldId) {
-		addDynamicBox(t, worldId, v2(0, 5))
-		addDynamicBox(t, worldId, v2(0, 6))
+		addFilteredBox(t, worldId, v2(0, 5))
+		addFilteredBox(t, worldId, v2(0, 6))
 	}
 
 	dt := stepDt()
@@ -892,7 +944,7 @@ func TestExplodeImpulseByDistance(t *testing.T) {
 	def := func() ExplosionDef {
 		return ExplosionDef{
 			MaskBits:         DefaultMaskBits,
-			Position:         v2(0, 0),
+			Position:         ToPos(v2(0, 0)),
 			Radius:           radius,
 			Falloff:          falloff,
 			ImpulsePerLength: impulsePerLength,

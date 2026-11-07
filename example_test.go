@@ -17,7 +17,7 @@ func exampleWorld() (b2.WorldId, b2.BodyId, b2.BodyId) {
 
 	boxDef := b2.DefaultBodyDef()
 	boxDef.Type = b2.DynamicBody
-	boxDef.Position = b2.Vec2{Y: b2.QFromInt(2)}
+	boxDef.Position = b2.ToPos(b2.Vec2{Y: b2.QFromInt(2)})
 	boxId := b2.CreateBody(worldId, &boxDef)
 	shapeDef := b2.DefaultShapeDef()
 	box := b2.MakeSquare(b2.QHalf())
@@ -32,8 +32,8 @@ func ExampleCreateDistanceJoint() {
 
 	// A rope of length two from the ground origin to the box center.
 	def := b2.DefaultDistanceJointDef()
-	def.BodyIdA = groundId
-	def.BodyIdB = boxId
+	def.Base.BodyIdA = groundId
+	def.Base.BodyIdB = boxId
 	def.Length = b2.QFromInt(2)
 	jointId := b2.CreateDistanceJoint(worldId, &def)
 
@@ -46,7 +46,7 @@ func ExampleWorldId_SetFrictionCallback() {
 	worldId := b2.CreateWorld(&worldDef)
 	defer b2.DestroyWorld(worldId)
 
-	worldId.SetFrictionCallback(func(frictionA b2.Q, _ int, frictionB b2.Q, _ int) b2.Q {
+	worldId.SetFrictionCallback(func(frictionA b2.Q, _ uint64, frictionB b2.Q, _ uint64) b2.Q {
 		return frictionA.Add(frictionB).Div(b2.QFromInt(2))
 	})
 
@@ -83,7 +83,7 @@ func ExampleBodyId_SetTransform() {
 	worldId, _, boxId := exampleWorld()
 	defer b2.DestroyWorld(worldId)
 
-	boxId.SetTransform(b2.Vec2{X: b2.QOne(), Y: b2.QFromInt(3)}, b2.RotIdentity())
+	boxId.SetTransform(b2.ToPos(b2.Vec2{X: b2.QOne(), Y: b2.QFromInt(3)}), b2.RotIdentity())
 
 	fmt.Println(boxId.GetPosition())
 	// Output: {1 3}
@@ -93,16 +93,16 @@ func ExampleCreateChain() {
 	worldId, groundId, _ := exampleWorld()
 	defer b2.DestroyWorld(worldId)
 
-	// An open chain of four points builds two segments; the two end
-	// segments extend with ghost vertices for smooth rolling contact.
+	// An open chain of three points builds two segments; the ghost points
+	// past each end give smooth rolling contact at the ends.
 	def := b2.DefaultChainDef()
 	def.Points = []b2.Vec2{
-		{X: b2.QFromInt(0)},
 		{X: b2.QFromInt(1)},
 		{X: b2.QFromInt(2)},
 		{X: b2.QFromInt(3)},
-		{X: b2.QFromInt(4)},
 	}
+	def.Ghost1 = b2.Vec2{X: b2.QFromInt(0)}
+	def.Ghost2 = b2.Vec2{X: b2.QFromInt(4)}
 	chainId := b2.CreateChain(groundId, &def)
 
 	fmt.Println(chainId.GetSegmentCount())
@@ -113,12 +113,12 @@ func ExampleWorldId_Draw() {
 	worldId, _, _ := exampleWorld()
 	defer b2.DestroyWorld(worldId)
 
-	// Every callback defaults to a no-op; wire up only the shapes callbacks
-	// used here and count how many shapes the world hands back.
+	// Every callback defaults to a no-op and the default draws shapes over
+	// the whole world; wire up only the callback used here and count how
+	// many shapes the world hands back.
 	shapeCount := 0
 	draw := b2.DefaultDebugDraw()
-	draw.DrawShapes = true
-	draw.DrawSolidPolygon = func(b2.Transform, []b2.Vec2, b2.Q, b2.HexColor) { shapeCount++ }
+	draw.DrawSolidPolygonFcn = func(b2.WorldTransform, []b2.Vec2, b2.Q, b2.HexColor) { shapeCount++ }
 
 	worldId.Draw(&draw)
 
@@ -202,10 +202,15 @@ func ExampleWorldId_SetCustomFilterCallback() {
 	worldId, groundId, boxId := exampleWorld()
 	defer b2.DestroyWorld(worldId)
 
-	// Rejecting every pair keeps the box from ever touching the ground.
+	// Rejecting every pair keeps the box from ever touching the ground. Only
+	// shapes that enable custom filtering reach the callback.
 	worldId.SetCustomFilterCallback(func(b2.ShapeId, b2.ShapeId) bool {
 		return false
 	})
+	shapeDef := b2.DefaultShapeDef()
+	shapeDef.EnableCustomFiltering = true
+	segment := b2.Segment{Point1: b2.Vec2{X: b2.QFromInt(-5)}, Point2: b2.Vec2{X: b2.QFromInt(5)}}
+	b2.CreateSegmentShape(groundId, &shapeDef, &segment)
 
 	dt := b2.QOne().Div(b2.QFromInt(60))
 	for range 60 {
@@ -223,19 +228,19 @@ func ExampleWorldId_SetPreSolveCallback() {
 	worldId, _, boxId := exampleWorld()
 	defer b2.DestroyWorld(worldId)
 
-	// Returning false disables the contact for the step, so the box
+	// Clearing the points disables the contact for the step, so the box
 	// keeps falling through the ground instead of resting on it.
-	worldId.SetPreSolveCallback(func(b2.ShapeId, b2.ShapeId, *b2.Manifold) bool {
-		return false
-	})
+	worldId.SetPreSolveCallback(func(_, _ b2.ShapeId, manifold *b2.Manifold) {
+		manifold.PointCount = 0
+	}, nil)
 
-	startY := boxId.GetPosition().Y
+	startY := b2.ToVec2(boxId.GetPosition()).Y
 	dt := b2.QOne().Div(b2.QFromInt(60))
 	for range 60 {
 		worldId.Step(dt, 4)
 	}
 
-	fmt.Println(boxId.GetPosition().Y.Less(startY))
+	fmt.Println(b2.ToVec2(boxId.GetPosition()).Y.Less(startY))
 	// Output: true
 }
 
@@ -252,7 +257,7 @@ func ExampleBodyId_GetContactData() {
 
 	boxDef := b2.DefaultBodyDef()
 	boxDef.Type = b2.DynamicBody
-	boxDef.Position = b2.Vec2{Y: b2.QOne()}
+	boxDef.Position = b2.ToPos(b2.Vec2{Y: b2.QOne()})
 	boxId := b2.CreateBody(worldId, &boxDef)
 	boxShapeDef := b2.DefaultShapeDef()
 	box := b2.MakeSquare(b2.QHalf())
@@ -278,8 +283,8 @@ func ExampleJointId_SetCollideConnected() {
 	defer b2.DestroyWorld(worldId)
 
 	def := b2.DefaultDistanceJointDef()
-	def.BodyIdA = groundId
-	def.BodyIdB = boxId
+	def.Base.BodyIdA = groundId
+	def.Base.BodyIdB = boxId
 	def.Length = b2.QFromInt(2)
 	jointId := b2.CreateDistanceJoint(worldId, &def)
 
@@ -296,8 +301,8 @@ func ExampleCreateFilterJoint() {
 	// The box falls through the ground; the filter joint disables the
 	// collision between the two bodies.
 	def := b2.DefaultFilterJointDef()
-	def.BodyIdA = groundId
-	def.BodyIdB = boxId
+	def.Base.BodyIdA = groundId
+	def.Base.BodyIdB = boxId
 	jointId := b2.CreateFilterJoint(worldId, &def)
 
 	fmt.Println(jointId.IsNull())
@@ -308,29 +313,16 @@ func ExampleCreateMotorJoint() {
 	worldId, groundId, boxId := exampleWorld()
 	defer b2.DestroyWorld(worldId)
 
-	// The motor drives the box toward an offset of (1, 2) from the ground.
+	// A linear spring pulls the box toward the point (1, 2) of the
+	// ground; the motor joint also replaces the removed mouse joint.
 	def := b2.DefaultMotorJointDef()
-	def.BodyIdA = groundId
-	def.BodyIdB = boxId
-	def.LinearOffset = b2.Vec2{X: b2.QOne(), Y: b2.QFromInt(2)}
-	def.MaxForce = b2.QFromInt(100)
+	def.Base.BodyIdA = groundId
+	def.Base.BodyIdB = boxId
+	def.Base.LocalFrameA.P = b2.Vec2{X: b2.QOne(), Y: b2.QFromInt(2)}
+	def.LinearHertz = b2.QFromInt(5)
+	def.LinearDampingRatio = b2.QOne()
+	def.MaxSpringForce = b2.QFromInt(100)
 	jointId := b2.CreateMotorJoint(worldId, &def)
-
-	fmt.Println(jointId.IsNull())
-	// Output: false
-}
-
-func ExampleCreateMouseJoint() {
-	worldId, groundId, boxId := exampleWorld()
-	defer b2.DestroyWorld(worldId)
-
-	// The target is a world point; the joint pulls the box toward it.
-	def := b2.DefaultMouseJointDef()
-	def.BodyIdA = groundId
-	def.BodyIdB = boxId
-	def.Target = b2.Vec2{X: b2.QOne(), Y: b2.QFromInt(2)}
-	def.MaxForce = b2.QFromInt(500)
-	jointId := b2.CreateMouseJoint(worldId, &def)
 
 	fmt.Println(jointId.IsNull())
 	// Output: false
@@ -343,9 +335,10 @@ func ExampleCreatePrismaticJoint() {
 	// The box slides along the vertical axis of the ground, between
 	// zero and three units.
 	def := b2.DefaultPrismaticJointDef()
-	def.BodyIdA = groundId
-	def.BodyIdB = boxId
-	def.LocalAxisA = b2.Vec2{Y: b2.QOne()}
+	def.Base.BodyIdA = groundId
+	def.Base.BodyIdB = boxId
+	def.Base.LocalFrameA.Q = b2.MakeRot(b2.QMustParse("0.25"))
+	def.Base.LocalFrameB.Q = def.Base.LocalFrameA.Q
 	def.EnableLimit = true
 	def.LowerTranslation = b2.QZero()
 	def.UpperTranslation = b2.QFromInt(3)
@@ -362,9 +355,9 @@ func ExampleCreateRevoluteJoint() {
 	// A pendulum: the pivot is the ground origin, two units below the
 	// box center. The angles are in turns; a quarter turn is 0.25.
 	def := b2.DefaultRevoluteJointDef()
-	def.BodyIdA = groundId
-	def.BodyIdB = boxId
-	def.LocalAnchorB = b2.Vec2{Y: b2.QFromInt(-2)}
+	def.Base.BodyIdA = groundId
+	def.Base.BodyIdB = boxId
+	def.Base.LocalFrameB.P = b2.Vec2{Y: b2.QFromInt(-2)}
 	def.EnableLimit = true
 	def.LowerAngle = b2.QMustParse("-0.25")
 	def.UpperAngle = b2.QMustParse("0.25")
@@ -380,9 +373,9 @@ func ExampleCreateWeldJoint() {
 
 	// A weld with a soft angular spring holds the box in place.
 	def := b2.DefaultWeldJointDef()
-	def.BodyIdA = groundId
-	def.BodyIdB = boxId
-	def.LocalAnchorB = b2.Vec2{Y: b2.QFromInt(-2)}
+	def.Base.BodyIdA = groundId
+	def.Base.BodyIdB = boxId
+	def.Base.LocalFrameB.P = b2.Vec2{Y: b2.QFromInt(-2)}
 	def.AngularHertz = b2.QFromInt(2)
 	def.AngularDampingRatio = b2.QHalf()
 	jointId := b2.CreateWeldJoint(worldId, &def)
@@ -397,9 +390,11 @@ func ExampleCreateWheelJoint() {
 
 	// A suspension: the box rides the vertical axis on a spring and its
 	// motor spins it at one turn per second.
+	// The axis is the x-axis of frame A, turned a quarter turn up.
 	def := b2.DefaultWheelJointDef()
-	def.BodyIdA = groundId
-	def.BodyIdB = boxId
+	def.Base.BodyIdA = groundId
+	def.Base.BodyIdB = boxId
+	def.Base.LocalFrameA.Q = b2.MakeRot(b2.QMustParse("0.25"))
 	def.EnableMotor = true
 	def.MotorSpeed = b2.QOne()
 	def.MaxMotorTorque = b2.QFromInt(10)

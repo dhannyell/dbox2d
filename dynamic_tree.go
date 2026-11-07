@@ -1,197 +1,374 @@
 package b2
 
 import (
+	"sync/atomic"
 	"unsafe"
 )
 
-// The tree node flags of src/constants.h.
+// treeStackSize is the traversal stack of every tree walk. It corresponds
+// to B2_TREE_STACK_SIZE in src/dynamic_tree.h.
+const treeStackSize = 512
+
+// The flagIndex bits of src/dynamic_tree.h. A moved node needs pairs and
+// may need a rebuild. The mark comes from solver movement, a joint that
+// disables collision, proxy creation, and setting a body transform.
 const (
-	allocatedNode uint16 = 0x0001
-	enlargedNode  uint16 = 0x0002
-	leafNode      uint16 = 0x0004
+	movedNode     uint32 = 1 << 30
+	leafNode      uint32 = 1 << 31
+	nodeIndexMask uint32 = 0xFFFFFFFF &^ (movedNode | leafNode)
+
+	// emptyNode marks a free node and the node beside a leaf root. It
+	// passes as a leaf so that internal node processing skips it.
+	emptyNode = nodeIndexMask | leafNode
+
+	rootNode = 0
 )
 
-// treeNode is a node of the dynamic tree. The reference overlays the
-// children and the user data in one union, and the parent and the free
-// list link in another; Go has no union, so each pair is two fields.
+// treeNode is a node of the dynamic tree. Siblings sit together at an even
+// index. The root is at index zero and index one is always empty. It
+// corresponds to b2TreeNode in src/dynamic_tree.h.
 type treeNode struct {
 	// aabb is the node bounding box.
 	aabb AABB
 
+	// flagIndex holds the leaf flag in bit 31, the moved flag in bit 30,
+	// and in the low bits the index of the children pair or, for a leaf,
+	// the proxy id.
+	flagIndex uint32
+
+	// aux is the height of an internal node or the shape index of a leaf,
+	// truncated from the proxy user data. The reference overlays the two
+	// in a union.
+	aux int32
+}
+
+func (n *treeNode) isLeaf() bool       { return n.flagIndex&leafNode == leafNode }
+func (n *treeNode) isMoved() bool      { return n.flagIndex&movedNode == movedNode }
+func (n *treeNode) isEmpty() bool      { return n.flagIndex == emptyNode }
+func (n *treeNode) leftChild() int     { return int(n.flagIndex & nodeIndexMask) }
+func (n *treeNode) proxyId() int       { return int(n.flagIndex & nodeIndexMask) }
+func (n *treeNode) setLeftChild(p int) { n.flagIndex = n.flagIndex&^nodeIndexMask | uint32(p) }
+
+// height returns zero for a leaf. It corresponds to b2GetNodeHeight.
+func (n *treeNode) height() int {
+	if n.isLeaf() {
+		return 0
+	}
+	return int(n.aux)
+}
+
+// makeEmptyNode returns the inverted box that overlaps nothing. It
+// corresponds to b2MakeEmptyNode.
+func makeEmptyNode() treeNode {
+	inf := qInfinity()
+	return treeNode{
+		aabb: AABB{
+			LowerBound: Vec2{X: inf, Y: inf},
+			UpperBound: Vec2{X: inf.Neg(), Y: inf.Neg()},
+		},
+		flagIndex: emptyNode,
+	}
+}
+
+// makeInternalNode returns the node above a children pair. It corresponds
+// to b2MakeInternalNode.
+func makeInternalNode(nodes []treeNode, pair int) treeNode {
+	c1 := &nodes[pair]
+	c2 := &nodes[pair+1]
+	return treeNode{
+		aabb:      AABBUnion(c1.aabb, c2.aabb),
+		flagIndex: uint32(pair) | (c1.flagIndex|c2.flagIndex)&movedNode,
+		aux:       int32(1 + max(c1.height(), c2.height())),
+	}
+}
+
+// makeLeafNode corresponds to b2MakeLeafNode.
+func makeLeafNode(aabb AABB, proxyId int, userData uint64, moved bool) treeNode {
+	flags := uint32(proxyId) | leafNode
+	if moved {
+		flags |= movedNode
+	}
+	return treeNode{aabb: aabb, flagIndex: flags, aux: int32(userData)}
+}
+
+// rootPair returns the pair a walk starts from: the root pair when the
+// root is a leaf, else the children of the root. It corresponds to
+// b2GetRootPair.
+func rootPair(nodes []treeNode) int {
+	root := &nodes[rootNode]
+	if root.isLeaf() {
+		return rootNode
+	}
+	return root.leftChild()
+}
+
+// treeProxy is the cold leaf data, split from the node array. It
+// corresponds to b2TreeProxy in src/dynamic_tree.h.
+type treeProxy struct {
+	// userData is an index; the world uses it as the shape index.
+	userData uint64
+
 	// categoryBits serve collision filtering.
 	categoryBits uint64
 
-	// The children of an internal node.
-	child1 int32
-	child2 int32
+	// node is the leaf node, or nullIndex for a free proxy.
+	node int32
 
-	// userData of a leaf node.
-	userData uint64
-
-	// parent of an allocated node.
-	parent int32
-
-	// next is the free list link of a free node.
+	// next is the free list link.
 	next int32
-
-	height uint16
-	flags  uint16
 }
 
-// defaultTreeNode is the state of a freshly allocated node.
-var defaultTreeNode = treeNode{
-	categoryBits: DefaultCategoryBits,
-	child1:       nullIndex,
-	child2:       nullIndex,
-	parent:       nullIndex,
-	next:         nullIndex,
-	height:       0,
-	flags:        allocatedNode,
-}
-
-func (n *treeNode) isLeaf() bool {
-	return n.flags&leafNode != 0
-}
-
-func (n *treeNode) isAllocated() bool {
-	return n.flags&allocatedNode != 0
-}
-
-// dynamicTree is a binary AABB tree over proxies. Nodes are pooled and
-// relocatable, so the tree holds indices instead of pointers. It
-// corresponds to b2DynamicTree in include/box2d/collision.h.
+// dynamicTree is a binary AABB tree over proxies. Nodes are relocatable,
+// so the tree holds indices instead of pointers. It corresponds to
+// b2DynamicTree in src/dynamic_tree.h.
 type dynamicTree struct {
-	// nodes is the node pool. Its length is the node capacity.
+	// nodes is the node array. Its length is the node capacity. Free
+	// pairs leave holes below nodeEnd.
 	nodes []treeNode
 
-	root int
+	// parents holds the parent of each node. The free pair list is
+	// chained through the parent of the first node of each free pair.
+	parents []int32
 
-	// nodeCount is the number of allocated nodes.
-	nodeCount int
+	// proxies is the proxy pool. Its length is the proxy capacity.
+	proxies []treeProxy
 
-	// freeList is the head of the free node list.
-	freeList int
+	// nodeEnd bounds every allocated node.
+	nodeEnd int
 
-	// proxyCount is the number of leaves.
-	proxyCount int
+	// pairFreeList is the head of the free pairs below nodeEnd.
+	pairFreeList int
 
-	// The rebuild scratch. Its capacity is len(leafIndices). The centers
-	// serve the median split; the boxes and the bins serve the surface
-	// area heuristic.
+	proxyCount    int
+	proxyFreeList int
+
+	// swapNodes is the rebuild target, as long as nodes once allocated.
+	swapNodes []treeNode
+
+	// The rebuild scratch. Its capacity is len(leafIndices). The leaves
+	// may be proxies or retained subtrees. The centers serve the median
+	// split; the boxes and the bins serve the surface area heuristic.
 	leafIndices []int
-	leafCenters []Vec2
+	leafNodes   []treeNode
 	leafBoxes   []AABB
+	leafCenters []Vec2
 	binIndices  []int
+
+	// dfsOrdered holds when every child sits above its parent. The
+	// rebuild restores it; insertion can break it. The sweep refit needs
+	// it.
+	dfsOrdered bool
 }
 
-// createTree initializes the node pool. It corresponds to
-// b2DynamicTree_Create in src/dynamic_tree.c.
-func createTree() dynamicTree {
+// createTree initializes the tree. It corresponds to
+// b2CreateDynamicTreeInternal in src/dynamic_tree.c.
+func createTree(proxyCapacity int) dynamicTree {
+	capacity := max(proxyCapacity, 16)
+
 	tree := dynamicTree{}
-	tree.root = nullIndex
 
-	nodeCapacity := 16
-	tree.nodeCount = 0
+	// A tree of n proxies has 2n - 1 nodes plus the empty node beside the
+	// root.
+	nodeCapacity := 2 * capacity
 	tree.nodes = make([]treeNode, nodeCapacity)
+	tree.parents = make([]int32, nodeCapacity)
+	tree.pairFreeList = nullIndex
 
-	// Build a linked list for the free list.
-	for i := range nodeCapacity - 1 {
-		tree.nodes[i].next = int32(i + 1)
-	}
+	// The root and the empty node always exist.
+	tree.nodes[rootNode] = makeEmptyNode()
+	tree.nodes[rootNode+1] = makeEmptyNode()
+	tree.parents[rootNode] = nullIndex
+	tree.parents[rootNode+1] = nullIndex
 
-	tree.nodes[nodeCapacity-1].next = nullIndex
-	tree.freeList = 0
+	// This is the bump index.
+	tree.nodeEnd = 2
+	tree.dfsOrdered = true
 
-	tree.proxyCount = 0
+	tree.proxies = make([]treeProxy, capacity)
+	linkFreeProxies(tree.proxies, 0)
+	tree.proxyFreeList = 0
 
 	return tree
 }
 
-// byteCount returns the struct size plus the node pool plus the rebuild
-// scratch, sized by leafIndices capacity. It corresponds to
-// b2DynamicTree_GetByteCount in src/dynamic_tree.c.
-func (tree *dynamicTree) byteCount() int {
-	var t dynamicTree
-	var n treeNode
-	var i int
-	var box AABB
-	var v Vec2
-	size := int(unsafe.Sizeof(t)) + int(unsafe.Sizeof(n))*len(tree.nodes)
-	rebuildCapacity := cap(tree.leafIndices)
-	size += rebuildCapacity * (int(unsafe.Sizeof(i)) + int(unsafe.Sizeof(box)) + int(unsafe.Sizeof(v)) + int(unsafe.Sizeof(i)))
-	return size
+// linkFreeProxies chains the proxies from start on into a free list.
+func linkFreeProxies(proxies []treeProxy, start int) {
+	n := len(proxies)
+	for i := start; i < n-1; i++ {
+		proxies[i].node = nullIndex
+		proxies[i].next = int32(i + 1)
+	}
+	proxies[n-1].node = nullIndex
+	proxies[n-1].next = nullIndex
 }
 
-// destroyTree releases the node pool.
+// destroyTree releases the tree.
 func destroyTree(tree *dynamicTree) {
 	*tree = dynamicTree{}
 }
 
-// allocateNode takes a node from the pool. It grows the pool when the free
-// list is empty.
-func allocateNode(tree *dynamicTree) int {
-	// Expand the node pool as needed.
-	if tree.freeList == nullIndex {
-		oldCapacity := len(tree.nodes)
-		if tree.nodeCount != oldCapacity {
-			panic("dbox2d: the tree free list is empty before the pool is full")
-		}
+// byteCount corresponds to b2DynamicTree_GetByteCount in
+// src/dynamic_tree.c.
+func (tree *dynamicTree) byteCount() int {
+	var t dynamicTree
+	var n treeNode
+	var p treeProxy
+	var i int
+	var box AABB
+	var v Vec2
+	nodeSize := int(unsafe.Sizeof(n))
+	size := int(unsafe.Sizeof(t))
+	size += len(tree.nodes) * (nodeSize + 4)
+	size += len(tree.proxies) * int(unsafe.Sizeof(p))
+	if tree.swapNodes != nil {
+		size += len(tree.nodes) * nodeSize
+	}
+	rebuildCapacity := len(tree.leafIndices)
+	size += rebuildCapacity * (2*int(unsafe.Sizeof(i)) + nodeSize + int(unsafe.Sizeof(box)) + int(unsafe.Sizeof(v)))
+	return size
+}
 
-		// The free list is empty. Rebuild a bigger pool.
-		nodeCapacity := oldCapacity + oldCapacity>>1
-		nodes := make([]treeNode, nodeCapacity)
-		copy(nodes, tree.nodes[:tree.nodeCount])
+// allocateSiblingPair takes a pair from the free list, else from the bump
+// pointer. A rebuild empties the free list. It corresponds to
+// b2AllocateSiblingPair in src/dynamic_tree.c.
+func allocateSiblingPair(tree *dynamicTree) int {
+	if tree.pairFreeList != nullIndex {
+		pair := tree.pairFreeList
+		tree.pairFreeList = int(tree.parents[pair])
+		return pair
+	}
+
+	// Extend the bump allocator if needed.
+	if tree.nodeEnd+2 > len(tree.nodes) {
+		oldCapacity := len(tree.nodes)
+		newCapacity := oldCapacity + oldCapacity>>1
+		newCapacity += newCapacity & 1
+
+		nodes := make([]treeNode, newCapacity)
+		copy(nodes, tree.nodes)
 		tree.nodes = nodes
 
-		// Build a linked list for the free list. The parent pointer becomes the "next" pointer.
-		for i := tree.nodeCount; i < nodeCapacity-1; i++ {
-			tree.nodes[i].next = int32(i + 1)
+		parents := make([]int32, newCapacity)
+		copy(parents, tree.parents)
+		tree.parents = parents
+
+		// The spare has to match; the rebuild allocates it again.
+		tree.swapNodes = nil
+	}
+
+	pair := tree.nodeEnd
+	tree.nodeEnd += 2
+	return pair
+}
+
+// freePair corresponds to b2FreePair in src/dynamic_tree.c.
+func freePair(tree *dynamicTree, pair int) {
+	if pair&1 != 0 || pair < 2 || pair >= tree.nodeEnd {
+		panic("dbox2d: the freed tree pair is not allocated")
+	}
+	tree.nodes[pair] = makeEmptyNode()
+	tree.nodes[pair+1] = makeEmptyNode()
+	tree.parents[pair] = int32(tree.pairFreeList)
+	tree.parents[pair+1] = nullIndex
+	tree.pairFreeList = pair
+}
+
+// allocateProxy takes a proxy from the pool and grows the pool when the
+// free list is empty. It corresponds to b2AllocateProxy in
+// src/dynamic_tree.c.
+func allocateProxy(tree *dynamicTree) int {
+	if tree.proxyFreeList == nullIndex {
+		if tree.proxyCount != len(tree.proxies) {
+			panic("dbox2d: the tree proxy free list is corrupt")
 		}
 
-		tree.nodes[nodeCapacity-1].next = nullIndex
-		tree.freeList = tree.nodeCount
+		// A restored pool can have capacity one, so guarantee strict
+		// growth.
+		oldCapacity := len(tree.proxies)
+		proxies := make([]treeProxy, oldCapacity+max(oldCapacity>>1, 1))
+		copy(proxies, tree.proxies)
+		tree.proxies = proxies
+		linkFreeProxies(tree.proxies, oldCapacity)
+		tree.proxyFreeList = oldCapacity
 	}
 
-	// Peel a node off the free list.
-	nodeIndex := tree.freeList
+	proxyIndex := tree.proxyFreeList
+	tree.proxyFreeList = int(tree.proxies[proxyIndex].next)
+	tree.proxies[proxyIndex] = treeProxy{node: nullIndex, next: nullIndex}
+	tree.proxyCount++
+	return proxyIndex
+}
+
+// freeProxy returns a proxy to the pool. It corresponds to b2FreeProxy in
+// src/dynamic_tree.c.
+func freeProxy(tree *dynamicTree, proxyId int) {
+	checkProxyId(tree, proxyId)
+	if tree.proxyCount <= 0 {
+		panic("dbox2d: the tree has no proxy to free")
+	}
+	tree.proxies[proxyId].node = nullIndex
+	tree.proxies[proxyId].next = int32(tree.proxyFreeList)
+	tree.proxyFreeList = proxyId
+	tree.proxyCount--
+}
+
+// checkProxyId panics on an id outside the proxy pool.
+func checkProxyId(tree *dynamicTree, proxyId int) {
+	if proxyId < 0 || proxyId >= len(tree.proxies) {
+		panic("dbox2d: the proxy id is out of range")
+	}
+}
+
+// linkChildren tells what hangs below a node that landed at a new index.
+// It corresponds to b2LinkChildren in src/dynamic_tree.c.
+func linkChildren(tree *dynamicTree, nodeIndex int) {
 	node := &tree.nodes[nodeIndex]
-	tree.freeList = int(node.next)
-	*node = defaultTreeNode
-	tree.nodeCount++
-	return nodeIndex
+	if node.isLeaf() {
+		tree.proxies[node.proxyId()].node = int32(nodeIndex)
+	} else {
+		pair := node.leftChild()
+		tree.parents[pair] = int32(nodeIndex)
+		tree.parents[pair+1] = int32(nodeIndex)
+	}
 }
 
-// freeNode returns a node to the pool.
-func freeNode(tree *dynamicTree, nodeId int) {
-	if nodeId < 0 || nodeId >= len(tree.nodes) {
-		panic("dbox2d: the tree node id is out of range")
-	}
-	if tree.nodeCount <= 0 {
-		panic("dbox2d: the tree has no node to free")
-	}
-	tree.nodes[nodeId].next = int32(tree.freeList)
-	tree.nodes[nodeId].flags = 0
-	tree.freeList = nodeId
-	tree.nodeCount--
+// isNodeOrdered holds when the children of the node sit above it, which
+// the sweep refit needs. It corresponds to b2IsNodeOrdered.
+func isNodeOrdered(nodes []treeNode, nodeIndex int) bool {
+	node := &nodes[nodeIndex]
+	return node.isLeaf() || nodeIndex < node.leftChild()
 }
 
-// findBestSibling walks one greedy path from the root and returns the
-// sibling whose surface area heuristic cost is the lowest. It corresponds
-// to b2FindBestSibling in src/dynamic_tree.c.
+// findBestSibling picks the sibling of a new leaf with a greedy descent
+// under the surface area heuristic. It corresponds to b2FindBestSibling in
+// src/dynamic_tree.c.
 //
-// With three nodes A-(B,C) and a new leaf D there are three choices:
-// a new parent E-(A-(B,C), D); D under B; D under C. When B or C is an
-// internal node the cost is a lower bound, so the search is greedy.
+// We have three nodes A-(B,C) and want to add a leaf D, there are three
+// choices.
+// 1: make a new parent for A and D : E-(A-(B,C), D)
+// 2: associate D with B
 //
-// cost of sibling H = area(union(H, D)) + increased area of ancestors
+//	a: B is a leaf : A-(E-(B,D), C)
+//	b: B is an internal node: A-(B{D},C)
+//
+// 3: associate D with C
+//
+//	a: C is a leaf : A-(B, E-(C,D))
+//	b: C is an internal node: A-(B, C{D})
+//
+// All of these have a clear cost except when B or C is an internal node.
+// Hence we need to be greedy.
 func findBestSibling(tree *dynamicTree, boxD AABB) int {
 	nodes := tree.nodes
 	centerD := AABBCenter(boxD)
 	areaD := perimeter(boxD)
 
-	rootIndex := tree.root
+	nodeIndex := rootNode
+	if nodes[nodeIndex].isLeaf() {
+		return nodeIndex
+	}
 
-	rootBox := nodes[rootIndex].aabb
+	rootBox := nodes[nodeIndex].aabb
 
 	// Area of current node
 	areaBase := perimeter(rootBox)
@@ -200,7 +377,7 @@ func findBestSibling(tree *dynamicTree, boxD AABB) int {
 	directCost := perimeter(AABBUnion(rootBox, boxD))
 	inheritedCost := QZero()
 
-	bestSibling := rootIndex
+	bestSibling := nodeIndex
 	bestCost := directCost
 
 	zero := QZero()
@@ -209,11 +386,10 @@ func findBestSibling(tree *dynamicTree, boxD AABB) int {
 	// perimeter reaches.
 	maxCost := QMaxValue()
 
-	// Descend the tree from root, following a single greedy path.
-	index := rootIndex
-	for nodes[index].height > 0 {
-		child1 := int(nodes[index].child1)
-		child2 := int(nodes[index].child2)
+	// Descend the tree, following a single greedy path.
+	for {
+		child1 := nodes[nodeIndex].leftChild()
+		child2 := child1 + 1
 
 		// Cost of creating a new parent for this node and the new leaf
 		cost := directCost.Add(inheritedCost)
@@ -221,15 +397,15 @@ func findBestSibling(tree *dynamicTree, boxD AABB) int {
 		// Sometimes there are multiple identical costs within tolerance.
 		// This breaks the ties using the centroid distance.
 		if cost.Less(bestCost) {
-			bestSibling = index
+			bestSibling = nodeIndex
 			bestCost = cost
 		}
 
 		// Inheritance cost seen by children
 		inheritedCost = inheritedCost.Add(directCost.Sub(areaBase))
 
-		leaf1 := nodes[child1].height == 0
-		leaf2 := nodes[child2].height == 0
+		leaf1 := nodes[child1].isLeaf()
+		leaf2 := nodes[child2].isLeaf()
 
 		// Cost of descending into child 1
 		lowerCost1 := maxCost
@@ -240,8 +416,6 @@ func findBestSibling(tree *dynamicTree, boxD AABB) int {
 			// Child 1 is a leaf
 			// Cost of creating new node and increasing area of node P
 			cost1 := directCost1.Add(inheritedCost)
-
-			// Need this here due to while condition above
 			if cost1.Less(bestCost) {
 				bestSibling = child1
 				bestCost = cost1
@@ -252,7 +426,7 @@ func findBestSibling(tree *dynamicTree, boxD AABB) int {
 
 			// Lower bound cost of inserting under child 1. The minimum accounts for two possibilities:
 			// 1. Child1 could be the sibling with cost1 = inheritedCost + directCost1
-			// 2. A descendent of child1 could be the sibling with the lower bound cost of
+			// 2. A descendant of child1 could be the sibling with the lower bound cost of
 			//       cost1 = inheritedCost + (directCost1 - area1) + areaD
 			// This minimum here leads to the minimum of these two costs.
 			lowerCost1 = inheritedCost.Add(directCost1).Add(areaD.Sub(area1).Min(zero))
@@ -265,7 +439,6 @@ func findBestSibling(tree *dynamicTree, boxD AABB) int {
 		area2 := zero
 		if leaf2 {
 			cost2 := directCost2.Add(inheritedCost)
-
 			if cost2.Less(bestCost) {
 				bestSibling = child2
 				bestCost = cost2
@@ -299,445 +472,189 @@ func findBestSibling(tree *dynamicTree, boxD AABB) int {
 
 		// Descend
 		if lowerCost1.Less(lowerCost2) && !leaf1 {
-			index = child1
+			nodeIndex = child1
 			areaBase = area1
 			directCost = directCost1
 		} else {
-			index = child2
+			nodeIndex = child2
 			areaBase = area2
 			directCost = directCost2
-		}
-
-		if nodes[index].height <= 0 {
-			panic("dbox2d: the sibling search descended into a leaf")
 		}
 	}
 
 	return bestSibling
 }
 
-// The rotation choices of rotateNodes.
-const (
-	rotateNone = iota
-	rotateBF
-	rotateBG
-	rotateCD
-	rotateCE
-)
+// swapTreeNodes swaps a child of A with a grandchild under the other
+// child. Swapping B with G: (A (B (D E) C (F G)) -> (A (G) C (F B (D E)).
+// It corresponds to b2SwapNodes in src/dynamic_tree.c.
+func swapTreeNodes(tree *dynamicTree, iDown, iUp int) {
+	nodes := tree.nodes
+	nodes[iDown], nodes[iUp] = nodes[iUp], nodes[iDown]
+	linkChildren(tree, iDown)
+	linkChildren(tree, iUp)
+
+	if !isNodeOrdered(nodes, iDown) || !isNodeOrdered(nodes, iUp) {
+		tree.dfsOrdered = false
+	}
+
+	// The sibling of the node that went down holds a different subtree
+	// now.
+	iC := iDown ^ 1
+	nodes[iC] = makeInternalNode(nodes, nodes[iC].leftChild())
+}
 
 // rotateNodes performs a left or right rotation if node A is imbalanced.
-// It corresponds to b2RotateNodes in src/dynamic_tree.c.
+// Tree: (A (B (D E) C (F G)). It corresponds to b2RotateNodes in
+// src/dynamic_tree.c.
 func rotateNodes(tree *dynamicTree, iA int) {
 	nodes := tree.nodes
-
-	if iA == nullIndex {
-		panic("dbox2d: rotateNodes on the null node")
-	}
-
 	A := &nodes[iA]
-	if A.height < 2 {
-		return
+	if A.isLeaf() {
+		panic("dbox2d: the tree rotates a leaf")
 	}
 
-	iB := int(A.child1)
-	iC := int(A.child2)
-	checkNodeIndex(tree, iB)
-	checkNodeIndex(tree, iC)
-
+	iB := A.leftChild()
+	iC := iB + 1
 	B := &nodes[iB]
 	C := &nodes[iC]
 
-	switch {
-	case B.height == 0:
-		// B is a leaf and C is internal
-		if C.height <= 0 {
-			panic("dbox2d: rotateNodes found two leaves under an internal node")
-		}
-
-		iF := int(C.child1)
-		iG := int(C.child2)
-		F := &nodes[iF]
-		G := &nodes[iG]
-		checkNodeIndex(tree, iF)
-		checkNodeIndex(tree, iG)
-
-		// Base cost
-		costBase := perimeter(C.aabb)
-
-		// Cost of swapping B and F
-		aabbBG := AABBUnion(B.aabb, G.aabb)
-		costBF := perimeter(aabbBG)
-
-		// Cost of swapping B and G
-		aabbBF := AABBUnion(B.aabb, F.aabb)
-		costBG := perimeter(aabbBF)
-
-		if costBase.Less(costBF) && costBase.Less(costBG) {
-			// Rotation does not improve cost
-			return
-		}
-
-		if costBF.Less(costBG) {
-			// Swap B and F
-			A.child1 = int32(iF)
-			C.child1 = int32(iB)
-
-			B.parent = int32(iC)
-			F.parent = int32(iA)
-
-			C.aabb = aabbBG
-
-			C.height = 1 + max(B.height, G.height)
-			A.height = 1 + max(C.height, F.height)
-			C.categoryBits = B.categoryBits | G.categoryBits
-			A.categoryBits = C.categoryBits | F.categoryBits
-			C.flags |= (B.flags | G.flags) & enlargedNode
-			A.flags |= (C.flags | F.flags) & enlargedNode
-		} else {
-			// Swap B and G
-			A.child1 = int32(iG)
-			C.child2 = int32(iB)
-
-			B.parent = int32(iC)
-			G.parent = int32(iA)
-
-			C.aabb = aabbBF
-
-			C.height = 1 + max(B.height, F.height)
-			A.height = 1 + max(C.height, G.height)
-			C.categoryBits = B.categoryBits | F.categoryBits
-			A.categoryBits = C.categoryBits | G.categoryBits
-			C.flags |= (B.flags | F.flags) & enlargedNode
-			A.flags |= (C.flags | G.flags) & enlargedNode
-		}
-
-	case C.height == 0:
-		// C is a leaf and B is internal
-		if B.height <= 0 {
-			panic("dbox2d: rotateNodes found two leaves under an internal node")
-		}
-
-		iD := int(B.child1)
-		iE := int(B.child2)
-		D := &nodes[iD]
-		E := &nodes[iE]
-		checkNodeIndex(tree, iD)
-		checkNodeIndex(tree, iE)
-
-		// Base cost
-		costBase := perimeter(B.aabb)
-
-		// Cost of swapping C and D
-		aabbCE := AABBUnion(C.aabb, E.aabb)
-		costCD := perimeter(aabbCE)
-
-		// Cost of swapping C and E
-		aabbCD := AABBUnion(C.aabb, D.aabb)
-		costCE := perimeter(aabbCD)
-
-		if costBase.Less(costCD) && costBase.Less(costCE) {
-			// Rotation does not improve cost
-			return
-		}
-
-		if costCD.Less(costCE) {
-			// Swap C and D
-			A.child2 = int32(iD)
-			B.child1 = int32(iC)
-
-			C.parent = int32(iB)
-			D.parent = int32(iA)
-
-			B.aabb = aabbCE
-
-			B.height = 1 + max(C.height, E.height)
-			A.height = 1 + max(B.height, D.height)
-			B.categoryBits = C.categoryBits | E.categoryBits
-			A.categoryBits = B.categoryBits | D.categoryBits
-			B.flags |= (C.flags | E.flags) & enlargedNode
-			A.flags |= (B.flags | D.flags) & enlargedNode
-		} else {
-			// Swap C and E
-			A.child2 = int32(iE)
-			B.child2 = int32(iC)
-
-			C.parent = int32(iB)
-			E.parent = int32(iA)
-
-			B.aabb = aabbCD
-			B.height = 1 + max(C.height, D.height)
-			A.height = 1 + max(B.height, E.height)
-			B.categoryBits = C.categoryBits | D.categoryBits
-			A.categoryBits = B.categoryBits | E.categoryBits
-			B.flags |= (C.flags | D.flags) & enlargedNode
-			A.flags |= (B.flags | E.flags) & enlargedNode
-		}
-
-	default:
-		iD := int(B.child1)
-		iE := int(B.child2)
-		iF := int(C.child1)
-		iG := int(C.child2)
-
-		D := &nodes[iD]
-		E := &nodes[iE]
-		F := &nodes[iF]
-		G := &nodes[iG]
-
-		checkNodeIndex(tree, iD)
-		checkNodeIndex(tree, iE)
-		checkNodeIndex(tree, iF)
-		checkNodeIndex(tree, iG)
-
-		// Base cost
-		areaB := perimeter(B.aabb)
-		areaC := perimeter(C.aabb)
-		costBase := areaB.Add(areaC)
-		bestRotation := rotateNone
-		bestCost := costBase
-
-		// Cost of swapping B and F
-		aabbBG := AABBUnion(B.aabb, G.aabb)
-		costBF := areaB.Add(perimeter(aabbBG))
-		if costBF.Less(bestCost) {
-			bestRotation = rotateBF
-			bestCost = costBF
-		}
-
-		// Cost of swapping B and G
-		aabbBF := AABBUnion(B.aabb, F.aabb)
-		costBG := areaB.Add(perimeter(aabbBF))
-		if costBG.Less(bestCost) {
-			bestRotation = rotateBG
-			bestCost = costBG
-		}
-
-		// Cost of swapping C and D
-		aabbCE := AABBUnion(C.aabb, E.aabb)
-		costCD := areaC.Add(perimeter(aabbCE))
-		if costCD.Less(bestCost) {
-			bestRotation = rotateCD
-			bestCost = costCD
-		}
-
-		// Cost of swapping C and E
-		aabbCD := AABBUnion(C.aabb, D.aabb)
-		costCE := areaC.Add(perimeter(aabbCD))
-		if costCE.Less(bestCost) {
-			bestRotation = rotateCE
-			// bestCost = costCE
-		}
-
-		switch bestRotation {
-		case rotateNone:
-
-		case rotateBF:
-			A.child1 = int32(iF)
-			C.child1 = int32(iB)
-
-			B.parent = int32(iC)
-			F.parent = int32(iA)
-
-			C.aabb = aabbBG
-			C.height = 1 + max(B.height, G.height)
-			A.height = 1 + max(C.height, F.height)
-			C.categoryBits = B.categoryBits | G.categoryBits
-			A.categoryBits = C.categoryBits | F.categoryBits
-			C.flags |= (B.flags | G.flags) & enlargedNode
-			A.flags |= (C.flags | F.flags) & enlargedNode
-
-		case rotateBG:
-			A.child1 = int32(iG)
-			C.child2 = int32(iB)
-
-			B.parent = int32(iC)
-			G.parent = int32(iA)
-
-			C.aabb = aabbBF
-			C.height = 1 + max(B.height, F.height)
-			A.height = 1 + max(C.height, G.height)
-			C.categoryBits = B.categoryBits | F.categoryBits
-			A.categoryBits = C.categoryBits | G.categoryBits
-			C.flags |= (B.flags | F.flags) & enlargedNode
-			A.flags |= (C.flags | G.flags) & enlargedNode
-
-		case rotateCD:
-			A.child2 = int32(iD)
-			B.child1 = int32(iC)
-
-			C.parent = int32(iB)
-			D.parent = int32(iA)
-
-			B.aabb = aabbCE
-			B.height = 1 + max(C.height, E.height)
-			A.height = 1 + max(B.height, D.height)
-			B.categoryBits = C.categoryBits | E.categoryBits
-			A.categoryBits = B.categoryBits | D.categoryBits
-			B.flags |= (C.flags | E.flags) & enlargedNode
-			A.flags |= (B.flags | D.flags) & enlargedNode
-
-		case rotateCE:
-			A.child2 = int32(iE)
-			B.child2 = int32(iC)
-
-			C.parent = int32(iB)
-			E.parent = int32(iA)
-
-			B.aabb = aabbCD
-			B.height = 1 + max(C.height, D.height)
-			A.height = 1 + max(B.height, E.height)
-			B.categoryBits = C.categoryBits | D.categoryBits
-			A.categoryBits = B.categoryBits | E.categoryBits
-			B.flags |= (C.flags | D.flags) & enlargedNode
-			A.flags |= (B.flags | E.flags) & enlargedNode
-
-		default:
-			panic("dbox2d: unknown tree rotation")
-		}
-	}
-}
-
-// checkNodeIndex panics when an index points outside the node pool.
-func checkNodeIndex(tree *dynamicTree, index int) {
-	if index < 0 || index >= len(tree.nodes) {
-		panic("dbox2d: the tree node index is out of range")
-	}
-}
-
-// insertLeaf places a leaf beside its best sibling and repairs the
-// ancestors. It corresponds to b2InsertLeaf in src/dynamic_tree.c.
-func insertLeaf(tree *dynamicTree, leaf int, shouldRotate bool) {
-	nodes := tree.nodes
-
-	if tree.root == nullIndex {
-		tree.root = leaf
-		nodes[tree.root].parent = nullIndex
+	leafB := B.isLeaf()
+	leafC := C.isLeaf()
+	if leafB && leafC {
 		return
 	}
 
-	// Stage 1: find the best sibling for this node
-	leafAABB := nodes[leaf].aabb
-	sibling := findBestSibling(tree, leafAABB)
+	bestDown := nullIndex
+	bestUp := nullIndex
+	bestDelta := QZero()
 
-	// Stage 2: create a new parent for the leaf and sibling
-	oldParent := int(nodes[sibling].parent)
-	newParent := allocateNode(tree)
+	if !leafC {
+		// Swap B with F or G
+		iF := C.leftChild()
+		iG := iF + 1
+		areaC := perimeter(C.aabb)
 
-	// warning: node pointer can change after allocation
-	nodes = tree.nodes
-	nodes[newParent].parent = int32(oldParent)
-	nodes[newParent].userData = ^uint64(0)
-	nodes[newParent].aabb = AABBUnion(leafAABB, nodes[sibling].aabb)
-	nodes[newParent].categoryBits = nodes[leaf].categoryBits | nodes[sibling].categoryBits
-	nodes[newParent].height = nodes[sibling].height + 1
-
-	if oldParent != nullIndex {
-		// The sibling was not the root.
-		if int(nodes[oldParent].child1) == sibling {
-			nodes[oldParent].child1 = int32(newParent)
-		} else {
-			nodes[oldParent].child2 = int32(newParent)
+		// B <-> F then C (B G)
+		deltaBF := perimeter(AABBUnion(B.aabb, nodes[iG].aabb)).Sub(areaC)
+		if deltaBF.Less(bestDelta) {
+			bestDown = iB
+			bestUp = iF
+			bestDelta = deltaBF
 		}
 
-		nodes[newParent].child1 = int32(sibling)
-		nodes[newParent].child2 = int32(leaf)
-		nodes[sibling].parent = int32(newParent)
-		nodes[leaf].parent = int32(newParent)
-	} else {
-		// The sibling was the root.
-		nodes[newParent].child1 = int32(sibling)
-		nodes[newParent].child2 = int32(leaf)
-		nodes[sibling].parent = int32(newParent)
-		nodes[leaf].parent = int32(newParent)
-		tree.root = newParent
+		// B <-> G then C (F B)
+		deltaBG := perimeter(AABBUnion(B.aabb, nodes[iF].aabb)).Sub(areaC)
+		if deltaBG.Less(bestDelta) {
+			bestDown = iB
+			bestUp = iG
+			bestDelta = deltaBG
+		}
 	}
 
-	// Stage 3: walk back up the tree fixing heights and AABBs
-	index := int(nodes[leaf].parent)
-	for index != nullIndex {
-		child1 := int(nodes[index].child1)
-		child2 := int(nodes[index].child2)
+	if !leafB {
+		// Swap C with D or E
+		iD := B.leftChild()
+		iE := iD + 1
+		areaB := perimeter(B.aabb)
 
-		if child1 == nullIndex || child2 == nullIndex {
-			panic("dbox2d: an internal tree node lost a child")
+		// C <-> D then B (C E)
+		deltaCD := perimeter(AABBUnion(C.aabb, nodes[iE].aabb)).Sub(areaB)
+		if deltaCD.Less(bestDelta) {
+			bestDown = iC
+			bestUp = iD
+			bestDelta = deltaCD
 		}
 
-		nodes[index].aabb = AABBUnion(nodes[child1].aabb, nodes[child2].aabb)
-		nodes[index].categoryBits = nodes[child1].categoryBits | nodes[child2].categoryBits
-		nodes[index].height = 1 + max(nodes[child1].height, nodes[child2].height)
-		nodes[index].flags |= (nodes[child1].flags | nodes[child2].flags) & enlargedNode
+		// C <-> E then B (D C)
+		deltaCE := perimeter(AABBUnion(C.aabb, nodes[iD].aabb)).Sub(areaB)
+		if deltaCE.Less(bestDelta) {
+			bestDown = iC
+			bestUp = iE
+		}
+	}
 
+	if bestDown != nullIndex {
+		swapTreeNodes(tree, bestDown, bestUp)
+	}
+}
+
+// insertLeaf corresponds to b2InsertLeaf in src/dynamic_tree.c.
+func insertLeaf(tree *dynamicTree, aabb AABB, proxyId int, moved bool, shouldRotate bool) {
+	proxy := &tree.proxies[proxyId]
+	leaf := makeLeafNode(aabb, proxyId, proxy.userData, moved)
+
+	if tree.nodes[rootNode].isEmpty() {
+		tree.nodes[rootNode] = leaf
+		proxy.node = rootNode
+		return
+	}
+
+	sibling := findBestSibling(tree, aabb)
+
+	// The sibling's position becomes the new parent. The sibling moves
+	// down into a new pair beside the leaf, which puts it below its own
+	// children when it is internal.
+	pair := allocateSiblingPair(tree)
+	nodes := tree.nodes
+	parents := tree.parents
+
+	nodes[pair] = nodes[sibling]
+	nodes[pair+1] = leaf
+	parents[pair] = int32(sibling)
+	parents[pair+1] = int32(sibling)
+	linkChildren(tree, pair)
+	tree.proxies[proxyId].node = int32(pair + 1)
+
+	nodes[sibling] = makeInternalNode(nodes, pair)
+
+	if !isNodeOrdered(nodes, sibling) || !isNodeOrdered(nodes, pair) {
+		tree.dfsOrdered = false
+	}
+
+	// Walk back up the tree refitting ancestors, the root included.
+	index := sibling
+	for index != nullIndex {
 		if shouldRotate {
 			rotateNodes(tree, index)
 		}
 
-		index = int(nodes[index].parent)
+		nodes[index] = makeInternalNode(nodes, nodes[index].leftChild())
+		index = int(parents[index])
 	}
 }
 
-// removeLeaf detaches a leaf, frees its parent and repairs the ancestors.
-// It corresponds to b2RemoveLeaf in src/dynamic_tree.c.
-func removeLeaf(tree *dynamicTree, leaf int) {
+// removeLeaf corresponds to b2RemoveLeaf in src/dynamic_tree.c.
+func removeLeaf(tree *dynamicTree, proxyId int) {
 	nodes := tree.nodes
+	parents := tree.parents
 
-	if leaf == tree.root {
-		tree.root = nullIndex
+	leaf := int(tree.proxies[proxyId].node)
+	if leaf < 0 || leaf >= tree.nodeEnd || !nodes[leaf].isLeaf() || nodes[leaf].proxyId() != proxyId {
+		panic("dbox2d: the proxy is not a leaf of the tree")
+	}
+
+	if leaf == rootNode {
+		nodes[rootNode] = makeEmptyNode()
 		return
 	}
 
-	parent := int(nodes[leaf].parent)
-	grandParent := int(nodes[parent].parent)
-	var sibling int
-	if int(nodes[parent].child1) == leaf {
-		sibling = int(nodes[parent].child2)
-	} else {
-		sibling = int(nodes[parent].child1)
-	}
+	// The sibling takes the parent's position and the pair is freed. This
+	// keeps the order, the sibling only moves down.
+	parent := int(parents[leaf])
+	nodes[parent] = nodes[leaf^1]
+	linkChildren(tree, parent)
+	freePair(tree, leaf&^1)
 
-	if grandParent != nullIndex {
-		// Destroy parent and connect sibling to grandParent.
-		if int(nodes[grandParent].child1) == parent {
-			nodes[grandParent].child1 = int32(sibling)
-		} else {
-			nodes[grandParent].child2 = int32(sibling)
-		}
-		nodes[sibling].parent = int32(grandParent)
-		freeNode(tree, parent)
-
-		// Adjust ancestor bounds.
-		index := grandParent
-		for index != nullIndex {
-			node := &nodes[index]
-			child1 := &nodes[node.child1]
-			child2 := &nodes[node.child2]
-
-			node.aabb = AABBUnion(child1.aabb, child2.aabb)
-			node.categoryBits = child1.categoryBits | child2.categoryBits
-			node.height = 1 + max(child1.height, child2.height)
-
-			index = int(node.parent)
-		}
-	} else {
-		tree.root = sibling
-		tree.nodes[sibling].parent = nullIndex
-		freeNode(tree, parent)
+	// Update ancestors.
+	index := int(parents[parent])
+	for index != nullIndex {
+		nodes[index] = makeInternalNode(nodes, nodes[index].leftChild())
+		index = int(parents[index])
 	}
 }
 
-// checkTreeBox panics when a coordinate of the box leaves the huge range.
-// D-003 and D-005: the reference asserts against B2_HUGE.
-func checkTreeBox(aabb AABB) {
-	negHuge := Huge.Neg()
-	ok := negHuge.Less(aabb.LowerBound.X) && aabb.LowerBound.X.Less(Huge)
-	ok = ok && negHuge.Less(aabb.LowerBound.Y) && aabb.LowerBound.Y.Less(Huge)
-	ok = ok && negHuge.Less(aabb.UpperBound.X) && aabb.UpperBound.X.Less(Huge)
-	ok = ok && negHuge.Less(aabb.UpperBound.Y) && aabb.UpperBound.Y.Less(Huge)
-	if !ok {
-		panic("dbox2d: the proxy box is out of the huge range")
-	}
-}
-
-// checkTreeExtent panics on an inverted box or on a box wider than huge.
+// checkTreeExtent panics on an invalid box or on a box wider than huge.
 func checkTreeExtent(aabb AABB) {
 	if !IsValidAABB(aabb) {
 		panic("dbox2d: the proxy box is not valid")
@@ -747,321 +664,281 @@ func checkTreeExtent(aabb AABB) {
 	}
 }
 
-// checkLeaf panics when the id is not a leaf of the tree.
-func checkLeaf(tree *dynamicTree, proxyId int) {
-	checkNodeIndex(tree, proxyId)
-	if !tree.nodes[proxyId].isLeaf() {
-		panic("dbox2d: the proxy id is not a leaf")
+// createProxyInternal inserts a leaf and returns its proxy id. It
+// corresponds to b2CreateTreeProxyInternal in src/dynamic_tree.c.
+func (tree *dynamicTree) createProxyInternal(aabb AABB, categoryBits uint64, userData uint64, markMoved bool) int {
+	if !IsValidAABB(aabb) {
+		panic("dbox2d: the proxy box is not valid")
 	}
-}
 
-// createProxy inserts a leaf and returns its node index. The index stays
-// valid while the pool grows. It corresponds to b2DynamicTree_CreateProxy
-// in src/dynamic_tree.c.
-func (tree *dynamicTree) createProxy(aabb AABB, categoryBits uint64, userData uint64) int {
-	checkTreeBox(aabb)
+	proxyId := allocateProxy(tree)
 
-	proxyId := allocateNode(tree)
-	node := &tree.nodes[proxyId]
-
-	node.aabb = aabb
-	node.userData = userData
-	node.categoryBits = categoryBits
-	node.height = 0
-	node.flags = allocatedNode | leafNode
+	proxy := &tree.proxies[proxyId]
+	proxy.categoryBits = categoryBits
+	proxy.userData = userData
 
 	shouldRotate := true
-	insertLeaf(tree, proxyId, shouldRotate)
-
-	tree.proxyCount += 1
+	insertLeaf(tree, aabb, proxyId, markMoved, shouldRotate)
 
 	return proxyId
 }
 
-// destroyProxy removes a leaf. It corresponds to
-// b2DynamicTree_DestroyProxy in src/dynamic_tree.c.
-func (tree *dynamicTree) destroyProxy(proxyId int) {
-	checkLeaf(tree, proxyId)
-
-	removeLeaf(tree, proxyId)
-	freeNode(tree, proxyId)
-
-	if tree.proxyCount <= 0 {
-		panic("dbox2d: the tree has no proxy to destroy")
-	}
-	tree.proxyCount -= 1
+// createProxy corresponds to b2CreateTreeProxy in src/dynamic_tree.c.
+func (tree *dynamicTree) createProxy(aabb AABB, categoryBits uint64, userData uint64) int {
+	return tree.createProxyInternal(aabb, categoryBits, userData, false)
 }
 
-// getProxyCount returns the number of leaves.
+// destroyProxy corresponds to b2DestroyTreeProxy in src/dynamic_tree.c.
+func (tree *dynamicTree) destroyProxy(proxyId int) {
+	checkProxyId(tree, proxyId)
+	removeLeaf(tree, proxyId)
+	freeProxy(tree, proxyId)
+}
+
 func (tree *dynamicTree) getProxyCount() int {
 	return tree.proxyCount
 }
 
-// moveProxy reinserts a leaf with a new box, without rotations. It
-// corresponds to b2DynamicTree_MoveProxy in src/dynamic_tree.c.
-func (tree *dynamicTree) moveProxy(proxyId int, aabb AABB) {
+// moveProxyInternal reinserts a proxy with a new box. It corresponds to
+// b2DynamicTree_MoveProxyInternal in src/dynamic_tree.c.
+func (tree *dynamicTree) moveProxyInternal(proxyId int, aabb AABB, markMoved bool) {
 	checkTreeExtent(aabb)
-	checkLeaf(tree, proxyId)
+	checkProxyId(tree, proxyId)
 
 	removeLeaf(tree, proxyId)
 
-	tree.nodes[proxyId].aabb = aabb
-
 	shouldRotate := false
-	insertLeaf(tree, proxyId, shouldRotate)
+	insertLeaf(tree, aabb, proxyId, markMoved, shouldRotate)
 }
 
-// enlargeProxy grows a leaf in place and grows the ancestors that no
-// longer contain it, marking them enlarged. It corresponds to
+// moveProxy corresponds to b2DynamicTree_MoveProxy in src/dynamic_tree.c.
+func (tree *dynamicTree) moveProxy(proxyId int, aabb AABB) {
+	tree.moveProxyInternal(proxyId, aabb, false)
+}
+
+// enlargeProxy grows a leaf in place and its ancestors as needed, marking
+// the path to the root as moved. The solver uses it for bullets. The new
+// box must not fit in the old one. It corresponds to
 // b2DynamicTree_EnlargeProxy in src/dynamic_tree.c.
 func (tree *dynamicTree) enlargeProxy(proxyId int, aabb AABB) {
-	nodes := tree.nodes
-
 	checkTreeExtent(aabb)
-	checkLeaf(tree, proxyId)
+	checkProxyId(tree, proxyId)
 
-	// Caller must ensure this
-	if AABBContains(nodes[proxyId].aabb, aabb) {
-		panic("dbox2d: enlargeProxy with a box the leaf already contains")
+	nodes := tree.nodes
+	parents := tree.parents
+
+	index := int(tree.proxies[proxyId].node)
+	node := &nodes[index]
+	if !node.isLeaf() {
+		panic("dbox2d: the enlarged proxy is not a leaf")
 	}
 
-	nodes[proxyId].aabb = aabb
+	// Caller must ensure this
+	if AABBContains(node.aabb, aabb) {
+		panic("dbox2d: the enlarged box fits in the proxy box")
+	}
 
-	parentIndex := int(nodes[proxyId].parent)
-	for parentIndex != nullIndex {
-		changed := enlargeAABB(&nodes[parentIndex].aabb, aabb)
-		nodes[parentIndex].flags |= enlargedNode
-		parentIndex = int(nodes[parentIndex].parent)
+	node.aabb = aabb
+	node.flagIndex |= movedNode
+
+	index = int(parents[index])
+	for index != nullIndex {
+		node = &nodes[index]
+		changed := enlargeAABB(&node.aabb, aabb)
+
+		// This is marked to ensure the root is marked in this loop or the
+		// one below.
+		node.flagIndex |= movedNode
+
+		index = int(parents[index])
 
 		if !changed {
 			break
 		}
 	}
 
-	for parentIndex != nullIndex {
-		if nodes[parentIndex].flags&enlargedNode != 0 {
-			// early out because this ancestor was previously ascended and marked as enlarged
+	// Mark all the way up to the root.
+	for index != nullIndex {
+		node = &nodes[index]
+		if node.flagIndex&movedNode != 0 {
+			// Early out because this ancestor was previously ascended and
+			// marked as moved.
 			break
 		}
 
-		nodes[parentIndex].flags |= enlargedNode
-		parentIndex = int(nodes[parentIndex].parent)
+		node.flagIndex |= movedNode
+		index = int(parents[index])
 	}
 }
 
-// setCategoryBits changes the bits of a leaf and repairs the ancestors.
-// It corresponds to b2DynamicTree_SetCategoryBits in src/dynamic_tree.c.
 func (tree *dynamicTree) setCategoryBits(proxyId int, categoryBits uint64) {
-	nodes := tree.nodes
-
-	if nodes[proxyId].child1 != nullIndex || nodes[proxyId].child2 != nullIndex || !nodes[proxyId].isLeaf() {
-		panic("dbox2d: setCategoryBits on an internal node")
-	}
-
-	nodes[proxyId].categoryBits = categoryBits
-
-	// Fix up category bits in ancestor internal nodes
-	nodeIndex := int(nodes[proxyId].parent)
-	for nodeIndex != nullIndex {
-		node := &nodes[nodeIndex]
-		child1 := node.child1
-		child2 := node.child2
-		if child1 == nullIndex || child2 == nullIndex {
-			panic("dbox2d: an internal tree node lost a child")
-		}
-		node.categoryBits = nodes[child1].categoryBits | nodes[child2].categoryBits
-
-		nodeIndex = int(node.parent)
-	}
+	checkProxyId(tree, proxyId)
+	tree.proxies[proxyId].categoryBits = categoryBits
 }
 
-// getCategoryBits returns the bits of a leaf.
 func (tree *dynamicTree) getCategoryBits(proxyId int) uint64 {
-	checkNodeIndex(tree, proxyId)
-	return tree.nodes[proxyId].categoryBits
+	checkProxyId(tree, proxyId)
+	return tree.proxies[proxyId].categoryBits
 }
 
-// getHeight returns the height of the root, or zero for an empty tree.
 func (tree *dynamicTree) getHeight() int {
-	if tree.root == nullIndex {
-		return 0
-	}
-
-	return int(tree.nodes[tree.root].height)
+	return tree.nodes[rootNode].height()
 }
 
-// getRootBounds returns the box of the root, or the empty box.
+// getAreaRatio returns the summed perimeter of the non-root internal nodes
+// over the perimeter of the root. It measures the quality of the tree. It
+// corresponds to b2DynamicTree_GetAreaRatio in src/dynamic_tree.c.
+func (tree *dynamicTree) getAreaRatio() Q {
+	if tree.proxyCount == 0 {
+		return QZero()
+	}
+
+	nodes := tree.nodes
+	rootArea := perimeter(nodes[rootNode].aabb)
+	if !QZero().Less(rootArea) {
+		return QZero()
+	}
+
+	// Free nodes and the empty node are leaf tagged.
+	internalArea := QZero()
+	for i := 2; i < tree.nodeEnd; i++ {
+		if !nodes[i].isLeaf() {
+			internalArea = internalArea.Add(perimeter(nodes[i].aabb))
+		}
+	}
+
+	return internalArea.Div(rootArea)
+}
+
 func (tree *dynamicTree) getRootBounds() AABB {
-	if tree.root != nullIndex {
-		return tree.nodes[tree.root].aabb
+	if tree.proxyCount == 0 {
+		return AABB{}
+	}
+	return tree.nodes[rootNode].aabb
+}
+
+func (tree *dynamicTree) getUserData(proxyId int) uint64 {
+	checkProxyId(tree, proxyId)
+	return tree.proxies[proxyId].userData
+}
+
+// getProxyBounds corresponds to b2DynamicTree_GetProxyBounds in
+// src/dynamic_tree.c.
+func (tree *dynamicTree) getProxyBounds(proxyId int) AABB {
+	checkProxyId(tree, proxyId)
+	nodeIndex := int(tree.proxies[proxyId].node)
+	if nodeIndex < 0 || nodeIndex >= tree.nodeEnd {
+		panic("dbox2d: the proxy is free")
+	}
+	return tree.nodes[nodeIndex].aabb
+}
+
+// hasMoved corresponds to b2HasTreeMoved in src/dynamic_tree.h.
+func (tree *dynamicTree) hasMoved() bool {
+	return tree.nodes[rootNode].isMoved()
+}
+
+// needsRebuild corresponds to b2NeedsRebuild in src/dynamic_tree.h.
+func (tree *dynamicTree) needsRebuild() bool {
+	return tree.nodes[rootNode].isMoved() || !tree.dfsOrdered
+}
+
+// validateSubtree returns the height of the subtree and counts its leaves.
+// It corresponds to b2ValidateSubtree in src/dynamic_tree.c.
+func (tree *dynamicTree) validateSubtree(nodeIndex int, leafCount *int) int {
+	check := func(ok bool, what string) {
+		if !ok {
+			panic("dbox2d: tree validation: " + what)
+		}
 	}
 
-	return AABB{}
-}
-
-// getUserData returns the user data of a leaf.
-func (tree *dynamicTree) getUserData(proxyId int) uint64 {
-	checkNodeIndex(tree, proxyId)
-	return tree.nodes[proxyId].userData
-}
-
-// getAABB returns the box of a leaf.
-func (tree *dynamicTree) getAABB(proxyId int) AABB {
-	checkNodeIndex(tree, proxyId)
-	return tree.nodes[proxyId].aabb
-}
-
-// computeHeight returns the height of a sub-tree by recursion. Only the
-// validation uses it.
-func computeHeight(tree *dynamicTree, nodeId int) int {
-	checkNodeIndex(tree, nodeId)
-	node := &tree.nodes[nodeId]
+	check(0 <= nodeIndex && nodeIndex < tree.nodeEnd, "node index out of range")
+	node := &tree.nodes[nodeIndex]
+	check(!node.isEmpty(), "empty node in the tree")
 
 	if node.isLeaf() {
+		proxyId := node.proxyId()
+		check(0 <= proxyId && proxyId < len(tree.proxies), "proxy id out of range")
+		check(int(tree.proxies[proxyId].node) == nodeIndex, "proxy does not point at its leaf")
+		check(int32(tree.proxies[proxyId].userData) == node.aux, "leaf shape index differs from the proxy")
+		*leafCount += 1
 		return 0
 	}
 
-	height1 := computeHeight(tree, int(node.child1))
-	height2 := computeHeight(tree, int(node.child2))
-	return 1 + max(height1, height2)
-}
+	pair := node.leftChild()
+	check(pair&1 == 0 && 2 <= pair && pair < tree.nodeEnd, "bad children pair")
+	check(int(tree.parents[pair]) == nodeIndex, "bad parent of the left child")
+	check(int(tree.parents[pair+1]) == nodeIndex, "bad parent of the right child")
+	check(!tree.dfsOrdered || nodeIndex < pair, "children below the parent in a DFS ordered tree")
 
-// validateStructure checks the parent links and the enlarged flags of a
-// sub-tree.
-func validateStructure(tree *dynamicTree, index int) {
-	if index == nullIndex {
-		return
-	}
+	c1 := &tree.nodes[pair]
+	c2 := &tree.nodes[pair+1]
+	check(AABBContains(node.aabb, c1.aabb), "parent box misses the left child")
+	check(AABBContains(node.aabb, c2.aabb), "parent box misses the right child")
+	check(node.isMoved() == (c1.isMoved() || c2.isMoved()), "moved flag differs from the children")
 
-	if index == tree.root {
-		if tree.nodes[index].parent != nullIndex {
-			panic("dbox2d: the tree root has a parent")
-		}
-	}
-
-	node := &tree.nodes[index]
-
-	if node.flags != 0 && !node.isAllocated() {
-		panic("dbox2d: a tree node has flags but is not allocated")
-	}
-
-	if node.isLeaf() {
-		if node.height != 0 {
-			panic("dbox2d: a tree leaf has a height")
-		}
-		return
-	}
-
-	child1 := int(node.child1)
-	child2 := int(node.child2)
-
-	checkNodeIndex(tree, child1)
-	checkNodeIndex(tree, child2)
-
-	if int(tree.nodes[child1].parent) != index || int(tree.nodes[child2].parent) != index {
-		panic("dbox2d: a tree child does not point back at its parent")
-	}
-
-	if (tree.nodes[child1].flags|tree.nodes[child2].flags)&enlargedNode != 0 {
-		if node.flags&enlargedNode == 0 {
-			panic("dbox2d: an enlarged child has a parent that is not enlarged")
-		}
-	}
-
-	validateStructure(tree, child1)
-	validateStructure(tree, child2)
-}
-
-// validateMetrics checks the heights, the bounds and the category bits of
-// a sub-tree.
-func validateMetrics(tree *dynamicTree, index int) {
-	if index == nullIndex {
-		return
-	}
-
-	node := &tree.nodes[index]
-
-	if node.isLeaf() {
-		if node.height != 0 {
-			panic("dbox2d: a tree leaf has a height")
-		}
-		return
-	}
-
-	child1 := int(node.child1)
-	child2 := int(node.child2)
-
-	checkNodeIndex(tree, child1)
-	checkNodeIndex(tree, child2)
-
-	height1 := int(tree.nodes[child1].height)
-	height2 := int(tree.nodes[child2].height)
+	height1 := tree.validateSubtree(pair, leafCount)
+	height2 := tree.validateSubtree(pair+1, leafCount)
 	height := 1 + max(height1, height2)
-	if int(node.height) != height {
-		panic("dbox2d: a tree node height does not match its children")
-	}
-
-	if !AABBContains(node.aabb, tree.nodes[child1].aabb) || !AABBContains(node.aabb, tree.nodes[child2].aabb) {
-		panic("dbox2d: a tree node does not contain its children")
-	}
-
-	categoryBits := tree.nodes[child1].categoryBits | tree.nodes[child2].categoryBits
-	if node.categoryBits != categoryBits {
-		panic("dbox2d: a tree node does not carry the bits of its children")
-	}
-
-	validateMetrics(tree, child1)
-	validateMetrics(tree, child2)
+	check(int(node.aux) == height, "bad height")
+	return height
 }
 
-// validate checks the whole tree: structure, metrics, the free list and
-// the height. The reference compiles it only into validation builds; here
-// only the tests call it. It corresponds to b2DynamicTree_Validate in
-// src/dynamic_tree.c.
+// validate checks the whole structure. It corresponds to
+// b2DynamicTree_Validate in src/dynamic_tree.c.
 func (tree *dynamicTree) validate() {
-	if tree.root == nullIndex {
+	check := func(ok bool, what string) {
+		if !ok {
+			panic("dbox2d: tree validation: " + what)
+		}
+	}
+
+	check(2 <= tree.nodeEnd && tree.nodeEnd <= len(tree.nodes), "node end out of range")
+	check(tree.nodeEnd&1 == 0, "odd node end")
+	check(tree.parents[rootNode] == nullIndex, "root has a parent")
+	check(tree.nodes[rootNode+1].isEmpty(), "node one is not empty")
+
+	freePairCount := 0
+	pair := tree.pairFreeList
+	for pair != nullIndex {
+		check(pair&1 == 0 && 2 <= pair && pair < tree.nodeEnd, "bad free pair")
+		check(tree.nodes[pair].isEmpty() && tree.nodes[pair+1].isEmpty(), "free pair not empty")
+		pair = int(tree.parents[pair])
+		freePairCount++
+		check(2*freePairCount < tree.nodeEnd, "free pair list cycles")
+	}
+
+	freeProxyCount := 0
+	freeIndex := tree.proxyFreeList
+	for freeIndex != nullIndex {
+		check(0 <= freeIndex && freeIndex < len(tree.proxies), "bad free proxy")
+		check(tree.proxies[freeIndex].node == nullIndex, "free proxy has a node")
+		freeIndex = int(tree.proxies[freeIndex].next)
+		freeProxyCount++
+	}
+	check(tree.proxyCount+freeProxyCount == len(tree.proxies), "proxy count mismatch")
+
+	check(tree.nodeEnd == 2*max(tree.proxyCount, 1)+2*freePairCount, "node count mismatch")
+
+	if tree.proxyCount == 0 {
+		check(tree.nodes[rootNode].isEmpty(), "empty tree with a root")
 		return
 	}
 
-	validateStructure(tree, tree.root)
-	validateMetrics(tree, tree.root)
-
-	freeCount := 0
-	freeIndex := tree.freeList
-	for freeIndex != nullIndex {
-		checkNodeIndex(tree, freeIndex)
-		freeIndex = int(tree.nodes[freeIndex].next)
-		freeCount++
-	}
-
-	height := tree.getHeight()
-	computedHeight := computeHeight(tree, tree.root)
-	if height != computedHeight {
-		panic("dbox2d: the tree height does not match the computed height")
-	}
-
-	if tree.nodeCount+freeCount != len(tree.nodes) {
-		panic("dbox2d: the tree node count and the free list disagree")
-	}
+	leafCount := 0
+	tree.validateSubtree(rootNode, &leafCount)
+	check(leafCount == tree.proxyCount, "leaf count mismatch")
 }
 
-// validateNoEnlarged checks that no allocated node carries the enlarged
-// flag. The tests and DynamicTree.ValidateNoEnlarged call it. It corresponds to
-// b2DynamicTree_ValidateNoEnlarged in src/dynamic_tree.c.
-func (tree *dynamicTree) validateNoEnlarged() {
-	for i := range tree.nodes {
-		node := &tree.nodes[i]
-		if node.flags&allocatedNode != 0 {
-			if node.flags&enlargedNode != 0 {
-				panic("dbox2d: a tree node is still enlarged")
-			}
+// validateNoMoved corresponds to b2DynamicTree_ValidateNoMoved in
+// src/dynamic_tree.c.
+func (tree *dynamicTree) validateNoMoved() {
+	for i := range tree.nodeEnd {
+		if tree.nodes[i].isMoved() {
+			panic("dbox2d: tree validation: a node is still marked moved")
 		}
 	}
 }
-
-// treeStackSize is the traversal stack of every tree walk. It corresponds
-// to B2_TREE_STACK_SIZE in src/dynamic_tree.c.
-const treeStackSize = 1024
 
 // treeStats reports the work of one tree walk. It corresponds to
 // b2TreeStats in include/box2d/collision.h.
@@ -1080,52 +957,83 @@ type treeQueryCallback func(proxyId int, userData uint64) bool
 // the ray, or any other value to continue unchanged. D-014 applies.
 type treeRayCastCallback func(input *RayCastInput, proxyId int, userData uint64) Q
 
-// query calls back every leaf that overlaps the box and passes the mask.
-// It corresponds to b2DynamicTree_Query in src/dynamic_tree.c.
-func (tree *dynamicTree) query(aabb AABB, maskBits uint64, callback treeQueryCallback) treeStats {
-	var stack [treeStackSize]int
-	return tree.queryStack(&stack, aabb, maskBits, callback)
+// BoxCastInput is the input of a swept box cast through a tree. It
+// corresponds to b2BoxCastInput in include/box2d/collision.h.
+type BoxCastInput struct {
+	// Box is the box to cast, in the tree's frame.
+	Box AABB
+
+	// Translation is the sweep translation.
+	Translation Vec2
+
+	// MaxFraction limits the translation to consider. It is usually one.
+	MaxFraction Q
 }
 
-func (tree *dynamicTree) queryStack(stack *[treeStackSize]int, aabb AABB, maskBits uint64, callback treeQueryCallback) treeStats {
+// treeBoxCastCallback receives each leaf the swept box may reach. It
+// returns zero to stop the cast, a fraction below maxFraction to clip the
+// sweep, or maxFraction to continue unchanged. D-014 applies.
+type treeBoxCastCallback func(input *BoxCastInput, proxyId int, userData uint64) Q
+
+// overlapAABB calls back every leaf that overlaps the box and passes the
+// mask. It corresponds to b2DynamicTree_OverlapAABB in src/dynamic_tree.c.
+func (tree *dynamicTree) overlapAABB(aabb AABB, maskBits uint64, callback treeQueryCallback) treeStats {
+	var stack [treeStackSize]int
+	return tree.overlapAABBStack(&stack, aabb, maskBits, false, callback)
+}
+
+// overlapAABBAll ignores the category bits. It serves debug draw. It
+// corresponds to b2DynamicTree_OverlapAABBAll in src/dynamic_tree.c.
+func (tree *dynamicTree) overlapAABBAll(aabb AABB, callback treeQueryCallback) treeStats {
+	var stack [treeStackSize]int
+	return tree.overlapAABBStack(&stack, aabb, 0, true, callback)
+}
+
+// overlapAABBStack is overlapAABB on a caller stack, which lets a worker
+// reuse one stack across queries.
+func (tree *dynamicTree) overlapAABBStack(stack *[treeStackSize]int, aabb AABB, maskBits uint64, all bool, callback treeQueryCallback) treeStats {
 	result := treeStats{}
 
-	if tree.nodeCount == 0 {
+	if tree.proxyCount == 0 {
 		return result
 	}
 
-	stackCount := 0
-	stack[stackCount] = tree.root
-	stackCount++
-
 	nodes := tree.nodes
+	proxies := tree.proxies
+
+	stackCount := 0
+	stack[stackCount] = rootPair(nodes)
+	stackCount++
 
 	for stackCount > 0 {
 		stackCount--
-		nodeId := stack[stackCount]
-
-		// The reference asserts nodeId against B2_NULL_INDEX here. The
-		// slice index below panics on it anyway, so the check is not repeated
-		// in the hottest loop of the broad phase.
-		node := &nodes[nodeId]
+		pair := stack[stackCount]
 		result.nodeVisits += 1
 
-		if AABBOverlaps(node.aabb, aabb) && node.categoryBits&maskBits != 0 {
+		for i := range 2 {
+			node := &nodes[pair+i]
+			if !AABBOverlaps(node.aabb, aabb) {
+				continue
+			}
+
 			if node.isLeaf() {
 				// callback to user code with proxy id
-				proceed := callback(nodeId, node.userData)
-				result.leafVisits += 1
+				proxyId := node.proxyId()
+				proxy := &proxies[proxyId]
+				if all || proxy.categoryBits&maskBits != 0 {
+					proceed := callback(proxyId, proxy.userData)
+					result.leafVisits += 1
 
-				if !proceed {
-					return result
+					if !proceed {
+						return result
+					}
 				}
 			} else {
 				if stackCount >= treeStackSize-1 {
 					panic("dbox2d: the tree query stack is full")
 				}
-				stack[stackCount] = int(node.child1)
-				stack[stackCount+1] = int(node.child2)
-				stackCount += 2
+				stack[stackCount] = node.leftChild()
+				stackCount++
 			}
 		}
 	}
@@ -1133,13 +1041,12 @@ func (tree *dynamicTree) queryStack(stack *[treeStackSize]int, aabb AABB, maskBi
 	return result
 }
 
-// rayCast calls back every leaf whose box the ray reaches, nearest first
-// by centroid. It corresponds to b2DynamicTree_RayCast in
-// src/dynamic_tree.c.
-func (tree *dynamicTree) rayCast(input *RayCastInput, maskBits uint64, callback treeRayCastCallback) treeStats {
+// castRay calls back every leaf whose box the ray reaches, nearer pairs
+// first. It corresponds to b2DynamicTree_CastRay in src/dynamic_tree.c.
+func (tree *dynamicTree) castRay(input *RayCastInput, maskBits uint64, callback treeRayCastCallback) treeStats {
 	result := treeStats{}
 
-	if tree.nodeCount == 0 {
+	if tree.proxyCount == 0 {
 		return result
 	}
 
@@ -1154,7 +1061,6 @@ func (tree *dynamicTree) rayCast(input *RayCastInput, maskBits uint64, callback 
 
 	// Separating axis for segment (Gino, p80).
 	// |dot(v, p1 - c)| > dot(|v|, h)
-
 	maxFraction := input.MaxFraction
 
 	p2 := MulAdd(p1, maxFraction, d)
@@ -1162,12 +1068,13 @@ func (tree *dynamicTree) rayCast(input *RayCastInput, maskBits uint64, callback 
 	// Build a bounding box for the segment.
 	segmentAABB := AABB{LowerBound: Min(p1, p2), UpperBound: Max(p1, p2)}
 
+	nodes := tree.nodes
+	proxies := tree.proxies
+
 	var stack [treeStackSize]int
 	stackCount := 0
-	stack[stackCount] = tree.root
+	stack[stackCount] = rootPair(nodes)
 	stackCount++
-
-	nodes := tree.nodes
 
 	subInput := *input
 
@@ -1175,96 +1082,96 @@ func (tree *dynamicTree) rayCast(input *RayCastInput, maskBits uint64, callback 
 
 	for stackCount > 0 {
 		stackCount--
-		nodeId := stack[stackCount]
-		if nodeId == nullIndex {
-			panic("dbox2d: the tree ray cast popped the null node")
-		}
-
-		node := &nodes[nodeId]
+		pair := stack[stackCount]
 		result.nodeVisits += 1
 
-		nodeAABB := node.aabb
+		var hit [2]int
+		var isLeaf [2]bool
+		hitCount := 0
+		for i := range 2 {
+			node := &nodes[pair+i]
+			if !AABBOverlaps(node.aabb, segmentAABB) {
+				continue
+			}
 
-		if node.categoryBits&maskBits == 0 || !AABBOverlaps(nodeAABB, segmentAABB) {
-			continue
+			// Separating axis for segment (Gino, p80).
+			// |dot(v, p1 - c)| > dot(|v|, h)
+			c := AABBCenter(node.aabb)
+			h := AABBExtents(node.aabb)
+			term1 := v.Dot(p1.Sub(c)).Abs()
+			term2 := absV.Dot(h)
+			if term2.Less(term1) {
+				continue
+			}
+
+			isLeaf[hitCount] = node.isLeaf()
+			hit[hitCount] = pair + i
+			hitCount++
 		}
 
-		// Separating axis for segment (Gino, p80).
-		// |dot(v, p1 - c)| > dot(|v|, h)
-		// radius extension is added to the node in this case
-		c := AABBCenter(nodeAABB)
-		h := AABBExtents(nodeAABB)
-		term1 := v.Dot(p1.Sub(c)).Abs()
-		term2 := absV.Dot(h)
-		if term2.Less(term1) {
-			continue
+		if hitCount == 2 && !isLeaf[0] && !isLeaf[1] {
+			d1 := AABBCenter(nodes[hit[0]].aabb).DistanceSq(p1)
+			d2 := AABBCenter(nodes[hit[1]].aabb).DistanceSq(p1)
+
+			// Want to push the closest one last. Both have the same
+			// isLeaf, so they don't swap.
+			if d1.Less(d2) {
+				hit[0], hit[1] = hit[1], hit[0]
+			}
 		}
 
-		if node.isLeaf() {
-			subInput.MaxFraction = maxFraction
+		for i := range hitCount {
+			node := &nodes[hit[i]]
+			if isLeaf[i] {
+				proxyId := node.proxyId()
+				proxy := &proxies[proxyId]
 
-			value := callback(&subInput, nodeId, node.userData)
-			result.leafVisits += 1
+				if proxy.categoryBits&maskBits == 0 {
+					continue
+				}
 
-			// The user may return -1 to indicate this shape should be skipped
+				subInput.MaxFraction = maxFraction
 
-			if value.Eq(zero) {
-				// The client has terminated the ray cast.
-				return result
-			}
+				value := callback(&subInput, proxyId, proxy.userData)
+				result.leafVisits += 1
 
-			if zero.Less(value) && !maxFraction.Less(value) {
-				// Update segment bounding box.
-				maxFraction = value
-				p2 = MulAdd(p1, maxFraction, d)
-				segmentAABB.LowerBound = Min(p1, p2)
-				segmentAABB.UpperBound = Max(p1, p2)
-			}
-		} else {
-			if stackCount >= treeStackSize-1 {
-				panic("dbox2d: the tree ray cast stack is full")
-			}
-			c1 := AABBCenter(nodes[node.child1].aabb)
-			c2 := AABBCenter(nodes[node.child2].aabb)
-			if c1.DistanceSq(p1).Less(c2.DistanceSq(p1)) {
-				stack[stackCount] = int(node.child2)
-				stack[stackCount+1] = int(node.child1)
+				// The user may return -1 to indicate this shape should be skipped
+
+				if value.Eq(zero) {
+					// The client has terminated the ray cast.
+					return result
+				}
+
+				if zero.Less(value) && !maxFraction.Less(value) {
+					// Update segment bounding box.
+					maxFraction = value
+					p2 = MulAdd(p1, maxFraction, d)
+					segmentAABB.LowerBound = Min(p1, p2)
+					segmentAABB.UpperBound = Max(p1, p2)
+				}
 			} else {
-				stack[stackCount] = int(node.child1)
-				stack[stackCount+1] = int(node.child2)
+				if stackCount >= treeStackSize-1 {
+					panic("dbox2d: the tree ray cast stack is full")
+				}
+				stack[stackCount] = node.leftChild()
+				stackCount++
 			}
-			stackCount += 2
 		}
 	}
 
 	return result
 }
 
-// treeShapeCastCallback receives each leaf whose box the swept proxy
-// reaches. It returns zero to stop the cast, a fraction in (0, maxFraction)
-// to clip the sweep, or any other value to continue unchanged. D-014
-// applies.
-type treeShapeCastCallback func(input *ShapeCastInput, proxyId int, userData uint64) Q
+// castBox calls back every leaf the swept box may reach, nearer pairs
+// first. It corresponds to b2DynamicTree_CastBox in src/dynamic_tree.c.
+func (tree *dynamicTree) castBox(input *BoxCastInput, maskBits uint64, callback treeBoxCastCallback) treeStats {
+	result := treeStats{}
 
-// shapeCast calls back every leaf that the swept proxy may reach, nearest
-// first. It corresponds to b2DynamicTree_ShapeCast in src/dynamic_tree.c.
-func (tree *dynamicTree) shapeCast(input *ShapeCastInput, maskBits uint64, callback treeShapeCastCallback) treeStats {
-	stats := treeStats{}
-
-	if tree.nodeCount == 0 || input.Proxy.Count == 0 {
-		return stats
+	if tree.proxyCount == 0 {
+		return result
 	}
 
-	originAABB := AABB{LowerBound: input.Proxy.Points[0], UpperBound: input.Proxy.Points[0]}
-	for i := 1; i < input.Proxy.Count; i++ {
-		originAABB.LowerBound = Min(originAABB.LowerBound, input.Proxy.Points[i])
-		originAABB.UpperBound = Max(originAABB.UpperBound, input.Proxy.Points[i])
-	}
-
-	radius := Vec2{X: input.Proxy.Radius, Y: input.Proxy.Radius}
-
-	originAABB.LowerBound = originAABB.LowerBound.Sub(radius)
-	originAABB.UpperBound = originAABB.UpperBound.Add(radius)
+	originAABB := input.Box
 
 	p1 := AABBCenter(originAABB)
 	extension := AABBExtents(originAABB)
@@ -1279,84 +1186,106 @@ func (tree *dynamicTree) shapeCast(input *ShapeCastInput, maskBits uint64, callb
 
 	maxFraction := input.MaxFraction
 
-	// Build total box for the shape cast
+	// Build total box for the cast
 	t := input.Translation.Mul(maxFraction)
 	totalAABB := AABB{
 		LowerBound: Min(originAABB.LowerBound, originAABB.LowerBound.Add(t)),
 		UpperBound: Max(originAABB.UpperBound, originAABB.UpperBound.Add(t)),
 	}
 
-	subInput := *input
 	nodes := tree.nodes
+	proxies := tree.proxies
 
 	var stack [treeStackSize]int
 	stackCount := 0
-	stack[stackCount] = tree.root
+	stack[stackCount] = rootPair(nodes)
 	stackCount++
+
+	subInput := *input
 
 	zero := QZero()
 
 	for stackCount > 0 {
 		stackCount--
-		nodeId := stack[stackCount]
-		if nodeId == nullIndex {
-			panic("dbox2d: the tree shape cast popped the null node")
-		}
+		pair := stack[stackCount]
+		result.nodeVisits += 1
 
-		node := &nodes[nodeId]
-		stats.nodeVisits += 1
-
-		if node.categoryBits&maskBits == 0 || !AABBOverlaps(node.aabb, totalAABB) {
-			continue
-		}
-
-		// Separating axis for segment (Gino, p80).
-		// |dot(v, p1 - c)| > dot(|v|, h)
-		// radius extension is added to the node in this case
-		c := AABBCenter(node.aabb)
-		h := AABBExtents(node.aabb).Add(extension)
-		term1 := v.Dot(p1.Sub(c)).Abs()
-		term2 := absV.Dot(h)
-		if term2.Less(term1) {
-			continue
-		}
-
-		if node.isLeaf() {
-			subInput.MaxFraction = maxFraction
-
-			value := callback(&subInput, nodeId, node.userData)
-			stats.leafVisits += 1
-
-			if value.Eq(zero) {
-				// The client has terminated the ray cast.
-				return stats
+		var hit [2]int
+		var isLeaf [2]bool
+		hitCount := 0
+		for i := range 2 {
+			node := &nodes[pair+i]
+			if !AABBOverlaps(node.aabb, totalAABB) {
+				continue
 			}
 
-			if zero.Less(value) && value.Less(maxFraction) {
-				// Update segment bounding box.
-				maxFraction = value
-				t = input.Translation.Mul(maxFraction)
-				totalAABB.LowerBound = Min(originAABB.LowerBound, originAABB.LowerBound.Add(t))
-				totalAABB.UpperBound = Max(originAABB.UpperBound, originAABB.UpperBound.Add(t))
+			// Separating axis for segment (Gino, p80).
+			// |dot(v, p1 - c)| > dot(|v|, h)
+			// radius extension is added to the node in this case
+			c := AABBCenter(node.aabb)
+			h := AABBExtents(node.aabb).Add(extension)
+			term1 := v.Dot(p1.Sub(c)).Abs()
+			term2 := absV.Dot(h)
+			if term2.Less(term1) {
+				continue
 			}
-		} else {
-			if stackCount >= treeStackSize-1 {
-				panic("dbox2d: the tree shape cast stack is full")
+
+			isLeaf[hitCount] = node.isLeaf()
+			hit[hitCount] = pair + i
+			hitCount++
+		}
+
+		if hitCount == 2 && !isLeaf[0] && !isLeaf[1] {
+			d1 := AABBCenter(nodes[hit[0]].aabb).DistanceSq(p1)
+			d2 := AABBCenter(nodes[hit[1]].aabb).DistanceSq(p1)
+
+			// Want to push the closest one last. Both have the same
+			// isLeaf, so they don't swap.
+			if d1.Less(d2) {
+				hit[0], hit[1] = hit[1], hit[0]
 			}
-			c1 := AABBCenter(nodes[node.child1].aabb)
-			c2 := AABBCenter(nodes[node.child2].aabb)
-			if c1.DistanceSq(p1).Less(c2.DistanceSq(p1)) {
-				stack[stackCount] = int(node.child2)
-				stack[stackCount+1] = int(node.child1)
+		}
+
+		for i := range hitCount {
+			node := &nodes[hit[i]]
+			if isLeaf[i] {
+				proxyId := node.proxyId()
+				proxy := &proxies[proxyId]
+
+				if proxy.categoryBits&maskBits == 0 {
+					continue
+				}
+
+				subInput.MaxFraction = maxFraction
+
+				value := callback(&subInput, proxyId, proxy.userData)
+				result.leafVisits += 1
+
+				// The user may return -1 to indicate this shape should be skipped
+
+				if value.Eq(zero) {
+					// The client has terminated the cast.
+					return result
+				}
+
+				if zero.Less(value) && value.Less(maxFraction) {
+					// Update cast bounding box.
+					maxFraction = value
+					t = input.Translation.Mul(maxFraction)
+					totalAABB.LowerBound = Min(originAABB.LowerBound, originAABB.LowerBound.Add(t))
+					totalAABB.UpperBound = Max(originAABB.UpperBound, originAABB.UpperBound.Add(t))
+				}
 			} else {
-				stack[stackCount] = int(node.child1)
-				stack[stackCount+1] = int(node.child2)
+				if stackCount >= treeStackSize-1 {
+					panic("dbox2d: the tree box cast stack is full")
+				}
+				stack[stackCount] = node.leftChild()
+				stackCount++
 			}
-			stackCount += 2
 		}
 	}
 
-	return stats
+	return result
 }
 
 // treeHeuristic selects the rebuild partition, as B2_TREE_HEURISTIC in
@@ -1596,9 +1525,12 @@ func partition(tree *dynamicTree, startIndex, count int) int {
 	return partitionSAH(tree.leafIndices[startIndex:], tree.binIndices[startIndex:], tree.leafBoxes[startIndex:], count)
 }
 
-// rebuildItem tracks the rebuild of one tree node.
+// rebuildItem tracks the rebuild of one tree node. It corresponds to
+// b2RebuildItem in src/dynamic_tree.c.
 type rebuildItem struct {
+	// Where this node is written and the pair its children go in.
 	nodeIndex  int
+	pair       int
 	childCount int
 
 	// Leaf indices
@@ -1607,20 +1539,128 @@ type rebuildItem struct {
 	endIndex   int
 }
 
-// buildTree links the gathered leaves into a new tree and returns the
-// root. It corresponds to b2BuildTree in src/dynamic_tree.c.
-func buildTree(tree *dynamicTree, leafCount int) int {
+// copyItem corresponds to b2CopyItem in src/dynamic_tree.c.
+type copyItem struct {
+	oldPair  int
+	newIndex int
+}
+
+// bumpPair bump allocates a pair of sibling nodes and returns the index of
+// the first. It corresponds to b2BumpPair in src/dynamic_tree.c.
+func bumpPair(tree *dynamicTree, parent int) int {
+	pair := tree.nodeEnd
+	if pair+2 > len(tree.nodes) {
+		panic("dbox2d: the tree rebuild overflows the node array")
+	}
+	tree.nodeEnd += 2
+	tree.parents[pair] = int32(parent)
+	tree.parents[pair+1] = int32(parent)
+	return pair
+}
+
+// copySubtree copies a retained subtree from the old array into the
+// rebuilt DFS array with the bump allocator. It corresponds to
+// b2CopySubtree in src/dynamic_tree.c.
+func copySubtree(tree *dynamicTree, node treeNode, newIndex int) {
+	oldNodes := tree.nodes
+	newNodes := tree.swapNodes
+	proxies := tree.proxies
+
+	if node.isLeaf() {
+		newNodes[newIndex] = node
+		proxies[node.proxyId()].node = int32(newIndex)
+		return
+	}
+
+	var stack [treeStackSize]copyItem
+	stackCount := 0
+
+	oldPair := node.leftChild()
+	newPair := bumpPair(tree, newIndex)
+	node.setLeftChild(newPair)
+
+	// Copy the subtree root. This can be a left or right sibling (even or
+	// odd).
+	newNodes[newIndex] = node
+
+	for {
+		// Copy the siblings.
+		newNodes[newPair] = oldNodes[oldPair]
+		newNodes[newPair+1] = oldNodes[oldPair+1]
+		left := &newNodes[newPair]
+		right := &newNodes[newPair+1]
+
+		if right.isLeaf() {
+			// Hook up proxy on right sibling.
+			proxies[right.proxyId()].node = int32(newPair + 1)
+		} else {
+			// Push the left child of the right sibling.
+			if stackCount >= treeStackSize {
+				panic("dbox2d: the tree copy stack is full")
+			}
+			stack[stackCount] = copyItem{oldPair: right.leftChild(), newIndex: newPair + 1}
+			stackCount++
+		}
+
+		if !left.isLeaf() {
+			// Descend into left subtree.
+			leftIndex := newPair
+			oldPair = left.leftChild()
+			newPair = bumpPair(tree, leftIndex)
+			newNodes[leftIndex].setLeftChild(newPair)
+			continue
+		}
+
+		// Hook up proxy on left sibling.
+		proxies[left.proxyId()].node = int32(newPair)
+
+		if stackCount == 0 {
+			break
+		}
+
+		// Descend a right subtree that was previously pushed.
+		stackCount--
+		item := stack[stackCount]
+		oldPair = item.oldPair
+		newPair = bumpPair(tree, item.newIndex)
+		newNodes[item.newIndex].setLeftChild(newPair)
+	}
+}
+
+// placeLeaf writes a build leaf, a proxy or a retained subtree. It
+// corresponds to b2PlaceLeaf in src/dynamic_tree.c.
+func placeLeaf(tree *dynamicTree, leaf treeNode, newIndex int) {
+	if leaf.isLeaf() {
+		tree.swapNodes[newIndex] = leaf
+		tree.proxies[leaf.proxyId()].node = int32(newIndex)
+	} else {
+		copySubtree(tree, leaf, newIndex)
+	}
+}
+
+// buildTree builds the swap nodes top down over the gathered build
+// leaves. It corresponds to b2BuildTree in src/dynamic_tree.c.
+func buildTree(tree *dynamicTree, leafCount int) {
+	nodes := tree.swapNodes
+	leaves := tree.leafNodes
 	leafIndices := tree.leafIndices
 
+	// Bump allocation into the swap nodes.
+	tree.nodeEnd = 2
+	nodes[rootNode+1] = makeEmptyNode()
+	tree.parents[rootNode] = nullIndex
+	tree.parents[rootNode+1] = nullIndex
+
 	if leafCount == 1 {
-		tree.nodes[leafIndices[0]].parent = nullIndex
-		return leafIndices[0]
+		placeLeaf(tree, leaves[leafIndices[0]], rootNode)
+		return
 	}
 
 	var stack [treeStackSize]rebuildItem
 	top := 0
 
-	stack[0].nodeIndex = allocateNode(tree)
+	stack[0].nodeIndex = rootNode
+	stack[0].pair = bumpPair(tree, rootNode)
 	stack[0].childCount = -1
 	stack[0].startIndex = 0
 	stack[0].endIndex = leafCount
@@ -1628,142 +1668,78 @@ func buildTree(tree *dynamicTree, leafCount int) int {
 
 	for {
 		item := &stack[top]
-
 		item.childCount += 1
 
 		if item.childCount == 2 {
-			// This internal node has both children established
-
+			// Both children written, so the parent node can be finalized.
+			nodes[item.nodeIndex] = makeInternalNode(nodes, item.pair)
 			if top == 0 {
-				// all done
 				break
 			}
 
-			// The pool may have grown; take the nodes after every allocation.
-			nodes := tree.nodes
-			parentItem := &stack[top-1]
-			parentNode := &nodes[parentItem.nodeIndex]
-
-			if parentItem.childCount == 0 {
-				if parentNode.child1 != nullIndex {
-					panic("dbox2d: the rebuild set a child twice")
-				}
-				parentNode.child1 = int32(item.nodeIndex)
-			} else {
-				if parentItem.childCount != 1 || parentNode.child2 != nullIndex {
-					panic("dbox2d: the rebuild set a child twice")
-				}
-				parentNode.child2 = int32(item.nodeIndex)
-			}
-
-			node := &nodes[item.nodeIndex]
-
-			if node.parent != nullIndex {
-				panic("dbox2d: the rebuild node already has a parent")
-			}
-			node.parent = int32(parentItem.nodeIndex)
-
-			if node.child1 == nullIndex || node.child2 == nullIndex {
-				panic("dbox2d: the rebuild node lacks a child")
-			}
-			child1 := &nodes[node.child1]
-			child2 := &nodes[node.child2]
-
-			node.aabb = AABBUnion(child1.aabb, child2.aabb)
-			node.height = 1 + max(child1.height, child2.height)
-			node.categoryBits = child1.categoryBits | child2.categoryBits
-
-			// Pop stack
 			top -= 1
-		} else {
-			var startIndex, endIndex int
-			if item.childCount == 0 {
-				startIndex = item.startIndex
-				endIndex = item.splitIndex
-			} else {
-				if item.childCount != 1 {
-					panic("dbox2d: the rebuild item has too many children")
-				}
-				startIndex = item.splitIndex
-				endIndex = item.endIndex
-			}
-
-			count := endIndex - startIndex
-
-			if count == 1 {
-				childIndex := leafIndices[startIndex]
-				nodes := tree.nodes
-				node := &nodes[item.nodeIndex]
-
-				if item.childCount == 0 {
-					if node.child1 != nullIndex {
-						panic("dbox2d: the rebuild set a child twice")
-					}
-					node.child1 = int32(childIndex)
-				} else {
-					if item.childCount != 1 || node.child2 != nullIndex {
-						panic("dbox2d: the rebuild set a child twice")
-					}
-					node.child2 = int32(childIndex)
-				}
-
-				childNode := &nodes[childIndex]
-				if childNode.parent != nullIndex {
-					panic("dbox2d: the rebuild leaf already has a parent")
-				}
-				childNode.parent = int32(item.nodeIndex)
-			} else {
-				if count <= 0 {
-					panic("dbox2d: the rebuild item is empty")
-				}
-				if top >= treeStackSize-1 {
-					panic("dbox2d: the rebuild stack is full")
-				}
-
-				top += 1
-				newItem := &stack[top]
-				newItem.nodeIndex = allocateNode(tree)
-				newItem.childCount = -1
-				newItem.startIndex = startIndex
-				newItem.endIndex = endIndex
-				newItem.splitIndex = partition(tree, startIndex, count)
-				newItem.splitIndex += startIndex
-			}
+			continue
 		}
+
+		slot := item.childCount
+		startIndex := item.startIndex
+		endIndex := item.splitIndex
+		if slot != 0 {
+			startIndex = item.splitIndex
+			endIndex = item.endIndex
+		}
+		count := endIndex - startIndex
+		if count <= 0 {
+			panic("dbox2d: the tree rebuild split is empty")
+		}
+
+		nodeIndex := item.pair + slot
+		if count == 1 {
+			placeLeaf(tree, leaves[leafIndices[startIndex]], nodeIndex)
+			continue
+		}
+
+		if top >= treeStackSize-1 {
+			panic("dbox2d: the tree rebuild stack is full")
+		}
+
+		top += 1
+		newItem := &stack[top]
+		newItem.nodeIndex = nodeIndex
+		newItem.pair = bumpPair(tree, nodeIndex)
+		newItem.childCount = -1
+		newItem.startIndex = startIndex
+		newItem.endIndex = endIndex
+		newItem.splitIndex = startIndex + partition(tree, startIndex, count)
 	}
-
-	nodes := tree.nodes
-	rootNode := &nodes[stack[0].nodeIndex]
-	if rootNode.parent != nullIndex || rootNode.child1 == nullIndex || rootNode.child2 == nullIndex {
-		panic("dbox2d: the rebuild root is not linked")
-	}
-
-	child1 := &nodes[rootNode.child1]
-	child2 := &nodes[rootNode.child2]
-
-	rootNode.aabb = AABBUnion(child1.aabb, child2.aabb)
-	rootNode.height = 1 + max(child1.height, child2.height)
-	rootNode.categoryBits = child1.categoryBits | child2.categoryBits
-
-	return stack[0].nodeIndex
 }
 
-// rebuild frees every enlarged internal node and builds a new tree over
-// the leaves and the internal nodes that did not grow. A full build takes
-// every leaf. It returns the leaf count of the build. The tree may grow
-// during the call. It corresponds to b2DynamicTree_Rebuild in
-// src/dynamic_tree.c.
+// rebuild rebuilds the stale parts of the tree and puts the whole tree in
+// DFS order, which makes refitting much faster. It returns the number of
+// boxes sorted. Not safe to access the tree during this operation. It
+// corresponds to b2DynamicTree_Rebuild in src/dynamic_tree.c.
 func (tree *dynamicTree) rebuild(fullBuild bool) int {
 	proxyCount := tree.proxyCount
 	if proxyCount == 0 {
 		return 0
 	}
 
-	// Ensure capacity for rebuild space
+	// An unordered tree is rebuilt even when nothing moved, the sweep
+	// refit needs the order.
+	nodes := tree.nodes
+	root := nodes[rootNode]
+	if !fullBuild && !root.isMoved() && tree.dfsOrdered {
+		return 0
+	}
+
+	if tree.swapNodes == nil {
+		tree.swapNodes = make([]treeNode, len(tree.nodes))
+	}
+
 	if proxyCount > len(tree.leafIndices) {
 		newCapacity := proxyCount + proxyCount/2
-
 		tree.leafIndices = make([]int, newCapacity)
+		tree.leafNodes = make([]treeNode, newCapacity)
 		if treeHeuristic == 0 {
 			tree.leafCenters = make([]Vec2, newCapacity)
 		} else {
@@ -1772,95 +1748,294 @@ func (tree *dynamicTree) rebuild(fullBuild bool) int {
 		}
 	}
 
+	leafIndices := tree.leafIndices
+	leaves := tree.leafNodes
+
+	addLeaf := func(leafCount int, node treeNode) {
+		node.flagIndex &^= movedNode
+		leafIndices[leafCount] = leafCount
+		leaves[leafCount] = node
+		if treeHeuristic == 0 {
+			tree.leafCenters[leafCount] = AABBCenter(node.aabb)
+		} else {
+			tree.leafBoxes[leafCount] = node.aabb
+		}
+	}
+
+	// Gather build leaves. A marked internal node is descended and
+	// abandoned in the old array. Everything else is a build leaf, kept
+	// subtrees included. A leaf root, or an unmarked root on an unordered
+	// array, is the one build leaf.
 	leafCount := 0
 	var stack [treeStackSize]int
 	stackCount := 0
+	if !root.isLeaf() && (fullBuild || root.isMoved()) {
+		stack[stackCount] = root.leftChild()
+		stackCount++
+	} else {
+		addLeaf(0, root)
+		leafCount = 1
+	}
 
-	nodeIndex := tree.root
-	nodes := tree.nodes
-	node := &nodes[nodeIndex]
-
-	// These are the nodes that get sorted to rebuild the tree.
-	// I'm using indices because the node pool may grow during the build.
-	leafIndices := tree.leafIndices
-	leafCenters := tree.leafCenters
-	leafBoxes := tree.leafBoxes
-
-	// Gather all proxy nodes that have grown and all internal nodes that haven't grown. Both are
-	// considered leaves in the tree rebuild.
-	// Free all internal nodes that have grown.
-	for {
-		if node.height == 0 || (node.flags&enlargedNode == 0 && !fullBuild) {
-			leafIndices[leafCount] = nodeIndex
-			if treeHeuristic == 0 {
-				leafCenters[leafCount] = AABBCenter(node.aabb)
-			} else {
-				leafBoxes[leafCount] = node.aabb
-			}
-			leafCount += 1
-
-			// Detach
-			node.parent = nullIndex
-		} else {
-			doomedNodeIndex := nodeIndex
-
-			// Handle children
-			nodeIndex = int(node.child1)
-
-			if stackCount >= treeStackSize {
-				panic("dbox2d: the rebuild gather stack is full")
-			}
-			stack[stackCount] = int(node.child2)
-			stackCount++
-
-			node = &nodes[nodeIndex]
-
-			// Remove doomed node
-			freeNode(tree, doomedNodeIndex)
-
-			continue
-		}
-
-		if stackCount == 0 {
-			break
-		}
-
+	for stackCount > 0 {
 		stackCount--
-		nodeIndex = stack[stackCount]
-		node = &nodes[nodeIndex]
+		pair := stack[stackCount]
+		for i := range 2 {
+			node := nodes[pair+i]
+			if !node.isLeaf() && (fullBuild || node.isMoved()) {
+				if stackCount >= treeStackSize {
+					panic("dbox2d: the tree rebuild stack is full")
+				}
+				stack[stackCount] = node.leftChild()
+				stackCount++
+				continue
+			}
+
+			addLeaf(leafCount, node)
+			leafCount++
+		}
 	}
 
-	if leafCount > proxyCount {
-		panic("dbox2d: the rebuild gathered more leaves than proxies")
+	if leafCount <= 0 || leafCount > proxyCount {
+		panic("dbox2d: the tree rebuild gathered a bad leaf count")
 	}
 
-	tree.root = buildTree(tree, leafCount)
+	buildTree(tree, leafCount)
+
+	// The spare is now the tree and the old array is the spare. The build
+	// is dense, so the stale tail of the old array sits above the end and
+	// is never read.
+	tree.nodes, tree.swapNodes = tree.swapNodes, tree.nodes
+	tree.pairFreeList = nullIndex
+	tree.dfsOrdered = true
+
+	validateTreeDebug(tree)
+	validateTreeNoMovedDebug(tree)
 
 	return leafCount
 }
 
-// getAreaRatio returns the summed perimeter of the internal nodes over
-// the perimeter of the root. It measures the quality of the tree. It
-// corresponds to b2DynamicTree_GetAreaRatio in src/dynamic_tree.c.
-func (tree *dynamicTree) getAreaRatio() Q {
-	if tree.root == nullIndex {
-		return QZero()
+// markProxyMovedSerial sets the moved flag on the proxy and its
+// ancestors. It corresponds to b2DynamicTree_MarkProxyMovedSerial in
+// src/dynamic_tree.c.
+func (tree *dynamicTree) markProxyMovedSerial(proxyId int) {
+	checkProxyId(tree, proxyId)
+
+	nodes := tree.nodes
+	parents := tree.parents
+
+	index := int(tree.proxies[proxyId].node)
+	if index < 0 || index >= tree.nodeEnd || !nodes[index].isLeaf() {
+		panic("dbox2d: the marked proxy is not a leaf")
 	}
 
-	root := &tree.nodes[tree.root]
-	rootArea := perimeter(root.aabb)
+	for index != nullIndex {
+		nodes[index].flagIndex |= movedNode
+		index = int(parents[index])
+	}
+}
 
-	totalArea := QZero()
-	for i := range tree.nodes {
-		node := &tree.nodes[i]
-		if !node.isAllocated() || node.isLeaf() || i == tree.root {
+// markProxyMoved updates a proxy box and flags the ancestors as moved. It
+// is safe across workers that mark different proxies: the leaf is owned by
+// the caller and the ancestors take atomic flags. It corresponds to
+// b2DynamicTree_MarkProxyMoved in src/dynamic_tree.c.
+func (tree *dynamicTree) markProxyMoved(proxyId int, aabb AABB) {
+	nodes := tree.nodes
+	parents := tree.parents
+
+	index := int(tree.proxies[proxyId].node)
+	node := &nodes[index]
+
+	// This is not raced since it is the leaf.
+	node.aabb = aabb
+	node.flagIndex |= movedNode
+
+	index = int(parents[index])
+	for index != nullIndex {
+		flags := &nodes[index].flagIndex
+
+		// Read first to avoid the fetch-or if possible.
+		if atomic.LoadUint32(flags)&movedNode != 0 {
+			break
+		}
+
+		previousFlags := atomic.OrUint32(flags, movedNode)
+		if previousFlags&movedNode != 0 {
+			// Ancestor already visited.
+			break
+		}
+
+		index = int(parents[index])
+	}
+}
+
+// clearMoved clears the moved flags from the entire tree. It corresponds
+// to b2DynamicTree_ClearMoved in src/dynamic_tree.c.
+func (tree *dynamicTree) clearMoved() {
+	nodes := tree.nodes
+
+	root := &nodes[rootNode]
+	if !root.isMoved() {
+		return
+	}
+
+	root.flagIndex &^= movedNode
+	if root.isLeaf() {
+		return
+	}
+
+	var stack [treeStackSize]int
+	stackCount := 0
+	stack[stackCount] = root.leftChild()
+	stackCount++
+
+	for stackCount > 0 {
+		stackCount--
+		pair := stack[stackCount]
+		for i := range 2 {
+			node := &nodes[pair+i]
+			if node.flagIndex&movedNode != 0 {
+				node.flagIndex &^= movedNode
+				if !node.isLeaf() {
+					// Bad stuff will happen if the moved flags don't get
+					// cleared.
+					if stackCount >= treeStackSize {
+						panic("dbox2d: the tree clear stack is full")
+					}
+					stack[stackCount] = node.leftChild()
+					stackCount++
+				}
+			}
+		}
+	}
+}
+
+// gatherMovedProxies appends the moved proxies to proxyIds and returns
+// it. It corresponds to b2DynamicTree_GatherMovedProxies in
+// src/dynamic_tree.c.
+func (tree *dynamicTree) gatherMovedProxies(proxyIds []int) []int {
+	nodes := tree.nodes
+	root := &nodes[rootNode]
+	if !root.isMoved() {
+		return proxyIds
+	}
+
+	if root.isLeaf() {
+		return append(proxyIds, root.proxyId())
+	}
+
+	var stack [treeStackSize]int
+	stackCount := 0
+	stack[stackCount] = root.leftChild()
+	stackCount++
+
+	for stackCount > 0 {
+		stackCount--
+		pair := stack[stackCount]
+		for i := range 2 {
+			node := &nodes[pair+i]
+			if !node.isMoved() {
+				continue
+			}
+
+			if node.isLeaf() {
+				proxyIds = append(proxyIds, node.proxyId())
+			} else {
+				if stackCount >= treeStackSize {
+					panic("dbox2d: the tree gather stack is full")
+				}
+				stack[stackCount] = node.leftChild()
+				stackCount++
+			}
+		}
+	}
+
+	return proxyIds
+}
+
+// refitSubtree is the slow refit for an unordered tree, which only unit
+// tests build. Negative entries are deferred unions: a parent is pushed
+// before its children, so the LIFO order finishes both children before
+// the union runs. It corresponds to b2RefitSubtree in src/dynamic_tree.c.
+func refitSubtree(nodes []treeNode, rootIndex int) {
+	root := &nodes[rootIndex]
+	if root.isLeaf() || !root.isMoved() {
+		return
+	}
+
+	var stack [treeStackSize]int
+	stackCount := 0
+	push := func(item int) {
+		stack[stackCount] = item
+		stackCount++
+	}
+
+	// ^0 == -1
+	push(^rootIndex)
+	push(root.leftChild())
+	push(root.leftChild() + 1)
+
+	for stackCount > 0 {
+		stackCount--
+		item := stack[stackCount]
+		if item < 0 {
+			node := &nodes[^item]
+			pair := node.leftChild()
+			node.aabb = AABBUnion(nodes[pair].aabb, nodes[pair+1].aabb)
 			continue
 		}
 
-		totalArea = totalArea.Add(perimeter(node.aabb))
+		node := &nodes[item]
+		if node.isLeaf() || !node.isMoved() {
+			continue
+		}
+
+		if stackCount+3 > treeStackSize {
+			panic("dbox2d: the tree refit stack is full")
+		}
+		pair := node.leftChild()
+		push(^item)
+		push(pair)
+		push(pair + 1)
+	}
+}
+
+// refit recomputes the boxes of the moved internal nodes. On a DFS
+// ordered tree it sweeps the pairs from the end down, so every child is
+// done before its parent. It corresponds to b2DynamicTree_Refit in
+// src/dynamic_tree.c.
+func (tree *dynamicTree) refit() {
+	if !tree.hasMoved() {
+		return
 	}
 
-	return totalArea.Div(rootArea)
+	nodes := tree.nodes
+
+	if !tree.dfsOrdered {
+		// This only happens in unit tests.
+		refitSubtree(nodes, rootNode)
+		return
+	}
+
+	for pair := tree.nodeEnd - 2; pair >= 0; pair -= 2 {
+		flags1 := nodes[pair].flagIndex
+		flags2 := nodes[pair+1].flagIndex
+
+		// Did either move?
+		if (flags1|flags2)&movedNode == 0 {
+			continue
+		}
+
+		// Is the node internal and moved?
+		if flags1&(leafNode|movedNode) == movedNode {
+			children := int(flags1 & nodeIndexMask)
+			nodes[pair].aabb = AABBUnion(nodes[children].aabb, nodes[children+1].aabb)
+		}
+		if flags2&(leafNode|movedNode) == movedNode {
+			children := int(flags2 & nodeIndexMask)
+			nodes[pair+1].aabb = AABBUnion(nodes[children].aabb, nodes[children+1].aabb)
+		}
+	}
 }
 
 // DynamicTree is a standalone bounding volume hierarchy over proxies. The
@@ -1883,31 +2058,31 @@ type TreeQueryCallbackFcn func(proxyId int, userData uint64) bool
 // b2TreeRayCastCallbackFcn in include/box2d/collision.h. D-014 applies.
 type TreeRayCastCallbackFcn func(input *RayCastInput, proxyId int, userData uint64) Q
 
-// TreeShapeCastCallbackFcn receives each proxy whose box the swept proxy
-// reaches. Its return value works like TreeRayCastCallbackFcn's. It
-// corresponds to b2TreeShapeCastCallbackFcn in include/box2d/collision.h.
+// TreeBoxCastCallbackFcn receives each proxy the swept box may reach. It
+// returns zero to stop the cast, a value below input.MaxFraction to clip
+// the cast, or input.MaxFraction to continue without clipping. It
+// corresponds to b2TreeBoxCastCallbackFcn in include/box2d/collision.h.
 // D-014 applies.
-type TreeShapeCastCallbackFcn func(input *ShapeCastInput, proxyId int, userData uint64) Q
+type TreeBoxCastCallbackFcn func(input *BoxCastInput, proxyId int, userData uint64) Q
 
-// NewDynamicTree returns an empty tree. It corresponds to
-// b2DynamicTree_Create.
-func NewDynamicTree() *DynamicTree {
-	return &DynamicTree{tree: createTree()}
+// NewDynamicTree returns an empty tree with room for proxyCapacity
+// proxies. It corresponds to b2CreateDynamicTree.
+func NewDynamicTree(proxyCapacity int) *DynamicTree {
+	return &DynamicTree{tree: createTree(proxyCapacity)}
 }
 
-// Destroy releases the node pool. It corresponds to b2DynamicTree_Destroy.
+// Destroy releases the tree. It corresponds to b2DestroyDynamicTree.
 func (t *DynamicTree) Destroy() {
 	destroyTree(&t.tree)
 }
 
 // CreateProxy inserts a proxy with a fat box and returns its id. It
-// corresponds to b2DynamicTree_CreateProxy.
+// corresponds to b2CreateTreeProxy.
 func (t *DynamicTree) CreateProxy(aabb AABB, categoryBits uint64, userData uint64) int {
 	return t.tree.createProxy(aabb, categoryBits, userData)
 }
 
-// DestroyProxy removes a proxy. It corresponds to
-// b2DynamicTree_DestroyProxy.
+// DestroyProxy removes a proxy. It corresponds to b2DestroyTreeProxy.
 func (t *DynamicTree) DestroyProxy(proxyId int) {
 	t.tree.destroyProxy(proxyId)
 }
@@ -1916,13 +2091,6 @@ func (t *DynamicTree) DestroyProxy(proxyId int) {
 // b2DynamicTree_MoveProxy.
 func (t *DynamicTree) MoveProxy(proxyId int, aabb AABB) {
 	t.tree.moveProxy(proxyId, aabb)
-}
-
-// EnlargeProxy grows a proxy in place; a later Rebuild repairs the tree.
-// The new box must not fit in the old one. It corresponds to
-// b2DynamicTree_EnlargeProxy.
-func (t *DynamicTree) EnlargeProxy(proxyId int, aabb AABB) {
-	t.tree.enlargeProxy(proxyId, aabb)
 }
 
 // SetCategoryBits changes the category bits of a proxy. It corresponds to
@@ -1937,32 +2105,33 @@ func (t *DynamicTree) GetCategoryBits(proxyId int) uint64 {
 	return t.tree.getCategoryBits(proxyId)
 }
 
-// Query calls back every proxy that overlaps the box and passes the mask.
-// It corresponds to b2DynamicTree_Query.
-func (t *DynamicTree) Query(aabb AABB, maskBits uint64, fcn TreeQueryCallbackFcn) TreeStats {
-	stats := t.tree.query(aabb, maskBits, treeQueryCallback(fcn))
+// OverlapAABB calls back every proxy that overlaps the box and passes the
+// mask. It corresponds to b2DynamicTree_OverlapAABB.
+func (t *DynamicTree) OverlapAABB(aabb AABB, maskBits uint64, fcn TreeQueryCallbackFcn) TreeStats {
+	stats := t.tree.overlapAABB(aabb, maskBits, treeQueryCallback(fcn))
 	return TreeStats{NodeVisits: stats.nodeVisits, LeafVisits: stats.leafVisits}
 }
 
-// RayCast calls back every proxy whose box the ray reaches. It
-// corresponds to b2DynamicTree_RayCast.
-func (t *DynamicTree) RayCast(input *RayCastInput, maskBits uint64, fcn TreeRayCastCallbackFcn) TreeStats {
-	stats := t.tree.rayCast(input, maskBits, treeRayCastCallback(fcn))
+// OverlapAABBAll calls back every proxy that overlaps the box, ignoring
+// the category bits. It corresponds to b2DynamicTree_OverlapAABBAll.
+func (t *DynamicTree) OverlapAABBAll(aabb AABB, fcn TreeQueryCallbackFcn) TreeStats {
+	stats := t.tree.overlapAABBAll(aabb, treeQueryCallback(fcn))
 	return TreeStats{NodeVisits: stats.nodeVisits, LeafVisits: stats.leafVisits}
 }
 
-// ShapeCast calls back every proxy whose box the swept proxy may reach.
-// It corresponds to b2DynamicTree_ShapeCast.
-func (t *DynamicTree) ShapeCast(input *ShapeCastInput, maskBits uint64, fcn TreeShapeCastCallbackFcn) TreeStats {
-	stats := t.tree.shapeCast(input, maskBits, treeShapeCastCallback(fcn))
+// CastRay calls back every proxy whose box the ray reaches. It
+// corresponds to b2DynamicTree_CastRay.
+func (t *DynamicTree) CastRay(input *RayCastInput, maskBits uint64, fcn TreeRayCastCallbackFcn) TreeStats {
+	stats := t.tree.castRay(input, maskBits, treeRayCastCallback(fcn))
 	return TreeStats{NodeVisits: stats.nodeVisits, LeafVisits: stats.leafVisits}
 }
 
-// Rebuild rebuilds the enlarged part of the tree, or the whole tree when
-// fullBuild is set. It returns the leaf count of the build. It
-// corresponds to b2DynamicTree_Rebuild.
-func (t *DynamicTree) Rebuild(fullBuild bool) int {
-	return t.tree.rebuild(fullBuild)
+// CastBox calls back every proxy the swept box may reach. The box sweeps
+// from its origin to origin + MaxFraction * Translation. It corresponds to
+// b2DynamicTree_CastBox.
+func (t *DynamicTree) CastBox(input *BoxCastInput, maskBits uint64, fcn TreeBoxCastCallbackFcn) TreeStats {
+	stats := t.tree.castBox(input, maskBits, treeBoxCastCallback(fcn))
+	return TreeStats{NodeVisits: stats.nodeVisits, LeafVisits: stats.leafVisits}
 }
 
 // GetProxyCount returns the number of proxies. It corresponds to
@@ -1989,16 +2158,22 @@ func (t *DynamicTree) GetRootBounds() AABB {
 	return t.tree.getRootBounds()
 }
 
+// GetByteCount returns the memory the tree holds. It corresponds to
+// b2DynamicTree_GetByteCount.
+func (t *DynamicTree) GetByteCount() int {
+	return t.tree.byteCount()
+}
+
 // GetUserData returns the user data of a proxy. It corresponds to
 // b2DynamicTree_GetUserData.
 func (t *DynamicTree) GetUserData(proxyId int) uint64 {
 	return t.tree.getUserData(proxyId)
 }
 
-// GetAABB returns the box of a proxy. It corresponds to
-// b2DynamicTree_GetAABB.
-func (t *DynamicTree) GetAABB(proxyId int) AABB {
-	return t.tree.getAABB(proxyId)
+// GetProxyBounds returns the box of a proxy. It corresponds to
+// b2DynamicTree_GetProxyBounds.
+func (t *DynamicTree) GetProxyBounds(proxyId int) AABB {
+	return t.tree.getProxyBounds(proxyId)
 }
 
 // Validate checks the tree. Like the reference, it does nothing unless
@@ -2006,11 +2181,4 @@ func (t *DynamicTree) GetAABB(proxyId int) AABB {
 // b2DynamicTree_Validate.
 func (t *DynamicTree) Validate() {
 	validateTreeDebug(&t.tree)
-}
-
-// ValidateNoEnlarged checks that no proxy is left enlarged. Like Validate,
-// it does nothing unless the build enables validation. It corresponds to
-// b2DynamicTree_ValidateNoEnlarged.
-func (t *DynamicTree) ValidateNoEnlarged() {
-	validateTreeNoEnlargedDebug(&t.tree)
 }

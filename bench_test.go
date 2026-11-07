@@ -281,7 +281,7 @@ func BenchmarkStep(b *testing.B) {
 	shapeDef := DefaultShapeDef()
 	box := MakeSquare(QOne())
 	for i := range benchBodyCount {
-		bodyDef.Position = Vec2{X: QFromInt(i * 3), Y: QFromInt(i % 16)}
+		bodyDef.Position = ToPos(Vec2{X: QFromInt(i * 3), Y: QFromInt(i % 16)})
 		bodyId := CreateBody(worldId, &bodyDef)
 		CreatePolygonShape(bodyId, &shapeDef, &box)
 	}
@@ -698,10 +698,12 @@ func BenchmarkCollidePolygonsQ(b *testing.B) {
 	xfA := TransformIdentity()
 	xfB := Transform{P: Vec2{Y: QMustParse("1.5")}, Q: RotIdentity()}
 
-	var result Manifold
+	xf := InvMulTransforms(xfA, xfB)
+
+	var result LocalManifold
 	b.ResetTimer()
 	for range b.N {
-		result = CollidePolygons(&boxA, xfA, &boxB, xfB)
+		result = CollidePolygons(&boxA, &boxB, xf)
 	}
 	runtime.KeepAlive(result)
 	if result.PointCount == 0 {
@@ -749,7 +751,7 @@ func pyramidCenters(rows int) [][2]int {
 func buildPyramid(worldId WorldId, rows int) BodyId {
 	half := QHalf()
 	groundDef := DefaultBodyDef()
-	groundDef.Position = Vec2{Y: half.Neg()}
+	groundDef.Position = ToPos(Vec2{Y: half.Neg()})
 	groundId := CreateBody(worldId, &groundDef)
 	shapeDef := DefaultShapeDef()
 	ground := MakeBox(QFromInt(rows), half)
@@ -760,7 +762,7 @@ func buildPyramid(worldId WorldId, rows int) BodyId {
 	box := MakeSquare(half)
 	var bodyId BodyId
 	for _, c := range pyramidCenters(rows) {
-		bodyDef.Position = Vec2{X: half.Mul(QFromInt(c[0])), Y: half.Mul(QFromInt(c[1]))}
+		bodyDef.Position = ToPos(Vec2{X: half.Mul(QFromInt(c[0])), Y: half.Mul(QFromInt(c[1]))})
 		bodyId = CreateBody(worldId, &bodyDef)
 		CreatePolygonShape(bodyId, &shapeDef, &box)
 	}
@@ -794,7 +796,7 @@ func BenchmarkStepPyramid(b *testing.B) {
 func buildPyramidWithSensors(worldId WorldId, rows, sensorCount int) {
 	half := QHalf()
 	groundDef := DefaultBodyDef()
-	groundDef.Position = Vec2{Y: half.Neg()}
+	groundDef.Position = ToPos(Vec2{Y: half.Neg()})
 	groundId := CreateBody(worldId, &groundDef)
 	shapeDef := DefaultShapeDef()
 	ground := MakeBox(QFromInt(rows), half)
@@ -816,7 +818,7 @@ func buildPyramidWithSensors(worldId WorldId, rows, sensorCount int) {
 	boxShapeDef.EnableSensorEvents = true
 	box := MakeSquare(half)
 	for _, c := range pyramidCenters(rows) {
-		bodyDef.Position = Vec2{X: half.Mul(QFromInt(c[0])), Y: half.Mul(QFromInt(c[1]))}
+		bodyDef.Position = ToPos(Vec2{X: half.Mul(QFromInt(c[0])), Y: half.Mul(QFromInt(c[1]))})
 		bodyId := CreateBody(worldId, &bodyDef)
 		CreatePolygonShape(bodyId, &boxShapeDef, &box)
 	}
@@ -1463,6 +1465,16 @@ func f64Center(a f64AABB) (float64, float64) {
 	return 0.5 * (a[0] + a[2]), 0.5 * (a[1] + a[3])
 }
 
+// The rotation choices of the f64 mirror. The mirror keeps the v3.1 tree,
+// with its per-node rotation, as a fixed cost reference.
+const (
+	rotateNone = iota
+	rotateBF
+	rotateBG
+	rotateCD
+	rotateCE
+)
+
 type f64TreeNode struct {
 	aabb           f64AABB
 	userData       uint64
@@ -1835,7 +1847,7 @@ func halfUnitsF64(box [4]int) f64AABB {
 }
 
 func BenchmarkTreeQueryQ(b *testing.B) {
-	tree := createTree()
+	tree := createTree(16)
 	for i := range treeBenchSide * treeBenchSide {
 		tree.createProxy(halfUnitsQ(treeBenchBox(i)), DefaultCategoryBits, uint64(i))
 	}
@@ -1849,7 +1861,7 @@ func BenchmarkTreeQueryQ(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
-		tree.query(query, DefaultMaskBits, callback)
+		tree.overlapAABB(query, DefaultMaskBits, callback)
 	}
 	b.StopTimer()
 	if hits != 4*b.N {
@@ -1893,6 +1905,7 @@ func BenchmarkUpdateBroadPhasePairsQ(b *testing.B) {
 	buildPyramid(worldId, pyramidRows)
 	w := getWorldFromId(worldId)
 	updateBroadPhasePairs(w, &w.solverContext)
+	w.treeTask.wait()
 	contacts := w.contactIdPool.idCount()
 	// Step grows the arena after the first pass; the bench does the same.
 	w.arena.grow()
@@ -1900,7 +1913,7 @@ func BenchmarkUpdateBroadPhasePairsQ(b *testing.B) {
 	moveAll := func() {
 		for i := range w.shapes {
 			if w.shapes[i].proxyKey != nullIndex {
-				w.broadPhase.bufferMove(w.shapes[i].proxyKey)
+				w.broadPhase.markProxyMovedSerial(w.shapes[i].proxyKey)
 			}
 		}
 	}
@@ -1909,6 +1922,7 @@ func BenchmarkUpdateBroadPhasePairsQ(b *testing.B) {
 	for range b.N {
 		moveAll()
 		updateBroadPhasePairs(w, &w.solverContext)
+		w.treeTask.wait()
 	}
 	b.StopTimer()
 	if w.contactIdPool.idCount() != contacts {
@@ -2001,7 +2015,7 @@ func newF64PyramidBroadPhase() *f64BroadPhase {
 		bp.trees[i] = newF64Tree()
 	}
 	// The fat bounds grow by the speculative distance and the margin.
-	grow := QToFloat64(speculativeDistance) + QToFloat64(aabbMargin)
+	grow := QToFloat64(speculativeDistance) + QToFloat64(maxAABBMargin)
 
 	rows := float64(pyramidRows)
 	ground := f64AABB{-rows - grow, -1 - grow, rows + grow, grow}
@@ -2044,11 +2058,10 @@ func benchDistanceInput() DistanceInput {
 	box := MakeSquare(QOne())
 	proxy := MakeProxy(box.Vertices[:box.Count], QZero())
 	return DistanceInput{
-		ProxyA:     proxy,
-		ProxyB:     proxy,
-		TransformA: TransformIdentity(),
-		TransformB: Transform{P: Vec2{X: QFromInt(3), Y: QHalf()}, Q: MakeRot(QFromRatio(1, 8))},
-		UseRadii:   true,
+		ProxyA:    proxy,
+		ProxyB:    proxy,
+		Transform: Transform{P: Vec2{X: QFromInt(3), Y: QHalf()}, Q: MakeRot(QFromRatio(1, 8))},
+		UseRadii:  true,
 	}
 }
 
@@ -2061,7 +2074,7 @@ func BenchmarkShapeDistanceQ(b *testing.B) {
 	b.ResetTimer()
 	for range b.N {
 		var cache SimplexCache
-		result = ShapeDistance(&input, &cache, nil)
+		result = ComputeShapeDistance(&input, &cache, nil)
 	}
 	runtime.KeepAlive(result)
 	if !QHalf().Less(result.Distance) {
@@ -2073,7 +2086,7 @@ func BenchmarkShapeDistanceQ(b *testing.B) {
 func BenchmarkShapeDistanceF64(b *testing.B) {
 	input := benchDistanceInput()
 	pa, pb := proxyToF64(&input.ProxyA), proxyToF64(&input.ProxyB)
-	xfA, xfB := transformToF64(input.TransformA), transformToF64(input.TransformB)
+	xfA, xfB := transformToF64(TransformIdentity()), transformToF64(input.Transform)
 
 	var result f64DistanceOutput
 	b.ReportAllocs()
@@ -2112,7 +2125,7 @@ func BenchmarkTimeOfImpactQ(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
-		result = TimeOfImpact(&input)
+		result = ComputeTimeOfImpact(&input)
 	}
 	runtime.KeepAlive(result)
 	if result.State != TOIStateHit {
@@ -2150,7 +2163,7 @@ func buildBulletRange(worldId WorldId) {
 	wallShape := DefaultShapeDef()
 	wall := MakeBox(QHalf(), QFromInt(bulletLaneCount))
 	for _, x := range [2]int{-30, 30} {
-		wallDef.Position = Vec2{X: QFromInt(x)}
+		wallDef.Position = ToPos(Vec2{X: QFromInt(x)})
 		CreatePolygonShape(CreateBody(worldId, &wallDef), &wallShape, &wall)
 	}
 
@@ -2163,7 +2176,7 @@ func buildBulletRange(worldId WorldId) {
 	boxShape.Material.Friction = QZero()
 	box := MakeSquare(QFromRatio(1, 10))
 	for i := range bulletLaneCount {
-		boxDef.Position = Vec2{Y: QFromInt(i - bulletLaneCount/2)}
+		boxDef.Position = ToPos(Vec2{Y: QFromInt(i - bulletLaneCount/2)})
 		boxDef.IsBullet = i%2 == 0
 		CreatePolygonShape(CreateBody(worldId, &boxDef), &boxShape, &box)
 	}
@@ -2195,7 +2208,7 @@ func BenchmarkStepBullets(b *testing.B) {
 
 	fast := 0
 	for i := range w.solverSets[awakeSet].bodySims {
-		if w.solverSets[awakeSet].bodySims[i].isFast {
+		if w.solverSets[awakeSet].bodySims[i].flags&bodyIsFast != 0 {
 			fast++
 		}
 	}
@@ -2250,14 +2263,14 @@ func buildRevoluteChain(worldId WorldId) {
 	shapeDef := DefaultShapeDef()
 	box := MakeBox(QHalf(), QHalf())
 	jointDef := DefaultRevoluteJointDef()
-	jointDef.LocalAnchorA = Vec2{X: QHalf()}
-	jointDef.LocalAnchorB = Vec2{X: QHalf().Neg()}
+	jointDef.Base.LocalFrameA.P = Vec2{X: QHalf()}
+	jointDef.Base.LocalFrameB.P = Vec2{X: QHalf().Neg()}
 	for i := range 32 {
-		boxDef.Position = Vec2{X: QFromInt(i + 1)}
+		boxDef.Position = ToPos(Vec2{X: QFromInt(i + 1)})
 		bodyId := CreateBody(worldId, &boxDef)
 		CreatePolygonShape(bodyId, &shapeDef, &box)
-		jointDef.BodyIdA = prevId
-		jointDef.BodyIdB = bodyId
+		jointDef.Base.BodyIdA = prevId
+		jointDef.Base.BodyIdB = bodyId
 		CreateRevoluteJoint(worldId, &jointDef)
 		prevId = bodyId
 	}

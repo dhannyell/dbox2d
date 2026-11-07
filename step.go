@@ -79,6 +79,10 @@ type stepContext struct {
 	pad0 [64]byte //nolint:unused // Keeps atomicSyncBits on its own cache line.
 
 	atomicSyncBits atomic.Uint32
+
+	// anyRestitution is set by the contact prepare when a contact has
+	// restitution, so the restitution passes run only when one does.
+	anyRestitution atomic.Bool
 }
 
 // Step advances the simulation by timeStep, split into subStepCount
@@ -96,6 +100,9 @@ func (worldId WorldId) Step(timeStep Q, subStepCount int) {
 	if w.locked {
 		panic("dbox2d: the world is locked")
 	}
+	if w.recording != nil {
+		w.recording.rec(opStep, worldId, timeStep, subStepCount)
+	}
 	w.taskCount = 0
 	if w.workerCount > 1 {
 		w.executor.start(w.workerCount)
@@ -107,6 +114,7 @@ func (worldId WorldId) Step(timeStep Q, subStepCount int) {
 	w.bodyMoveEvents = w.bodyMoveEvents[:0]
 	w.contactBeginEvents = w.contactBeginEvents[:0]
 	w.contactHitEvents = w.contactHitEvents[:0]
+	w.jointEvents = w.jointEvents[:0]
 	w.sensorBeginEvents = w.sensorBeginEvents[:0]
 
 	w.profile = Profile{}
@@ -117,10 +125,12 @@ func (worldId WorldId) Step(timeStep Q, subStepCount int) {
 		w.endEventArrayIndex = 1 - w.endEventArrayIndex
 		w.sensorEndEvents[w.endEventArrayIndex] = w.sensorEndEvents[w.endEventArrayIndex][:0]
 		w.contactEndEvents[w.endEventArrayIndex] = w.contactEndEvents[w.endEventArrayIndex][:0]
+		recordStepEnd(w)
 		return
 	}
 
 	w.locked = true
+	updateMaxCapacity(w)
 
 	stepStart := time.Now()
 
@@ -146,19 +156,12 @@ func (worldId WorldId) Step(timeStep Q, subStepCount int) {
 	}
 
 	w.invH = context.invH
+	w.invDt = context.invDt
 
 	// Hertz values get reduced for large time steps
 	contactHertz := w.contactHertz.Min(QFromRatio(1, 8).Mul(context.invH))
 	context.contactSoftness = makeSoft(contactHertz, w.contactDampingRatio, context.h)
 	context.staticSoftness = makeSoft(contactHertz.Add(contactHertz), w.contactDampingRatio, context.h)
-
-	// D-006: a zero contact frequency gives a zero mass scale. The
-	// reference divides and gets infinity; the port keeps a zero speed.
-	if context.staticSoftness.massScale.Eq(zero) {
-		w.contactSpeed = zero
-	} else {
-		w.contactSpeed = w.maxContactPushSpeed.Div(context.staticSoftness.massScale)
-	}
 
 	context.restitutionThreshold = w.restitutionThreshold
 	context.maxLinearVelocity = w.maxLinearSpeed
@@ -193,6 +196,8 @@ func (worldId WorldId) Step(timeStep Q, subStepCount int) {
 		panic("dbox2d: the arena is not empty after the step")
 	}
 
+	w.maxCapacity.arenaByteCount = max(w.maxCapacity.arenaByteCount, getMaxArenaAllocation(&w.arena))
+
 	// Ensure stack is large enough
 	w.arena.grow()
 
@@ -200,6 +205,7 @@ func (worldId WorldId) Step(timeStep Q, subStepCount int) {
 	w.endEventArrayIndex = 1 - w.endEventArrayIndex
 	w.sensorEndEvents[w.endEventArrayIndex] = w.sensorEndEvents[w.endEventArrayIndex][:0]
 	w.contactEndEvents[w.endEventArrayIndex] = w.contactEndEvents[w.endEventArrayIndex][:0]
+	recordStepEnd(w)
 	w.locked = false
 }
 
@@ -212,6 +218,10 @@ func collideTask(startIndex, endIndex, workerIndex int, context *stepContext) {
 	shapes := w.shapes
 	bodies := w.bodies
 
+	recycleDistance := w.contactRecycleDistance
+	recycleDistanceNonTouching := recycleDistance.Min(speculativeDistance)
+	zero := QZero()
+
 	for contactIndex := startIndex; contactIndex < endIndex; contactIndex++ {
 		cs := context.contacts[contactIndex]
 
@@ -221,7 +231,7 @@ func collideTask(startIndex, endIndex, workerIndex int, context *stepContext) {
 		shapeB := &shapes[cs.shapeIdB]
 
 		// Do proxies still overlap?
-		overlap := AABBOverlaps(shapeA.fatAABB, shapeB.fatAABB)
+		overlap := AABBOverlaps(w.fatAABBs[shapeA.id], w.fatAABBs[shapeB.id])
 		if !overlap {
 			cs.simFlags |= simDisjoint
 			cs.simFlags &^= simTouchingFlag
@@ -253,6 +263,75 @@ func collideTask(startIndex, endIndex, workerIndex int, context *stepContext) {
 			transformA := bodySimA.transform
 			transformB := bodySimB.transform
 
+			// Contact recycling optimization. This is inspired by persistent
+			// contact manifolds used in some physics engines, such as PhysX.
+			// However, this allows larger relative motion and has fewer
+			// tuning parameters (just one).
+			if zero.Less(recycleDistance) && cs.simFlags&simRelativeTransformValid != 0 && cs.simFlags&contactRecycleFlag != 0 {
+				cachedQA := cs.cachedRotationA
+				cachedQB := cs.cachedRotationB
+				xfc := cs.cachedRelativePose
+				xf := InvMulWorldTransforms(transformA, transformB)
+
+				cosA := relativeCos(transformA.Q, cachedQA)
+				cosB := relativeCos(transformB.Q, cachedQB)
+				minCos := cosA.Min(cosB)
+
+				maxExtentA := zero
+				if bodyA.setIndex != staticSet {
+					maxExtentA = bodySimA.maxExtent
+				}
+				maxExtentB := zero
+				if bodyB.setIndex != staticSet {
+					maxExtentB = bodySimB.maxExtent
+				}
+				maxExtent := maxExtentA.Max(maxExtentB)
+				distance := xfc.P.Sub(xf.P).Len()
+				qr := InvMulRot(xf.Q, xfc.Q)
+
+				// This metric is used for fast bodies and sleeping. It comes
+				// from conservative advancement. Note that qr.s == sin(theta)
+				// ~= theta for small angles. Need a tighter tolerance for
+				// non-touching shapes so that contacts are not missed.
+				tolerance := recycleDistanceNonTouching
+				if wasTouching {
+					tolerance = recycleDistance
+				}
+
+				if contactRecycleCosAngle.Less(minCos) && distance.Add(maxExtent.Mul(qr.Sin.Abs())).Less(tolerance) {
+					dqA := MulRot(transformA.Q, InvertRot(cachedQA))
+					dqB := MulRot(transformB.Q, InvertRot(cachedQB))
+					normal := cs.manifold.Normal
+
+					// Minimize round-off
+					dc := SubPos(bodySimB.center, bodySimA.center)
+
+					for i := range cs.manifold.PointCount {
+						// Keep anchors but update separation, same as
+						// sub-stepping. This eliminates jitter.
+						mp := &cs.manifold.Points[i]
+						rA := RotateVector(dqA, mp.AnchorA)
+						rB := RotateVector(dqB, mp.AnchorB)
+						dp := dc.Add(rB.Sub(rA))
+
+						mp.Separation = mp.BaseSeparation.Add(dp.Dot(normal))
+						mp.NormalVelocity = zero
+						mp.Persisted = true
+					}
+
+					// Contact is recycled. This also skips updating other
+					// aspects of the contact such as material parameters.
+					taskContext.recycledContactCount++
+					continue
+				}
+			}
+
+			// Caching for contact recycling.
+			cs.cachedRotationA = transformA.Q
+			cs.cachedRotationB = transformB.Q
+			cs.cachedRelativePose = InvMulWorldTransforms(transformA, transformB)
+			cs.simFlags |= simRelativeTransformValid
+
 			centerOffsetA := RotateVector(transformA.Q, bodySimA.localCenter)
 			centerOffsetB := RotateVector(transformB.Q, bodySimB.localCenter)
 
@@ -266,6 +345,14 @@ func collideTask(startIndex, endIndex, workerIndex int, context *stepContext) {
 			} else if !touching && wasTouching {
 				cs.simFlags |= simStoppedTouching
 				taskContext.contactStateBitSet.setBit(contactId)
+			}
+
+			if touching {
+				for i := range cs.manifold.PointCount {
+					// Cache separation
+					mp := &cs.manifold.Points[i]
+					mp.BaseSeparation = mp.Separation
+				}
 			}
 		}
 	}
@@ -376,12 +463,6 @@ func removeNonTouchingContact(w *world, setIndex, localIndex int) {
 func collide(context *stepContext) {
 	w := context.world
 
-	// Start the rebuild before the contact count is known, matching the reference.
-	// Even worlds with no contacts still need their trees rebuilt, and starting
-	// here lets the work overlap the narrow phase and solve.
-	w.taskCount++
-	w.treeTask.begin(w)
-
 	graphColors := &w.constraintGraph.colors
 	contactCount := 0
 	for i := range graphColorCount {
@@ -399,6 +480,7 @@ func collide(context *stepContext) {
 	contactIdCapacity := w.contactIdPool.idCapacity()
 	for i := range w.workerCount {
 		setBitCountAndClear(&w.taskContexts[i].contactStateBitSet, contactIdCapacity)
+		w.taskContexts[i].recycledContactCount = 0
 	}
 
 	// One pointer array over the colors and the awake set, in that order,
@@ -472,7 +554,7 @@ func collide(context *stepContext) {
 				}
 
 				if flags&contactEnableContactEvents != 0 {
-					event := ContactBeginTouchEvent{ShapeIdA: shapeIdA, ShapeIdB: shapeIdB, Manifold: cs.manifold}
+					event := ContactBeginTouchEvent{ShapeIdA: shapeIdA, ShapeIdB: shapeIdB, ContactId: contactIdOf(w, c)}
 					w.contactBeginEvents = append(w.contactBeginEvents, event)
 				}
 
@@ -503,7 +585,7 @@ func collide(context *stepContext) {
 				c.flags &^= contactTouchingFlag
 
 				if c.flags&contactEnableContactEvents != 0 {
-					event := ContactEndTouchEvent{ShapeIdA: shapeIdA, ShapeIdB: shapeIdB}
+					event := ContactEndTouchEvent{ShapeIdA: shapeIdA, ShapeIdB: shapeIdB, ContactId: contactIdOf(w, c)}
 					w.contactEndEvents[endEventArrayIndex] = append(w.contactEndEvents[endEventArrayIndex], event)
 				}
 

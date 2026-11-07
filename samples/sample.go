@@ -53,13 +53,15 @@ type Sample interface {
 // Base holds the state every sample shares: the world, the mouse joint and
 // the profile.
 type Base struct {
-	Context      *SampleContext
-	WorldId      b2.WorldId
-	GroundBodyId b2.BodyId
-	MouseJointId b2.JointId
-	StepCount    int
-	MaxProfile   b2.Profile
-	TotalProfile b2.Profile
+	Context         *SampleContext
+	WorldId         b2.WorldId
+	MouseBodyId     b2.BodyId
+	MouseJointId    b2.JointId
+	MousePoint      b2.Vec2
+	MouseForceScale b2.Q
+	StepCount       int
+	MaxProfile      b2.Profile
+	TotalProfile    b2.Profile
 
 	textLine      int
 	textIncrement int
@@ -75,6 +77,8 @@ func NewBase(ctx *SampleContext) Base {
 		Context:       ctx,
 		textLine:      30,
 		textIncrement: 22,
+
+		MouseForceScale: b2.F(100),
 	}
 	b.CreateWorld()
 	return b
@@ -150,7 +154,7 @@ type queryContext struct {
 }
 
 // MouseDown starts dragging the first dynamic body under the point, using a
-// mouse joint anchored to a throwaway ground body.
+// motor joint anchored to a kinematic mouse body that Step moves to the point.
 func (b *Base) MouseDown(p b2.Vec2, button MouseButton, mod Modifier) {
 	if !b.MouseJointId.IsNull() {
 		return
@@ -160,18 +164,16 @@ func (b *Base) MouseDown(p b2.Vec2, button MouseButton, mod Modifier) {
 	}
 
 	d := b2.Vec2{X: b2.QFromRatio(1, 1000), Y: b2.QFromRatio(1, 1000)}
-	box := b2.AABB{
-		LowerBound: b2.Vec2{X: p.X.Sub(d.X), Y: p.Y.Sub(d.Y)},
-		UpperBound: b2.Vec2{X: p.X.Add(d.X), Y: p.Y.Add(d.Y)},
-	}
+	// A tiny box around the click point, exact at any distance with the click as the origin.
+	box := b2.AABB{LowerBound: b2.Vec2{X: d.X.Neg(), Y: d.Y.Neg()}, UpperBound: d}
 
 	qc := queryContext{point: p}
-	b.WorldId.OverlapAABB(box, b2.DefaultQueryFilter(), func(shapeId b2.ShapeId) bool {
+	b.WorldId.OverlapAABB(b2.ToPos(p), box, b2.DefaultQueryFilter(), func(shapeId b2.ShapeId) bool {
 		bodyId := shapeId.GetBody()
 		if bodyId.GetType() != b2.DynamicBody {
 			return true
 		}
-		if shapeId.TestPoint(qc.point) {
+		if shapeId.TestPoint(b2.ToPos(qc.point)) {
 			qc.bodyId = bodyId
 			return false
 		}
@@ -182,50 +184,78 @@ func (b *Base) MouseDown(p b2.Vec2, button MouseButton, mod Modifier) {
 		return
 	}
 
+	b.MousePoint = p
 	bodyDef := b2.DefaultBodyDef()
-	b.GroundBodyId = b2.CreateBody(b.WorldId, &bodyDef)
+	bodyDef.Type = b2.KinematicBody
+	bodyDef.Position = b2.ToPos(p)
+	bodyDef.EnableSleep = false
+	b.MouseBodyId = b2.CreateBody(b.WorldId, &bodyDef)
 
-	mouseDef := b2.DefaultMouseJointDef()
-	mouseDef.BodyIdA = b.GroundBodyId
-	mouseDef.BodyIdB = qc.bodyId
-	mouseDef.Target = p
-	mouseDef.Hertz = b2.F(10)
-	mouseDef.DampingRatio = b2.QFromRatio(7, 10)
-	gravityLength, _ := b2.GetLengthAndNormalize(b.WorldId.GetGravity())
-	mouseDef.MaxForce = b2.F(1000).Mul(qc.bodyId.GetMass()).Mul(gravityLength)
-	b.MouseJointId = b2.CreateMouseJoint(b.WorldId, &mouseDef)
+	jointDef := b2.DefaultMotorJointDef()
+	jointDef.Base.BodyIdA = b.MouseBodyId
+	jointDef.Base.BodyIdB = qc.bodyId
+	jointDef.Base.LocalFrameB.P = qc.bodyId.GetLocalPoint(b2.ToPos(p))
+	jointDef.LinearHertz = FromFloat64(7.5)
+	jointDef.LinearDampingRatio = b2.QOne()
 
-	qc.bodyId.SetAwake(true)
-}
-
-// MouseUp releases the mouse joint started by MouseDown.
-func (b *Base) MouseUp(p b2.Vec2, button MouseButton) {
-	if !b.MouseJointId.IsNull() && !b.MouseJointId.IsValid() {
-		// The world or attached body was destroyed.
-		b.MouseJointId = b2.JointId{}
+	massData := qc.bodyId.GetMassData()
+	g := b.WorldId.GetGravity().Len()
+	mg := massData.Mass.Mul(g)
+	jointDef.MaxSpringForce = b.MouseForceScale.Mul(mg)
+	if massData.Mass.Greater(b2.QZero()) {
+		// This acts like angular friction.
+		lever := FromFloat64(math.Sqrt(ToFloat64(massData.RotationalInertia.Div(massData.Mass))))
+		jointDef.MaxVelocityTorque = FromFloat64(0.25).Mul(lever).Mul(mg)
 	}
 
+	b.MouseJointId = b2.CreateMotorJoint(b.WorldId, &jointDef)
+}
+
+// MouseUp releases the drag started by MouseDown.
+func (b *Base) MouseUp(p b2.Vec2, button MouseButton) {
 	if !b.MouseJointId.IsNull() && button == MouseButtonLeft {
 		b2.DestroyJoint(b.MouseJointId)
 		b.MouseJointId = b2.JointId{}
 
-		b2.DestroyBody(b.GroundBodyId)
-		b.GroundBodyId = b2.BodyId{}
+		b2.DestroyBody(b.MouseBodyId)
+		b.MouseBodyId = b2.BodyId{}
 	}
 }
 
-// MouseMove drags the mouse joint target to the new point.
+// MouseMove records the drag target; Step moves the mouse body toward it.
 func (b *Base) MouseMove(p b2.Vec2) {
-	if !b.MouseJointId.IsNull() && !b.MouseJointId.IsValid() {
+	if !b.MouseJointId.IsValid() {
 		// The world or attached body was destroyed.
 		b.MouseJointId = b2.JointId{}
 	}
 
-	if !b.MouseJointId.IsNull() {
-		b.MouseJointId.SetTarget(p)
-		bodyIdB := b.MouseJointId.GetBodyB()
-		bodyIdB.SetAwake(true)
+	b.MousePoint = p
+}
+
+// applyDrawSettings copies the draw toggles of the settings into the debug
+// draw, as Step does before it draws the world.
+func (b *Base) applyDrawSettings() {
+	s := &b.Context.Settings
+	draw := &b.Context.Draw
+	if s.UseCameraBounds {
+		draw.DrawingBounds = b.Context.Camera.GetViewBounds()
+	} else {
+		draw.DrawingBounds = b2.DefaultDebugDraw().DrawingBounds
 	}
+
+	draw.DrawShapes = s.DrawShapes
+	draw.DrawJoints = s.DrawJoints
+	draw.DrawJointExtras = s.DrawJointExtras
+	draw.DrawBounds = s.DrawBounds
+	draw.DrawMass = s.DrawMass
+	draw.DrawBodyNames = s.DrawBodyNames
+	draw.DrawContacts = s.DrawContactPoints
+	draw.DrawGraphColors = s.DrawGraphColors
+	draw.DrawContactNormals = s.DrawContactNormals
+	draw.DrawContactForces = s.DrawContactForces
+	draw.DrawContactFeatures = s.DrawContactFeatures
+	draw.DrawFrictionForces = s.DrawFrictionForces
+	draw.DrawIslands = s.DrawIslands
 }
 
 // Step advances the world by one frame, then draws it and records the
@@ -246,27 +276,27 @@ func (b *Base) Step() {
 		b.DrawTextLine("****PAUSED****")
 	}
 
+	b.applyDrawSettings()
 	draw := &b.Context.Draw
-	draw.DrawingBounds = b.Context.Camera.GetViewBounds()
-	draw.UseDrawingBounds = s.UseCameraBounds
-
-	draw.DrawShapes = s.DrawShapes
-	draw.DrawJoints = s.DrawJoints
-	draw.DrawJointExtras = s.DrawJointExtras
-	draw.DrawBounds = s.DrawBounds
-	draw.DrawMass = s.DrawMass
-	draw.DrawBodyNames = s.DrawBodyNames
-	draw.DrawContacts = s.DrawContactPoints
-	draw.DrawGraphColors = s.DrawGraphColors
-	draw.DrawContactNormals = s.DrawContactNormals
-	draw.DrawContactImpulses = s.DrawContactImpulses
-	draw.DrawContactFeatures = s.DrawContactFeatures
-	draw.DrawFrictionImpulses = s.DrawFrictionImpulses
-	draw.DrawIslands = s.DrawIslands
 
 	b.WorldId.EnableSleeping(s.EnableSleep)
 	b.WorldId.EnableWarmStarting(s.EnableWarmStarting)
 	b.WorldId.EnableContinuous(s.EnableContinuous)
+	b.WorldId.SetRestitutionIterations(s.RestitutionIterations)
+	b.WorldId.EnableRestitutionPropagation(s.EnableRestitutionPropagation)
+
+	if !b.MouseJointId.IsNull() && !b.MouseJointId.IsValid() {
+		// The world or attached body was destroyed.
+		b.MouseJointId = b2.JointId{}
+		if !b.MouseBodyId.IsNull() {
+			b2.DestroyBody(b.MouseBodyId)
+			b.MouseBodyId = b2.BodyId{}
+		}
+	}
+
+	if !b.MouseBodyId.IsNull() && timeStep.Greater(b2.QZero()) {
+		b.MouseBodyId.SetTargetTransform(b2.MakeWorldTransform(b2.Transform{P: b.MousePoint, Q: b2.RotIdentity()}), timeStep, true)
+	}
 
 	b.WorldId.Step(timeStep, s.SubStepCount)
 	b.WorldId.Draw(draw)
@@ -305,16 +335,15 @@ func (b *Base) Step() {
 		b.DrawTextLine("pairs [ave] (max) = %5.2f [%6.2f] (%6.2f)", p.Pairs, ave.Pairs, m.Pairs)
 		b.DrawTextLine("collide [ave] (max) = %5.2f [%6.2f] (%6.2f)", p.Collide, ave.Collide, m.Collide)
 		b.DrawTextLine("solve [ave] (max) = %5.2f [%6.2f] (%6.2f)", p.Solve, ave.Solve, m.Solve)
-		b.DrawTextLine("> merge islands [ave] (max) = %5.2f [%6.2f] (%6.2f)", p.MergeIslands, ave.MergeIslands, m.MergeIslands)
-		b.DrawTextLine("> prepare tasks [ave] (max) = %5.2f [%6.2f] (%6.2f)", p.PrepareStages, ave.PrepareStages, m.PrepareStages)
-		b.DrawTextLine("> solve constraints [ave] (max) = %5.2f [%6.2f] (%6.2f)", p.SolveConstraints, ave.SolveConstraints, m.SolveConstraints)
+		b.DrawTextLine("> solver setup [ave] (max) = %5.2f [%6.2f] (%6.2f)", p.SolverSetup, ave.SolverSetup, m.SolverSetup)
+		b.DrawTextLine("> constraints [ave] (max) = %5.2f [%6.2f] (%6.2f)", p.Constraints, ave.Constraints, m.Constraints)
 		b.DrawTextLine(">> prepare constraints [ave] (max) = %5.2f [%6.2f] (%6.2f)", p.PrepareConstraints, ave.PrepareConstraints, m.PrepareConstraints)
 		b.DrawTextLine(">> integrate velocities [ave] (max) = %5.2f [%6.2f] (%6.2f)", p.IntegrateVelocities, ave.IntegrateVelocities, m.IntegrateVelocities)
 		b.DrawTextLine(">> warm start [ave] (max) = %5.2f [%6.2f] (%6.2f)", p.WarmStart, ave.WarmStart, m.WarmStart)
 		b.DrawTextLine(">> solve impulses [ave] (max) = %5.2f [%6.2f] (%6.2f)", p.SolveImpulses, ave.SolveImpulses, m.SolveImpulses)
 		b.DrawTextLine(">> integrate positions [ave] (max) = %5.2f [%6.2f] (%6.2f)", p.IntegratePositions, ave.IntegratePositions, m.IntegratePositions)
 		b.DrawTextLine(">> relax impulses [ave] (max) = %5.2f [%6.2f] (%6.2f)", p.RelaxImpulses, ave.RelaxImpulses, m.RelaxImpulses)
-		b.DrawTextLine(">> apply restitution [ave] (max) = %5.2f [%6.2f] (%6.2f)", p.ApplyRestitution, ave.ApplyRestitution, m.ApplyRestitution)
+		b.DrawTextLine(">> restitution [ave] (max) = %5.2f [%6.2f] (%6.2f)", p.Restitution, ave.Restitution, m.Restitution)
 		b.DrawTextLine(">> store impulses [ave] (max) = %5.2f [%6.2f] (%6.2f)", p.StoreImpulses, ave.StoreImpulses, m.StoreImpulses)
 		b.DrawTextLine(">> split islands [ave] (max) = %5.2f [%6.2f] (%6.2f)", p.SplitIslands, ave.SplitIslands, m.SplitIslands)
 		b.DrawTextLine("> update transforms [ave] (max) = %5.2f [%6.2f] (%6.2f)", p.Transforms, ave.Transforms, m.Transforms)
@@ -332,16 +361,15 @@ func maxProfile(a, b b2.Profile) b2.Profile {
 		Pairs:               max(a.Pairs, b.Pairs),
 		Collide:             max(a.Collide, b.Collide),
 		Solve:               max(a.Solve, b.Solve),
-		MergeIslands:        max(a.MergeIslands, b.MergeIslands),
-		PrepareStages:       max(a.PrepareStages, b.PrepareStages),
-		SolveConstraints:    max(a.SolveConstraints, b.SolveConstraints),
+		SolverSetup:         max(a.SolverSetup, b.SolverSetup),
+		Constraints:         max(a.Constraints, b.Constraints),
 		PrepareConstraints:  max(a.PrepareConstraints, b.PrepareConstraints),
 		IntegrateVelocities: max(a.IntegrateVelocities, b.IntegrateVelocities),
 		WarmStart:           max(a.WarmStart, b.WarmStart),
 		SolveImpulses:       max(a.SolveImpulses, b.SolveImpulses),
 		IntegratePositions:  max(a.IntegratePositions, b.IntegratePositions),
 		RelaxImpulses:       max(a.RelaxImpulses, b.RelaxImpulses),
-		ApplyRestitution:    max(a.ApplyRestitution, b.ApplyRestitution),
+		Restitution:         max(a.Restitution, b.Restitution),
 		StoreImpulses:       max(a.StoreImpulses, b.StoreImpulses),
 		SplitIslands:        max(a.SplitIslands, b.SplitIslands),
 		Transforms:          max(a.Transforms, b.Transforms),
@@ -359,16 +387,15 @@ func addProfile(a, b b2.Profile) b2.Profile {
 		Pairs:               a.Pairs + b.Pairs,
 		Collide:             a.Collide + b.Collide,
 		Solve:               a.Solve + b.Solve,
-		MergeIslands:        a.MergeIslands + b.MergeIslands,
-		PrepareStages:       a.PrepareStages + b.PrepareStages,
-		SolveConstraints:    a.SolveConstraints + b.SolveConstraints,
+		SolverSetup:         a.SolverSetup + b.SolverSetup,
+		Constraints:         a.Constraints + b.Constraints,
 		PrepareConstraints:  a.PrepareConstraints + b.PrepareConstraints,
 		IntegrateVelocities: a.IntegrateVelocities + b.IntegrateVelocities,
 		WarmStart:           a.WarmStart + b.WarmStart,
 		SolveImpulses:       a.SolveImpulses + b.SolveImpulses,
 		IntegratePositions:  a.IntegratePositions + b.IntegratePositions,
 		RelaxImpulses:       a.RelaxImpulses + b.RelaxImpulses,
-		ApplyRestitution:    a.ApplyRestitution + b.ApplyRestitution,
+		Restitution:         a.Restitution + b.Restitution,
 		StoreImpulses:       a.StoreImpulses + b.StoreImpulses,
 		SplitIslands:        a.SplitIslands + b.SplitIslands,
 		Transforms:          a.Transforms + b.Transforms,
@@ -386,16 +413,15 @@ func scaleProfile(a b2.Profile, scale float64) b2.Profile {
 		Pairs:               scale * a.Pairs,
 		Collide:             scale * a.Collide,
 		Solve:               scale * a.Solve,
-		MergeIslands:        scale * a.MergeIslands,
-		PrepareStages:       scale * a.PrepareStages,
-		SolveConstraints:    scale * a.SolveConstraints,
+		SolverSetup:         scale * a.SolverSetup,
+		Constraints:         scale * a.Constraints,
 		PrepareConstraints:  scale * a.PrepareConstraints,
 		IntegrateVelocities: scale * a.IntegrateVelocities,
 		WarmStart:           scale * a.WarmStart,
 		SolveImpulses:       scale * a.SolveImpulses,
 		IntegratePositions:  scale * a.IntegratePositions,
 		RelaxImpulses:       scale * a.RelaxImpulses,
-		ApplyRestitution:    scale * a.ApplyRestitution,
+		Restitution:         scale * a.Restitution,
 		StoreImpulses:       scale * a.StoreImpulses,
 		SplitIslands:        scale * a.SplitIslands,
 		Transforms:          scale * a.Transforms,

@@ -1,8 +1,10 @@
 // SPDX-FileCopyrightText: 2023 Erin Catto
 // SPDX-License-Identifier: MIT
-// Ported from samples/sample_benchmark.cpp of Box2D v3.1.1, plus
-// CreateTumbler from shared/benchmarks.c. Debug-only sizes use the
-// release values.
+// Ported from samples/sample_benchmark.cpp of Box2D v3.2.0, plus the
+// scenes of shared/benchmarks.c (internal/shared and benchmark_scenes.go).
+// Debug-only sizes use the release values. The b2Capacity hints of
+// RegisterSampleWithCapacity are not ported: the Go world has no
+// preallocation to size.
 
 package samples
 
@@ -25,7 +27,13 @@ func init() {
 	RegisterSample("Benchmark", "Sleep", NewSleep)
 	RegisterSample("Benchmark", "Joint Grid", NewJointGrid)
 	RegisterSample("Benchmark", "Smash", NewSmash)
-	RegisterSample("Benchmark", "Compound", NewCompound)
+	RegisterSample("Benchmark", "Large Compounds", NewLargeCompounds)
+	RegisterSample("Benchmark", "Compounds", NewCompounds)
+	RegisterSample("Benchmark", "Barrel 2.4", NewBarrel24)
+	RegisterSample("Benchmark", "Washer", NewWasher)
+	RegisterSample("Benchmark", "Junkyard", NewJunkyard)
+	RegisterSample("Benchmark", "Capacity", NewCapacity)
+	RegisterSample("Benchmark", "Queries", NewQueries)
 	RegisterSample("Benchmark", "Kinematic", NewKinematic)
 	RegisterSample("Benchmark", "Cast", NewCast)
 	RegisterSample("Benchmark", "Spinner", NewSpinner)
@@ -46,7 +54,7 @@ func NewTumbler(ctx *SampleContext) Sample {
 
 	if !ctx.Settings.Restart {
 		ctx.Camera.Center = Vec2f{X: 1.5, Y: 10}
-		ctx.Camera.Zoom = 25 * 0.6
+		ctx.Camera.Zoom = 15
 	}
 
 	shared.BuildTumbler(s.WorldId, shared.Options{})
@@ -100,7 +108,7 @@ func NewBarrel(ctx *SampleContext) Sample {
 		x := b2.F(-40).Mul(gridSize)
 		for range 81 {
 			box := b2.MakeOffsetBox(
-				b2.QHalf().Mul(gridSize),
+				b2.F(0.55).Mul(gridSize),
 				b2.QHalf().Mul(gridSize),
 				b2.Vec2{X: x, Y: y},
 				b2.RotIdentity(),
@@ -114,7 +122,7 @@ func NewBarrel(ctx *SampleContext) Sample {
 		for range 100 {
 			box := b2.MakeOffsetBox(
 				b2.QHalf().Mul(gridSize),
-				b2.QHalf().Mul(gridSize),
+				b2.F(0.55).Mul(gridSize),
 				b2.Vec2{X: x, Y: y},
 				b2.RotIdentity(),
 			)
@@ -127,7 +135,7 @@ func NewBarrel(ctx *SampleContext) Sample {
 		for range 100 {
 			box := b2.MakeOffsetBox(
 				b2.QHalf().Mul(gridSize),
-				b2.QHalf().Mul(gridSize),
+				b2.F(0.55).Mul(gridSize),
 				b2.Vec2{X: x, Y: y},
 				b2.RotIdentity(),
 			)
@@ -256,7 +264,7 @@ func (s *Barrel) createScene() {
 
 		for j := range s.rowCount {
 			y := b2.F(j).Mul(shift.Add(extraY)).Add(centerY).Add(yStart)
-			bodyDef.Position = b2.Vec2{X: x.Add(side), Y: y}
+			bodyDef.Position = b2.ToPos(b2.Vec2{X: x.Add(side), Y: y})
 			side = side.Neg()
 
 			switch s.shapeType {
@@ -310,7 +318,7 @@ func (s *Barrel) createScene() {
 					index+1, nil, false,
 				)
 			case barrelGopherShape:
-				s.gophers[index] = createGopher(s.WorldId, bodyDef.Position, 3, index+1)
+				s.gophers[index] = createGopher(s.WorldId, b2.ToVec2(bodyDef.Position), 3, index+1)
 			}
 
 			index++
@@ -382,7 +390,7 @@ func NewManyTumblers(ctx *SampleContext) Sample {
 func (s *ManyTumblers) createTumbler(position b2.Vec2, index int) {
 	bodyDef := b2.DefaultBodyDef()
 	bodyDef.Type = b2.KinematicBody
-	bodyDef.Position = position
+	bodyDef.Position = b2.ToPos(position)
 	bodyDef.AngularVelocity = s.angularVelocity()
 	bodyID := b2.CreateBody(s.WorldId, &bodyDef)
 	s.tumblerIDs[index] = bodyID
@@ -478,7 +486,7 @@ func (s *ManyTumblers) Step() {
 		for i := range s.tumblerCount {
 			bodyDef := b2.DefaultBodyDef()
 			bodyDef.Type = b2.DynamicBody
-			bodyDef.Position = s.positions[i]
+			bodyDef.Position = b2.ToPos(s.positions[i])
 			s.bodyIDs[s.bodyIndex] = b2.CreateBody(s.WorldId, &bodyDef)
 			b2.CreateCapsuleShape(s.bodyIDs[s.bodyIndex], &shapeDef, &capsule)
 			s.bodyIndex++
@@ -515,8 +523,8 @@ func NewManyPyramids(ctx *SampleContext) Sample {
 	s := &ManyPyramids{Base: NewBase(ctx)}
 
 	if !ctx.Settings.Restart {
-		ctx.Camera.Center = Vec2f{X: 16, Y: 110}
-		ctx.Camera.Zoom = 25 * 5.0
+		ctx.Camera.Center = Vec2f{X: 23, Y: 72.5}
+		ctx.Camera.Zoom = 165
 		ctx.Settings.EnableSleep = false
 	}
 
@@ -599,7 +607,7 @@ func (s *CreateDestroy) CreateScene() {
 			x := b2.QFromRatio(i, 2).Mul(shift).
 				Add(b2.F(j - i).Mul(shift)).
 				Sub(centerX)
-			bodyDef.Position = b2.Vec2{X: x, Y: y}
+			bodyDef.Position = b2.ToPos(b2.Vec2{X: x, Y: y})
 
 			s.bodies[index] = b2.CreateBody(s.WorldId, &bodyDef)
 			b2.CreatePolygonShape(s.bodies[index], &shapeDef, &box)
@@ -629,116 +637,32 @@ func (s *CreateDestroy) Step() {
 	s.Base.Step()
 }
 
-// Sleep measures repeatedly waking and sleeping the first body in a pyramid.
+// Sleep stresses waking and sleeping: ten pyramids whose island is woken
+// again each time it falls asleep. It mirrors BenchmarkSleep; the scene is
+// CreateSleep and StepSleep of shared/benchmarks.c.
 type Sleep struct {
 	Base
 
-	bodies     []b2.BodyId
-	bodyCount  int
-	baseCount  int
-	iterations int
-	awake      bool
-	wakeTotal  float64
-	sleepTotal float64
-	wakeCount  int
-	sleepCount int
+	data benchSleep
 }
 
-// NewSleep builds the sleep benchmark pyramid.
+// NewSleep builds the sleep benchmark scene.
 func NewSleep(ctx *SampleContext) Sample {
 	s := &Sleep{Base: NewBase(ctx)}
 
 	if !ctx.Settings.Restart {
-		ctx.Camera.Center = Vec2f{X: 0, Y: 50}
-		ctx.Camera.Zoom = 25 * 2.2
+		ctx.Camera.Center = Vec2f{X: 0, Y: 20}
+		ctx.Camera.Zoom = 25 * 6
 	}
 
-	bodyDef := b2.DefaultBodyDef()
-	groundID := b2.CreateBody(s.WorldId, &bodyDef)
-	ground := b2.MakeBox(b2.F(100), b2.QOne())
-	shapeDef := b2.DefaultShapeDef()
-	b2.CreatePolygonShape(groundID, &shapeDef, &ground)
-
-	maxBodyCount := maxBaseCount * (maxBaseCount + 1) / 2
-	s.bodies = make([]b2.BodyId, maxBodyCount)
-	s.baseCount = maxBaseCount
-	s.iterations = 41
-	s.bodyCount = 0
-	s.awake = false
-	s.wakeTotal = 0
-	s.wakeCount = 0
-	s.sleepTotal = 0
-	s.sleepCount = 0
-
-	s.CreateScene()
+	s.data.create(s.WorldId)
 	return s
 }
 
-// CreateScene rebuilds the sleep benchmark pyramid.
-func (s *Sleep) CreateScene() {
-	for i := range s.bodies {
-		if !s.bodies[i].IsNull() {
-			b2.DestroyBody(s.bodies[i])
-			s.bodies[i] = b2.BodyId{}
-		}
-	}
-
-	count := s.baseCount
-	rad := b2.QHalf()
-	shift := rad.Mul(b2.F(2))
-	centerX := shift.Mul(b2.F(count)).Div(b2.F(2))
-	centerY := shift.Div(b2.F(2)).Add(b2.QOne())
-
-	bodyDef := b2.DefaultBodyDef()
-	bodyDef.Type = b2.DynamicBody
-
-	shapeDef := b2.DefaultShapeDef()
-	shapeDef.Density = b2.QOne()
-	shapeDef.Material.Friction = b2.F(0.5)
-
-	box := b2.MakeRoundedBox(b2.QHalf(), b2.QHalf(), b2.QZero())
-	index := 0
-
-	for i := range count {
-		y := b2.F(i).Mul(shift).Add(centerY)
-
-		for j := i; j < count; j++ {
-			x := b2.QFromRatio(i, 2).Mul(shift).
-				Add(b2.F(j - i).Mul(shift)).
-				Sub(centerX)
-			bodyDef.Position = b2.Vec2{X: x, Y: y}
-
-			s.bodies[index] = b2.CreateBody(s.WorldId, &bodyDef)
-			b2.CreatePolygonShape(s.bodies[index], &shapeDef, &box)
-			index++
-		}
-	}
-
-	s.bodyCount = index
-}
-
-// Step toggles the first pyramid body and reports wake and sleep timings.
+// Step wakes a sleeping pyramid and advances the world.
 func (s *Sleep) Step() {
-	for range s.iterations {
-		timer := time.Now()
-		s.bodies[0].SetAwake(s.awake)
-		elapsed := time.Since(timer).Seconds() * 1000
-
-		if s.awake {
-			s.wakeTotal += elapsed
-			s.wakeCount++
-		} else {
-			s.sleepTotal += elapsed
-			s.sleepCount++
-		}
-		s.awake = !s.awake
-	}
-
-	if s.wakeCount > 0 {
-		s.DrawTextLine("wake ave = %g ms", s.wakeTotal/float64(s.wakeCount))
-	}
-	if s.sleepCount > 0 {
-		s.DrawTextLine("sleep ave = %g ms", s.sleepTotal/float64(s.sleepCount))
+	if !s.Context.Settings.Pause || s.Context.Settings.SingleStep {
+		s.data.step(s.WorldId)
 	}
 
 	s.Base.Step()
@@ -781,14 +705,15 @@ func NewSmash(ctx *SampleContext) Sample {
 	return s
 }
 
-// Compound builds the compound-shape stress benchmark scene.
-type Compound struct {
+// LargeCompounds builds the compound-shape stress benchmark scene. It
+// mirrors BenchmarkLargeCompounds, the former Compound sample.
+type LargeCompounds struct {
 	Base
 }
 
-// NewCompound builds the compound benchmark scene.
-func NewCompound(ctx *SampleContext) Sample {
-	s := &Compound{Base: NewBase(ctx)}
+// NewLargeCompounds builds the large compounds benchmark scene.
+func NewLargeCompounds(ctx *SampleContext) Sample {
+	s := &LargeCompounds{Base: NewBase(ctx)}
 
 	if !ctx.Settings.Restart {
 		ctx.Camera.Center = Vec2f{X: 18, Y: 115}
@@ -851,7 +776,7 @@ func NewCompound(ctx *SampleContext) Sample {
 					Mul(b2.F(count)).
 					Mul(b2.F(span)).
 					Add(b2.F(n * span).Mul(grid))
-				bodyDef.Position = b2.Vec2{X: xBody, Y: yBody}
+				bodyDef.Position = b2.ToPos(b2.Vec2{X: xBody, Y: yBody})
 				bodyID := b2.CreateBody(s.WorldId, &bodyDef)
 
 				for i := range span {
@@ -868,7 +793,7 @@ func NewCompound(ctx *SampleContext) Sample {
 					}
 				}
 
-				bodyID.ApplyMassFromShapes()
+				bodyID.UpdateMassFromShapes()
 			}
 		}
 	}
@@ -920,7 +845,7 @@ func NewKinematic(ctx *SampleContext) Sample {
 		}
 	}
 
-	bodyID.ApplyMassFromShapes()
+	bodyID.UpdateMassFromShapes()
 	return s
 }
 
@@ -1015,7 +940,7 @@ func (s *Cast) buildScene() {
 			x := b2.F(j).Mul(s.grid)
 			fillTest := shared.RandomFloatRange(b2.QZero(), b2.QOne())
 			if !s.fill.Less(fillTest) {
-				bodyDef.Position = b2.Vec2{X: x, Y: y}
+				bodyDef.Position = b2.ToPos(b2.Vec2{X: x, Y: y})
 				bodyID := b2.CreateBody(s.WorldId, &bodyDef)
 
 				ratio := shared.RandomFloatRange(b2.QOne(), s.ratio)
@@ -1129,7 +1054,7 @@ func (s *Cast) Step() {
 		var drawResult b2.RayResult
 
 		for i := range sampleCount {
-			result := s.WorldId.CastRayClosest(s.origins[i], s.translations[i], filter)
+			result := s.WorldId.CastRayClosest(b2.ToPos(s.origins[i]), s.translations[i], filter)
 			if i == s.drawIndex {
 				drawResult = result
 			}
@@ -1147,11 +1072,11 @@ func (s *Cast) Step() {
 
 		p1 := s.origins[s.drawIndex]
 		p2 := p1.Add(s.translations[s.drawIndex])
-		s.Context.Draw.DrawSegment(p1, p2, b2.ColorWhite)
-		s.Context.Draw.DrawPoint(p1, b2.F(5), b2.ColorGreen)
-		s.Context.Draw.DrawPoint(p2, b2.F(5), b2.ColorRed)
+		s.Context.Draw.DrawLineFcn(b2.ToPos(p1), b2.ToPos(p2), b2.ColorWhite)
+		s.Context.Draw.DrawPointFcn(b2.ToPos(p1), b2.F(5), b2.ColorGreen)
+		s.Context.Draw.DrawPointFcn(b2.ToPos(p2), b2.F(5), b2.ColorRed)
 		if drawResult.Hit {
-			s.Context.Draw.DrawPoint(drawResult.Point, b2.F(5), b2.ColorWhite)
+			s.Context.Draw.DrawPointFcn(drawResult.Point, b2.F(5), b2.ColorWhite)
 		}
 
 	case castCircle:
@@ -1159,10 +1084,10 @@ func (s *Cast) Step() {
 		var drawResult, result castResult
 
 		for i := range sampleCount {
-			proxy := b2.MakeProxy([]b2.Vec2{s.origins[i]}, s.radius)
+			proxy := b2.MakeProxy([]b2.Vec2{{}}, s.radius)
 			result.hit = false
-			traversalResult := s.WorldId.CastShape(&proxy, s.translations[i], filter, func(_ b2.ShapeId, point, _ b2.Vec2, fraction b2.Q) b2.Q {
-				result.point = point
+			traversalResult := s.WorldId.CastShape(b2.ToPos(s.origins[i]), &proxy, s.translations[i], filter, func(_ b2.ShapeId, point b2.Pos, _ b2.Vec2, fraction b2.Q) b2.Q {
+				result.point = b2.ToVec2(point)
 				result.fraction = fraction
 				result.hit = true
 				return fraction
@@ -1185,13 +1110,13 @@ func (s *Cast) Step() {
 
 		p1 := s.origins[s.drawIndex]
 		p2 := p1.Add(s.translations[s.drawIndex])
-		s.Context.Draw.DrawSegment(p1, p2, b2.ColorWhite)
-		s.Context.Draw.DrawPoint(p1, b2.F(5), b2.ColorGreen)
-		s.Context.Draw.DrawPoint(p2, b2.F(5), b2.ColorRed)
+		s.Context.Draw.DrawLineFcn(b2.ToPos(p1), b2.ToPos(p2), b2.ColorWhite)
+		s.Context.Draw.DrawPointFcn(b2.ToPos(p1), b2.F(5), b2.ColorGreen)
+		s.Context.Draw.DrawPointFcn(b2.ToPos(p2), b2.F(5), b2.ColorRed)
 		if drawResult.hit {
-			t := b2.Lerp(p1, p2, drawResult.fraction)
-			s.Context.Draw.DrawCircle(t, s.radius, b2.ColorWhite)
-			s.Context.Draw.DrawPoint(drawResult.point, b2.F(5), b2.ColorWhite)
+			t := p1.Add(s.translations[s.drawIndex].Mul(drawResult.fraction))
+			s.Context.Draw.DrawCircleFcn(b2.ToPos(t), s.radius, b2.ColorWhite)
+			s.Context.Draw.DrawPointFcn(b2.ToPos(drawResult.point), b2.F(5), b2.ColorWhite)
 		}
 
 	case castOverlap:
@@ -1200,12 +1125,11 @@ func (s *Cast) Step() {
 		extent := b2.Vec2{X: s.radius, Y: s.radius}
 
 		for i := range sampleCount {
-			origin := s.origins[i]
-			aabb := b2.AABB{LowerBound: origin.Sub(extent), UpperBound: origin.Add(extent)}
+			aabb := b2.AABB{LowerBound: b2.Vec2{X: s.radius.Neg(), Y: s.radius.Neg()}, UpperBound: extent}
 			result.count = 0
-			traversalResult := s.WorldId.OverlapAABB(aabb, filter, func(shapeID b2.ShapeId) bool {
+			traversalResult := s.WorldId.OverlapAABB(b2.ToPos(s.origins[i]), aabb, filter, func(shapeID b2.ShapeId) bool {
 				if result.count < len(result.points) {
-					result.points[result.count] = b2.AABBCenter(shapeID.GetAABB())
+					result.points[result.count] = b2.AABBCenter(shapeID.GetBounds())
 					result.count++
 				}
 				return true
@@ -1226,14 +1150,9 @@ func (s *Cast) Step() {
 
 		origin := s.origins[s.drawIndex]
 		aabb := b2.AABB{LowerBound: origin.Sub(extent), UpperBound: origin.Add(extent)}
-		s.Context.Draw.DrawPolygon([]b2.Vec2{
-			aabb.LowerBound,
-			b2.Vec2{X: aabb.UpperBound.X, Y: aabb.LowerBound.Y},
-			aabb.UpperBound,
-			b2.Vec2{X: aabb.LowerBound.X, Y: aabb.UpperBound.Y},
-		}, b2.ColorWhite)
+		s.Context.Draw.DrawBoundsFcn(aabb, b2.ColorWhite)
 		for i := range drawResult.count {
-			s.Context.Draw.DrawPoint(drawResult.points[i], b2.F(5), b2.ColorHotPink)
+			s.Context.Draw.DrawPointFcn(b2.ToPos(drawResult.points[i]), b2.F(5), b2.ColorHotPink)
 		}
 	}
 
@@ -1383,9 +1302,8 @@ func (s *ShapeDistance) Step() {
 		start := time.Now()
 		for i := range shapeDistanceCount {
 			cache := b2.SimplexCache{}
-			input.TransformA = s.transformAs[i]
-			input.TransformB = s.transformBs[i]
-			s.outputs[i] = b2.ShapeDistance(&input, &cache, nil)
+			input.Transform = b2.InvMulTransforms(s.transformAs[i], s.transformBs[i])
+			s.outputs[i] = b2.ComputeShapeDistance(&input, &cache, nil)
 			totalIterations += s.outputs[i].Iterations
 		}
 		ms := time.Since(start).Seconds() * 1000
@@ -1400,12 +1318,16 @@ func (s *ShapeDistance) Step() {
 	xfA := s.transformAs[s.drawIndex]
 	xfB := s.transformBs[s.drawIndex]
 	output := s.outputs[s.drawIndex]
-	s.Context.Draw.DrawSolidPolygon(xfA, s.polygonA.Vertices[:s.polygonA.Count], s.polygonA.Radius, b2.ColorBox2DGreen)
-	s.Context.Draw.DrawSolidPolygon(xfB, s.polygonB.Vertices[:s.polygonB.Count], s.polygonB.Radius, b2.ColorBox2DBlue)
-	s.Context.Draw.DrawSegment(output.PointA, output.PointB, b2.ColorDimGray)
-	s.Context.Draw.DrawPoint(output.PointA, b2.F(10), b2.ColorWhite)
-	s.Context.Draw.DrawPoint(output.PointB, b2.F(10), b2.ColorWhite)
-	s.Context.Draw.DrawSegment(output.PointA, b2.MulAdd(output.PointA, b2.QHalf(), output.Normal), b2.ColorYellow)
+	s.Context.Draw.DrawSolidPolygonFcn(b2.MakeWorldTransform(xfA), s.polygonA.Vertices[:s.polygonA.Count], s.polygonA.Radius, b2.ColorBox2DGreen)
+	s.Context.Draw.DrawSolidPolygonFcn(b2.MakeWorldTransform(xfB), s.polygonB.Vertices[:s.polygonB.Count], s.polygonB.Radius, b2.ColorBox2DBlue)
+	// The query returns frame A results; project to world for drawing.
+	worldPointA := b2.TransformPoint(xfA, output.PointA)
+	worldPointB := b2.TransformPoint(xfA, output.PointB)
+	worldNormal := b2.RotateVector(xfA.Q, output.Normal)
+	s.Context.Draw.DrawLineFcn(b2.ToPos(worldPointA), b2.ToPos(worldPointB), b2.ColorDimGray)
+	s.Context.Draw.DrawPointFcn(b2.ToPos(worldPointA), b2.F(10), b2.ColorWhite)
+	s.Context.Draw.DrawPointFcn(b2.ToPos(worldPointB), b2.F(10), b2.ColorWhite)
+	s.Context.Draw.DrawLineFcn(b2.ToPos(worldPointA), b2.ToPos(b2.MulAdd(worldPointA, b2.QHalf(), worldNormal)), b2.ColorYellow)
 	s.DrawTextLine("distance = %s", output.Distance)
 
 	s.Base.Step()
@@ -1416,20 +1338,24 @@ const (
 	sensorRowCount    = 40
 )
 
+// sensorUserData is ShapeUserData: the row of a sensor and whether it
+// destroys its visitors.
 type sensorUserData struct {
-	shouldDestroyVisitors bool
+	row    int
+	active bool
 }
 
 // Sensor benchmarks sensor begin/end event processing and visitor creation.
 type Sensor struct {
 	Base
 
-	groundId      b2.BodyId
-	passiveSensor *sensorUserData
-	activeSensor  *sensorUserData
-	maxBeginCount int
-	maxEndCount   int
-	lastStepCount int
+	groundId       b2.BodyId
+	passiveSensors [sensorRowCount]sensorUserData
+	activeSensor   *sensorUserData
+	filterRow      int
+	maxBeginCount  int
+	maxEndCount    int
+	lastStepCount  int
 }
 
 // NewSensor builds the sensor benchmark scene.
@@ -1441,8 +1367,9 @@ func NewSensor(ctx *SampleContext) Sample {
 		ctx.Camera.Zoom = 125
 	}
 
-	s.passiveSensor = &sensorUserData{shouldDestroyVisitors: false}
-	s.activeSensor = &sensorUserData{shouldDestroyVisitors: true}
+	s.WorldId.SetCustomFilterCallback(s.filter)
+
+	s.activeSensor = &sensorUserData{row: 0, active: true}
 
 	bodyDef := b2.DefaultBodyDef()
 	s.groundId = b2.CreateBody(s.WorldId, &bodyDef)
@@ -1457,8 +1384,8 @@ func NewSensor(ctx *SampleContext) Sample {
 		x := b2.F(-40).Mul(gridSize)
 		for range 81 {
 			box := b2.MakeOffsetBox(
-				b2.QHalf().Mul(gridSize),
-				b2.QHalf().Mul(gridSize),
+				b2.F(0.45).Mul(gridSize),
+				b2.F(0.45).Mul(gridSize),
 				b2.Vec2{X: x},
 				b2.RotIdentity(),
 			)
@@ -1473,19 +1400,29 @@ func NewSensor(ctx *SampleContext) Sample {
 	shapeDef := b2.DefaultShapeDef()
 	shapeDef.IsSensor = true
 	shapeDef.EnableSensorEvents = true
-	shapeDef.UserData = s.passiveSensor
 	yStart := b2.F(10)
+	s.filterRow = sensorRowCount >> 1
 
 	for j := range sensorRowCount {
+		s.passiveSensors[j] = sensorUserData{row: j, active: false}
+		shapeDef.UserData = &s.passiveSensors[j]
+
+		if j == s.filterRow {
+			shapeDef.EnableCustomFiltering = true
+			shapeDef.Material.CustomColor = uint32(b2.ColorFuchsia)
+		} else {
+			shapeDef.EnableCustomFiltering = false
+			shapeDef.Material.CustomColor = 0
+		}
+
 		y := b2.F(j).Mul(shift).Add(yStart)
 		for i := range sensorColumnCount {
 			x := b2.F(i).Mul(shift).Sub(xCenter)
-			yOffset := shared.RandomFloatRange(b2.F(-1), b2.QOne())
 			box := b2.MakeOffsetRoundedBox(
 				b2.QHalf(),
 				b2.QHalf(),
-				b2.Vec2{X: x, Y: y.Add(yOffset)},
-				shared.RandomRot(),
+				b2.Vec2{X: x, Y: y},
+				b2.RotIdentity(),
 				b2.F(0.1),
 			)
 			b2.CreatePolygonShape(s.groundId, &shapeDef, &box)
@@ -1511,10 +1448,12 @@ func (s *Sensor) createRow(y b2.Q) {
 	shapeDef.EnableSensorEvents = true
 	circle := b2.Circle{Radius: b2.QHalf()}
 	for i := range sensorColumnCount {
-		bodyDef.Position = b2.Vec2{
+		// Stagger bodies to avoid bunching up events into a single update.
+		yOffset := shared.RandomFloatRange(b2.F(-1), b2.QOne())
+		bodyDef.Position = b2.ToPos(b2.Vec2{
 			X: b2.F(i).Mul(shift).Sub(xCenter),
-			Y: y,
-		}
+			Y: y.Add(yOffset),
+		})
 		bodyID := b2.CreateBody(s.WorldId, &bodyDef)
 		b2.CreateCircleShape(bodyID, &shapeDef, &circle)
 	}
@@ -1532,9 +1471,14 @@ func (s *Sensor) Step() {
 	events := s.WorldId.GetSensorEvents()
 	for _, event := range events.BeginEvents {
 		userData := event.SensorShapeId.GetUserData().(*sensorUserData)
-		if userData.shouldDestroyVisitors {
+		if userData.active {
 			zombies[event.VisitorShapeId.GetBody()] = struct{}{}
 		} else {
+			// Check custom filter correctness.
+			if userData.row == s.filterRow {
+				panic("sensor custom filter let the filtered row through")
+			}
+
 			material := event.VisitorShapeId.GetSurfaceMaterial()
 			material.CustomColor = uint32(b2.ColorLime)
 			event.VisitorShapeId.SetSurfaceMaterial(material)
@@ -1571,4 +1515,331 @@ func (s *Sensor) Step() {
 	s.maxEndCount = max(s.maxEndCount, len(events.EndEvents))
 	s.DrawTextLine("max begin touch events = %d", s.maxBeginCount)
 	s.DrawTextLine("max end touch events = %d", s.maxEndCount)
+}
+
+// filter is BenchmarkSensor::Filter: the sensors of the filter row only
+// detect shapes while they are the active sensor.
+func (s *Sensor) filter(idA, idB b2.ShapeId) bool {
+	var userData *sensorUserData
+	if idA.IsSensor() {
+		userData, _ = idA.GetUserData().(*sensorUserData)
+	} else if idB.IsSensor() {
+		userData, _ = idB.GetUserData().(*sensorUserData)
+	}
+
+	if userData != nil {
+		return userData.active || userData.row != s.filterRow
+	}
+
+	return true
+}
+
+// Barrel24 is the Box2D v2.4 barrel, used to compare performance with that
+// version. It mirrors BenchmarkBarrel24.
+type Barrel24 struct {
+	Base
+}
+
+// NewBarrel24 builds the v2.4 barrel scene.
+func NewBarrel24(ctx *SampleContext) Sample {
+	s := &Barrel24{Base: NewBase(ctx)}
+
+	if !ctx.Settings.Restart {
+		ctx.Camera.Center = Vec2f{X: 8, Y: 53}
+		ctx.Camera.Zoom = 25 * 2.35
+	}
+
+	groundSize := b2.F(25)
+
+	{
+		bodyDef := b2.DefaultBodyDef()
+		groundId := b2.CreateBody(s.WorldId, &bodyDef)
+
+		box := b2.MakeBox(groundSize, b2.F(1.2))
+		shapeDef := b2.DefaultShapeDef()
+		b2.CreatePolygonShape(groundId, &shapeDef, &box)
+
+		// A quarter turn is the reference's 0.5 * pi.
+		bodyDef.Rotation = b2.MakeRot(b2.QFromRatio(1, 4))
+		bodyDef.Position = b2.ToPos(b2.Vec2{X: groundSize, Y: b2.F(2).Mul(groundSize)})
+		groundId = b2.CreateBody(s.WorldId, &bodyDef)
+
+		box = b2.MakeBox(b2.F(2).Mul(groundSize), b2.F(1.2))
+		b2.CreatePolygonShape(groundId, &shapeDef, &box)
+
+		bodyDef.Position = b2.ToPos(b2.Vec2{X: groundSize.Neg(), Y: b2.F(2).Mul(groundSize)})
+		groundId = b2.CreateBody(s.WorldId, &bodyDef)
+		b2.CreatePolygonShape(groundId, &shapeDef, &box)
+	}
+
+	num := 26
+	rad := b2.QHalf()
+
+	shift := rad.Mul(b2.F(2))
+	centerX := shift.Mul(b2.F(num)).Div(b2.F(2))
+	centerY := shift.Div(b2.F(2))
+
+	bodyDef := b2.DefaultBodyDef()
+	bodyDef.Type = b2.DynamicBody
+
+	shapeDef := b2.DefaultShapeDef()
+	shapeDef.Density = b2.QOne()
+	shapeDef.Material.Friction = b2.F(0.5)
+
+	cuboid := b2.MakeSquare(b2.QHalf())
+
+	numj := 5 * num
+	for i := range num {
+		x := b2.F(i).Mul(shift).Sub(centerX)
+
+		for j := range numj {
+			y := b2.F(j).Mul(shift).Add(centerY).Add(b2.F(2))
+
+			bodyDef.Position = b2.ToPos(b2.Vec2{X: x, Y: y})
+
+			bodyId := b2.CreateBody(s.WorldId, &bodyDef)
+			b2.CreatePolygonShape(bodyId, &shapeDef, &cuboid)
+		}
+	}
+
+	return s
+}
+
+// Compounds is a pile of two-triangle compound bodies. It mirrors
+// BenchmarkCompounds; the scene is CreateCompounds of shared/benchmarks.c.
+type Compounds struct {
+	Base
+}
+
+// NewCompounds builds the compounds benchmark scene.
+func NewCompounds(ctx *SampleContext) Sample {
+	s := &Compounds{Base: NewBase(ctx)}
+
+	if !ctx.Settings.Restart {
+		ctx.Camera.Center = Vec2f{X: 0, Y: 50}
+		ctx.Camera.Zoom = 25 * 2.2
+		ctx.Settings.EnableSleep = false
+	}
+
+	benchCreateCompounds(s.WorldId)
+	return s
+}
+
+// Washer stresses most aspects of simulation:
+//   - broad-phase because pairs constantly change
+//   - narrow-phase because contact recycling does not always apply
+//   - constraint solver because there are many contacts
+//   - hit events are enabled so there is extra velocity computation and reporting
+//
+// It mirrors BenchmarkWasher; the scene is CreateWasher of shared/benchmarks.c.
+type Washer struct {
+	Base
+}
+
+// NewWasher builds the washer benchmark scene.
+func NewWasher(ctx *SampleContext) Sample {
+	s := &Washer{Base: NewBase(ctx)}
+
+	if !ctx.Settings.Restart {
+		ctx.Camera.Center = Vec2f{X: 1.5, Y: 10}
+		ctx.Camera.Zoom = 20
+	}
+
+	benchCreateWasher(s.WorldId)
+	return s
+}
+
+// Step advances the world and reports the hit event count.
+func (s *Washer) Step() {
+	s.Base.Step()
+
+	events := s.WorldId.GetContactEvents()
+	s.DrawTextLine("hits = %d", len(events.HitEvents))
+}
+
+// Junkyard is a large pile of small pentagons pushed by a kinematic body.
+// It mirrors BenchmarkJunkyard; the scene is CreateJunkyard and StepJunkyard
+// of shared/benchmarks.c.
+type Junkyard struct {
+	Base
+
+	data benchJunkyard
+}
+
+// NewJunkyard builds the junkyard benchmark scene.
+func NewJunkyard(ctx *SampleContext) Sample {
+	s := &Junkyard{Base: NewBase(ctx)}
+
+	if !ctx.Settings.Restart {
+		ctx.Camera.Center = Vec2f{X: 8, Y: 25}
+		ctx.Camera.Zoom = 60
+	}
+
+	s.data.create(s.WorldId)
+	return s
+}
+
+// Step moves the pusher and advances the world.
+func (s *Junkyard) Step() {
+	if !s.Context.Settings.Pause || s.Context.Settings.SingleStep {
+		s.data.step(s.StepCount)
+	}
+
+	s.Base.Step()
+}
+
+// Capacity pushes the engine to the limit for a large pile. It terminates
+// once simulation is deemed to be slow. The higher the body count achieved,
+// the better. This benchmark stresses the sleep system more than any other;
+// better results are achieved if sleeping is disabled. It mirrors
+// BenchmarkCapacity.
+type Capacity struct {
+	Base
+
+	square     b2.Polygon
+	reachCount int
+	done       bool
+}
+
+// NewCapacity builds the capacity benchmark scene.
+func NewCapacity(ctx *SampleContext) Sample {
+	s := &Capacity{Base: NewBase(ctx)}
+
+	if !ctx.Settings.Restart {
+		ctx.Camera.Center = Vec2f{X: 0, Y: 150}
+		ctx.Camera.Zoom = 200
+	}
+
+	{
+		bodyDef := b2.DefaultBodyDef()
+		setPosY(&bodyDef.Position, b2.F(-5))
+		groundId := b2.CreateBody(s.WorldId, &bodyDef)
+
+		box := b2.MakeBox(b2.F(800), b2.F(5))
+		shapeDef := b2.DefaultShapeDef()
+		b2.CreatePolygonShape(groundId, &shapeDef, &box)
+	}
+
+	s.square = b2.MakeSquare(b2.QHalf())
+	s.done = false
+	s.reachCount = 0
+	return s
+}
+
+// Step advances the world and drops another row until a step takes too long.
+func (s *Capacity) Step() {
+	s.Base.Step()
+
+	millisecondLimit := 20.0
+
+	profile := s.WorldId.GetProfile()
+	if profile.Step > millisecondLimit {
+		s.reachCount++
+		if s.reachCount > 60 {
+			// Hit the millisecond limit 60 times in a row.
+			s.done = true
+		}
+	} else {
+		s.reachCount = 0
+	}
+
+	if s.done {
+		return
+	}
+
+	if s.StepCount&0x1F != 0x1F {
+		return
+	}
+
+	bodyDef := b2.DefaultBodyDef()
+	bodyDef.Type = b2.DynamicBody
+	setPosY(&bodyDef.Position, b2.F(200))
+
+	shapeDef := b2.DefaultShapeDef()
+
+	count := 200
+	x := b2.F(-count)
+	for range count {
+		setPosX(&bodyDef.Position, x)
+		setPosY(&bodyDef.Position, b2.ToVec2(bodyDef.Position).Y.Add(b2.QHalf()))
+
+		bodyId := b2.CreateBody(s.WorldId, &bodyDef)
+		b2.CreatePolygonShape(bodyId, &shapeDef, &s.square)
+
+		x = x.Add(b2.F(2))
+	}
+}
+
+// Queries is the queries benchmark scene with one of its queries drawn and
+// the cost of the whole set. It mirrors BenchmarkQueries; the scene is
+// CreateQueries and StepQueries of shared/benchmarks.c.
+type Queries struct {
+	Base
+
+	data       benchQueries
+	drawIndex  int
+	minTime    float64
+	lastTime   float64
+	hitCount   int
+	nodeVisits int
+	leafVisits int
+}
+
+// NewQueries builds the queries benchmark scene.
+func NewQueries(ctx *SampleContext) Sample {
+	s := &Queries{Base: NewBase(ctx)}
+
+	s.data.create(s.WorldId)
+
+	if !ctx.Settings.Restart {
+		extent := float64(s.data.extent)
+		ctx.Camera.Center = Vec2f{X: 0.5 * extent, Y: 0.5 * extent}
+		ctx.Camera.Zoom = 0.55 * extent
+	}
+
+	s.drawIndex = 0
+	s.minTime = 1e6
+	return s
+}
+
+// UpdateGui exposes the draw index control.
+func (s *Queries) UpdateGui() {
+	height := 80
+	gui := s.Context.Gui
+	gui.Begin("Benchmark: Queries", 10, s.Context.Camera.Height-height-50, 220, height)
+	gui.SliderInt("draw", &s.drawIndex, 0, benchQueryCount-1)
+	gui.End()
+}
+
+// Step runs the whole query set, advances the world and draws one query.
+func (s *Queries) Step() {
+	if !s.Context.Settings.Pause || s.Context.Settings.SingleStep {
+		beforeNodes, beforeLeaves := s.data.stats.NodeVisits, s.data.stats.LeafVisits
+		started := time.Now()
+		s.hitCount = s.data.step(s.WorldId)
+		s.lastTime = time.Since(started).Seconds() * 1000
+		s.minTime = min(s.minTime, s.lastTime)
+		s.nodeVisits = s.data.stats.NodeVisits - beforeNodes
+		s.leafVisits = s.data.stats.LeafVisits - beforeLeaves
+	}
+
+	s.Base.Step()
+
+	origin := s.data.origins[s.drawIndex]
+	end := origin.Add(s.data.translations[s.drawIndex])
+	s.Context.Draw.DrawLineFcn(b2.ToPos(origin), b2.ToPos(end), b2.ColorWhite)
+	s.Context.Draw.DrawPointFcn(b2.ToPos(origin), b2.F(5), b2.ColorGreen)
+	s.Context.Draw.DrawPointFcn(b2.ToPos(end), b2.F(5), b2.ColorRed)
+
+	// The overlap box the same query runs.
+	extent := b2.F(5)
+	box := b2.AABB{
+		LowerBound: b2.Vec2{X: origin.X.Sub(extent), Y: origin.Y.Sub(extent)},
+		UpperBound: b2.Vec2{X: origin.X.Add(extent), Y: origin.Y.Add(extent)},
+	}
+	s.Context.Draw.DrawBoundsFcn(box, b2.ColorWhite)
+
+	s.DrawTextLine("%d queries of each kind and filter, %d hits", benchQueryCount, s.hitCount)
+	s.DrawTextLine("node visits = %d, leaf visits = %d", s.nodeVisits, s.leafVisits)
+	s.DrawTextLine("queries ms = %.3f, min = %.3f", s.lastTime, s.minTime)
 }

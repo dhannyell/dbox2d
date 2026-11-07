@@ -1,4 +1,4 @@
-# dbox2d conformance trace v1 kind=function name=atan2 ref=0aa402e cc=gcc-13.2.0 flags=-O3,-DNDEBUG,-std=gnu17,-ffp-contract=off,-fno-fast-math
+# dbox2d conformance trace v2 kind=function name=atan2 ref=cd26c7e cc=gcc-13.2.0 flags=-O3,-DNDEBUG,-std=gnu17,-ffp-contract=off,-fno-fast-math
 cases 1024
 case 0 00000000 00000000 | 00000000
 case 1 41033346 00000000 | 3fc90fdb
