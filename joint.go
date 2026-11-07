@@ -331,29 +331,28 @@ func drawJoint(draw *DebugDraw, w *world, joint *joint) {
 	pA := TransformPoint(transformA, base.localFrameA.P)
 	pB := TransformPoint(transformB, base.localFrameB.P)
 
-	// Deferred: the reference also scales by the debug draw joint scale.
-	scale := joint.drawScale.Max(minJointDrawScale)
+	scale := minJointDrawScale.Max(draw.JointScale.Mul(joint.drawScale))
 	pointSize := QFromInt(8)
 
 	switch joint.jointType {
 	case DistanceJoint:
 		drawDistanceJoint(draw, base, transformA, transformB)
 	case FilterJoint:
-		draw.DrawPoint(pA, pointSize, ColorLightSkyBlue)
-		draw.DrawPoint(pB, pointSize, ColorLightSkyBlue)
+		draw.DrawPointFcn(pA, pointSize, ColorLightSkyBlue)
+		draw.DrawPointFcn(pB, pointSize, ColorLightSkyBlue)
 		if draw.DrawJointExtras {
-			draw.DrawSegment(pA, pB, ColorGold)
+			draw.DrawLineFcn(pA, pB, ColorGold)
 		}
 	case MotorJoint:
-		draw.DrawPoint(pA, pointSize, ColorYellowGreen)
-		draw.DrawPoint(pB, pointSize, ColorPlum)
+		draw.DrawPointFcn(pA, pointSize, ColorYellowGreen)
+		draw.DrawPointFcn(pB, pointSize, ColorPlum)
 		if draw.DrawJointExtras {
-			draw.DrawSegment(pA, pB, ColorLightGray)
+			draw.DrawLineFcn(pA, pB, ColorLightGray)
 		}
 	case MoverJoint:
-		draw.DrawPoint(pB, pointSize, ColorPlum)
+		draw.DrawPointFcn(pB, pointSize, ColorPlum)
 	case PogoJoint:
-		draw.DrawSegment(pA, pB, ColorLightGray)
+		draw.DrawLineFcn(pA, pB, ColorLightGray)
 	case PrismaticJoint:
 		drawPrismaticJoint(draw, base, transformA, transformB, scale)
 	case RevoluteJoint:
@@ -364,15 +363,15 @@ func drawJoint(draw *DebugDraw, w *world, joint *joint) {
 		drawWheelJoint(draw, base, transformA, transformB, scale)
 	}
 	if draw.DrawGraphColors && joint.colorIndex != nullIndex {
-		draw.DrawPoint(Lerp(pA, pB, QHalf()), QFromInt(5), graphColors[joint.colorIndex])
+		draw.DrawPointFcn(LerpPos(pA, pB, QHalf()), QFromInt(5), graphColors[joint.colorIndex])
 	}
 	if draw.DrawJointExtras {
 		force := getJointConstraintForce(w, joint)
 		torque := getJointConstraintTorque(w, joint)
-		p := Lerp(pA, pB, QHalf())
-		draw.DrawSegment(p, MulAdd(p, QMustParse("0.001"), force), ColorAzure)
-		text := "f = [" + drawNumber(force.X, 2) + ", " + drawNumber(force.Y, 2) + "], t = " + drawNumber(torque, 2)
-		draw.DrawString(p, text, ColorAzure)
+		p := LerpPos(pA, pB, QHalf())
+		draw.DrawLineFcn(p, OffsetPos(p, force.Mul(QMustParse("0.001"))), ColorAzure)
+		text := "f = [" + drawGeneral(force.X) + ", " + drawGeneral(force.Y) + "], t = " + drawGeneral(torque)
+		draw.DrawStringFcn(p, text, ColorAzure)
 	}
 }
 

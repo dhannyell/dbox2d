@@ -179,16 +179,21 @@ func (d *Draw) DrawAABB(aabb b2.AABB, color b2.HexColor) {
 // DefaultDebugDraw starts with.
 func (d *Draw) DebugDraw() b2.DebugDraw {
 	dd := b2.DefaultDebugDraw()
-	dd.DrawPolygon = d.DrawPolygon
-	dd.DrawSolidPolygon = d.DrawSolidPolygon
-	dd.DrawCircle = d.DrawCircle
-	dd.DrawSolidCircle = func(transform b2.Transform, radius b2.Q, color b2.HexColor) {
-		d.DrawSolidCircle(transform, b2.Vec2{}, radius, color)
+	dd.DrawPolygonFcn = func(transform b2.WorldTransform, vertices []b2.Vec2, color b2.HexColor) {
+		world := make([]b2.Vec2, len(vertices))
+		for i, v := range vertices {
+			world[i] = b2.TransformPoint(transform, v)
+		}
+		d.DrawPolygon(world, color)
 	}
-	dd.DrawSolidCapsule = d.DrawSolidCapsule
-	dd.DrawSegment = d.DrawSegment
-	dd.DrawTransform = d.DrawTransform
-	dd.DrawPoint = d.DrawPoint
-	dd.DrawString = func(p b2.Vec2, s string, _ b2.HexColor) { d.DrawStringAt(p, s) }
+	dd.DrawSolidPolygonFcn = d.DrawSolidPolygon
+	dd.DrawCircleFcn = d.DrawCircle
+	dd.DrawSolidCircleFcn = d.DrawSolidCircle
+	dd.DrawSolidCapsuleFcn = d.DrawSolidCapsule
+	dd.DrawLineFcn = d.DrawSegment
+	dd.DrawTransformFcn = d.DrawTransform
+	dd.DrawPointFcn = d.DrawPoint
+	dd.DrawStringFcn = func(p b2.Pos, s string, _ b2.HexColor) { d.DrawStringAt(p, s) }
+	dd.DrawBoundsFcn = d.DrawAABB
 	return dd
 }

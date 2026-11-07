@@ -9,8 +9,9 @@ import "testing"
 // stopped folding the retired enlargedAABB flag (v3.2 phase 2), and when the
 // body flags became one word, the shape folded its AABB margin and its
 // custom filtering flag, and the body its safety factor (v3.2 phase 3), and
-// when the solver, contacts and islands switched to v3.2 (v3.2 phase 5).
-const checksumWitness uint64 = 9118052756229121518
+// when the solver, contacts and islands switched to v3.2 (v3.2 phase 5), and when the world stopped folding the
+// retired speculative switch (v3.2 phase 6).
+const checksumWitness uint64 = 6842509056957177071
 
 // TestChecksumContactsIgnoreCreationOrder checks the contact graph as well as
 // the body and shape folds. The second world reverses both object creation and

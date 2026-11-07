@@ -11,18 +11,18 @@ func drawRevoluteJoint(draw *DebugDraw, base *jointSim, transformA, transformB T
 	frameB := MulTransforms(transformB, base.localFrameB)
 
 	radius := QMustParse("0.25").Mul(drawScale)
-	draw.DrawCircle(frameB.P, radius, ColorGray)
+	draw.DrawCircleFcn(frameB.P, radius, ColorGray)
 
 	rx := Vec2{X: radius, Y: QZero()}
 	r := RotateVector(frameA.Q, rx)
-	draw.DrawSegment(frameA.P, frameA.P.Add(r), ColorGray)
+	draw.DrawLineFcn(frameA.P, frameA.P.Add(r), ColorGray)
 
 	r = RotateVector(frameB.Q, rx)
-	draw.DrawSegment(frameB.P, frameB.P.Add(r), ColorBlue)
+	draw.DrawLineFcn(frameB.P, frameB.P.Add(r), ColorBlue)
 
 	if draw.DrawJointExtras {
 		degrees := RelativeAngle(frameA.Q, frameB.Q).Mul(QFromInt(360))
-		draw.DrawString(frameA.P.Add(r), " "+drawNumber(degrees, 1)+" deg", ColorWhite)
+		draw.DrawStringFcn(frameA.P.Add(r), " "+drawNumber(degrees, 1)+" deg", ColorWhite)
 	}
 
 	if joint.enableLimit {
@@ -30,20 +30,20 @@ func drawRevoluteJoint(draw *DebugDraw, base *jointSim, transformA, transformB T
 		rlo := RotateVector(rotLo, rx)
 		rotHi := MulRot(frameA.Q, MakeRot(angleToTurns(joint.upperAngle)))
 		rhi := RotateVector(rotHi, rx)
-		draw.DrawSegment(frameB.P, frameB.P.Add(rlo), ColorGreen)
-		draw.DrawSegment(frameB.P, frameB.P.Add(rhi), ColorRed)
+		draw.DrawLineFcn(frameB.P, frameB.P.Add(rlo), ColorGreen)
+		draw.DrawLineFcn(frameB.P, frameB.P.Add(rhi), ColorRed)
 	}
 
 	if joint.enableSpring {
 		q := MulRot(frameA.Q, MakeRot(angleToTurns(joint.targetAngle)))
 		v := RotateVector(q, rx)
-		draw.DrawSegment(frameB.P, frameB.P.Add(v), ColorViolet)
+		draw.DrawLineFcn(frameB.P, frameB.P.Add(v), ColorViolet)
 	}
 
-	draw.DrawSegment(frameA.P, frameB.P, ColorGold)
+	draw.DrawLineFcn(frameA.P, frameB.P, ColorGold)
 	if draw.DrawJointExtras {
-		draw.DrawSegment(transformA.P, frameA.P, ColorGold)
-		draw.DrawSegment(transformB.P, frameB.P, ColorGold)
+		draw.DrawLineFcn(transformA.P, frameA.P, ColorGold)
+		draw.DrawLineFcn(transformB.P, frameB.P, ColorGold)
 	}
 }
 

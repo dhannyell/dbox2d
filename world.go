@@ -154,6 +154,18 @@ type world struct {
 	// inv_h is the inverse time step of the last step, for force reports.
 	invH Q
 
+	// invDt is the inverse full time step of the last step, for the drawn
+	// contact forces.
+	invDt Q
+
+	// The debug sets mark what Draw has visited, by id. They live in the
+	// world, as in the reference, so drawing does not allocate once they
+	// have grown.
+	debugBodySet    bitSet
+	debugJointSet   bitSet
+	debugContactSet bitSet
+	debugIslandSet  bitSet
+
 	// The mixing callbacks combine the material values of two shapes into
 	// the effective contact values.
 	frictionCallback    FrictionCallback
@@ -171,7 +183,6 @@ type world struct {
 	locked             bool
 	enableWarmStarting bool
 	enableContinuous   bool
-	enableSpeculative  bool
 	inUse              bool
 }
 
@@ -348,7 +359,6 @@ func CreateWorld(def *WorldDef) WorldId {
 	w.locked = false
 	w.enableWarmStarting = true
 	w.enableContinuous = def.EnableContinuous
-	w.enableSpeculative = true
 	w.userData = def.UserData
 
 	// add one to the world id so that 0 represents a null WorldId
@@ -837,6 +847,13 @@ func (worldId WorldId) SetContactTuning(hertz, dampingRatio, pushSpeed Q) {
 	w.contactSpeed = pushSpeed.Max(zero).Min(maxValue)
 }
 
+// GetContactTuning returns the contact softness and push speed. It
+// corresponds to b2World_GetContactTuning in src/physics_world.c.
+func (worldId WorldId) GetContactTuning() (hertz, dampingRatio, pushSpeed Q) {
+	w := getWorldFromId(worldId)
+	return w.contactHertz, w.contactDampingRatio, w.contactSpeed
+}
+
 // SetRestitutionIterations changes the number of restitution passes,
 // clamped to [0, 63]. It corresponds to b2World_SetRestitutionIterations in
 // src/physics_world.c.
@@ -889,9 +906,12 @@ func (worldId WorldId) GetContactRecycleDistance() Q {
 	return getWorldFromId(worldId).contactRecycleDistance
 }
 
-// SetMaximumLinearSpeed changes the velocity cap.
-// It corresponds to b2World_SetMaximumLinearSpeed in src/world.c.
-func (worldId WorldId) SetMaximumLinearSpeed(maximumLinearSpeed Q) {
+// SetMaxLinearSpeed changes the velocity cap, which must be positive. It
+// corresponds to b2World_SetMaxLinearSpeed in src/physics_world.c.
+func (worldId WorldId) SetMaxLinearSpeed(maximumLinearSpeed Q) {
+	if !IsValidQ(maximumLinearSpeed) || !QZero().Less(maximumLinearSpeed) {
+		panic("dbox2d: SetMaxLinearSpeed needs a positive speed")
+	}
 	w := getWorldFromId(worldId)
 	if w.locked {
 		panic("dbox2d: the world is locked")
@@ -899,9 +919,43 @@ func (worldId WorldId) SetMaximumLinearSpeed(maximumLinearSpeed Q) {
 	w.maxLinearSpeed = maximumLinearSpeed
 }
 
-// GetMaximumLinearSpeed returns the velocity cap.
-// It corresponds to b2World_GetMaximumLinearSpeed in src/world.c.
-func (worldId WorldId) GetMaximumLinearSpeed() Q { return getWorldFromId(worldId).maxLinearSpeed }
+// GetMaxLinearSpeed returns the velocity cap. It corresponds to
+// b2World_GetMaxLinearSpeed in src/physics_world.c.
+func (worldId WorldId) GetMaxLinearSpeed() Q { return getWorldFromId(worldId).maxLinearSpeed }
+
+// GetBounds returns the union of the root bounds of the static, kinematic
+// and dynamic trees, skipping empty trees; an empty world reports a zero
+// box. It corresponds to b2World_GetBounds in src/physics_world.c.
+func (worldId WorldId) GetBounds() AABB {
+	w := getWorldFromId(worldId)
+	if w.locked {
+		panic("dbox2d: the world is locked")
+	}
+	bounds, _ := computeWorldBounds(w)
+	return bounds
+}
+
+// computeWorldBounds unions the root bounds of the non-empty trees and
+// reports whether any tree had a proxy. It corresponds to
+// b2ComputeWorldBounds in src/physics_world.c.
+func computeWorldBounds(w *world) (AABB, bool) {
+	var bounds AABB
+	haveBounds := false
+	for i := range w.broadPhase.trees {
+		tree := &w.broadPhase.trees[i]
+		if tree.getProxyCount() == 0 {
+			continue
+		}
+		treeBounds := tree.getRootBounds()
+		if haveBounds {
+			bounds = AABBUnion(bounds, treeBounds)
+		} else {
+			bounds = treeBounds
+		}
+		haveBounds = true
+	}
+	return bounds, haveBounds
+}
 
 // EnableWarmStarting changes impulse warm starting.
 // It corresponds to b2World_EnableWarmStarting in src/world.c.
@@ -936,10 +990,15 @@ func (worldId WorldId) GetCounters() Counters {
 		TaskCount:        w.taskCount,
 	}
 	result.TreeHeight = max(w.broadPhase.trees[DynamicBody].getHeight(), w.broadPhase.trees[KinematicBody].getHeight())
+	for i := range w.workerCount {
+		result.RecycledContactCount += w.taskContexts[i].recycledContactCount
+	}
 	for i := range graphColorCount {
 		color := &w.constraintGraph.colors[i]
 		result.ColorCounts[i] = len(color.contactSims) + len(color.jointSims)
+		result.AwakeContactCount += len(color.contactSims)
 	}
+	result.AwakeContactCount += len(w.solverSets[awakeSet].contactSims)
 	return result
 }
 
@@ -1094,10 +1153,6 @@ func (worldId WorldId) RebuildStaticTree() {
 	}
 }
 
-// EnableSpeculative changes speculative collision handling.
-// It corresponds to b2World_EnableSpeculative in src/world.c.
-func (worldId WorldId) EnableSpeculative(flag bool) { getWorldFromId(worldId).enableSpeculative = flag }
-
 // taskContext is the scratch that the body finalize fills for the island
 // sleep. It corresponds to b2TaskContext in src/world.h.
 type taskContext struct {
@@ -1108,6 +1163,10 @@ type taskContext struct {
 
 	// awakeIslandBitSet marks the awake islands by local index.
 	awakeIslandBitSet bitSet
+
+	// recycledContactCount counts the contacts this worker recycled in the
+	// last step.
+	recycledContactCount int
 
 	// jointStateBitSet marks the joints whose reaction crossed a threshold,
 	// by joint id.
@@ -1338,19 +1397,20 @@ func validateContacts(w *world) {
 	}
 }
 
-// OverlapAABB reports every shape whose fat bounds overlap the box and
-// whose filter accepts the query. It walks the static, the kinematic and
+// OverlapAABB reports every shape whose fat bounds overlap the box, given
+// relative to origin, and whose filter accepts the query. It walks the static, the kinematic and
 // the dynamic tree in that order; a false result ends only the current
 // tree, as in the reference. A locked world panics. It corresponds to
 // b2World_OverlapAABB in src/world.c.
-func (worldId WorldId) OverlapAABB(aabb AABB, filter QueryFilter, fcn OverlapResultFcn) TreeStats {
+func (worldId WorldId) OverlapAABB(origin Pos, aabb AABB, filter QueryFilter, fcn OverlapResultFcn) TreeStats {
 	w := getWorldFromId(worldId)
 	if w.locked {
 		panic("dbox2d: the world is locked")
 	}
-	if !IsValidAABB(aabb) {
+	if !IsValidVec2(origin) || !IsValidAABB(aabb) {
 		panic("dbox2d: OverlapAABB needs a valid box")
 	}
+	worldBox := offsetAABB(aabb, origin)
 
 	callback := func(_ int, userData uint64) bool {
 		s := &w.shapes[int(userData)]
@@ -1362,7 +1422,7 @@ func (worldId WorldId) OverlapAABB(aabb AABB, filter QueryFilter, fcn OverlapRes
 
 	var stats TreeStats
 	for i := range w.broadPhase.trees {
-		result := w.broadPhase.trees[i].overlapAABB(aabb, filter.MaskBits, callback)
+		result := w.broadPhase.trees[i].overlapAABB(worldBox, filter.MaskBits, callback)
 		stats.NodeVisits += result.nodeVisits
 		stats.LeafVisits += result.leafVisits
 	}
@@ -1372,7 +1432,7 @@ func (worldId WorldId) OverlapAABB(aabb AABB, filter QueryFilter, fcn OverlapRes
 // CastRay reports the shapes a ray hits, tree by tree. The callback
 // clips the ray for the next tree; a zero return stops the cast. A
 // locked world panics. It corresponds to b2World_CastRay in src/world.c.
-func (worldId WorldId) CastRay(origin, translation Vec2, filter QueryFilter, fcn CastResultFcn) TreeStats {
+func (worldId WorldId) CastRay(origin Pos, translation Vec2, filter QueryFilter, fcn CastResultFcn) TreeStats {
 	w := getWorldFromId(worldId)
 	if w.locked {
 		panic("dbox2d: the world is locked")
@@ -1392,13 +1452,16 @@ func (worldId WorldId) CastRay(origin, translation Vec2, filter QueryFilter, fcn
 			return input.MaxFraction
 		}
 
-		transform := getBodyTransformQuick(w, &w.bodies[s.bodyId])
-		output := rayCastShape(input, s, transform)
+		// Cast from the origin frame, as the reference does for large worlds.
+		transform := ToRelativeTransform(getBodyTransformQuick(w, &w.bodies[s.bodyId]), origin)
+		localInput := *input
+		localInput.Origin = Vec2{}
+		output := rayCastShape(&localInput, s, transform)
 		if !output.Hit {
 			return input.MaxFraction
 		}
 
-		value := fcn(shapeIdOf(w, s), output.Point, output.Normal, output.Fraction)
+		value := fcn(shapeIdOf(w, s), OffsetPos(origin, output.Point), output.Normal, output.Fraction)
 
 		// A negative value skips the shape and keeps the clip.
 		if !value.Less(zero) && !one.Less(value) {
@@ -1421,18 +1484,22 @@ func (worldId WorldId) CastRay(origin, translation Vec2, filter QueryFilter, fcn
 	return stats
 }
 
-// OverlapShape reports every shape that overlaps the proxy and whose
+// OverlapShape reports every shape that overlaps the proxy, given relative
+// to origin, and whose
 // filter accepts the query, tree by tree; a false result ends only the
 // current tree. The distance solver decides the overlap, so the report is
 // exact, not a bounds test. A locked world panics. It corresponds to
 // b2World_OverlapShape in src/world.c.
-func (worldId WorldId) OverlapShape(proxy *ShapeProxy, filter QueryFilter, fcn OverlapResultFcn) TreeStats {
+func (worldId WorldId) OverlapShape(origin Pos, proxy *ShapeProxy, filter QueryFilter, fcn OverlapResultFcn) TreeStats {
 	w := getWorldFromId(worldId)
 	if w.locked {
 		panic("dbox2d: the world is locked")
 	}
+	if !IsValidVec2(origin) {
+		panic("dbox2d: OverlapShape needs a valid origin")
+	}
 
-	aabb := MakeAABB(proxy.Points[:proxy.Count], proxy.Radius)
+	aabb := offsetAABB(MakeAABB(proxy.Points[:proxy.Count], proxy.Radius), origin)
 	tolerance := linearSlopTenth
 
 	callback := func(_ int, userData uint64) bool {
@@ -1441,7 +1508,8 @@ func (worldId WorldId) OverlapShape(proxy *ShapeProxy, filter QueryFilter, fcn O
 			return true
 		}
 
-		transform := getBodyTransformQuick(w, &w.bodies[s.bodyId])
+		// Re-center on the query origin.
+		transform := ToRelativeTransform(getBodyTransformQuick(w, &w.bodies[s.bodyId]), origin)
 
 		var input DistanceInput
 		input.ProxyA = *proxy
@@ -1472,7 +1540,7 @@ func (worldId WorldId) OverlapShape(proxy *ShapeProxy, filter QueryFilter, fcn O
 // in games. An initial overlap does not count as a hit. A locked world
 // panics. It corresponds to b2World_CastRayClosest in src/world.c; the
 // closure replaces b2RayCastClosestFcn.
-func (worldId WorldId) CastRayClosest(origin, translation Vec2, filter QueryFilter) RayResult {
+func (worldId WorldId) CastRayClosest(origin Pos, translation Vec2, filter QueryFilter) RayResult {
 	var result RayResult
 
 	w := getWorldFromId(worldId)
@@ -1488,7 +1556,7 @@ func (worldId WorldId) CastRayClosest(origin, translation Vec2, filter QueryFilt
 	input := RayCastInput{Origin: origin, Translation: translation, MaxFraction: one}
 	fraction := one
 
-	closest := func(shapeId ShapeId, point, normal Vec2, hitFraction Q) Q {
+	closest := func(shapeId ShapeId, point Pos, normal Vec2, hitFraction Q) Q {
 		// Ignore initial overlap
 		if hitFraction.Eq(zero) {
 			return one.Neg()
@@ -1508,13 +1576,15 @@ func (worldId WorldId) CastRayClosest(origin, translation Vec2, filter QueryFilt
 			return input.MaxFraction
 		}
 
-		transform := getBodyTransformQuick(w, &w.bodies[s.bodyId])
-		output := rayCastShape(input, s, transform)
+		transform := ToRelativeTransform(getBodyTransformQuick(w, &w.bodies[s.bodyId]), origin)
+		localInput := *input
+		localInput.Origin = Vec2{}
+		output := rayCastShape(&localInput, s, transform)
 		if !output.Hit {
 			return input.MaxFraction
 		}
 
-		value := closest(shapeIdOf(w, s), output.Point, output.Normal, output.Fraction)
+		value := closest(shapeIdOf(w, s), OffsetPos(origin, output.Point), output.Normal, output.Fraction)
 
 		// The user may return -1 to skip this shape
 		if !value.Less(zero) && !one.Less(value) {
@@ -1537,15 +1607,16 @@ func (worldId WorldId) CastRayClosest(origin, translation Vec2, filter QueryFilt
 	return result
 }
 
-// CastShape sweeps a proxy through the world and reports each hit, tree
+// CastShape sweeps a proxy, given relative to origin, through the world and
+// reports each hit, tree
 // by tree. The callback returns as for CastRay. A locked world panics. It
 // corresponds to b2World_CastShape in src/world.c.
-func (worldId WorldId) CastShape(proxy *ShapeProxy, translation Vec2, filter QueryFilter, fcn CastResultFcn) TreeStats {
+func (worldId WorldId) CastShape(origin Pos, proxy *ShapeProxy, translation Vec2, filter QueryFilter, fcn CastResultFcn) TreeStats {
 	w := getWorldFromId(worldId)
 	if w.locked {
 		panic("dbox2d: the world is locked")
 	}
-	if !IsValidVec2(translation) {
+	if !IsValidVec2(origin) || !IsValidVec2(translation) {
 		panic("dbox2d: CastShape needs a valid translation")
 	}
 
@@ -1570,14 +1641,14 @@ func (worldId WorldId) CastShape(proxy *ShapeProxy, translation Vec2, filter Que
 		localInput := input
 		localInput.MaxFraction = treeInput.MaxFraction
 
-		transform := getBodyTransformQuick(w, &w.bodies[s.bodyId])
+		transform := ToRelativeTransform(getBodyTransformQuick(w, &w.bodies[s.bodyId]), origin)
 
 		output := shapeCastShape(&localInput, s, transform)
 		if !output.Hit {
 			return treeInput.MaxFraction
 		}
 
-		value := fcn(shapeIdOf(w, s), output.Point, output.Normal, output.Fraction)
+		value := fcn(shapeIdOf(w, s), OffsetPos(origin, output.Point), output.Normal, output.Fraction)
 
 		// The user may return -1 to skip this shape
 		if !value.Less(zero) && !one.Less(value) {
@@ -1586,9 +1657,9 @@ func (worldId WorldId) CastShape(proxy *ShapeProxy, translation Vec2, filter Que
 		return value
 	}
 
-	// Create a conservative box from the proxy.
+	// Create a conservative world box from the proxy and origin.
 	treeInput := BoxCastInput{
-		Box:         MakeAABB(proxy.Points[:proxy.Count], proxy.Radius),
+		Box:         offsetAABB(MakeAABB(proxy.Points[:proxy.Count], proxy.Radius), origin),
 		Translation: translation,
 		MaxFraction: one,
 	}
@@ -1607,13 +1678,13 @@ func (worldId WorldId) CastShape(proxy *ShapeProxy, translation Vec2, filter Que
 	return stats
 }
 
-// CastMover sweeps a capsule through the world and returns the fraction
+// CastMover sweeps a capsule, given relative to origin, through the world and returns the fraction
 // of the translation it may travel. Shapes it already overlaps do not
 // stop it; a capsule that already touches may move a little closer. A
 // locked world panics. It corresponds to b2World_CastMover in
 // src/world.c.
-func (worldId WorldId) CastMover(mover *Capsule, translation Vec2, filter QueryFilter) Q {
-	if !IsValidVec2(translation) {
+func (worldId WorldId) CastMover(origin Pos, mover *Capsule, translation Vec2, filter QueryFilter) Q {
+	if !IsValidVec2(origin) || !IsValidVec2(translation) {
 		panic("dbox2d: CastMover needs a valid translation")
 	}
 	if !linearSlop.Mul(QFromInt(2)).Less(mover.Radius) {
@@ -1650,7 +1721,7 @@ func (worldId WorldId) CastMover(mover *Capsule, translation Vec2, filter QueryF
 		localInput := input
 		localInput.MaxFraction = treeInput.MaxFraction
 
-		transform := getBodyTransformQuick(w, &w.bodies[s.bodyId])
+		transform := ToRelativeTransform(getBodyTransformQuick(w, &w.bodies[s.bodyId]), origin)
 
 		output := shapeCastShape(&localInput, s, transform)
 		if output.Fraction.Eq(zero) {
@@ -1665,7 +1736,7 @@ func (worldId WorldId) CastMover(mover *Capsule, translation Vec2, filter QueryF
 	// Bound the capsule.
 	centers := [2]Vec2{mover.Center1, mover.Center2}
 	treeInput := BoxCastInput{
-		Box:         MakeAABB(centers[:], mover.Radius),
+		Box:         offsetAABB(MakeAABB(centers[:], mover.Radius), origin),
 		Translation: translation,
 		MaxFraction: one,
 	}
@@ -1683,21 +1754,25 @@ func (worldId WorldId) CastMover(mover *Capsule, translation Vec2, filter QueryF
 }
 
 // CollideMover reports the collision plane of every shape the mover
-// capsule touches, tree by tree. The callback returns false to stop the
+// capsule, given relative to origin, touches, tree by tree; the planes are
+// relative to origin too. The callback returns false to stop the
 // walk. A locked world panics. It corresponds to b2World_CollideMover in
 // src/world.c.
-func (worldId WorldId) CollideMover(mover *Capsule, filter QueryFilter, fcn PlaneResultFcn) {
+func (worldId WorldId) CollideMover(origin Pos, mover *Capsule, filter QueryFilter, fcn PlaneResultFcn) {
 	w := getWorldFromId(worldId)
 	if w.locked {
 		panic("dbox2d: the world is locked")
 	}
+	if !IsValidVec2(origin) {
+		panic("dbox2d: CollideMover needs a valid origin")
+	}
 
 	lower := Min(mover.Center1, mover.Center2)
 	upper := Max(mover.Center1, mover.Center2)
-	aabb := AABB{
+	aabb := offsetAABB(AABB{
 		LowerBound: Vec2{X: lower.X.Sub(mover.Radius), Y: lower.Y.Sub(mover.Radius)},
 		UpperBound: Vec2{X: upper.X.Add(mover.Radius), Y: upper.Y.Add(mover.Radius)},
-	}
+	}, origin)
 
 	callback := func(_ int, userData uint64) bool {
 		s := &w.shapes[int(userData)]
@@ -1705,7 +1780,7 @@ func (worldId WorldId) CollideMover(mover *Capsule, filter QueryFilter, fcn Plan
 			return true
 		}
 
-		transform := getBodyTransformQuick(w, &w.bodies[s.bodyId])
+		transform := ToRelativeTransform(getBodyTransformQuick(w, &w.bodies[s.bodyId]), origin)
 		result := collideMover(mover, s, transform)
 
 		if result.Hit && IsNormalized(result.Plane.Normal) {
@@ -1823,95 +1898,72 @@ func (worldId WorldId) Explode(def *ExplosionDef) {
 	w.broadPhase.trees[DynamicBody].overlapAABB(aabb, def.MaskBits, ctx.explosionCallback)
 }
 
-// drawShape forwards one shape's geometry to the backend-neutral drawer.
-func drawShape(draw *DebugDraw, shape *shape, transform Transform, color HexColor) {
+// drawShape forwards one shape's geometry to the drawer. It corresponds to
+// b2DrawShape in src/physics_world.c.
+func drawShape(draw *DebugDraw, shape *shape, transform WorldTransform, color HexColor, drawChainNormals bool) {
 	switch shape.shapeType {
 	case CapsuleShape:
-		draw.DrawSolidCapsule(TransformPoint(transform, shape.capsule().Center1), TransformPoint(transform, shape.capsule().Center2), shape.capsule().Radius, color)
+		capsule := shape.capsule()
+		p1 := TransformWorldPoint(transform, capsule.Center1)
+		p2 := TransformWorldPoint(transform, capsule.Center2)
+		draw.DrawSolidCapsuleFcn(p1, p2, capsule.Radius, color)
 	case CircleShape:
-		transform.P = TransformPoint(transform, shape.circle().Center)
-		draw.DrawSolidCircle(transform, shape.circle().Radius, color)
+		circle := shape.circle()
+		draw.DrawSolidCircleFcn(transform, circle.Center, circle.Radius, color)
 	case PolygonShape:
-		draw.DrawSolidPolygon(transform, shape.polygon().Vertices[:shape.polygon().Count], shape.polygon().Radius, color)
+		poly := shape.polygon()
+		draw.DrawSolidPolygonFcn(transform, poly.Vertices[:poly.Count], poly.Radius, color)
 	case SegmentShape:
-		draw.DrawSegment(TransformPoint(transform, shape.segment().Point1), TransformPoint(transform, shape.segment().Point2), color)
+		segment := shape.segment()
+		p1 := TransformWorldPoint(transform, segment.Point1)
+		p2 := TransformWorldPoint(transform, segment.Point2)
+		draw.DrawLineFcn(p1, p2, color)
 	case ChainSegmentShape:
 		segment := shape.chainSegment().Segment
-		p1 := TransformPoint(transform, segment.Point1)
-		p2 := TransformPoint(transform, segment.Point2)
-		draw.DrawSegment(p1, p2, color)
-		draw.DrawPoint(p2, QFromInt(4), color)
-		draw.DrawSegment(p1, Lerp(p1, p2, QMustParse("0.1")), ColorPaleGreen)
+		p1 := TransformWorldPoint(transform, segment.Point1)
+		p2 := TransformWorldPoint(transform, segment.Point2)
+		draw.DrawLineFcn(p1, p2, color)
+		draw.DrawPointFcn(p2, QFromInt(4), color)
+
+		if drawChainNormals {
+			c := LerpPos(p1, p2, QHalf())
+			e := SubPos(p2, p1).Normalize()
+			n := RightPerp(e)
+			length := QMustParse("0.2")
+			draw.DrawLineFcn(c, OffsetPos(c, n.Mul(length)), ColorPaleGreen)
+		}
 	}
 }
 
-func drawBodyColor(body *body, sim *bodySim, shape *shape) HexColor {
-	if shape.customColor != 0 {
+// drawShapeColor picks the debug color of a shape from its body state. It
+// is the color chain of DrawQueryCallback in src/physics_world.c.
+func drawShapeColor(body *body, sim *bodySim, shape *shape) HexColor {
+	switch {
+	case shape.customColor != 0:
 		return HexColor(shape.customColor)
-	}
-	if body.bodyType == DynamicBody && body.mass == (Q{}) {
+	case body.bodyType == DynamicBody && body.mass == (Q{}):
+		// Bad body
 		return ColorRed
-	}
-	if body.setIndex == disabledSet {
+	case body.setIndex == disabledSet:
 		return ColorSlateGray
-	}
-	if shape.sensorIndex != nullIndex {
+	case shape.sensorIndex != nullIndex:
 		return ColorWheat
-	}
-	if sim.flags&bodyIsBullet != 0 && body.setIndex == awakeSet {
+	case sim.flags&bodyHadTimeOfImpact != 0:
+		return ColorLime
+	case sim.flags&bodyIsBullet != 0 && body.setIndex == awakeSet:
 		return ColorTurquoise
-	}
-	if body.flags&bodyIsSpeedCapped != 0 {
+	case body.flags&bodyIsSpeedCapped != 0:
 		return ColorYellow
-	}
-	if sim.flags&bodyIsFast != 0 {
+	case sim.flags&bodyIsFast != 0:
 		return ColorSalmon
-	}
-	switch body.bodyType {
-	case StaticBody:
+	case body.bodyType == StaticBody:
 		return ColorPaleGreen
-	case KinematicBody:
+	case body.bodyType == KinematicBody:
 		return ColorRoyalBlue
-	}
-	if body.setIndex == awakeSet {
+	case body.setIndex == awakeSet:
 		return ColorPink
 	}
 	return ColorGray
-}
-
-func drawAABB(draw *DebugDraw, aabb AABB, color HexColor) {
-	draw.DrawPolygon([]Vec2{
-		aabb.LowerBound,
-		{X: aabb.UpperBound.X, Y: aabb.LowerBound.Y},
-		aabb.UpperBound,
-		{X: aabb.LowerBound.X, Y: aabb.UpperBound.Y},
-	}, color)
-}
-
-func drawWorldBounds(draw *DebugDraw, w *world) {
-	for setIndex := range w.solverSets {
-		for simIndex := range w.solverSets[setIndex].bodySims {
-			sim := &w.solverSets[setIndex].bodySims[simIndex]
-			body := &w.bodies[sim.bodyId]
-			draw.DrawString(sim.center, strconv.Itoa(sim.bodyId), ColorWhite)
-			for shapeID := body.headShapeId; shapeID != nullIndex; shapeID = w.shapes[shapeID].nextShapeId {
-				drawAABB(draw, w.fatAABBs[shapeID], ColorGold)
-			}
-		}
-	}
-}
-
-func drawWorldNames(draw *DebugDraw, w *world) {
-	offset := Vec2{X: QMustParse("0.05"), Y: QMustParse("0.05")}
-	for i := range w.bodies {
-		body := &w.bodies[i]
-		if body.setIndex == nullIndex || body.name[0] == 0 {
-			continue
-		}
-		sim := &w.solverSets[body.setIndex].bodySims[body.localIndex]
-		transform := Transform{P: sim.center, Q: sim.transform.Q}
-		draw.DrawString(TransformPoint(transform, offset), string(body.name[:bytesIndex(body.name[:])]), ColorBlueViolet)
-	}
 }
 
 func bytesIndex(name []byte) int {
@@ -1923,22 +1975,6 @@ func bytesIndex(name []byte) int {
 	return len(name)
 }
 
-func drawWorldMass(draw *DebugDraw, w *world) {
-	offset := Vec2{X: QMustParse("0.1"), Y: QMustParse("0.1")}
-	for setIndex := range w.solverSets {
-		for simIndex := range w.solverSets[setIndex].bodySims {
-			sim := &w.solverSets[setIndex].bodySims[simIndex]
-			transform := Transform{P: sim.center, Q: sim.transform.Q}
-			draw.DrawTransform(transform)
-			mass := Q{}
-			if !(sim.invMass == (Q{})) {
-				mass = QOne().Div(sim.invMass)
-			}
-			draw.DrawString(TransformPoint(transform, offset), "  "+drawNumber(mass, 2), ColorWhite)
-		}
-	}
-}
-
 var graphColors = [graphColorCount]HexColor{
 	ColorRed, ColorOrange, ColorYellow, ColorLimeGreen, ColorSpringGreen,
 	ColorAqua, ColorDodgerBlue, ColorBlueViolet, ColorMagenta, ColorDeepPink,
@@ -1947,7 +1983,8 @@ var graphColors = [graphColorCount]HexColor{
 	ColorHotPink, ColorTomato, ColorKhaki, ColorSilver,
 }
 
-// drawNumber keeps the reference's decimal labels without converting Q to float.
+// drawNumber formats a label as printf's "%.Nf" does, without converting Q
+// to float.
 func drawNumber(value Q, places int) string {
 	text := value.String()
 	if strings.ContainsAny(text, "eE") {
@@ -1979,170 +2016,138 @@ func drawNumber(value Q, places int) string {
 	return text
 }
 
-func drawContactManifold(draw *DebugDraw, w *world, cs *contactSim, colorIndex int, bounded bool) {
-	bodyA := &w.bodies[w.shapes[cs.shapeIdA].bodyId]
-	drawManifoldPoints(draw, &cs.manifold, getBodySim(w, bodyA).center, colorIndex, bounded)
+// drawGeneral formats a label as printf's "%g" does.
+func drawGeneral(value Q) string {
+	return strconv.FormatFloat(QToFloat64(value), 'g', 6, 64)
 }
 
-// drawManifoldPoints draws the points of a manifold whose anchors A are
-// relative to centerA, the center of mass of body A.
-func drawManifoldPoints(draw *DebugDraw, manifold *Manifold, centerA Vec2, colorIndex int, bounded bool) {
-	axisScale := QMustParse("0.3")
-	for pointIndex := range manifold.PointCount {
-		point := &manifold.Points[pointIndex]
-		// The world point is rebuilt from the center of body A and the
-		// anchor, as the reference draw does.
-		p := centerA.Add(point.AnchorA)
-		if draw.DrawGraphColors {
-			size := QFromInt(5)
-			if colorIndex == overflowIndex {
-				size = QMustParse("7.5")
-			}
-			draw.DrawPoint(p, size, graphColors[colorIndex])
-		} else if linearSlop.Less(point.Separation) {
-			color := ColorLightGray
-			if bounded {
-				color = ColorGainsboro
-			}
-			draw.DrawPoint(p, QFromInt(5), color)
-		} else if point.Persisted {
-			draw.DrawPoint(p, QFromInt(5), ColorBlue)
-		} else {
-			draw.DrawPoint(p, QFromInt(10), ColorGreen)
-		}
-		if draw.DrawContactNormals {
-			draw.DrawSegment(p, MulAdd(p, axisScale, manifold.Normal), ColorDimGray)
-		} else if draw.DrawContactImpulses {
-			impulse, places := point.TotalNormalImpulse, 2
-			if bounded {
-				impulse, places = point.NormalImpulse, 1
-			}
-			draw.DrawSegment(p, MulAdd(p, impulse, manifold.Normal), ColorMagenta)
-			draw.DrawString(p, drawNumber(impulse.Mul(QFromInt(1000)), places), ColorWhite)
-		}
-		if draw.DrawContactFeatures {
-			draw.DrawString(p, strconv.Itoa(int(point.Id)), ColorOrange)
-		}
-		if draw.DrawFrictionImpulses {
-			draw.DrawSegment(p, MulAdd(p, point.TangentImpulse, RightPerp(manifold.Normal)), ColorYellow)
-			impulse, places := point.TangentImpulse, 2
-			if bounded {
-				impulse, places = impulse.Mul(QFromInt(1000)), 1
-			}
-			draw.DrawString(p, drawNumber(impulse, places), ColorWhite)
-		}
-	}
-}
-
-func drawContacts(draw *DebugDraw, w *world) {
-	for colorIndex := range w.constraintGraph.colors {
-		for i := range w.constraintGraph.colors[colorIndex].contactSims {
-			drawContactManifold(draw, w, &w.constraintGraph.colors[colorIndex].contactSims[i], colorIndex, false)
-		}
-	}
-}
-
-// Scratch stays local so drawing cannot change the world's stored state.
+// drawContext carries the world and the drawer into the tree query. The
+// visited sets live in the world, as in the reference, so drawing does not
+// allocate once they have grown.
 type drawContext struct {
-	world                         *world
-	draw                          *DebugDraw
-	bodySet, jointSet, contactSet bitSet
+	world *world
+	draw  *DebugDraw
 }
 
+// drawQueryCallback draws one shape inside the drawing bounds and marks its
+// body. It corresponds to DrawQueryCallback in src/physics_world.c.
 func (ctx *drawContext) drawQueryCallback(_ int, userData uint64) bool {
 	w, draw := ctx.world, ctx.draw
-	shape := &w.shapes[int(userData)]
-	ctx.bodySet.setBit(shape.bodyId)
+	shapeId := int(userData)
+	shape := &w.shapes[shapeId]
+	body := &w.bodies[shape.bodyId]
+	sim := getBodySim(w, body)
+
+	w.debugBodySet.setBit(shape.bodyId)
+
 	if draw.DrawShapes {
-		body := &w.bodies[shape.bodyId]
-		sim := &w.solverSets[body.setIndex].bodySims[body.localIndex]
-		drawShape(draw, shape, sim.transform, drawBodyColor(body, sim, shape))
+		drawShape(draw, shape, sim.transform, drawShapeColor(body, sim, shape), draw.DrawChainNormals)
 	}
+
 	if draw.DrawBounds {
-		drawAABB(draw, w.fatAABBs[shape.id], ColorGold)
+		draw.DrawBoundsFcn(w.fatAABBs[shapeId], ColorGold)
 	}
+
 	return true
 }
 
-func drawWithBounds(draw *DebugDraw, w *world) {
-	if !IsValidAABB(draw.DrawingBounds) {
-		panic("dbox2d: invalid drawing bounds")
-	}
-	ctx := drawContext{world: w, draw: draw}
-	setBitCountAndClear(&ctx.bodySet, len(w.bodies))
-	setBitCountAndClear(&ctx.jointSet, len(w.joints))
-	setBitCountAndClear(&ctx.contactSet, len(w.contacts))
-	for i := range w.broadPhase.trees {
-		w.broadPhase.trees[i].overlapAABB(draw.DrawingBounds, DefaultMaskBits, ctx.drawQueryCallback)
-	}
-	for blockIndex, word := range ctx.bodySet.bits {
-		for word != 0 {
-			bodyID := 64*blockIndex + bits.TrailingZeros64(word)
-			body := &w.bodies[bodyID]
-			sim := &w.solverSets[body.setIndex].bodySims[body.localIndex]
-			transform := Transform{P: sim.center, Q: sim.transform.Q}
-			offset := Vec2{X: QMustParse("0.1"), Y: QMustParse("0.1")}
-			if draw.DrawBodyNames && body.name[0] != 0 {
-				draw.DrawString(TransformPoint(transform, offset), string(body.name[:bytesIndex(body.name[:])]), ColorBlueViolet)
+// drawContactPoints draws the points of one contact. It is the contact
+// block of b2World_Draw in src/physics_world.c.
+func drawContactPoints(draw *DebugDraw, w *world, contact *contact) {
+	cs := getContactSim(w, contact)
+	simA := getBodySim(w, &w.bodies[contact.edges[0].bodyId])
+	simB := getBodySim(w, &w.bodies[contact.edges[1].bodyId])
+	drawManifoldPoints(draw, &cs.manifold, simA.center, simB.center, contact.colorIndex, w.invDt, w.invH)
+}
+
+// drawManifoldPoints draws the points of a manifold whose anchors are
+// relative to centerA and centerB, the centers of mass of the two bodies.
+func drawManifoldPoints(draw *DebugDraw, manifold *Manifold, centerA, centerB Pos, colorIndex int, invDt, invH Q) {
+	axisScale := QMustParse("0.3")
+	half := QHalf()
+	normal := manifold.Normal
+
+	for j := range manifold.PointCount {
+		mp := &manifold.Points[j]
+
+		var p Pos
+		if draw.DrawAnchorA {
+			p = OffsetPos(centerA, mp.AnchorA)
+		} else {
+			p = OffsetPos(centerB, mp.AnchorB)
+		}
+
+		switch {
+		case draw.DrawGraphColors && colorIndex != nullIndex:
+			// graph color
+			pointSize := QFromInt(5)
+			if colorIndex == overflowIndex {
+				pointSize = QMustParse("7.5")
 			}
-			if draw.DrawMass && body.bodyType == DynamicBody {
-				draw.DrawTransform(transform)
-				draw.DrawString(TransformPoint(transform, offset), "  "+drawNumber(body.mass, 2), ColorWhite)
-			}
-			if draw.DrawJoints {
-				for key := body.headJointKey; key != nullIndex; {
-					jointID, edgeIndex := key>>1, key&1
-					joint := &w.joints[jointID]
-					if !ctx.jointSet.getBit(jointID) {
-						drawJoint(draw, w, joint)
-						ctx.jointSet.setBit(jointID)
-					}
-					key = joint.edges[edgeIndex].nextKey
-				}
-			}
-			if draw.DrawContacts && body.bodyType == DynamicBody && body.setIndex == awakeSet {
-				for key := body.headContactKey; key != nullIndex; {
-					contactID, edgeIndex := key>>1, key&1
-					contact := &w.contacts[contactID]
-					key = contact.edges[edgeIndex].nextKey
-					if contact.setIndex != awakeSet || contact.colorIndex == nullIndex || ctx.contactSet.getBit(contactID) {
-						continue
-					}
-					cs := &w.constraintGraph.colors[contact.colorIndex].contactSims[contact.localIndex]
-					drawContactManifold(draw, w, cs, contact.colorIndex, true)
-					ctx.contactSet.setBit(contactID)
-				}
-			}
-			word &= word - 1
+			draw.DrawPointFcn(p, pointSize, graphColors[colorIndex])
+		case linearSlop.Less(mp.Separation):
+			// Speculative
+			draw.DrawPointFcn(p, QFromInt(5), ColorGainsboro)
+		case !mp.Persisted:
+			// Add
+			draw.DrawPointFcn(p, QFromInt(10), ColorGreen)
+		default:
+			// Persist
+			draw.DrawPointFcn(p, QFromInt(5), ColorBlue)
+		}
+
+		if draw.DrawContactNormals {
+			p2 := OffsetPos(p, normal.Mul(axisScale))
+			draw.DrawLineFcn(p, p2, ColorDimGray)
+			draw.DrawStringFcn(p, " "+drawNumber(mp.Separation, 2), ColorWhite)
+		} else if draw.DrawContactForces {
+			// multiply by one-half due to relax iteration
+			force := half.Mul(mp.TotalNormalImpulse).Mul(invDt)
+			p2 := OffsetPos(p, normal.Mul(draw.ForceScale.Mul(force)))
+			draw.DrawLineFcn(p, p2, ColorMagenta)
+			draw.DrawStringFcn(p, drawNumber(force, 1), ColorWhite)
+		}
+
+		if draw.DrawContactFeatures {
+			draw.DrawStringFcn(p, strconv.Itoa(int(mp.Id)), ColorOrange)
+		}
+
+		if draw.DrawFrictionForces {
+			force := half.Mul(mp.TangentImpulse).Mul(invH)
+			tangent := RightPerp(normal)
+			p2 := OffsetPos(p, tangent.Mul(draw.ForceScale.Mul(force)))
+			draw.DrawLineFcn(p, p2, ColorYellow)
+			draw.DrawStringFcn(p, drawNumber(force, 1), ColorWhite)
 		}
 	}
 }
 
-func drawIslands(draw *DebugDraw, w *world) {
-	for i := range w.islands {
-		island := &w.islands[i]
-		if island.setIndex == nullIndex {
-			continue
+// drawIsland draws the union of the fat bounds of an island's shapes. It is
+// the island block of b2World_Draw in src/physics_world.c.
+func drawIsland(draw *DebugDraw, w *world, island *island) {
+	maxValue := QMaxValue()
+	shapeCount := 0
+	aabb := AABB{
+		LowerBound: Vec2{X: maxValue, Y: maxValue},
+		UpperBound: Vec2{X: maxValue.Neg(), Y: maxValue.Neg()},
+	}
+
+	for _, islandBodyId := range island.bodies {
+		for shapeId := w.bodies[islandBodyId].headShapeId; shapeId != nullIndex; shapeId = w.shapes[shapeId].nextShapeId {
+			aabb = AABBUnion(aabb, w.fatAABBs[shapeId])
+			shapeCount++
 		}
-		var bounds AABB
-		shapeCount := 0
-		for _, bodyID := range island.bodies {
-			for shapeID := w.bodies[bodyID].headShapeId; shapeID != nullIndex; shapeID = w.shapes[shapeID].nextShapeId {
-				if shapeCount == 0 {
-					bounds = w.fatAABBs[shapeID]
-				} else {
-					bounds = AABBUnion(bounds, w.fatAABBs[shapeID])
-				}
-				shapeCount++
-			}
-		}
-		if shapeCount != 0 {
-			drawAABB(draw, bounds, ColorOrangeRed)
-		}
+	}
+
+	if shapeCount > 0 {
+		draw.DrawBoundsFcn(aabb, ColorOrangeRed)
 	}
 }
 
-// Draw walks the world and invokes the callbacks selected by draw's flags.
+// Draw draws the shapes inside draw.DrawingBounds, then the names, mass,
+// joints, contacts and islands of their bodies, as the flags select. Start
+// from DefaultDebugDraw. A locked world panics. It corresponds to
+// b2World_Draw in src/physics_world.c.
 func (worldId WorldId) Draw(draw *DebugDraw) {
 	w := getWorldFromId(worldId)
 	if w.locked {
@@ -2151,44 +2156,88 @@ func (worldId WorldId) Draw(draw *DebugDraw) {
 	if draw == nil {
 		panic("dbox2d: DebugDraw is nil")
 	}
-	if draw.UseDrawingBounds {
-		drawWithBounds(draw, w)
-		return
+	if !IsValidAABB(draw.DrawingBounds) {
+		panic("dbox2d: invalid drawing bounds")
 	}
-	if draw.DrawShapes {
-		for setIndex := range w.solverSets {
-			set := &w.solverSets[setIndex]
-			for simIndex := range set.bodySims {
-				sim := &set.bodySims[simIndex]
-				body := &w.bodies[sim.bodyId]
-				for shapeID := body.headShapeId; shapeID != nullIndex; shapeID = w.shapes[shapeID].nextShapeId {
-					shape := &w.shapes[shapeID]
-					drawShape(draw, shape, sim.transform, drawBodyColor(body, sim, shape))
+
+	setBitCountAndClear(&w.debugBodySet, w.bodyIdPool.idCapacity())
+	setBitCountAndClear(&w.debugJointSet, w.jointIdPool.idCapacity())
+	setBitCountAndClear(&w.debugContactSet, w.contactIdPool.idCapacity())
+	setBitCountAndClear(&w.debugIslandSet, w.islandIdPool.idCapacity())
+
+	ctx := drawContext{world: w, draw: draw}
+	for i := range w.broadPhase.trees {
+		w.broadPhase.trees[i].overlapAABBAll(draw.DrawingBounds, ctx.drawQueryCallback)
+	}
+
+	offset := Vec2{X: QMustParse("0.1"), Y: QMustParse("0.1")}
+	for k, word := range w.debugBodySet.bits {
+		for word != 0 {
+			bodyId := 64*k + bits.TrailingZeros64(word)
+			body := &w.bodies[bodyId]
+
+			if draw.DrawBodyNames && body.name[0] != 0 {
+				sim := getBodySim(w, body)
+				transform := WorldTransform{P: sim.center, Q: sim.transform.Q}
+				p := TransformWorldPoint(transform, offset)
+				draw.DrawStringFcn(p, string(body.name[:bytesIndex(body.name[:])]), ColorWhiteSmoke)
+			}
+
+			if draw.DrawMass && body.bodyType == DynamicBody {
+				sim := getBodySim(w, body)
+				transform := WorldTransform{P: sim.center, Q: sim.transform.Q}
+				draw.DrawLineFcn(sim.center0, sim.center, ColorWhiteSmoke)
+				draw.DrawTransformFcn(transform)
+
+				p := TransformWorldPoint(transform, offset)
+				draw.DrawStringFcn(p, "  "+drawNumber(body.mass, 2), ColorWhite)
+			}
+
+			if draw.DrawJoints {
+				for jointKey := body.headJointKey; jointKey != nullIndex; {
+					jointId, edgeIndex := jointKey>>1, jointKey&1
+					joint := &w.joints[jointId]
+
+					// avoid double draw
+					if !w.debugJointSet.getBit(jointId) {
+						drawJoint(draw, w, joint)
+						w.debugJointSet.setBit(jointId)
+					}
+
+					jointKey = joint.edges[edgeIndex].nextKey
 				}
 			}
-		}
-	}
-	if draw.DrawJoints {
-		for i := range w.joints {
-			joint := &w.joints[i]
-			if joint.setIndex != nullIndex {
-				drawJoint(draw, w, joint)
+
+			if draw.DrawContacts && body.bodyType == DynamicBody {
+				for contactKey := body.headContactKey; contactKey != nullIndex; {
+					contactId, edgeIndex := contactKey>>1, contactKey&1
+					contact := &w.contacts[contactId]
+					contactKey = contact.edges[edgeIndex].nextKey
+
+					// avoid double draw
+					if !w.debugContactSet.getBit(contactId) {
+						drawContactPoints(draw, w, contact)
+						w.debugContactSet.setBit(contactId)
+					}
+				}
 			}
+
+			if draw.DrawIslands {
+				islandId := body.islandId
+				if islandId != nullIndex && !w.debugIslandSet.getBit(islandId) {
+					// The reference skips an island without a set by a
+					// continue that would revisit the body; a live body's
+					// island always has a set, so the port only guards it.
+					island := &w.islands[islandId]
+					if island.setIndex != nullIndex {
+						drawIsland(draw, w, island)
+					}
+					w.debugIslandSet.setBit(islandId)
+				}
+			}
+
+			// Clear the smallest set bit
+			word &= word - 1
 		}
-	}
-	if draw.DrawBounds {
-		drawWorldBounds(draw, w)
-	}
-	if draw.DrawBodyNames {
-		drawWorldNames(draw, w)
-	}
-	if draw.DrawMass {
-		drawWorldMass(draw, w)
-	}
-	if draw.DrawContacts {
-		drawContacts(draw, w)
-	}
-	if draw.DrawIslands {
-		drawIslands(draw, w)
 	}
 }

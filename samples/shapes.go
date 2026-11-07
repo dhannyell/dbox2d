@@ -169,8 +169,8 @@ func (s *ChainShape) UpdateGui() {
 func (s *ChainShape) Step() {
 	s.Base.Step()
 
-	s.Context.Draw.DrawSegment(b2.Vec2{}, b2.V2(0.5, 0.0), b2.ColorRed)
-	s.Context.Draw.DrawSegment(b2.Vec2{}, b2.V2(0.0, 0.5), b2.ColorGreen)
+	s.Context.Draw.DrawLineFcn(b2.Vec2{}, b2.V2(0.5, 0.0), b2.ColorRed)
+	s.Context.Draw.DrawLineFcn(b2.Vec2{}, b2.V2(0.0, 0.5), b2.ColorGreen)
 }
 
 // CompoundShapes shows how careful creation of compound shapes leads to
@@ -367,7 +367,7 @@ func (s *CompoundShapes) drawAABB(box b2.AABB, color b2.HexColor) {
 	v[1] = b2.Vec2{X: box.UpperBound.X, Y: box.LowerBound.Y}
 	v[2] = box.UpperBound
 	v[3] = b2.Vec2{X: box.LowerBound.X, Y: box.UpperBound.Y}
-	s.Context.Draw.DrawPolygon(v[:], color)
+	s.Context.Draw.DrawPolygonFcn(b2.TransformIdentity(), v[:], color)
 }
 
 func (s *CompoundShapes) Step() {
@@ -500,13 +500,13 @@ func (s *ShapeFilter) Step() {
 	s.Base.Step()
 
 	p1 := s.player1Id.GetPosition()
-	s.Context.Draw.DrawString(b2.Vec2{X: p1.X.Sub(b2.QHalf()), Y: p1.Y}, "player 1", b2.ColorWhite)
+	s.Context.Draw.DrawStringFcn(b2.Vec2{X: p1.X.Sub(b2.QHalf()), Y: p1.Y}, "player 1", b2.ColorWhite)
 
 	p2 := s.player2Id.GetPosition()
-	s.Context.Draw.DrawString(b2.Vec2{X: p2.X.Sub(b2.QHalf()), Y: p2.Y}, "player 2", b2.ColorWhite)
+	s.Context.Draw.DrawStringFcn(b2.Vec2{X: p2.X.Sub(b2.QHalf()), Y: p2.Y}, "player 2", b2.ColorWhite)
 
 	p3 := s.player3Id.GetPosition()
-	s.Context.Draw.DrawString(b2.Vec2{X: p3.X.Sub(b2.QHalf()), Y: p3.Y}, "player 3", b2.ColorWhite)
+	s.Context.Draw.DrawStringFcn(b2.Vec2{X: p3.X.Sub(b2.QHalf()), Y: p3.Y}, "player 3", b2.ColorWhite)
 }
 
 const customFilterCount = 10
@@ -565,7 +565,7 @@ func (s *CustomFilter) Step() {
 
 	for i := range customFilterCount {
 		p := s.bodyIds[i].GetPosition()
-		s.Context.Draw.DrawString(p, fmt.Sprintf("%d", i), b2.ColorWhite)
+		s.Context.Draw.DrawStringFcn(p, fmt.Sprintf("%d", i), b2.ColorWhite)
 	}
 }
 
@@ -817,7 +817,7 @@ func (s *RollingResistance) Step() {
 	for i := range 20 {
 		p := b2.Vec2{X: b2.F(-41.5), Y: b2.F(2*i + 1)}
 		text := fmt.Sprintf("%.2f", ToFloat64(s.resistScale.Mul(b2.F(i))))
-		s.Context.Draw.DrawString(p, text, b2.ColorWhite)
+		s.Context.Draw.DrawStringFcn(p, text, b2.ColorWhite)
 	}
 }
 
@@ -1337,7 +1337,7 @@ func NewOffsetShapes(ctx *SampleContext) Sample {
 func (s *OffsetShapes) Step() {
 	s.Base.Step()
 
-	s.Context.Draw.DrawTransform(b2.TransformIdentity())
+	s.Context.Draw.DrawTransformFcn(b2.TransformIdentity())
 }
 
 // Explosion shows how to use explosions and demonstrates the projected
@@ -1439,8 +1439,8 @@ func (s *Explosion) Step() {
 
 	s.DrawTextLine("reference angle = %g", 2*math.Pi*ToFloat64(s.referenceAngle))
 
-	s.Context.Draw.DrawCircle(b2.Vec2{}, FromFloat64(s.radius+s.falloff), b2.ColorBox2DBlue)
-	s.Context.Draw.DrawCircle(b2.Vec2{}, FromFloat64(s.radius), b2.ColorBox2DYellow)
+	s.Context.Draw.DrawCircleFcn(b2.Vec2{}, FromFloat64(s.radius+s.falloff), b2.ColorBox2DBlue)
+	s.Context.Draw.DrawCircleFcn(b2.Vec2{}, FromFloat64(s.radius), b2.ColorBox2DYellow)
 }
 
 // RecreateStatic tests a static shape being recreated every step.

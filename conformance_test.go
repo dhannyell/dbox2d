@@ -779,7 +779,7 @@ func TestConformance(t *testing.T) {
 func conformanceSceneBodies(worldId WorldId) []BodyId {
 	aabb := AABB{LowerBound: Vec2{X: QFromInt(-1000000), Y: QFromInt(-1000000)}, UpperBound: Vec2{X: QFromInt(1000000), Y: QFromInt(1000000)}}
 	seen := make(map[BodyId]struct{})
-	worldId.OverlapAABB(aabb, DefaultQueryFilter(), func(shapeId ShapeId) bool {
+	worldId.OverlapAABB(Vec2{}, aabb, DefaultQueryFilter(), func(shapeId ShapeId) bool {
 		seen[shapeId.GetBody()] = struct{}{}
 		return true
 	})

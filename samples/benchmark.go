@@ -1147,11 +1147,11 @@ func (s *Cast) Step() {
 
 		p1 := s.origins[s.drawIndex]
 		p2 := p1.Add(s.translations[s.drawIndex])
-		s.Context.Draw.DrawSegment(p1, p2, b2.ColorWhite)
-		s.Context.Draw.DrawPoint(p1, b2.F(5), b2.ColorGreen)
-		s.Context.Draw.DrawPoint(p2, b2.F(5), b2.ColorRed)
+		s.Context.Draw.DrawLineFcn(p1, p2, b2.ColorWhite)
+		s.Context.Draw.DrawPointFcn(p1, b2.F(5), b2.ColorGreen)
+		s.Context.Draw.DrawPointFcn(p2, b2.F(5), b2.ColorRed)
 		if drawResult.Hit {
-			s.Context.Draw.DrawPoint(drawResult.Point, b2.F(5), b2.ColorWhite)
+			s.Context.Draw.DrawPointFcn(drawResult.Point, b2.F(5), b2.ColorWhite)
 		}
 
 	case castCircle:
@@ -1161,7 +1161,7 @@ func (s *Cast) Step() {
 		for i := range sampleCount {
 			proxy := b2.MakeProxy([]b2.Vec2{s.origins[i]}, s.radius)
 			result.hit = false
-			traversalResult := s.WorldId.CastShape(&proxy, s.translations[i], filter, func(_ b2.ShapeId, point, _ b2.Vec2, fraction b2.Q) b2.Q {
+			traversalResult := s.WorldId.CastShape(b2.Vec2{}, &proxy, s.translations[i], filter, func(_ b2.ShapeId, point, _ b2.Vec2, fraction b2.Q) b2.Q {
 				result.point = point
 				result.fraction = fraction
 				result.hit = true
@@ -1185,13 +1185,13 @@ func (s *Cast) Step() {
 
 		p1 := s.origins[s.drawIndex]
 		p2 := p1.Add(s.translations[s.drawIndex])
-		s.Context.Draw.DrawSegment(p1, p2, b2.ColorWhite)
-		s.Context.Draw.DrawPoint(p1, b2.F(5), b2.ColorGreen)
-		s.Context.Draw.DrawPoint(p2, b2.F(5), b2.ColorRed)
+		s.Context.Draw.DrawLineFcn(p1, p2, b2.ColorWhite)
+		s.Context.Draw.DrawPointFcn(p1, b2.F(5), b2.ColorGreen)
+		s.Context.Draw.DrawPointFcn(p2, b2.F(5), b2.ColorRed)
 		if drawResult.hit {
 			t := b2.Lerp(p1, p2, drawResult.fraction)
-			s.Context.Draw.DrawCircle(t, s.radius, b2.ColorWhite)
-			s.Context.Draw.DrawPoint(drawResult.point, b2.F(5), b2.ColorWhite)
+			s.Context.Draw.DrawCircleFcn(t, s.radius, b2.ColorWhite)
+			s.Context.Draw.DrawPointFcn(drawResult.point, b2.F(5), b2.ColorWhite)
 		}
 
 	case castOverlap:
@@ -1203,7 +1203,7 @@ func (s *Cast) Step() {
 			origin := s.origins[i]
 			aabb := b2.AABB{LowerBound: origin.Sub(extent), UpperBound: origin.Add(extent)}
 			result.count = 0
-			traversalResult := s.WorldId.OverlapAABB(aabb, filter, func(shapeID b2.ShapeId) bool {
+			traversalResult := s.WorldId.OverlapAABB(b2.Vec2{}, aabb, filter, func(shapeID b2.ShapeId) bool {
 				if result.count < len(result.points) {
 					result.points[result.count] = b2.AABBCenter(shapeID.GetBounds())
 					result.count++
@@ -1226,14 +1226,14 @@ func (s *Cast) Step() {
 
 		origin := s.origins[s.drawIndex]
 		aabb := b2.AABB{LowerBound: origin.Sub(extent), UpperBound: origin.Add(extent)}
-		s.Context.Draw.DrawPolygon([]b2.Vec2{
+		s.Context.Draw.DrawPolygonFcn(b2.TransformIdentity(), []b2.Vec2{
 			aabb.LowerBound,
 			b2.Vec2{X: aabb.UpperBound.X, Y: aabb.LowerBound.Y},
 			aabb.UpperBound,
 			b2.Vec2{X: aabb.LowerBound.X, Y: aabb.UpperBound.Y},
 		}, b2.ColorWhite)
 		for i := range drawResult.count {
-			s.Context.Draw.DrawPoint(drawResult.points[i], b2.F(5), b2.ColorHotPink)
+			s.Context.Draw.DrawPointFcn(drawResult.points[i], b2.F(5), b2.ColorHotPink)
 		}
 	}
 
@@ -1399,16 +1399,16 @@ func (s *ShapeDistance) Step() {
 	xfA := s.transformAs[s.drawIndex]
 	xfB := s.transformBs[s.drawIndex]
 	output := s.outputs[s.drawIndex]
-	s.Context.Draw.DrawSolidPolygon(xfA, s.polygonA.Vertices[:s.polygonA.Count], s.polygonA.Radius, b2.ColorBox2DGreen)
-	s.Context.Draw.DrawSolidPolygon(xfB, s.polygonB.Vertices[:s.polygonB.Count], s.polygonB.Radius, b2.ColorBox2DBlue)
+	s.Context.Draw.DrawSolidPolygonFcn(xfA, s.polygonA.Vertices[:s.polygonA.Count], s.polygonA.Radius, b2.ColorBox2DGreen)
+	s.Context.Draw.DrawSolidPolygonFcn(xfB, s.polygonB.Vertices[:s.polygonB.Count], s.polygonB.Radius, b2.ColorBox2DBlue)
 	// The query returns frame A results; project to world for drawing.
 	worldPointA := b2.TransformPoint(xfA, output.PointA)
 	worldPointB := b2.TransformPoint(xfA, output.PointB)
 	worldNormal := b2.RotateVector(xfA.Q, output.Normal)
-	s.Context.Draw.DrawSegment(worldPointA, worldPointB, b2.ColorDimGray)
-	s.Context.Draw.DrawPoint(worldPointA, b2.F(10), b2.ColorWhite)
-	s.Context.Draw.DrawPoint(worldPointB, b2.F(10), b2.ColorWhite)
-	s.Context.Draw.DrawSegment(worldPointA, b2.MulAdd(worldPointA, b2.QHalf(), worldNormal), b2.ColorYellow)
+	s.Context.Draw.DrawLineFcn(worldPointA, worldPointB, b2.ColorDimGray)
+	s.Context.Draw.DrawPointFcn(worldPointA, b2.F(10), b2.ColorWhite)
+	s.Context.Draw.DrawPointFcn(worldPointB, b2.F(10), b2.ColorWhite)
+	s.Context.Draw.DrawLineFcn(worldPointA, b2.MulAdd(worldPointA, b2.QHalf(), worldNormal), b2.ColorYellow)
 	s.DrawTextLine("distance = %s", output.Distance)
 
 	s.Base.Step()

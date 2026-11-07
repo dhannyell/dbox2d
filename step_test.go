@@ -489,7 +489,7 @@ func wideGround(worldId WorldId) {
 // the default speed cap. The box stays inside the lane window.
 func buildFastLanding(t *testing.T, worldId WorldId) {
 	t.Helper()
-	worldId.SetMaximumLinearSpeed(QFromInt(1000))
+	worldId.SetMaxLinearSpeed(QFromInt(1000))
 	wideGround(worldId)
 	boxDef := DefaultBodyDef()
 	boxDef.Type = DynamicBody
@@ -1477,7 +1477,7 @@ func TestMoverStopsOnTheGround(t *testing.T) {
 
 	for range 60 {
 		var planes []CollisionPlane
-		worldId.CollideMover(&mover, DefaultQueryFilter(), func(_ ShapeId, result *PlaneResult) bool {
+		worldId.CollideMover(Vec2{}, &mover, DefaultQueryFilter(), func(_ ShapeId, result *PlaneResult) bool {
 			planes = append(planes, CollisionPlane{Plane: result.Plane, PushLimit: Huge, ClipVelocity: true})
 			lastNormal = result.Plane.Normal
 			return true

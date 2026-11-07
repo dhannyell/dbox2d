@@ -125,14 +125,14 @@ func (s *ConvexHull) Step() {
 	}
 
 	draw := &s.Context.Draw
-	draw.DrawPolygon(hull.Points[:hull.Count], b2.ColorGray)
+	draw.DrawPolygonFcn(b2.TransformIdentity(), hull.Points[:hull.Count], b2.ColorGray)
 
 	for i := range s.count {
-		draw.DrawPoint(s.points[i], b2.F(5), b2.ColorBlue)
-		draw.DrawString(s.points[i].Add(b2.V2(0.1, 0.1)), fmt.Sprintf("%d", i), b2.ColorWhite)
+		draw.DrawPointFcn(s.points[i], b2.F(5), b2.ColorBlue)
+		draw.DrawStringFcn(s.points[i].Add(b2.V2(0.1, 0.1)), fmt.Sprintf("%d", i), b2.ColorWhite)
 	}
 
 	for i := range hull.Count {
-		draw.DrawPoint(hull.Points[i], b2.F(6), b2.ColorGreen)
+		draw.DrawPointFcn(hull.Points[i], b2.F(6), b2.ColorGreen)
 	}
 }

@@ -417,7 +417,7 @@ func solverMainTask(context *stepContext) {
 			}
 			graphSyncIndex += 1
 		}
-		context.world.profile.ApplyRestitution += millisecondsAndReset(&ticks)
+		context.world.profile.Restitution += millisecondsAndReset(&ticks)
 	}
 	stageIndex += activeColorCount
 
@@ -1273,7 +1273,7 @@ func solve(w *world, context *stepContext) {
 		allocateContactConstraints32(w, context, colors)
 		buildSolverStages(w, context, awakeBodyCount)
 
-		w.profile.PrepareStages = millisecondsSince(prepareStagesStart)
+		w.profile.SolverSetup = millisecondsSince(prepareStagesStart)
 
 		// The constraint stages run as one persistent-pool job per worker.
 		solveConstraintsStart := time.Now()
@@ -1301,7 +1301,7 @@ func solve(w *world, context *stepContext) {
 		w.executor.runContextWithSide(solverTask, sideFn, context)
 		w.splitIslandId = nullIndex
 
-		w.profile.SolveConstraints = millisecondsSince(solveConstraintsStart)
+		w.profile.Constraints = millisecondsSince(solveConstraintsStart)
 
 		transformsStart := time.Now()
 

@@ -13,20 +13,20 @@ func drawDistanceJoint(draw *DebugDraw, base *jointSim, transformA, transformB T
 		pMax := MulAdd(pA, joint.maxLength, axis)
 		offset := RightPerp(axis).Mul(QMustParse("0.05"))
 		if linearSlop.Less(joint.minLength) {
-			draw.DrawSegment(pMin.Sub(offset), pMin.Add(offset), ColorLightGreen)
+			draw.DrawLineFcn(pMin.Sub(offset), pMin.Add(offset), ColorLightGreen)
 		}
 		if joint.maxLength.Less(Huge) {
-			draw.DrawSegment(pMax.Sub(offset), pMax.Add(offset), ColorRed)
+			draw.DrawLineFcn(pMax.Sub(offset), pMax.Add(offset), ColorRed)
 		}
 		if linearSlop.Less(joint.minLength) && joint.maxLength.Less(Huge) {
-			draw.DrawSegment(pMin, pMax, ColorGray)
+			draw.DrawLineFcn(pMin, pMax, ColorGray)
 		}
 	}
-	draw.DrawSegment(pA, pB, ColorWhite)
-	draw.DrawPoint(pA, QFromInt(4), ColorWhite)
-	draw.DrawPoint(pB, QFromInt(4), ColorWhite)
+	draw.DrawLineFcn(pA, pB, ColorWhite)
+	draw.DrawPointFcn(pA, QFromInt(4), ColorWhite)
+	draw.DrawPointFcn(pB, QFromInt(4), ColorWhite)
 	if joint.enableSpring && (Q{}).Less(joint.hertz) {
-		draw.DrawPoint(MulAdd(pA, joint.length, axis), QFromInt(4), ColorBlue)
+		draw.DrawPointFcn(MulAdd(pA, joint.length, axis), QFromInt(4), ColorBlue)
 	}
 }
 

@@ -210,7 +210,7 @@ func (s *LargeWorld) Step() {
 	}
 
 	if s.explode {
-		s.Context.Draw.DrawCircle(s.explosionPosition, radius, b2.ColorAzure)
+		s.Context.Draw.DrawCircleFcn(s.explosionPosition, radius, b2.ColorAzure)
 	}
 
 	if s.keyDown(KeyA) {

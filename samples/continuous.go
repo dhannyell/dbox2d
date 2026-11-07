@@ -164,8 +164,8 @@ func (s *BounceHouse) Step() {
 	for i := range s.hitEvents {
 		e := &s.hitEvents[i]
 		if e.stepIndex > 0 && s.StepCount <= e.stepIndex+30 {
-			draw.DrawCircle(e.point, b2.F(0.1), b2.ColorOrangeRed)
-			draw.DrawString(e.point, fmt.Sprintf("%.1f", ToFloat64(e.speed)), b2.ColorWhite)
+			draw.DrawCircleFcn(e.point, b2.F(0.1), b2.ColorOrangeRed)
+			draw.DrawStringFcn(e.point, fmt.Sprintf("%.1f", ToFloat64(e.speed)), b2.ColorWhite)
 		}
 	}
 }
@@ -219,7 +219,7 @@ func (s *BounceHumans) Step() {
 	gravity := b2.F(10)
 	gravityVec := b2.Vec2{X: gravity.Mul(cs1.Sin), Y: gravity.Mul(cs2.Cos)}
 	three := b2.F(3)
-	s.Context.Draw.DrawSegment(b2.Vec2{}, b2.Vec2{X: three.Mul(cs1.Sin), Y: three.Mul(cs2.Cos)}, b2.ColorWhite)
+	s.Context.Draw.DrawLineFcn(b2.Vec2{}, b2.Vec2{X: three.Mul(cs1.Sin), Y: three.Mul(cs2.Cos)}, b2.ColorWhite)
 	s.time = s.time.Add(timeStep)
 	s.countDown = s.countDown.Sub(timeStep)
 	s.WorldId.SetGravity(gravityVec)
@@ -1173,11 +1173,6 @@ func (s *Drop) Keyboard(key Key) {
 	case KeyC:
 		s.clear()
 		s.continuous = !s.continuous
-
-	case KeyV:
-		s.clear()
-		s.speculative = !s.speculative
-		s.WorldId.EnableSpeculative(s.speculative)
 
 	case KeyS:
 		if s.frameSkip > 0 {

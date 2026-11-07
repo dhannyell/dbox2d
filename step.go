@@ -151,6 +151,7 @@ func (worldId WorldId) Step(timeStep Q, subStepCount int) {
 	}
 
 	w.invH = context.invH
+	w.invDt = context.invDt
 
 	// Hertz values get reduced for large time steps
 	contactHertz := w.contactHertz.Min(QFromRatio(1, 8).Mul(context.invH))
@@ -312,6 +313,7 @@ func collideTask(startIndex, endIndex, workerIndex int, context *stepContext) {
 
 					// Contact is recycled. This also skips updating other
 					// aspects of the contact such as material parameters.
+					taskContext.recycledContactCount++
 					continue
 				}
 			}
@@ -470,6 +472,7 @@ func collide(context *stepContext) {
 	contactIdCapacity := w.contactIdPool.idCapacity()
 	for i := range w.workerCount {
 		setBitCountAndClear(&w.taskContexts[i].contactStateBitSet, contactIdCapacity)
+		w.taskContexts[i].recycledContactCount = 0
 	}
 
 	// One pointer array over the colors and the awake set, in that order,

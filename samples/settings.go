@@ -21,19 +21,19 @@ type Settings struct {
 	SingleStep      bool
 	UseCameraBounds bool
 
-	DrawJointExtras      bool
-	DrawBounds           bool
-	DrawMass             bool
-	DrawBodyNames        bool
-	DrawContactPoints    bool
-	DrawContactNormals   bool
-	DrawContactImpulses  bool
-	DrawContactFeatures  bool
-	DrawFrictionImpulses bool
-	DrawIslands          bool
-	DrawGraphColors      bool
-	DrawCounters         bool
-	DrawProfile          bool
+	DrawJointExtras     bool
+	DrawBounds          bool
+	DrawMass            bool
+	DrawBodyNames       bool
+	DrawContactPoints   bool
+	DrawContactNormals  bool
+	DrawContactForces   bool
+	DrawContactFeatures bool
+	DrawFrictionForces  bool
+	DrawIslands         bool
+	DrawGraphColors     bool
+	DrawCounters        bool
+	DrawProfile         bool
 
 	EnableWarmStarting bool
 	EnableContinuous   bool

@@ -201,12 +201,6 @@ func drawWeldJoint(draw *DebugDraw, base *jointSim, transformA, transformB Trans
 	frameB := MulTransforms(transformB, base.localFrameB)
 
 	box := MakeBox(QMustParse("0.25").Mul(drawScale), QMustParse("0.125").Mul(drawScale))
-	verticesA := make([]Vec2, 4)
-	verticesB := make([]Vec2, 4)
-	for i := range 4 {
-		verticesA[i] = TransformPoint(frameA, box.Vertices[i])
-		verticesB[i] = TransformPoint(frameB, box.Vertices[i])
-	}
-	draw.DrawPolygon(verticesA, ColorDarkOrange)
-	draw.DrawPolygon(verticesB, ColorDarkCyan)
+	draw.DrawPolygonFcn(frameA, box.Vertices[:4], ColorDarkOrange)
+	draw.DrawPolygonFcn(frameB, box.Vertices[:4], ColorDarkCyan)
 }

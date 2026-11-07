@@ -337,7 +337,7 @@ func (s *MotorJoint) Step() {
 		s.targetId.SetTargetTransform(s.transform, FromFloat64(timeStep), true)
 	}
 
-	s.Context.Draw.DrawTransform(s.transform)
+	s.Context.Draw.DrawTransformFcn(s.transform)
 
 	s.Base.Step()
 
@@ -1527,7 +1527,7 @@ func (s *BreakableJoint) Step() {
 			s.jointIDs[i] = b2.JointId{}
 		} else {
 			point := s.jointIDs[i].GetLocalFrameA().P
-			s.Context.Draw.DrawString(point, fmt.Sprintf("(%.1f, %.1f)", ToFloat64(force.X), ToFloat64(force.Y)), b2.ColorWhite)
+			s.Context.Draw.DrawStringFcn(point, fmt.Sprintf("(%.1f, %.1f)", ToFloat64(force.X), ToFloat64(force.Y)), b2.ColorWhite)
 		}
 	}
 	s.Base.Step()
@@ -1653,7 +1653,7 @@ func (s *JointSeparation) Step() {
 		angular := ToFloat64(s.jointIDs[i].GetAngularSeparation())
 		point := s.jointIDs[i].GetLocalFrameA().P
 		text := fmt.Sprintf("%.2f m, %.1f deg", linear, 360*angular)
-		s.Context.Draw.DrawString(point, text, b2.ColorWhite)
+		s.Context.Draw.DrawStringFcn(point, text, b2.ColorWhite)
 	}
 	s.Base.Step()
 }
@@ -1694,7 +1694,7 @@ func NewUserConstraint(ctx *SampleContext) Sample {
 func (s *UserConstraint) Step() {
 	s.Base.Step()
 
-	s.Context.Draw.DrawTransform(b2.TransformIdentity())
+	s.Context.Draw.DrawTransformFcn(b2.TransformIdentity())
 	if s.Context.Settings.Pause {
 		return
 	}
@@ -1752,12 +1752,12 @@ func (s *UserConstraint) Step() {
 		length := deltaAnchor.Len()
 		constraintError := length.Sub(slackLength)
 		if constraintError.Less(zero) || length.Less(b2.F(0.001)) {
-			s.Context.Draw.DrawSegment(anchorA, anchorB, b2.ColorLightCyan)
+			s.Context.Draw.DrawLineFcn(anchorA, anchorB, b2.ColorLightCyan)
 			s.impulses[i] = zero
 			continue
 		}
 
-		s.Context.Draw.DrawSegment(anchorA, anchorB, b2.ColorViolet)
+		s.Context.Draw.DrawLineFcn(anchorA, anchorB, b2.ColorViolet)
 		axis := deltaAnchor.Normalize()
 		rB := anchorB.Sub(pB)
 		Jb := b2.Cross(rB, axis)
@@ -1887,8 +1887,8 @@ func (s *Door) Step() {
 	s.Base.Step()
 
 	point := s.doorId.GetWorldPoint(b2.V2(0.0, 1.5))
-	s.Context.Draw.DrawPoint(point, b2.F(5), b2.ColorDarkKhaki)
-	s.Context.Draw.DrawTransform(b2.TransformIdentity())
+	s.Context.Draw.DrawPointFcn(point, b2.F(5), b2.ColorDarkKhaki)
+	s.Context.Draw.DrawTransformFcn(b2.TransformIdentity())
 
 	translationError := s.jointId.GetLinearSeparation()
 	s.translationError = s.translationError.Max(translationError)

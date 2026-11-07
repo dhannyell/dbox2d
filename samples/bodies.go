@@ -374,7 +374,7 @@ func (s *Weeble) UpdateGui() {
 func (s *Weeble) Step() {
 	s.Base.Step()
 
-	s.Context.Draw.DrawCircle(s.explosionPosition, s.explosionRadius, b2.ColorAzure)
+	s.Context.Draw.DrawCircleFcn(s.explosionPosition, s.explosionRadius, b2.ColorAzure)
 
 	// This shows how to get the velocity of a point on a body
 	localPoint := b2.V2(0, 2)
@@ -384,8 +384,8 @@ func (s *Weeble) Step() {
 	v2 := s.weebleId.GetWorldPointVelocity(worldPoint)
 
 	offset := b2.Vec2{X: b2.QFromRatio(1, 20)}
-	s.Context.Draw.DrawSegment(worldPoint, worldPoint.Add(v1), b2.ColorRed)
-	s.Context.Draw.DrawSegment(worldPoint.Add(offset), worldPoint.Add(v2).Add(offset), b2.ColorGreen)
+	s.Context.Draw.DrawLineFcn(worldPoint, worldPoint.Add(v1), b2.ColorRed)
+	s.Context.Draw.DrawLineFcn(worldPoint.Add(offset), worldPoint.Add(v2).Add(offset), b2.ColorGreen)
 }
 
 // SleepBodies tests sleeping bodies, sensors on sleeping bodies, sleep
@@ -786,8 +786,8 @@ func (s *KinematicBody) Step() {
 
 		axis := b2.RotateVector(rotation, b2.Vec2{Y: b2.QOne()})
 		halfAxis := axis.Mul(b2.QHalf())
-		s.Context.Draw.DrawSegment(point.Sub(halfAxis), point.Add(halfAxis), b2.ColorPlum)
-		s.Context.Draw.DrawPoint(point, b2.F(10), b2.ColorPlum)
+		s.Context.Draw.DrawLineFcn(point.Sub(halfAxis), point.Add(halfAxis), b2.ColorPlum)
+		s.Context.Draw.DrawPointFcn(point, b2.F(10), b2.ColorPlum)
 
 		s.bodyId.SetTargetTransform(b2.Transform{P: point, Q: rotation}, FromFloat64(timeStep), true)
 	}

@@ -146,9 +146,12 @@ Numbering is sequential from `D-001` and never reused.
   search seeds and clamps. Public defaults that need an unreachable bound use
   `Huge`, including distance-joint maximum length and mover push limits.
   Defaults of ±`QMaxValue` (distance spring force range, joint force and
-  torque thresholds) pass validation through `isForceBound`.
-- Test: `TestTreeSeedNeverWins` and
-  `TestSolvePlanesSinglePlaneProjects`
+  torque thresholds) pass validation through `isForceBound`. The default
+  debug drawing bounds span ±half of `QMaxValue`, so their width stays
+  representable, where the reference spans ±`FLT_MAX`.
+- Test: `TestTreeSeedNeverWins`,
+  `TestSolvePlanesSinglePlaneProjects` and
+  `TestDefaultDebugDrawMatchesTheReference`
 
 ### D-010 A generated array becomes a slice
 

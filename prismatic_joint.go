@@ -443,25 +443,25 @@ func drawPrismaticJoint(draw *DebugDraw, base *jointSim, transformA, transformB 
 	frameB := MulTransforms(transformB, base.localFrameB)
 	axisA := prismaticAxis(frameA.Q)
 
-	draw.DrawSegment(frameA.P, frameB.P, ColorDimGray)
+	draw.DrawLineFcn(frameA.P, frameB.P, ColorDimGray)
 
 	if joint.enableLimit {
 		b := QMustParse("0.25").Mul(drawScale)
 		lower := MulAdd(frameA.P, joint.lowerTranslation, axisA)
 		upper := MulAdd(frameA.P, joint.upperTranslation, axisA)
 		perp := LeftPerp(axisA)
-		draw.DrawSegment(lower, upper, ColorGray)
-		draw.DrawSegment(MulSub(lower, b, perp), MulAdd(lower, b, perp), ColorGreen)
-		draw.DrawSegment(MulSub(upper, b, perp), MulAdd(upper, b, perp), ColorRed)
+		draw.DrawLineFcn(lower, upper, ColorGray)
+		draw.DrawLineFcn(MulSub(lower, b, perp), MulAdd(lower, b, perp), ColorGreen)
+		draw.DrawLineFcn(MulSub(upper, b, perp), MulAdd(upper, b, perp), ColorRed)
 	} else {
-		draw.DrawSegment(frameA.P.Sub(axisA), frameA.P.Add(axisA), ColorGray)
+		draw.DrawLineFcn(frameA.P.Sub(axisA), frameA.P.Add(axisA), ColorGray)
 	}
 
 	if joint.enableSpring {
 		p := MulAdd(frameA.P, joint.targetTranslation, axisA)
-		draw.DrawPoint(p, QFromInt(8), ColorViolet)
+		draw.DrawPointFcn(p, QFromInt(8), ColorViolet)
 	}
 
-	draw.DrawPoint(frameA.P, QFromInt(5), ColorGray)
-	draw.DrawPoint(frameB.P, QFromInt(5), ColorBlue)
+	draw.DrawPointFcn(frameA.P, QFromInt(5), ColorGray)
+	draw.DrawPointFcn(frameB.P, QFromInt(5), ColorBlue)
 }

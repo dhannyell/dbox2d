@@ -402,7 +402,7 @@ func (s *CircleStack) Step() {
 	for _, event := range events.HitEvents {
 		indexA, _ := event.ShapeIdA.GetUserData().(int)
 		indexB, _ := event.ShapeIdB.GetUserData().(int)
-		s.Context.Draw.DrawPoint(event.Point, b2.F(10), b2.ColorWhite)
+		s.Context.Draw.DrawPointFcn(event.Point, b2.F(10), b2.ColorWhite)
 		s.events = append(s.events, circleStackEvent{indexA: indexA, indexB: indexB})
 	}
 

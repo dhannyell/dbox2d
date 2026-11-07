@@ -41,12 +41,11 @@ func TestWorldAccessorsRoundTrip(t *testing.T) {
 	worldId.SetRestitutionThreshold(QFromInt(2))
 	worldId.SetHitEventThreshold(QFromInt(3))
 	worldId.SetContactTuning(QFromInt(4), QHalf(), QFromInt(5))
-	worldId.SetMaximumLinearSpeed(QFromInt(6))
+	worldId.SetMaxLinearSpeed(QFromInt(6))
 	worldId.SetUserData("world")
 	worldId.EnableSleeping(false)
 	worldId.EnableContinuous(false)
 	worldId.EnableWarmStarting(false)
-	worldId.EnableSpeculative(false)
 
 	checks := []struct {
 		name string
@@ -55,8 +54,18 @@ func TestWorldAccessorsRoundTrip(t *testing.T) {
 	}{
 		{"restitution threshold", worldId.GetRestitutionThreshold(), QFromInt(2)},
 		{"hit event threshold", worldId.GetHitEventThreshold(), QFromInt(3)},
-		{"maximum linear speed", worldId.GetMaximumLinearSpeed(), QFromInt(6)},
+		{"maximum linear speed", worldId.GetMaxLinearSpeed(), QFromInt(6)},
 	}
+	hertz, dampingRatio, pushSpeed := worldId.GetContactTuning()
+	checks = append(checks, []struct {
+		name string
+		got  Q
+		want Q
+	}{
+		{"contact hertz", hertz, QFromInt(4)},
+		{"contact damping ratio", dampingRatio, QHalf()},
+		{"contact push speed", pushSpeed, QFromInt(5)},
+	}...)
 	for _, check := range checks {
 		if !check.got.Eq(check.want) {
 			t.Errorf("%s = %v, want %v", check.name, check.got, check.want)
@@ -233,9 +242,9 @@ func TestStepFillsTheProfile(t *testing.T) {
 			p.Step, subStepCount, granularity)
 	}
 	parts := []float64{
-		p.Pairs, p.Collide, p.Solve, p.MergeIslands, p.PrepareStages, p.SolveConstraints,
+		p.Pairs, p.Collide, p.Solve, p.SolverSetup, p.Constraints,
 		p.PrepareConstraints, p.IntegrateVelocities, p.WarmStart, p.SolveImpulses, p.IntegratePositions,
-		p.RelaxImpulses, p.ApplyRestitution, p.StoreImpulses, p.SplitIslands, p.Transforms, p.HitEvents,
+		p.RelaxImpulses, p.Restitution, p.StoreImpulses, p.SplitIslands, p.Transforms, p.HitEvents,
 		p.Refit, p.Bullets, p.SleepIslands, p.Sensors,
 	}
 	for _, part := range parts {
@@ -252,7 +261,7 @@ func TestStepFillsTheProfile(t *testing.T) {
 	if top := p.Pairs + p.Collide + p.Solve + p.Sensors; top > p.Step+slack {
 		t.Errorf("Pairs+Collide+Solve+Sensors = %v, want <= Step (%v) + %v", top, p.Step, slack)
 	}
-	if sub := p.MergeIslands + p.PrepareStages + p.SolveConstraints + p.Transforms + p.HitEvents +
+	if sub := p.SolverSetup + p.Constraints + p.Transforms + p.HitEvents +
 		p.Refit + p.Bullets + p.SleepIslands; sub > p.Solve+slack {
 		t.Errorf("solve parts sum = %v, want <= Solve (%v) + %v", sub, p.Solve, slack)
 	}
@@ -586,7 +595,7 @@ func TestOverlapAABBReportsTheFatBounds(t *testing.T) {
 	}
 
 	got := map[ShapeId]bool{}
-	stats := worldId.OverlapAABB(query, DefaultQueryFilter(), func(id ShapeId) bool {
+	stats := worldId.OverlapAABB(Vec2{}, query, DefaultQueryFilter(), func(id ShapeId) bool {
 		got[id] = true
 		return true
 	})
@@ -602,7 +611,7 @@ func TestOverlapAABBReportsTheFatBounds(t *testing.T) {
 	// A false return ends the current tree; the next tree still runs, so
 	// the two dynamic boxes yield one call and the trees three in total.
 	calls := 0
-	worldId.OverlapAABB(query, DefaultQueryFilter(), func(ShapeId) bool {
+	worldId.OverlapAABB(Vec2{}, query, DefaultQueryFilter(), func(ShapeId) bool {
 		calls++
 		return false
 	})
@@ -612,13 +621,13 @@ func TestOverlapAABBReportsTheFatBounds(t *testing.T) {
 
 	filter := DefaultQueryFilter()
 	filter.MaskBits = 0
-	worldId.OverlapAABB(query, filter, func(ShapeId) bool {
+	worldId.OverlapAABB(Vec2{}, query, filter, func(ShapeId) bool {
 		t.Errorf("an empty mask reported a shape")
 		return true
 	})
 
 	w.locked = true
-	requirePanic(t, func() { worldId.OverlapAABB(query, DefaultQueryFilter(), func(ShapeId) bool { return true }) })
+	requirePanic(t, func() { worldId.OverlapAABB(Vec2{}, query, DefaultQueryFilter(), func(ShapeId) bool { return true }) })
 	w.locked = false
 }
 
@@ -768,7 +777,7 @@ func TestShapeQueriesMatchBruteForce(t *testing.T) {
 		}
 
 		gotOverlap := map[ShapeId]bool{}
-		worldId.OverlapShape(&proxy, filter, func(id ShapeId) bool {
+		worldId.OverlapShape(Vec2{}, &proxy, filter, func(id ShapeId) bool {
 			gotOverlap[id] = true
 			return true
 		})
@@ -783,7 +792,7 @@ func TestShapeQueriesMatchBruteForce(t *testing.T) {
 
 		gotCast := ShapeId{}
 		gotCastFraction := one
-		worldId.CastShape(&proxy, translation, filter, func(id ShapeId, _, _ Vec2, fraction Q) Q {
+		worldId.CastShape(Vec2{}, &proxy, translation, filter, func(id ShapeId, _, _ Vec2, fraction Q) Q {
 			if fraction.Less(gotCastFraction) {
 				gotCast, gotCastFraction = id, fraction
 			}
@@ -813,7 +822,7 @@ func TestCastMoverStopsAtTheWall(t *testing.T) {
 	CreatePolygonShape(wall, &shapeDef, &wallBox)
 
 	mover := Capsule{Center1: v2(0, -1), Center2: v2(0, 1), Radius: QHalf()}
-	fraction := worldId.CastMover(&mover, v2(20, 0), DefaultQueryFilter())
+	fraction := worldId.CastMover(Vec2{}, &mover, v2(20, 0), DefaultQueryFilter())
 
 	// The capsule surface reaches the face at x = 9 after 8.5 units of
 	// the 20; the sweep targets the radius less a slop.
@@ -824,13 +833,13 @@ func TestCastMoverStopsAtTheWall(t *testing.T) {
 
 	// A circle around the start overlaps the mover and does not stop it.
 	addStaticCircle(t, worldId, v2(0, 0))
-	if again := worldId.CastMover(&mover, v2(20, 0), DefaultQueryFilter()); !again.Eq(fraction) {
+	if again := worldId.CastMover(Vec2{}, &mover, v2(20, 0), DefaultQueryFilter()); !again.Eq(fraction) {
 		t.Fatalf("an overlapping shape changed the fraction to %v", again)
 	}
 
 	thin := mover
 	thin.Radius = linearSlop
-	requirePanic(t, func() { worldId.CastMover(&thin, v2(20, 0), DefaultQueryFilter()) })
+	requirePanic(t, func() { worldId.CastMover(Vec2{}, &thin, v2(20, 0), DefaultQueryFilter()) })
 }
 
 // addFilteredBox adds a dynamic unit box that opts in to custom filtering.

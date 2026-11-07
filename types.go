@@ -76,6 +76,14 @@ type Counters struct {
 	BodyCount, ShapeCount, ContactCount, JointCount, IslandCount, StackUsed, StaticTreeHeight, TreeHeight int
 	TaskCount                                                                                             int
 	ColorCounts                                                                                           [graphColorCount]int
+
+	// AwakeContactCount is the number of contacts the collide pass
+	// touches: the graph contacts and the awake non-touching contacts.
+	AwakeContactCount int
+
+	// RecycledContactCount is the number of contacts recycled in the last
+	// step.
+	RecycledContactCount int
 }
 
 // Profile holds the wall-clock cost of the last Step, in milliseconds.
@@ -84,16 +92,15 @@ type Profile struct {
 	Pairs               float64
 	Collide             float64
 	Solve               float64
-	MergeIslands        float64
-	PrepareStages       float64
-	SolveConstraints    float64
+	SolverSetup         float64
+	Constraints         float64
 	PrepareConstraints  float64
 	IntegrateVelocities float64
 	WarmStart           float64
 	SolveImpulses       float64
 	IntegratePositions  float64
 	RelaxImpulses       float64
-	ApplyRestitution    float64
+	Restitution         float64
 	StoreImpulses       float64
 	SplitIslands        float64
 	Transforms          float64
@@ -1397,61 +1404,80 @@ const (
 	ColorBox2DYellow HexColor = 0xFFEE8C
 )
 
-// DrawPolygonFcn draws a closed polygon in counter-clockwise order.
-type DrawPolygonFcn func(vertices []Vec2, color HexColor)
+// DrawPolygonFcn draws a closed polygon, given in counter-clockwise order in
+// the local frame of transform.
+type DrawPolygonFcn func(transform WorldTransform, vertices []Vec2, color HexColor)
 
-// DrawSolidPolygonFcn draws a solid polygon with a rounded radius.
-type DrawSolidPolygonFcn func(transform Transform, vertices []Vec2, radius Q, color HexColor)
+// DrawSolidPolygonFcn draws a solid polygon with a rounded radius, given in
+// the local frame of transform.
+type DrawSolidPolygonFcn func(transform WorldTransform, vertices []Vec2, radius Q, color HexColor)
 
 // DrawCircleFcn draws a circle outline.
-type DrawCircleFcn func(center Vec2, radius Q, color HexColor)
+type DrawCircleFcn func(center Pos, radius Q, color HexColor)
 
-// DrawSolidCircleFcn draws a solid circle.
-type DrawSolidCircleFcn func(transform Transform, radius Q, color HexColor)
+// DrawSolidCircleFcn draws a solid circle whose center is given in the local
+// frame of transform.
+type DrawSolidCircleFcn func(transform WorldTransform, center Vec2, radius Q, color HexColor)
 
 // DrawSolidCapsuleFcn draws a solid capsule.
-type DrawSolidCapsuleFcn func(p1, p2 Vec2, radius Q, color HexColor)
+type DrawSolidCapsuleFcn func(p1, p2 Pos, radius Q, color HexColor)
 
-// DrawSegmentFcn draws a line segment.
-type DrawSegmentFcn func(p1, p2 Vec2, color HexColor)
+// DrawLineFcn draws a line segment.
+type DrawLineFcn func(p1, p2 Pos, color HexColor)
 
 // DrawTransformFcn draws a transform with a host-selected scale.
-type DrawTransformFcn func(transform Transform)
+type DrawTransformFcn func(transform WorldTransform)
 
 // DrawPointFcn draws a point of the requested size.
-type DrawPointFcn func(p Vec2, size Q, color HexColor)
+type DrawPointFcn func(p Pos, size Q, color HexColor)
 
 // DrawStringFcn draws a world-space string.
-type DrawStringFcn func(p Vec2, s string, color HexColor)
+type DrawStringFcn func(p Pos, s string, color HexColor)
 
-// DebugDraw holds the callbacks and options used by WorldId.Draw.
-// Set the option fields to choose what the callbacks receive.
+// DrawBoundsFcn draws a bounding box.
+type DrawBoundsFcn func(aabb AABB, color HexColor)
+
+// DebugDraw holds the callbacks and options used by WorldId.Draw. Callbacks
+// receive world coordinates. Start from DefaultDebugDraw, which fills every
+// callback with a no-op and opens the drawing bounds to the whole world. It
+// corresponds to b2DebugDraw in include/box2d/types.h.
 type DebugDraw struct {
-	// DrawPolygon draws a closed polygon provided in CCW order.
-	DrawPolygon DrawPolygonFcn
-	// DrawSolidPolygon draws a solid closed polygon provided in CCW order.
-	DrawSolidPolygon DrawSolidPolygonFcn
-	// DrawCircle draws a circle.
-	DrawCircle DrawCircleFcn
-	// DrawSolidCircle draws a solid circle.
-	DrawSolidCircle DrawSolidCircleFcn
-	// DrawSolidCapsule draws a solid capsule.
-	DrawSolidCapsule DrawSolidCapsuleFcn
-	// DrawSegment draws a line segment.
-	DrawSegment DrawSegmentFcn
-	// DrawTransform draws a transform at a host-chosen length scale.
-	DrawTransform DrawTransformFcn
-	// DrawPoint draws a point.
-	DrawPoint DrawPointFcn
-	// DrawString draws a string in world space.
-	DrawString DrawStringFcn
+	// DrawPolygonFcn draws a closed polygon provided in CCW order.
+	DrawPolygonFcn DrawPolygonFcn
+	// DrawSolidPolygonFcn draws a solid closed polygon provided in CCW order.
+	DrawSolidPolygonFcn DrawSolidPolygonFcn
+	// DrawCircleFcn draws a circle.
+	DrawCircleFcn DrawCircleFcn
+	// DrawSolidCircleFcn draws a solid circle.
+	DrawSolidCircleFcn DrawSolidCircleFcn
+	// DrawSolidCapsuleFcn draws a solid capsule.
+	DrawSolidCapsuleFcn DrawSolidCapsuleFcn
+	// DrawLineFcn draws a line segment.
+	DrawLineFcn DrawLineFcn
+	// DrawTransformFcn draws a transform at a host-chosen length scale.
+	DrawTransformFcn DrawTransformFcn
+	// DrawPointFcn draws a point.
+	DrawPointFcn DrawPointFcn
+	// DrawStringFcn draws a string in world space.
+	DrawStringFcn DrawStringFcn
+	// DrawBoundsFcn draws a bounding box.
+	DrawBoundsFcn DrawBoundsFcn
 
-	// DrawingBounds is the region used when UseDrawingBounds restricts drawing.
+	// DrawingBounds is the world region to draw. An empty box draws nothing.
 	DrawingBounds AABB
-	// UseDrawingBounds restricts drawing to DrawingBounds; depth sorting may be unstable.
-	UseDrawingBounds bool
+	// ForceScale scales the drawn contact and friction forces.
+	ForceScale Q
+	// JointScale scales every joint drawing.
+	JointScale Q
+
+	// DrawContacts draws contact points.
+	DrawContacts bool
+	// DrawAnchorA draws contact points at anchor A instead of anchor B.
+	DrawAnchorA bool
 	// DrawShapes draws shapes.
 	DrawShapes bool
+	// DrawChainNormals draws chain segment normals.
+	DrawChainNormals bool
 	// DrawJoints draws joints.
 	DrawJoints bool
 	// DrawJointExtras draws additional information for joints.
@@ -1462,34 +1488,45 @@ type DebugDraw struct {
 	DrawMass bool
 	// DrawBodyNames draws body names.
 	DrawBodyNames bool
-	// DrawContacts draws contact points.
-	DrawContacts bool
 	// DrawGraphColors visualizes the graph coloring used for contacts and joints.
 	DrawGraphColors bool
-	// DrawContactNormals draws contact normals.
-	DrawContactNormals bool
-	// DrawContactImpulses draws contact normal impulses.
-	DrawContactImpulses bool
 	// DrawContactFeatures draws contact feature ids.
 	DrawContactFeatures bool
-	// DrawFrictionImpulses draws contact friction impulses.
-	DrawFrictionImpulses bool
+	// DrawContactNormals draws contact normals.
+	DrawContactNormals bool
+	// DrawContactForces draws contact normal forces.
+	DrawContactForces bool
+	// DrawFrictionForces draws contact friction forces.
+	DrawFrictionForces bool
 	// DrawIslands draws islands as bounding boxes.
 	DrawIslands bool
 }
 
-// DefaultDebugDraw returns a debug drawer whose callbacks are safe no-ops.
+// DefaultDebugDraw returns a debug drawer whose callbacks are safe no-ops,
+// whose drawing bounds cover the world and which draws shapes. It
+// corresponds to b2DefaultDebugDraw in src/types.c.
 func DefaultDebugDraw() DebugDraw {
+	// Half the largest value keeps the box width representable in fixed
+	// mode (D-009); the reference uses FLT_MAX.
+	maxValue := QMaxValue().Mul(QHalf())
 	return DebugDraw{
-		DrawPolygon:      func([]Vec2, HexColor) {},
-		DrawSolidPolygon: func(Transform, []Vec2, Q, HexColor) {},
-		DrawCircle:       func(Vec2, Q, HexColor) {},
-		DrawSolidCircle:  func(Transform, Q, HexColor) {},
-		DrawSolidCapsule: func(Vec2, Vec2, Q, HexColor) {},
-		DrawSegment:      func(Vec2, Vec2, HexColor) {},
-		DrawTransform:    func(Transform) {},
-		DrawPoint:        func(Vec2, Q, HexColor) {},
-		DrawString:       func(Vec2, string, HexColor) {},
+		DrawPolygonFcn:      func(WorldTransform, []Vec2, HexColor) {},
+		DrawSolidPolygonFcn: func(WorldTransform, []Vec2, Q, HexColor) {},
+		DrawCircleFcn:       func(Pos, Q, HexColor) {},
+		DrawSolidCircleFcn:  func(WorldTransform, Vec2, Q, HexColor) {},
+		DrawSolidCapsuleFcn: func(Pos, Pos, Q, HexColor) {},
+		DrawLineFcn:         func(Pos, Pos, HexColor) {},
+		DrawTransformFcn:    func(WorldTransform) {},
+		DrawPointFcn:        func(Pos, Q, HexColor) {},
+		DrawStringFcn:       func(Pos, string, HexColor) {},
+		DrawBoundsFcn:       func(AABB, HexColor) {},
+		DrawingBounds: AABB{
+			LowerBound: Vec2{X: maxValue.Neg(), Y: maxValue.Neg()},
+			UpperBound: Vec2{X: maxValue, Y: maxValue},
+		},
+		ForceScale: QOne(),
+		JointScale: QOne(),
+		DrawShapes: true,
 	}
 }
 

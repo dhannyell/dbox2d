@@ -352,7 +352,7 @@ func (s *Mover) solveMove(timeStep, throttle b2.Q) {
 		translation = b2.Vec2{Y: rayLength.Neg()}
 	}
 
-	s.WorldId.CastShape(&proxy, translation, pogoFilter, func(shapeId b2.ShapeId, point, normal b2.Vec2, fraction b2.Q) b2.Q {
+	s.WorldId.CastShape(b2.Vec2{}, &proxy, translation, pogoFilter, func(shapeId b2.ShapeId, point, normal b2.Vec2, fraction b2.Q) b2.Q {
 		castResult.point = point
 		castResult.normal = normal
 		castResult.bodyId = shapeId.GetBody()
@@ -372,15 +372,15 @@ func (s *Mover) solveMove(timeStep, throttle b2.Q) {
 		s.pogoVelocity = zero
 
 		delta := translation
-		draw.DrawSegment(origin, origin.Add(delta), b2.ColorGray)
+		draw.DrawLineFcn(origin, origin.Add(delta), b2.ColorGray)
 
 		switch s.pogoShape {
 		case pogoPoint:
-			draw.DrawPoint(origin.Add(delta), b2.F(10), b2.ColorGray)
+			draw.DrawPointFcn(origin.Add(delta), b2.F(10), b2.ColorGray)
 		case pogoCircle:
-			draw.DrawCircle(origin.Add(delta), circle.Radius, b2.ColorGray)
+			draw.DrawCircleFcn(origin.Add(delta), circle.Radius, b2.ColorGray)
 		default:
-			draw.DrawSegment(segment.Point1.Add(delta), segment.Point2.Add(delta), b2.ColorGray)
+			draw.DrawLineFcn(segment.Point1.Add(delta), segment.Point2.Add(delta), b2.ColorGray)
 		}
 	} else {
 		pogoCurrentLength := castResult.fraction.Mul(rayLength)
@@ -389,15 +389,15 @@ func (s *Mover) solveMove(timeStep, throttle b2.Q) {
 		s.pogoVelocity = b2.SpringDamper(FromFloat64(s.pogoHertz), FromFloat64(s.pogoDampingRatio), offset, s.pogoVelocity, timeStep)
 
 		delta := translation.Mul(castResult.fraction)
-		draw.DrawSegment(origin, origin.Add(delta), b2.ColorGray)
+		draw.DrawLineFcn(origin, origin.Add(delta), b2.ColorGray)
 
 		switch s.pogoShape {
 		case pogoPoint:
-			draw.DrawPoint(origin.Add(delta), b2.F(10), b2.ColorPlum)
+			draw.DrawPointFcn(origin.Add(delta), b2.F(10), b2.ColorPlum)
 		case pogoCircle:
-			draw.DrawCircle(origin.Add(delta), circle.Radius, b2.ColorPlum)
+			draw.DrawCircleFcn(origin.Add(delta), circle.Radius, b2.ColorPlum)
 		default:
-			draw.DrawSegment(segment.Point1.Add(delta), segment.Point2.Add(delta), b2.ColorPlum)
+			draw.DrawLineFcn(segment.Point1.Add(delta), segment.Point2.Add(delta), b2.ColorPlum)
 		}
 
 		castResult.bodyId.ApplyForce(b2.V2(0, -50), castResult.point, true)
@@ -423,12 +423,12 @@ func (s *Mover) solveMove(timeStep, throttle b2.Q) {
 			Radius:  s.capsule.Radius,
 		}
 
-		s.WorldId.CollideMover(&mover, collideFilter, s.planeResult)
+		s.WorldId.CollideMover(b2.Vec2{}, &mover, collideFilter, s.planeResult)
 		result := b2.SolvePlanes(target.Sub(s.transform.P), s.planes[:s.planeCount])
 
 		s.totalIterations += result.IterationCount
 
-		fraction := s.WorldId.CastMover(&mover, result.Translation, castFilter)
+		fraction := s.WorldId.CastMover(b2.Vec2{}, &mover, result.Translation, castFilter)
 
 		delta := result.Translation.Mul(fraction)
 		s.transform.P = s.transform.P.Add(delta)
@@ -519,8 +519,8 @@ func (s *Mover) Keyboard(key Key) {
 		circle := b2.Circle{Center: point, Radius: b2.QHalf()}
 		proxy := b2.MakeProxy([]b2.Vec2{circle.Center}, circle.Radius)
 		filter := b2.QueryFilter{CategoryBits: moverMoverBit, MaskBits: moverDebrisBit}
-		s.WorldId.OverlapShape(&proxy, filter, s.kick)
-		s.Context.Draw.DrawCircle(circle.Center, circle.Radius, b2.ColorGoldenRod)
+		s.WorldId.OverlapShape(b2.Vec2{}, &proxy, filter, s.kick)
+		s.Context.Draw.DrawCircleFcn(circle.Center, circle.Radius, b2.ColorGoldenRod)
 	}
 
 	s.Base.Keyboard(key)
@@ -585,8 +585,8 @@ func (s *Mover) Step() {
 		plane := s.planes[i].Plane
 		p1 := b2.MulAdd(s.transform.P, plane.Offset.Sub(radius), plane.Normal)
 		p2 := b2.MulAdd(p1, b2.QFromRatio(1, 10), plane.Normal)
-		draw.DrawPoint(p1, b2.F(5), b2.ColorYellow)
-		draw.DrawSegment(p1, p2, b2.ColorYellow)
+		draw.DrawPointFcn(p1, b2.F(5), b2.ColorYellow)
+		draw.DrawLineFcn(p1, p2, b2.ColorYellow)
 	}
 
 	p1 := b2.TransformPoint(s.transform, s.capsule.Center1)
@@ -596,8 +596,8 @@ func (s *Mover) Step() {
 	if s.onGround {
 		color = b2.ColorOrange
 	}
-	draw.DrawSolidCapsule(p1, p2, radius, color)
-	draw.DrawSegment(s.transform.P, s.transform.P.Add(s.velocity), b2.ColorPurple)
+	draw.DrawSolidCapsuleFcn(p1, p2, radius, color)
+	draw.DrawLineFcn(s.transform.P, s.transform.P.Add(s.velocity), b2.ColorPurple)
 
 	p := s.transform.P
 	s.DrawTextLine("position %.2f %.2f", ToFloat64(p.X), ToFloat64(p.Y))

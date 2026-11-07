@@ -10,4 +10,6 @@ package b2
 // simulation of the witness scene is unchanged.
 // v3.2 phase 5: the solver, contacts and islands switch to v3.2; the body
 // no longer folds the retired visit mark.
-const checksumWitness uint64 = 4868602092532673147
+// v3.2 phase 6: the world no longer folds the retired speculative switch;
+// the simulation of the witness scene is unchanged.
+const checksumWitness uint64 = 6439479235437384358

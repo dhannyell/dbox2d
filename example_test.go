@@ -113,12 +113,12 @@ func ExampleWorldId_Draw() {
 	worldId, _, _ := exampleWorld()
 	defer b2.DestroyWorld(worldId)
 
-	// Every callback defaults to a no-op; wire up only the shapes callbacks
-	// used here and count how many shapes the world hands back.
+	// Every callback defaults to a no-op and the default draws shapes over
+	// the whole world; wire up only the callback used here and count how
+	// many shapes the world hands back.
 	shapeCount := 0
 	draw := b2.DefaultDebugDraw()
-	draw.DrawShapes = true
-	draw.DrawSolidPolygon = func(b2.Transform, []b2.Vec2, b2.Q, b2.HexColor) { shapeCount++ }
+	draw.DrawSolidPolygonFcn = func(b2.WorldTransform, []b2.Vec2, b2.Q, b2.HexColor) { shapeCount++ }
 
 	worldId.Draw(&draw)
 

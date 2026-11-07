@@ -13,15 +13,33 @@ import (
 
 func TestDefaultDebugDrawIsCallable(t *testing.T) {
 	draw := DefaultDebugDraw()
-	draw.DrawPolygon(nil, ColorBlack)
-	draw.DrawSolidPolygon(Transform{}, nil, Q{}, ColorBlack)
-	draw.DrawCircle(Vec2{}, Q{}, ColorBlack)
-	draw.DrawSolidCircle(Transform{}, Q{}, ColorBlack)
-	draw.DrawSolidCapsule(Vec2{}, Vec2{}, Q{}, ColorBlack)
-	draw.DrawSegment(Vec2{}, Vec2{}, ColorBlack)
-	draw.DrawTransform(Transform{})
-	draw.DrawPoint(Vec2{}, Q{}, ColorBlack)
-	draw.DrawString(Vec2{}, "", ColorBlack)
+	draw.DrawPolygonFcn(Transform{}, nil, ColorBlack)
+	draw.DrawSolidPolygonFcn(Transform{}, nil, Q{}, ColorBlack)
+	draw.DrawCircleFcn(Vec2{}, Q{}, ColorBlack)
+	draw.DrawSolidCircleFcn(Transform{}, Vec2{}, Q{}, ColorBlack)
+	draw.DrawSolidCapsuleFcn(Vec2{}, Vec2{}, Q{}, ColorBlack)
+	draw.DrawLineFcn(Vec2{}, Vec2{}, ColorBlack)
+	draw.DrawTransformFcn(Transform{})
+	draw.DrawPointFcn(Vec2{}, Q{}, ColorBlack)
+	draw.DrawStringFcn(Vec2{}, "", ColorBlack)
+	draw.DrawBoundsFcn(AABB{}, ColorBlack)
+}
+
+// TestDefaultDebugDrawMatchesTheReference pins b2DefaultDebugDraw: open
+// bounds, unit scales and shapes on.
+func TestDefaultDebugDrawMatchesTheReference(t *testing.T) {
+	draw := DefaultDebugDraw()
+	maxValue := QMaxValue().Mul(QHalf())
+	want := AABB{LowerBound: Vec2{X: maxValue.Neg(), Y: maxValue.Neg()}, UpperBound: Vec2{X: maxValue, Y: maxValue}}
+	if draw.DrawingBounds != want {
+		t.Errorf("DrawingBounds = %+v, want %+v", draw.DrawingBounds, want)
+	}
+	if !draw.ForceScale.Eq(QOne()) || !draw.JointScale.Eq(QOne()) {
+		t.Errorf("ForceScale, JointScale = %v, %v, want 1, 1", draw.ForceScale, draw.JointScale)
+	}
+	if !draw.DrawShapes || draw.DrawJoints || draw.DrawContacts {
+		t.Error("only DrawShapes should start on")
+	}
 }
 
 func TestDefaultJointDefDrawScale(t *testing.T) {
@@ -33,7 +51,7 @@ func TestDefaultJointDefDrawScale(t *testing.T) {
 func TestDrawRevoluteJointLimitsUseTurns(t *testing.T) {
 	var segments [][2]Vec2
 	draw := DefaultDebugDraw()
-	draw.DrawSegment = func(a, b Vec2, _ HexColor) { segments = append(segments, [2]Vec2{a, b}) }
+	draw.DrawLineFcn = func(a, b Vec2, _ HexColor) { segments = append(segments, [2]Vec2{a, b}) }
 	var base jointSim
 	base.localFrameA, base.localFrameB = TransformIdentity(), TransformIdentity()
 	*base.revolute() = revoluteJoint{
@@ -63,23 +81,26 @@ func TestDrawFlagsAreIndependent(t *testing.T) {
 		enable func(*DebugDraw)
 		kinds  []string
 	}{
-		{"shapes", func(d *DebugDraw) { d.DrawShapes = true }, []string{"solidPolygon", "solidCircle", "capsule", "segment"}},
-		{"joints", func(d *DebugDraw) { d.DrawJoints = true }, []string{"circle", "segment", "point"}},
-		{"bounds", func(d *DebugDraw) { d.DrawBounds = true }, []string{"polygon", "string"}},
-		{"mass", func(d *DebugDraw) { d.DrawMass = true }, []string{"transform", "string"}},
+		{"shapes", func(d *DebugDraw) { d.DrawShapes = true }, []string{"solidPolygon", "solidCircle", "capsule", "line", "point"}},
+		{"joints", func(d *DebugDraw) { d.DrawJoints = true }, []string{"circle", "line", "point"}},
+		{"bounds", func(d *DebugDraw) { d.DrawBounds = true }, []string{"bounds"}},
+		{"mass", func(d *DebugDraw) { d.DrawMass = true }, []string{"line", "transform", "string"}},
 		{"names", func(d *DebugDraw) { d.DrawBodyNames = true }, []string{"string"}},
 		{"contacts", func(d *DebugDraw) { d.DrawContacts = true }, []string{"point"}},
-		{"islands", func(d *DebugDraw) { d.DrawIslands = true }, []string{"polygon"}},
+		{"islands", func(d *DebugDraw) { d.DrawIslands = true }, []string{"bounds"}},
 		{"joint extras alone", func(d *DebugDraw) { d.DrawJointExtras = true }, nil},
 		{"graph colors alone", func(d *DebugDraw) { d.DrawGraphColors = true }, nil},
+		{"anchor A alone", func(d *DebugDraw) { d.DrawAnchorA = true }, nil},
+		{"chain normals alone", func(d *DebugDraw) { d.DrawChainNormals = true }, nil},
 		{"normals alone", func(d *DebugDraw) { d.DrawContactNormals = true }, nil},
-		{"impulses alone", func(d *DebugDraw) { d.DrawContactImpulses = true }, nil},
+		{"forces alone", func(d *DebugDraw) { d.DrawContactForces = true }, nil},
 		{"features alone", func(d *DebugDraw) { d.DrawContactFeatures = true }, nil},
-		{"friction alone", func(d *DebugDraw) { d.DrawFrictionImpulses = true }, nil},
-		{"normals", func(d *DebugDraw) { d.DrawContacts, d.DrawContactNormals = true, true }, []string{"point", "segment"}},
-		{"impulses", func(d *DebugDraw) { d.DrawContacts, d.DrawContactImpulses = true, true }, []string{"point", "segment", "string"}},
+		{"friction alone", func(d *DebugDraw) { d.DrawFrictionForces = true }, nil},
+		{"chain normals", func(d *DebugDraw) { d.DrawShapes, d.DrawChainNormals = true, true }, []string{"solidPolygon", "solidCircle", "capsule", "line", "point"}},
+		{"normals", func(d *DebugDraw) { d.DrawContacts, d.DrawContactNormals = true, true }, []string{"point", "line", "string"}},
+		{"forces", func(d *DebugDraw) { d.DrawContacts, d.DrawContactForces = true, true }, []string{"point", "line", "string"}},
 		{"features", func(d *DebugDraw) { d.DrawContacts, d.DrawContactFeatures = true, true }, []string{"point", "string"}},
-		{"friction", func(d *DebugDraw) { d.DrawContacts, d.DrawFrictionImpulses = true, true }, []string{"point", "segment", "string"}},
+		{"friction", func(d *DebugDraw) { d.DrawContacts, d.DrawFrictionForces = true, true }, []string{"point", "line", "string"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -113,7 +134,8 @@ type drawCall struct {
 	text   string
 }
 
-// recordDraw retains every argument so the oracle detects geometry and order changes.
+// recordDraw retains every argument so the oracle detects geometry and
+// order changes. It starts with every flag off, DrawShapes included.
 func recordDraw() (*DebugDraw, *[]drawCall) {
 	var calls []drawCall
 	q := func(v Q) float64 { return QToFloat64(v) }
@@ -123,35 +145,41 @@ func recordDraw() (*DebugDraw, *[]drawCall) {
 		calls = append(calls, drawCall{kind, color, values, text})
 	}
 	draw := DefaultDebugDraw()
-	draw.DrawPolygon = func(v []Vec2, c HexColor) {
-		values := []float64{float64(len(v))}
+	draw.DrawShapes = false
+	draw.DrawPolygonFcn = func(x Transform, v []Vec2, c HexColor) {
+		values := append(xf(x), float64(len(v)))
 		for _, p := range v {
 			values = append(values, vec(p)...)
 		}
 		add("polygon", c, values, "")
 	}
-	draw.DrawSolidPolygon = func(x Transform, v []Vec2, r Q, c HexColor) {
+	draw.DrawSolidPolygonFcn = func(x Transform, v []Vec2, r Q, c HexColor) {
 		values := append(xf(x), q(r), float64(len(v)))
 		for _, p := range v {
 			values = append(values, vec(p)...)
 		}
 		add("solidPolygon", c, values, "")
 	}
-	draw.DrawCircle = func(p Vec2, r Q, c HexColor) { add("circle", c, append(vec(p), q(r)), "") }
-	draw.DrawSolidCircle = func(x Transform, r Q, c HexColor) { add("solidCircle", c, append(xf(x), q(r)), "") }
-	draw.DrawSolidCapsule = func(a, b Vec2, r Q, c HexColor) { add("capsule", c, append(append(vec(a), vec(b)...), q(r)), "") }
-	draw.DrawSegment = func(a, b Vec2, c HexColor) { add("segment", c, append(vec(a), vec(b)...), "") }
-	draw.DrawTransform = func(x Transform) { add("transform", 0, xf(x), "") }
-	draw.DrawPoint = func(p Vec2, size Q, c HexColor) { add("point", c, append(vec(p), q(size)), "") }
-	draw.DrawString = func(p Vec2, s string, c HexColor) { add("string", c, vec(p), s) }
+	draw.DrawCircleFcn = func(p Vec2, r Q, c HexColor) { add("circle", c, append(vec(p), q(r)), "") }
+	draw.DrawSolidCircleFcn = func(x Transform, center Vec2, r Q, c HexColor) {
+		add("solidCircle", c, append(append(xf(x), vec(center)...), q(r)), "")
+	}
+	draw.DrawSolidCapsuleFcn = func(a, b Vec2, r Q, c HexColor) { add("capsule", c, append(append(vec(a), vec(b)...), q(r)), "") }
+	draw.DrawLineFcn = func(a, b Vec2, c HexColor) { add("line", c, append(vec(a), vec(b)...), "") }
+	draw.DrawTransformFcn = func(x Transform) { add("transform", 0, xf(x), "") }
+	draw.DrawPointFcn = func(p Vec2, size Q, c HexColor) { add("point", c, append(vec(p), q(size)), "") }
+	draw.DrawStringFcn = func(p Vec2, s string, c HexColor) { add("string", c, vec(p), s) }
+	draw.DrawBoundsFcn = func(b AABB, c HexColor) { add("bounds", c, append(vec(b.LowerBound), vec(b.UpperBound)...), "") }
 	return &draw, &calls
 }
 
+// enableAllDrawFlags turns on the flags of the oracle's "all" pass; anchor
+// A and the contact forces wait for the bounded pass.
 func enableAllDrawFlags(draw *DebugDraw) {
-	draw.DrawShapes, draw.DrawJoints, draw.DrawJointExtras = true, true, true
+	draw.DrawShapes, draw.DrawChainNormals, draw.DrawJoints, draw.DrawJointExtras = true, true, true, true
 	draw.DrawBounds, draw.DrawMass, draw.DrawBodyNames = true, true, true
 	draw.DrawContacts, draw.DrawGraphColors, draw.DrawContactNormals = true, true, true
-	draw.DrawContactImpulses, draw.DrawContactFeatures, draw.DrawFrictionImpulses, draw.DrawIslands = true, true, true, true
+	draw.DrawContactFeatures, draw.DrawFrictionForces, draw.DrawIslands = true, true, true
 }
 
 // createDrawScene spaces every dynamic body far apart so each one touches
@@ -267,22 +295,33 @@ func createDrawScene(t testing.TB) WorldId {
 	sensorSd.IsSensor = true
 	CreatePolygonShape(CreateBody(w, &bd), &sensorSd, &box)
 
+	bd = DefaultBodyDef()
+	bd.Position, bd.Name = Vec2{X: QFromInt(56), Y: QFromInt(5)}, "chain"
+	cd := DefaultChainDef()
+	cd.Points = []Vec2{v2(-1, -1), v2(1, -1), v2(1, 1), v2(-1, 1)}
+	cd.IsLoop = true
+	CreateChain(CreateBody(w, &bd), &cd)
+
 	for range 90 {
 		w.Step(stepDt(), 4)
 	}
 	return w
 }
 
+// TestDrawMatchesGolden replays tools/drawgolden: the "all" pass draws the
+// whole world, the "bounded" pass a box around the left half with the
+// contact forces at anchor A and a doubled joint scale.
 func TestDrawMatchesGolden(t *testing.T) {
-	// The golden comes from the v3.1.1 oracle and holds simulated
-	// positions; phase 6 of the v3.2 migration regenerates it.
-	t.Skip("the draw golden is regenerated from the v3.2 oracle in phase 6")
 	w := createDrawScene(t)
 	draw, calls := recordDraw()
 	enableAllDrawFlags(draw)
+	// A small force scale keeps fixed mode's force lines inside the budget.
+	draw.ForceScale = QMustParse("0.015625")
 	*calls = append(*calls, drawCall{kind: "all"})
 	w.Draw(draw)
-	draw.UseDrawingBounds = true
+	draw.DrawContactNormals, draw.DrawContactForces, draw.DrawAnchorA = false, true, true
+	draw.DrawGraphColors = false
+	draw.JointScale = QFromInt(2)
 	draw.DrawingBounds = AABB{LowerBound: Vec2{X: QFromInt(-36), Y: QFromInt(-1)}, UpperBound: Vec2{X: QFromInt(4), Y: QFromInt(5)}}
 	*calls = append(*calls, drawCall{kind: "bounded"})
 	w.Draw(draw)
@@ -333,8 +372,8 @@ func TestDrawMatchesGolden(t *testing.T) {
 	}
 }
 
-// drawNumberPattern matches the numbers of a label.
-var drawNumberPattern = regexp.MustCompile(`-?[0-9]+(\.[0-9]+)?`)
+// drawNumberPattern matches the numbers of a label, "%g" exponents included.
+var drawNumberPattern = regexp.MustCompile(`-?[0-9]+(\.[0-9]+)?(e[-+][0-9]+)?`)
 
 // Numeric labels have the same fixed-point budget as geometry; names stay
 // exact. A label may hold several numbers, as the joint force label does.
@@ -374,13 +413,13 @@ func TestDrawShapeCallbacksPerType(t *testing.T) {
 		{"circle", withGeometry(CircleShape, &Circle{Center: segment.Point1, Radius: QHalf()}), []string{"solidCircle"}},
 		{"capsule", withGeometry(CapsuleShape, &Capsule{Center1: segment.Point1, Center2: segment.Point2, Radius: QHalf()}), []string{"capsule"}},
 		{"polygon", withGeometry(PolygonShape, ptr(MakeSquare(QHalf()))), []string{"solidPolygon"}},
-		{"segment", withGeometry(SegmentShape, &segment), []string{"segment"}},
-		{"chain", withGeometry(ChainSegmentShape, &ChainSegment{Segment: segment}), []string{"segment", "point", "segment"}},
+		{"segment", withGeometry(SegmentShape, &segment), []string{"line"}},
+		{"chain", withGeometry(ChainSegmentShape, &ChainSegment{Segment: segment}), []string{"line", "point", "line"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			draw, calls := recordDraw()
-			drawShape(draw, &tc.shape, transform, ColorCoral)
+			drawShape(draw, &tc.shape, transform, ColorCoral, true)
 			if len(*calls) != len(tc.kinds) {
 				t.Fatalf("callbacks = %+v", *calls)
 			}
@@ -392,9 +431,15 @@ func TestDrawShapeCallbacksPerType(t *testing.T) {
 			if (*calls)[0].color != ColorCoral {
 				t.Fatalf("callbacks = %+v", *calls)
 			}
-			if tc.kinds[0] == "segment" || tc.kinds[0] == "capsule" || tc.kinds[0] == "solidCircle" {
+			if tc.kinds[0] == "line" || tc.kinds[0] == "capsule" {
 				if (*calls)[0].values[0] != 3 || (*calls)[0].values[1] != 5 {
 					t.Fatalf("transformed first point = %v", (*calls)[0].values)
+				}
+			}
+			if tc.kinds[0] == "solidCircle" {
+				// The circle keeps its local center beside the body transform.
+				if v := (*calls)[0].values; v[0] != 3 || v[1] != 4 || v[4] != 1 || v[5] != 0 {
+					t.Fatalf("circle transform and center = %v", v)
 				}
 			}
 		})
@@ -438,7 +483,6 @@ func TestDrawBoundsExcludeAllCallbacksOutsideTheQuery(t *testing.T) {
 	w := createDrawScene(t)
 	draw, calls := recordDraw()
 	enableAllDrawFlags(draw)
-	draw.UseDrawingBounds = true
 	draw.DrawingBounds = AABB{LowerBound: v2(100, 100), UpperBound: v2(101, 101)}
 	w.Draw(draw)
 	if len(*calls) != 0 {
@@ -457,10 +501,10 @@ func TestDrawBoundsVisitLinkedJointOnlyOnce(t *testing.T) {
 	CreateDistanceJoint(w, &jd)
 	for _, upper := range []int{1, 4} {
 		draw, calls := recordDraw()
-		draw.DrawJoints, draw.UseDrawingBounds = true, true
+		draw.DrawJoints = true
 		draw.DrawingBounds = AABB{LowerBound: v2(-1, -1), UpperBound: v2(upper, 1)}
 		w.Draw(draw)
-		if len(*calls) != 3 || (*calls)[0].kind != "segment" {
+		if len(*calls) != 3 || (*calls)[0].kind != "line" {
 			t.Fatalf("query upper=%d: callbacks = %+v", upper, *calls)
 		}
 	}
@@ -472,8 +516,9 @@ func TestDrawPreservesSimulationAndCallbackOrder(t *testing.T) {
 	for _, bounded := range []bool{false, true} {
 		draw, calls := recordDraw()
 		enableAllDrawFlags(draw)
-		draw.UseDrawingBounds = bounded
-		draw.DrawingBounds = AABB{LowerBound: v2(-10, -10), UpperBound: v2(10, 10)}
+		if bounded {
+			draw.DrawingBounds = AABB{LowerBound: v2(-10, -10), UpperBound: v2(10, 10)}
+		}
 		w.Draw(draw)
 		first := append([]drawCall(nil), (*calls)...)
 		*calls = nil
@@ -494,50 +539,60 @@ func TestDrawPreservesSimulationAndCallbackOrder(t *testing.T) {
 	}
 }
 
+// TestDrawContactDiagnosticsMatchReferenceUnits pins the force labels of
+// b2World_Draw: half the impulse times the inverse step, the normal force
+// over the full step and the friction force over the substep.
 func TestDrawContactDiagnosticsMatchReferenceUnits(t *testing.T) {
 	m := Manifold{Normal: Vec2{Y: QOne()}, PointCount: 1}
-	m.Points[0] = ManifoldPoint{NormalImpulse: QMustParse("0.125"), TotalNormalImpulse: QHalf(), TangentImpulse: QMustParse("-0.25"), Id: 123}
-	for _, tc := range []struct {
-		bounded          bool
-		end              float64
-		normal, friction string
-	}{
-		{false, 3.5, "500.00", "-0.25"},
-		{true, 3.125, "125.0", "-250.0"},
-	} {
+	m.Points[0] = ManifoldPoint{
+		AnchorA: v2(1, 0), AnchorB: v2(-1, 0),
+		TotalNormalImpulse: QHalf(), TangentImpulse: QMustParse("-0.25"), Id: 123,
+	}
+	invDt, invH := QFromInt(60), QFromInt(240)
+	for _, anchorA := range []bool{false, true} {
 		draw, calls := recordDraw()
-		draw.DrawGraphColors, draw.DrawContactImpulses, draw.DrawContactFeatures, draw.DrawFrictionImpulses = true, true, true, true
-		drawManifoldPoints(draw, &m, v2(2, 3), overflowIndex, tc.bounded)
+		draw.DrawGraphColors, draw.DrawContactForces, draw.DrawContactFeatures, draw.DrawFrictionForces = true, true, true, true
+		draw.DrawAnchorA = anchorA
+		draw.ForceScale = QMustParse("0.125")
+		// Both anchors land on (2, 3).
+		drawManifoldPoints(draw, &m, v2(1, 3), v2(3, 3), overflowIndex, invDt, invH)
 		if len(*calls) != 6 {
 			t.Fatalf("diagnostic callbacks = %+v", *calls)
 		}
-		if c := (*calls)[0]; c.kind != "point" || c.color != ColorSilver || c.values[2] != 7.5 {
+		if c := (*calls)[0]; c.kind != "point" || c.color != ColorSilver || c.values[0] != 2 || c.values[2] != 7.5 {
 			t.Fatalf("overflow point = %+v", c)
 		}
-		if c := (*calls)[1]; c.color != ColorMagenta || c.values[3] != tc.end {
-			t.Fatalf("normal segment = %+v", c)
+		// force = 0.5 * 0.5 * 60 = 15, drawn 15 * 0.125 = 1.875 long
+		if c := (*calls)[1]; c.color != ColorMagenta || c.values[3] != 4.875 {
+			t.Fatalf("normal force line = %+v", c)
 		}
-		if (*calls)[2].text != tc.normal || (*calls)[3].text != "123" || (*calls)[5].text != tc.friction {
+		// friction = 0.5 * -0.25 * 240 = -30, drawn -3.75 along (1, 0)
+		if (*calls)[2].text != "15.0" || (*calls)[3].text != "123" || (*calls)[5].text != "-30.0" {
 			t.Fatalf("labels = %+v", *calls)
 		}
-		if c := (*calls)[4]; c.color != ColorYellow || c.values[2] != 1.75 || c.values[3] != 3 {
-			t.Fatalf("friction segment = %+v", c)
+		if c := (*calls)[4]; c.color != ColorYellow || c.values[2] != -1.75 || c.values[3] != 3 {
+			t.Fatalf("friction line = %+v", c)
 		}
 		*calls = nil
 		draw.DrawContactNormals = true
-		drawManifoldPoints(draw, &m, v2(2, 3), overflowIndex, tc.bounded)
-		if len(*calls) != 5 || (*calls)[1].color != ColorDimGray {
-			t.Fatalf("normals must take precedence over impulses: %+v", *calls)
+		drawManifoldPoints(draw, &m, v2(1, 3), v2(3, 3), overflowIndex, invDt, invH)
+		if len(*calls) != 6 || (*calls)[1].color != ColorDimGray || (*calls)[2].text != " 0.00" {
+			t.Fatalf("normals must take precedence over forces: %+v", *calls)
 		}
 	}
 }
 
 func TestDrawJointDiagnosticsRespectFlags(t *testing.T) {
 	w := createTestWorld(t)
+	// Draw reaches a joint through the shapes of its bodies.
 	bd := DefaultBodyDef()
+	sd := DefaultShapeDef()
+	circle := Circle{Radius: QHalf()}
 	a := CreateBody(w, &bd)
+	CreateCircleShape(a, &sd, &circle)
 	bd.Type = DynamicBody
 	b := CreateBody(w, &bd)
+	CreateCircleShape(b, &sd, &circle)
 	jd := DefaultRevoluteJointDef()
 	jd.Base.BodyIdA, jd.Base.BodyIdB = a, b
 	CreateRevoluteJoint(w, &jd)
@@ -576,7 +631,7 @@ func TestDrawJointDiagnosticsRespectFlags(t *testing.T) {
 func TestDrawDistanceLimitsPreserveEndpointOrder(t *testing.T) {
 	draw := DefaultDebugDraw()
 	var segments [][2]Vec2
-	draw.DrawSegment = func(a, b Vec2, _ HexColor) { segments = append(segments, [2]Vec2{a, b}) }
+	draw.DrawLineFcn = func(a, b Vec2, _ HexColor) { segments = append(segments, [2]Vec2{a, b}) }
 	var base jointSim
 	*base.distance() = distanceJoint{enableLimit: true, minLength: QOne(), maxLength: QFromInt(3)}
 	drawDistanceJoint(&draw, &base, TransformIdentity(), Transform{P: v2(2, 0), Q: RotIdentity()})

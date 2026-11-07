@@ -53,15 +53,15 @@ type Sample interface {
 // Base holds the state every sample shares: the world, the mouse joint and
 // the profile.
 type Base struct {
-	Context      *SampleContext
-	WorldId      b2.WorldId
+	Context         *SampleContext
+	WorldId         b2.WorldId
 	MouseBodyId     b2.BodyId
 	MouseJointId    b2.JointId
 	MousePoint      b2.Vec2
 	MouseForceScale b2.Q
-	StepCount    int
-	MaxProfile   b2.Profile
-	TotalProfile b2.Profile
+	StepCount       int
+	MaxProfile      b2.Profile
+	TotalProfile    b2.Profile
 
 	textLine      int
 	textIncrement int
@@ -170,7 +170,7 @@ func (b *Base) MouseDown(p b2.Vec2, button MouseButton, mod Modifier) {
 	}
 
 	qc := queryContext{point: p}
-	b.WorldId.OverlapAABB(box, b2.DefaultQueryFilter(), func(shapeId b2.ShapeId) bool {
+	b.WorldId.OverlapAABB(b2.Vec2{}, box, b2.DefaultQueryFilter(), func(shapeId b2.ShapeId) bool {
 		bodyId := shapeId.GetBody()
 		if bodyId.GetType() != b2.DynamicBody {
 			return true
@@ -253,8 +253,11 @@ func (b *Base) Step() {
 	}
 
 	draw := &b.Context.Draw
-	draw.DrawingBounds = b.Context.Camera.GetViewBounds()
-	draw.UseDrawingBounds = s.UseCameraBounds
+	if s.UseCameraBounds {
+		draw.DrawingBounds = b.Context.Camera.GetViewBounds()
+	} else {
+		draw.DrawingBounds = b2.DefaultDebugDraw().DrawingBounds
+	}
 
 	draw.DrawShapes = s.DrawShapes
 	draw.DrawJoints = s.DrawJoints
@@ -265,9 +268,9 @@ func (b *Base) Step() {
 	draw.DrawContacts = s.DrawContactPoints
 	draw.DrawGraphColors = s.DrawGraphColors
 	draw.DrawContactNormals = s.DrawContactNormals
-	draw.DrawContactImpulses = s.DrawContactImpulses
+	draw.DrawContactForces = s.DrawContactForces
 	draw.DrawContactFeatures = s.DrawContactFeatures
-	draw.DrawFrictionImpulses = s.DrawFrictionImpulses
+	draw.DrawFrictionForces = s.DrawFrictionForces
 	draw.DrawIslands = s.DrawIslands
 
 	b.WorldId.EnableSleeping(s.EnableSleep)
@@ -324,16 +327,15 @@ func (b *Base) Step() {
 		b.DrawTextLine("pairs [ave] (max) = %5.2f [%6.2f] (%6.2f)", p.Pairs, ave.Pairs, m.Pairs)
 		b.DrawTextLine("collide [ave] (max) = %5.2f [%6.2f] (%6.2f)", p.Collide, ave.Collide, m.Collide)
 		b.DrawTextLine("solve [ave] (max) = %5.2f [%6.2f] (%6.2f)", p.Solve, ave.Solve, m.Solve)
-		b.DrawTextLine("> merge islands [ave] (max) = %5.2f [%6.2f] (%6.2f)", p.MergeIslands, ave.MergeIslands, m.MergeIslands)
-		b.DrawTextLine("> prepare tasks [ave] (max) = %5.2f [%6.2f] (%6.2f)", p.PrepareStages, ave.PrepareStages, m.PrepareStages)
-		b.DrawTextLine("> solve constraints [ave] (max) = %5.2f [%6.2f] (%6.2f)", p.SolveConstraints, ave.SolveConstraints, m.SolveConstraints)
+		b.DrawTextLine("> solver setup [ave] (max) = %5.2f [%6.2f] (%6.2f)", p.SolverSetup, ave.SolverSetup, m.SolverSetup)
+		b.DrawTextLine("> constraints [ave] (max) = %5.2f [%6.2f] (%6.2f)", p.Constraints, ave.Constraints, m.Constraints)
 		b.DrawTextLine(">> prepare constraints [ave] (max) = %5.2f [%6.2f] (%6.2f)", p.PrepareConstraints, ave.PrepareConstraints, m.PrepareConstraints)
 		b.DrawTextLine(">> integrate velocities [ave] (max) = %5.2f [%6.2f] (%6.2f)", p.IntegrateVelocities, ave.IntegrateVelocities, m.IntegrateVelocities)
 		b.DrawTextLine(">> warm start [ave] (max) = %5.2f [%6.2f] (%6.2f)", p.WarmStart, ave.WarmStart, m.WarmStart)
 		b.DrawTextLine(">> solve impulses [ave] (max) = %5.2f [%6.2f] (%6.2f)", p.SolveImpulses, ave.SolveImpulses, m.SolveImpulses)
 		b.DrawTextLine(">> integrate positions [ave] (max) = %5.2f [%6.2f] (%6.2f)", p.IntegratePositions, ave.IntegratePositions, m.IntegratePositions)
 		b.DrawTextLine(">> relax impulses [ave] (max) = %5.2f [%6.2f] (%6.2f)", p.RelaxImpulses, ave.RelaxImpulses, m.RelaxImpulses)
-		b.DrawTextLine(">> apply restitution [ave] (max) = %5.2f [%6.2f] (%6.2f)", p.ApplyRestitution, ave.ApplyRestitution, m.ApplyRestitution)
+		b.DrawTextLine(">> restitution [ave] (max) = %5.2f [%6.2f] (%6.2f)", p.Restitution, ave.Restitution, m.Restitution)
 		b.DrawTextLine(">> store impulses [ave] (max) = %5.2f [%6.2f] (%6.2f)", p.StoreImpulses, ave.StoreImpulses, m.StoreImpulses)
 		b.DrawTextLine(">> split islands [ave] (max) = %5.2f [%6.2f] (%6.2f)", p.SplitIslands, ave.SplitIslands, m.SplitIslands)
 		b.DrawTextLine("> update transforms [ave] (max) = %5.2f [%6.2f] (%6.2f)", p.Transforms, ave.Transforms, m.Transforms)
@@ -351,16 +353,15 @@ func maxProfile(a, b b2.Profile) b2.Profile {
 		Pairs:               max(a.Pairs, b.Pairs),
 		Collide:             max(a.Collide, b.Collide),
 		Solve:               max(a.Solve, b.Solve),
-		MergeIslands:        max(a.MergeIslands, b.MergeIslands),
-		PrepareStages:       max(a.PrepareStages, b.PrepareStages),
-		SolveConstraints:    max(a.SolveConstraints, b.SolveConstraints),
+		SolverSetup:         max(a.SolverSetup, b.SolverSetup),
+		Constraints:         max(a.Constraints, b.Constraints),
 		PrepareConstraints:  max(a.PrepareConstraints, b.PrepareConstraints),
 		IntegrateVelocities: max(a.IntegrateVelocities, b.IntegrateVelocities),
 		WarmStart:           max(a.WarmStart, b.WarmStart),
 		SolveImpulses:       max(a.SolveImpulses, b.SolveImpulses),
 		IntegratePositions:  max(a.IntegratePositions, b.IntegratePositions),
 		RelaxImpulses:       max(a.RelaxImpulses, b.RelaxImpulses),
-		ApplyRestitution:    max(a.ApplyRestitution, b.ApplyRestitution),
+		Restitution:         max(a.Restitution, b.Restitution),
 		StoreImpulses:       max(a.StoreImpulses, b.StoreImpulses),
 		SplitIslands:        max(a.SplitIslands, b.SplitIslands),
 		Transforms:          max(a.Transforms, b.Transforms),
@@ -378,16 +379,15 @@ func addProfile(a, b b2.Profile) b2.Profile {
 		Pairs:               a.Pairs + b.Pairs,
 		Collide:             a.Collide + b.Collide,
 		Solve:               a.Solve + b.Solve,
-		MergeIslands:        a.MergeIslands + b.MergeIslands,
-		PrepareStages:       a.PrepareStages + b.PrepareStages,
-		SolveConstraints:    a.SolveConstraints + b.SolveConstraints,
+		SolverSetup:         a.SolverSetup + b.SolverSetup,
+		Constraints:         a.Constraints + b.Constraints,
 		PrepareConstraints:  a.PrepareConstraints + b.PrepareConstraints,
 		IntegrateVelocities: a.IntegrateVelocities + b.IntegrateVelocities,
 		WarmStart:           a.WarmStart + b.WarmStart,
 		SolveImpulses:       a.SolveImpulses + b.SolveImpulses,
 		IntegratePositions:  a.IntegratePositions + b.IntegratePositions,
 		RelaxImpulses:       a.RelaxImpulses + b.RelaxImpulses,
-		ApplyRestitution:    a.ApplyRestitution + b.ApplyRestitution,
+		Restitution:         a.Restitution + b.Restitution,
 		StoreImpulses:       a.StoreImpulses + b.StoreImpulses,
 		SplitIslands:        a.SplitIslands + b.SplitIslands,
 		Transforms:          a.Transforms + b.Transforms,
@@ -405,16 +405,15 @@ func scaleProfile(a b2.Profile, scale float64) b2.Profile {
 		Pairs:               scale * a.Pairs,
 		Collide:             scale * a.Collide,
 		Solve:               scale * a.Solve,
-		MergeIslands:        scale * a.MergeIslands,
-		PrepareStages:       scale * a.PrepareStages,
-		SolveConstraints:    scale * a.SolveConstraints,
+		SolverSetup:         scale * a.SolverSetup,
+		Constraints:         scale * a.Constraints,
 		PrepareConstraints:  scale * a.PrepareConstraints,
 		IntegrateVelocities: scale * a.IntegrateVelocities,
 		WarmStart:           scale * a.WarmStart,
 		SolveImpulses:       scale * a.SolveImpulses,
 		IntegratePositions:  scale * a.IntegratePositions,
 		RelaxImpulses:       scale * a.RelaxImpulses,
-		ApplyRestitution:    scale * a.ApplyRestitution,
+		Restitution:         scale * a.Restitution,
 		StoreImpulses:       scale * a.StoreImpulses,
 		SplitIslands:        scale * a.SplitIslands,
 		Transforms:          scale * a.Transforms,

@@ -591,19 +591,6 @@ func updateContact(w *world, cs *contactSim, shapeA *shape, transformA Transform
 		}
 	}
 
-	// This flag exists for testing. The reference tests point zero in both
-	// branches, so only the first branch can fire; the port keeps the
-	// behaviour without the dead branch.
-	if !w.enableSpeculative && pointCount == 2 {
-		slop := LinearSlop()
-		if slop.Add(slop.Div(QFromInt(2))).Less(cs.manifold.Points[0].Separation) {
-			cs.manifold.Points[0] = cs.manifold.Points[1]
-			cs.manifold.PointCount = 1
-		}
-
-		pointCount = cs.manifold.PointCount
-	}
-
 	if touching && (shapeA.enableHitEvents || shapeB.enableHitEvents) {
 		cs.simFlags |= simEnableHitEvent
 	} else {

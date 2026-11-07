@@ -591,7 +591,7 @@ func (s *FootSensor) Step() {
 		shapeId := s.overlaps[i]
 		aabb := shapeId.GetBounds()
 		point := b2.AABBCenter(aabb)
-		s.Context.Draw.DrawPoint(point, b2.F(10), b2.ColorWhite)
+		s.Context.Draw.DrawPointFcn(point, b2.F(10), b2.ColorWhite)
 	}
 }
 
@@ -745,8 +745,8 @@ func (s *ContactEvent) drawContactImpulses(shapeId, otherId, pairId b2.ShapeId, 
 			for k := range manifold.PointCount {
 				point := manifold.Points[k]
 				p1 := centerA.Add(point.AnchorA)
-				s.Context.Draw.DrawSegment(p1, b2.MulAdd(p1, point.TotalNormalImpulse, normal), color)
-				s.Context.Draw.DrawPoint(p1, b2.F(10), b2.ColorWhite)
+				s.Context.Draw.DrawLineFcn(p1, b2.MulAdd(p1, point.TotalNormalImpulse, normal), color)
+				s.Context.Draw.DrawPointFcn(p1, b2.F(10), b2.ColorWhite)
 			}
 		}
 	}
@@ -1243,7 +1243,7 @@ func (s *BodyMove) Step() {
 	for i := range events.MoveEvents {
 		// draw the transform of every body that moved (not sleeping)
 		event := &events.MoveEvents[i]
-		s.Context.Draw.DrawTransform(event.Transform)
+		s.Context.Draw.DrawTransformFcn(event.Transform)
 
 		transform := event.BodyId.GetTransform()
 		sampleAssert(transform == event.Transform, "body move event transform differs from the body")
@@ -1263,7 +1263,7 @@ func (s *BodyMove) Step() {
 		}
 	}
 
-	s.Context.Draw.DrawCircle(s.explosionPosition, s.explosionRadius, b2.ColorAzure)
+	s.Context.Draw.DrawCircleFcn(s.explosionPosition, s.explosionRadius, b2.ColorAzure)
 
 	s.DrawTextLine("sleep count: %d", s.sleepCount)
 }
@@ -1431,9 +1431,9 @@ func (s *SensorTypes) Step() {
 	origin := b2.V2(5, 1)
 	translation := b2.V2(-10, 0)
 	result := s.WorldId.CastRayClosest(origin, translation, b2.DefaultQueryFilter())
-	s.Context.Draw.DrawSegment(origin, origin.Add(translation), b2.ColorDimGray)
+	s.Context.Draw.DrawLineFcn(origin, origin.Add(translation), b2.ColorDimGray)
 
 	if result.Hit {
-		s.Context.Draw.DrawPoint(result.Point, b2.F(10), b2.ColorCyan)
+		s.Context.Draw.DrawPointFcn(result.Point, b2.F(10), b2.ColorCyan)
 	}
 }

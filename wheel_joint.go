@@ -355,20 +355,20 @@ func drawWheelJoint(draw *DebugDraw, base *jointSim, transformA, transformB Tran
 	c4 := ColorDimGray
 	c5 := ColorBlue
 
-	draw.DrawSegment(frameA.P, frameB.P, c5)
+	draw.DrawLineFcn(frameA.P, frameB.P, c5)
 
 	if joint.enableLimit {
 		lower := MulAdd(frameA.P, joint.lowerTranslation, axisA)
 		upper := MulAdd(frameA.P, joint.upperTranslation, axisA)
 		perp := LeftPerp(axisA)
 		b := QMustParse("0.1").Mul(drawScale)
-		draw.DrawSegment(lower, upper, c1)
-		draw.DrawSegment(MulSub(lower, b, perp), MulAdd(lower, b, perp), c2)
-		draw.DrawSegment(MulSub(upper, b, perp), MulAdd(upper, b, perp), c3)
+		draw.DrawLineFcn(lower, upper, c1)
+		draw.DrawLineFcn(MulSub(lower, b, perp), MulAdd(lower, b, perp), c2)
+		draw.DrawLineFcn(MulSub(upper, b, perp), MulAdd(upper, b, perp), c3)
 	} else {
-		draw.DrawSegment(frameA.P.Sub(axisA), frameA.P.Add(axisA), c1)
+		draw.DrawLineFcn(frameA.P.Sub(axisA), frameA.P.Add(axisA), c1)
 	}
 
-	draw.DrawPoint(frameA.P, QFromInt(5), c1)
-	draw.DrawPoint(frameB.P, QFromInt(5), c4)
+	draw.DrawPointFcn(frameA.P, QFromInt(5), c1)
+	draw.DrawPointFcn(frameB.P, QFromInt(5), c4)
 }

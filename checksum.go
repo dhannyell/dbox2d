@@ -414,7 +414,6 @@ func Checksum(worldId WorldId) uint64 {
 	h = checksumBool(h, w.enableSleep)
 	h = checksumBool(h, w.enableWarmStarting)
 	h = checksumBool(h, w.enableContinuous)
-	h = checksumBool(h, w.enableSpeculative)
 
 	var bodySum uint64
 	bodyCount := 0
