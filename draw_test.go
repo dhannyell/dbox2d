@@ -13,15 +13,15 @@ import (
 
 func TestDefaultDebugDrawIsCallable(t *testing.T) {
 	draw := DefaultDebugDraw()
-	draw.DrawPolygonFcn(Transform{}, nil, ColorBlack)
-	draw.DrawSolidPolygonFcn(Transform{}, nil, Q{}, ColorBlack)
-	draw.DrawCircleFcn(Vec2{}, Q{}, ColorBlack)
-	draw.DrawSolidCircleFcn(Transform{}, Vec2{}, Q{}, ColorBlack)
-	draw.DrawSolidCapsuleFcn(Vec2{}, Vec2{}, Q{}, ColorBlack)
-	draw.DrawLineFcn(Vec2{}, Vec2{}, ColorBlack)
-	draw.DrawTransformFcn(Transform{})
-	draw.DrawPointFcn(Vec2{}, Q{}, ColorBlack)
-	draw.DrawStringFcn(Vec2{}, "", ColorBlack)
+	draw.DrawPolygonFcn(WorldTransform{}, nil, ColorBlack)
+	draw.DrawSolidPolygonFcn(WorldTransform{}, nil, Q{}, ColorBlack)
+	draw.DrawCircleFcn(ToPos(Vec2{}), Q{}, ColorBlack)
+	draw.DrawSolidCircleFcn(WorldTransform{}, Vec2{}, Q{}, ColorBlack)
+	draw.DrawSolidCapsuleFcn(ToPos(Vec2{}), ToPos(Vec2{}), Q{}, ColorBlack)
+	draw.DrawLineFcn(ToPos(Vec2{}), ToPos(Vec2{}), ColorBlack)
+	draw.DrawTransformFcn(WorldTransform{})
+	draw.DrawPointFcn(ToPos(Vec2{}), Q{}, ColorBlack)
+	draw.DrawStringFcn(ToPos(Vec2{}), "", ColorBlack)
 	draw.DrawBoundsFcn(AABB{}, ColorBlack)
 }
 
@@ -51,7 +51,7 @@ func TestDefaultJointDefDrawScale(t *testing.T) {
 func TestDrawRevoluteJointLimitsUseTurns(t *testing.T) {
 	var segments [][2]Vec2
 	draw := DefaultDebugDraw()
-	draw.DrawLineFcn = func(a, b Vec2, _ HexColor) { segments = append(segments, [2]Vec2{a, b}) }
+	draw.DrawLineFcn = func(a, b Pos, _ HexColor) { segments = append(segments, [2]Vec2{ToVec2(a), ToVec2(b)}) }
 	var base jointSim
 	base.localFrameA, base.localFrameB = TransformIdentity(), TransformIdentity()
 	*base.revolute() = revoluteJoint{
@@ -60,7 +60,7 @@ func TestDrawRevoluteJointLimitsUseTurns(t *testing.T) {
 		upperAngle:  angleFromTurns(QMustParse("0.25")),
 	}
 	// The draw scale 4 makes the radius 0.25 * 4 = 1.
-	drawRevoluteJoint(&draw, &base, TransformIdentity(), TransformIdentity(), QFromInt(4))
+	drawRevoluteJoint(&draw, &base, MakeWorldTransform(TransformIdentity()), MakeWorldTransform(TransformIdentity()), QFromInt(4))
 	if len(segments) < 4 {
 		t.Fatalf("segments = %d, want limit segments", len(segments))
 	}
@@ -140,35 +140,38 @@ func recordDraw() (*DebugDraw, *[]drawCall) {
 	var calls []drawCall
 	q := func(v Q) float64 { return QToFloat64(v) }
 	vec := func(p Vec2) []float64 { return []float64{q(p.X), q(p.Y)} }
-	xf := func(x Transform) []float64 { return []float64{q(x.P.X), q(x.P.Y), q(x.Q.Cos), q(x.Q.Sin)} }
+	pos := func(p Pos) []float64 { return posFloats(p) }
+	xf := func(x WorldTransform) []float64 {
+		return append(posFloats(x.P), q(x.Q.Cos), q(x.Q.Sin))
+	}
 	add := func(kind string, color HexColor, values []float64, text string) {
 		calls = append(calls, drawCall{kind, color, values, text})
 	}
 	draw := DefaultDebugDraw()
 	draw.DrawShapes = false
-	draw.DrawPolygonFcn = func(x Transform, v []Vec2, c HexColor) {
+	draw.DrawPolygonFcn = func(x WorldTransform, v []Vec2, c HexColor) {
 		values := append(xf(x), float64(len(v)))
 		for _, p := range v {
 			values = append(values, vec(p)...)
 		}
 		add("polygon", c, values, "")
 	}
-	draw.DrawSolidPolygonFcn = func(x Transform, v []Vec2, r Q, c HexColor) {
+	draw.DrawSolidPolygonFcn = func(x WorldTransform, v []Vec2, r Q, c HexColor) {
 		values := append(xf(x), q(r), float64(len(v)))
 		for _, p := range v {
 			values = append(values, vec(p)...)
 		}
 		add("solidPolygon", c, values, "")
 	}
-	draw.DrawCircleFcn = func(p Vec2, r Q, c HexColor) { add("circle", c, append(vec(p), q(r)), "") }
-	draw.DrawSolidCircleFcn = func(x Transform, center Vec2, r Q, c HexColor) {
+	draw.DrawCircleFcn = func(p Pos, r Q, c HexColor) { add("circle", c, append(pos(p), q(r)), "") }
+	draw.DrawSolidCircleFcn = func(x WorldTransform, center Vec2, r Q, c HexColor) {
 		add("solidCircle", c, append(append(xf(x), vec(center)...), q(r)), "")
 	}
-	draw.DrawSolidCapsuleFcn = func(a, b Vec2, r Q, c HexColor) { add("capsule", c, append(append(vec(a), vec(b)...), q(r)), "") }
-	draw.DrawLineFcn = func(a, b Vec2, c HexColor) { add("line", c, append(vec(a), vec(b)...), "") }
-	draw.DrawTransformFcn = func(x Transform) { add("transform", 0, xf(x), "") }
-	draw.DrawPointFcn = func(p Vec2, size Q, c HexColor) { add("point", c, append(vec(p), q(size)), "") }
-	draw.DrawStringFcn = func(p Vec2, s string, c HexColor) { add("string", c, vec(p), s) }
+	draw.DrawSolidCapsuleFcn = func(a, b Pos, r Q, c HexColor) { add("capsule", c, append(append(pos(a), pos(b)...), q(r)), "") }
+	draw.DrawLineFcn = func(a, b Pos, c HexColor) { add("line", c, append(pos(a), pos(b)...), "") }
+	draw.DrawTransformFcn = func(x WorldTransform) { add("transform", 0, xf(x), "") }
+	draw.DrawPointFcn = func(p Pos, size Q, c HexColor) { add("point", c, append(pos(p), q(size)), "") }
+	draw.DrawStringFcn = func(p Pos, s string, c HexColor) { add("string", c, pos(p), s) }
 	draw.DrawBoundsFcn = func(b AABB, c HexColor) { add("bounds", c, append(vec(b.LowerBound), vec(b.UpperBound)...), "") }
 	return &draw, &calls
 }
@@ -191,7 +194,7 @@ func createDrawScene(t testing.TB) WorldId {
 	w := createTestWorld(t)
 	sd := DefaultShapeDef()
 	bd := DefaultBodyDef()
-	bd.Position.Y = QHalf().Neg()
+	bd.Position = ToPos(Vec2{Y: QHalf().Neg()})
 	bd.Name = "ground"
 	ground := CreateBody(w, &bd)
 	floor := MakeBox(QFromInt(40), QHalf())
@@ -200,7 +203,7 @@ func createDrawScene(t testing.TB) WorldId {
 	box := MakeSquare(QHalf())
 	bd = DefaultBodyDef()
 	bd.Type, bd.EnableSleep = DynamicBody, false
-	bd.Position, bd.Name = Vec2{X: QFromInt(-32), Y: QFromInt(3)}, "box"
+	bd.Position, bd.Name = ToPos(Vec2{X: QFromInt(-32), Y: QFromInt(3)}), "box"
 	bd.Rotation, bd.MotionLocks = MakeRot(QMustParse("0.1")), MotionLocks{AngularZ: true}
 	CreatePolygonShape(CreateBody(w, &bd), &sd, &box)
 
@@ -209,25 +212,25 @@ func createDrawScene(t testing.TB) WorldId {
 	slideSd.Material.Friction = QMustParse("0.1")
 	bd = DefaultBodyDef()
 	bd.Type, bd.EnableSleep = DynamicBody, false
-	bd.Position, bd.Name = Vec2{X: QFromInt(-24), Y: QHalf()}, "sliding"
+	bd.Position, bd.Name = ToPos(Vec2{X: QFromInt(-24), Y: QHalf()}), "sliding"
 	bd.LinearVelocity = Vec2{X: QFromInt(3)}
 	CreatePolygonShape(CreateBody(w, &bd), &slideSd, &box)
 
 	bd = DefaultBodyDef()
 	bd.Type, bd.EnableSleep = DynamicBody, false
-	bd.Position, bd.Name = Vec2{X: QFromInt(-16), Y: QFromInt(3)}, "circle"
+	bd.Position, bd.Name = ToPos(Vec2{X: QFromInt(-16), Y: QFromInt(3)}), "circle"
 	circle := Circle{Radius: QMustParse("0.25")}
 	CreateCircleShape(CreateBody(w, &bd), &sd, &circle)
 
 	bd = DefaultBodyDef()
 	bd.Type, bd.EnableSleep = DynamicBody, false
-	bd.Position, bd.Name = Vec2{X: QFromInt(-8), Y: QFromInt(3)}, "rounded"
+	bd.Position, bd.Name = ToPos(Vec2{X: QFromInt(-8), Y: QFromInt(3)}), "rounded"
 	rounded := MakeRoundedBox(QMustParse("0.4"), QMustParse("0.4"), QMustParse("0.1"))
 	CreatePolygonShape(CreateBody(w, &bd), &sd, &rounded)
 
 	bd = DefaultBodyDef()
 	bd.Type, bd.EnableSleep = DynamicBody, false
-	bd.Position, bd.Name = Vec2{X: QZero(), Y: QFromInt(3)}, "hinge"
+	bd.Position, bd.Name = ToPos(Vec2{X: QZero(), Y: QFromInt(3)}), "hinge"
 	hinge := CreateBody(w, &bd)
 	CreatePolygonShape(hinge, &sd, &box)
 	jd := DefaultRevoluteJointDef()
@@ -240,7 +243,7 @@ func createDrawScene(t testing.TB) WorldId {
 	small := MakeSquare(QMustParse("0.3"))
 	bd = DefaultBodyDef()
 	bd.Type, bd.EnableSleep = DynamicBody, false
-	bd.Position, bd.Name = Vec2{X: QFromInt(8), Y: QFromInt(3)}, "distance"
+	bd.Position, bd.Name = ToPos(Vec2{X: QFromInt(8), Y: QFromInt(3)}), "distance"
 	distanceBody := CreateBody(w, &bd)
 	CreatePolygonShape(distanceBody, &sd, &small)
 	dd := DefaultDistanceJointDef()
@@ -253,7 +256,7 @@ func createDrawScene(t testing.TB) WorldId {
 
 	bd = DefaultBodyDef()
 	bd.Type, bd.EnableSleep = DynamicBody, false
-	bd.Position, bd.Name = Vec2{X: QFromInt(16), Y: QFromInt(6)}, "prismatic"
+	bd.Position, bd.Name = ToPos(Vec2{X: QFromInt(16), Y: QFromInt(6)}), "prismatic"
 	prismaticBody := CreateBody(w, &bd)
 	CreatePolygonShape(prismaticBody, &sd, &box)
 	pd := DefaultPrismaticJointDef()
@@ -267,7 +270,7 @@ func createDrawScene(t testing.TB) WorldId {
 
 	bd = DefaultBodyDef()
 	bd.Type, bd.EnableSleep = DynamicBody, false
-	bd.Position, bd.Name = Vec2{X: QFromInt(24), Y: QFromInt(3)}, "wheel"
+	bd.Position, bd.Name = ToPos(Vec2{X: QFromInt(24), Y: QFromInt(3)}), "wheel"
 	wheelBody := CreateBody(w, &bd)
 	CreatePolygonShape(wheelBody, &sd, &small)
 	wd := DefaultWheelJointDef()
@@ -280,23 +283,23 @@ func createDrawScene(t testing.TB) WorldId {
 
 	bd = DefaultBodyDef()
 	bd.Type, bd.IsAwake = DynamicBody, false
-	bd.Position, bd.Name = Vec2{X: QFromInt(32), Y: QMustParse("0.25")}, "capsule"
+	bd.Position, bd.Name = ToPos(Vec2{X: QFromInt(32), Y: QMustParse("0.25")}), "capsule"
 	capsule := Capsule{Center1: Vec2{X: QHalf().Neg()}, Center2: Vec2{X: QHalf()}, Radius: QMustParse("0.25")}
 	CreateCapsuleShape(CreateBody(w, &bd), &sd, &capsule)
 
 	bd = DefaultBodyDef()
-	bd.Position = Vec2{X: QFromInt(40), Y: QFromInt(5)}
+	bd.Position = ToPos(Vec2{X: QFromInt(40), Y: QFromInt(5)})
 	segment := Segment{Point1: Vec2{X: QOne().Neg()}, Point2: Vec2{X: QOne()}}
 	CreateSegmentShape(CreateBody(w, &bd), &sd, &segment)
 
 	bd = DefaultBodyDef()
-	bd.Position, bd.Name = Vec2{X: QFromInt(48), Y: QFromInt(3)}, "sensor"
+	bd.Position, bd.Name = ToPos(Vec2{X: QFromInt(48), Y: QFromInt(3)}), "sensor"
 	sensorSd := DefaultShapeDef()
 	sensorSd.IsSensor = true
 	CreatePolygonShape(CreateBody(w, &bd), &sensorSd, &box)
 
 	bd = DefaultBodyDef()
-	bd.Position, bd.Name = Vec2{X: QFromInt(56), Y: QFromInt(5)}, "chain"
+	bd.Position, bd.Name = ToPos(Vec2{X: QFromInt(56), Y: QFromInt(5)}), "chain"
 	cd := DefaultChainDef()
 	cd.Points = []Vec2{v2(-1, -1), v2(1, -1), v2(1, 1), v2(-1, 1)}
 	cd.IsLoop = true
@@ -419,7 +422,7 @@ func TestDrawShapeCallbacksPerType(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			draw, calls := recordDraw()
-			drawShape(draw, &tc.shape, transform, ColorCoral, true)
+			drawShape(draw, &tc.shape, MakeWorldTransform(transform), ColorCoral, true)
 			if len(*calls) != len(tc.kinds) {
 				t.Fatalf("callbacks = %+v", *calls)
 			}
@@ -555,7 +558,7 @@ func TestDrawContactDiagnosticsMatchReferenceUnits(t *testing.T) {
 		draw.DrawAnchorA = anchorA
 		draw.ForceScale = QMustParse("0.125")
 		// Both anchors land on (2, 3).
-		drawManifoldPoints(draw, &m, v2(1, 3), v2(3, 3), overflowIndex, invDt, invH)
+		drawManifoldPoints(draw, &m, ToPos(v2(1, 3)), ToPos(v2(3, 3)), overflowIndex, invDt, invH)
 		if len(*calls) != 6 {
 			t.Fatalf("diagnostic callbacks = %+v", *calls)
 		}
@@ -575,7 +578,7 @@ func TestDrawContactDiagnosticsMatchReferenceUnits(t *testing.T) {
 		}
 		*calls = nil
 		draw.DrawContactNormals = true
-		drawManifoldPoints(draw, &m, v2(1, 3), v2(3, 3), overflowIndex, invDt, invH)
+		drawManifoldPoints(draw, &m, ToPos(v2(1, 3)), ToPos(v2(3, 3)), overflowIndex, invDt, invH)
 		if len(*calls) != 6 || (*calls)[1].color != ColorDimGray || (*calls)[2].text != " 0.00" {
 			t.Fatalf("normals must take precedence over forces: %+v", *calls)
 		}
@@ -631,10 +634,10 @@ func TestDrawJointDiagnosticsRespectFlags(t *testing.T) {
 func TestDrawDistanceLimitsPreserveEndpointOrder(t *testing.T) {
 	draw := DefaultDebugDraw()
 	var segments [][2]Vec2
-	draw.DrawLineFcn = func(a, b Vec2, _ HexColor) { segments = append(segments, [2]Vec2{a, b}) }
+	draw.DrawLineFcn = func(a, b Pos, _ HexColor) { segments = append(segments, [2]Vec2{ToVec2(a), ToVec2(b)}) }
 	var base jointSim
 	*base.distance() = distanceJoint{enableLimit: true, minLength: QOne(), maxLength: QFromInt(3)}
-	drawDistanceJoint(&draw, &base, TransformIdentity(), Transform{P: v2(2, 0), Q: RotIdentity()})
+	drawDistanceJoint(&draw, &base, MakeWorldTransform(TransformIdentity()), MakeWorldTransform(Transform{P: v2(2, 0), Q: RotIdentity()}))
 	want := [2]Vec2{{X: QOne(), Y: QMustParse("0.05")}, {X: QOne(), Y: QMustParse("-0.05")}}
 	if len(segments) != 4 || segments[0] != want {
 		t.Fatalf("limit segments = %+v", segments)

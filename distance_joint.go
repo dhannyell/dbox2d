@@ -3,20 +3,20 @@ package b2
 // This file corresponds to src/distance_joint.c of the reference.
 
 // drawDistanceJoint corresponds to b2DrawDistanceJoint.
-func drawDistanceJoint(draw *DebugDraw, base *jointSim, transformA, transformB Transform) {
+func drawDistanceJoint(draw *DebugDraw, base *jointSim, transformA, transformB WorldTransform) {
 	joint := base.distance()
-	pA := TransformPoint(transformA, base.localFrameA.P)
-	pB := TransformPoint(transformB, base.localFrameB.P)
-	axis := pB.Sub(pA).Normalize()
+	pA := TransformWorldPoint(transformA, base.localFrameA.P)
+	pB := TransformWorldPoint(transformB, base.localFrameB.P)
+	axis := SubPos(pB, pA).Normalize()
 	if joint.enableLimit && joint.minLength.Less(joint.maxLength) {
-		pMin := MulAdd(pA, joint.minLength, axis)
-		pMax := MulAdd(pA, joint.maxLength, axis)
+		pMin := OffsetPos(pA, axis.Mul(joint.minLength))
+		pMax := OffsetPos(pA, axis.Mul(joint.maxLength))
 		offset := RightPerp(axis).Mul(QMustParse("0.05"))
 		if linearSlop.Less(joint.minLength) {
-			draw.DrawLineFcn(pMin.Sub(offset), pMin.Add(offset), ColorLightGreen)
+			draw.DrawLineFcn(offsetPosSub(pMin, offset), OffsetPos(pMin, offset), ColorLightGreen)
 		}
 		if joint.maxLength.Less(Huge) {
-			draw.DrawLineFcn(pMax.Sub(offset), pMax.Add(offset), ColorRed)
+			draw.DrawLineFcn(offsetPosSub(pMax, offset), OffsetPos(pMax, offset), ColorRed)
 		}
 		if linearSlop.Less(joint.minLength) && joint.maxLength.Less(Huge) {
 			draw.DrawLineFcn(pMin, pMax, ColorGray)
@@ -26,7 +26,7 @@ func drawDistanceJoint(draw *DebugDraw, base *jointSim, transformA, transformB T
 	draw.DrawPointFcn(pA, QFromInt(4), ColorWhite)
 	draw.DrawPointFcn(pB, QFromInt(4), ColorWhite)
 	if joint.enableSpring && (Q{}).Less(joint.hertz) {
-		draw.DrawPointFcn(MulAdd(pA, joint.length, axis), QFromInt(4), ColorBlue)
+		draw.DrawPointFcn(OffsetPos(pA, axis.Mul(joint.length)), QFromInt(4), ColorBlue)
 	}
 }
 
@@ -38,8 +38,9 @@ func getDistanceJointForce(w *world, base *jointSim) Vec2 {
 	transformA := getBodyTransform(w, base.bodyIdA)
 	transformB := getBodyTransform(w, base.bodyIdB)
 
-	pA := TransformPoint(transformA, base.localFrameA.P)
-	pB := TransformPoint(transformB, base.localFrameB.P)
+	xfA, xfB := jointRelativeFrames(transformA, transformB)
+	pA := TransformPoint(xfA, base.localFrameA.P)
+	pB := TransformPoint(xfB, base.localFrameB.P)
 	d := pB.Sub(pA)
 	axis := d.Normalize()
 	force := joint.impulse.Add(joint.lowerImpulse).Sub(joint.upperImpulse).Add(joint.motorImpulse).Mul(w.invH)
@@ -81,7 +82,7 @@ func prepareDistanceJoint(base *jointSim, context *stepContext) {
 	// initial anchors in world space
 	joint.anchorA = RotateVector(bodySimA.transform.Q, base.localFrameA.P.Sub(bodySimA.localCenter))
 	joint.anchorB = RotateVector(bodySimB.transform.Q, base.localFrameB.P.Sub(bodySimB.localCenter))
-	joint.deltaCenter = bodySimB.center.Sub(bodySimA.center)
+	joint.deltaCenter = SubPos(bodySimB.center, bodySimA.center)
 
 	rA := joint.anchorA
 	rB := joint.anchorB

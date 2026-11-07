@@ -472,7 +472,7 @@ type continuousContext struct {
 	centroid1       Vec2
 	centroid2       Vec2
 	sweep           Sweep
-	base            Vec2
+	base            Pos
 	fraction        Q
 	sensorHits      [maxContinuousSensorHits]sensorHit
 	sensorFractions [maxContinuousSensorHits]Q
@@ -553,7 +553,7 @@ func (ctx *continuousContext) queryCallback(_ int, userData uint64) bool {
 
 	// Early out on fast parallel movement over a chain shape.
 	if s.shapeType == ChainSegmentShape {
-		transform := Transform{P: sim.transform.P.Sub(ctx.base), Q: sim.transform.Q}
+		transform := ToRelativeTransform(sim.transform, ctx.base)
 		p1 := TransformPoint(transform, s.chainSegment().Segment.Point1)
 		p2 := TransformPoint(transform, s.chainSegment().Segment.Point2)
 		e := p2.Sub(p1)
@@ -620,7 +620,7 @@ func (ctx *continuousContext) queryCallback(_ int, userData uint64) bool {
 		idB := ShapeId{index1: int32(fastShape.id) + 1, world0: w.worldId, generation: fastShape.generation}
 
 		// TOI runs in the base frame, lift the hit point back to world for the callback
-		worldPoint := ctx.base.Add(output.Point)
+		worldPoint := OffsetPos(ctx.base, output.Point)
 		didHit = w.preContinuousFcn(idA, idB, worldPoint, output.Normal)
 	}
 
@@ -678,7 +678,7 @@ func solveContinuous(w *world, bodySimIndex int, taskContext *taskContext, dt Q)
 
 		box1 := fastShape.aabb
 		// xf2 is in the base frame, compute the tight box near the origin then lift to world
-		box2 := offsetAABB(computeShapeAABB(fastShape, xf2), base)
+		box2 := offsetAABB(computeShapeAABB(fastShape, MakeWorldTransform(xf2)), base)
 
 		// Store this to avoid double computation in the case there is no impact event
 		fastShape.aabb = box2
@@ -705,9 +705,9 @@ func solveContinuous(w *world, bodySimIndex int, taskContext *taskContext, dt Q)
 		origin := c.Sub(RotateVector(q, sweep.LocalCenter))
 
 		// Advance body, lifting the base frame result back to world
-		transform := Transform{P: base.Add(origin), Q: q}
+		transform := WorldTransform{P: OffsetPos(base, origin), Q: q}
 		fastBodySim.transform = transform
-		fastBodySim.center = base.Add(c)
+		fastBodySim.center = OffsetPos(base, c)
 		fastBodySim.rotation0 = q
 		fastBodySim.center0 = fastBodySim.center
 
@@ -839,7 +839,7 @@ func finalizeBodiesTask(startIndex, endIndex, workerIndex int, context *stepCont
 			panic("dbox2d: the angular velocity is not valid")
 		}
 
-		sim.center = sim.center.Add(state.deltaPosition)
+		sim.center = OffsetPos(sim.center, state.deltaPosition)
 		sim.transform.Q = NormalizeRot(MulRot(state.deltaRotation, sim.transform.Q))
 
 		// Use the velocity of the farthest point on the body to account for
@@ -858,7 +858,7 @@ func finalizeBodiesTask(startIndex, endIndex, workerIndex int, context *stepCont
 		state.deltaPosition = Vec2Zero()
 		state.deltaRotation = RotIdentity()
 
-		sim.transform.P = sim.center.Sub(RotateVector(sim.transform.Q, sim.localCenter))
+		sim.transform.P = offsetPosSub(sim.center, RotateVector(sim.transform.Q, sim.localCenter))
 
 		// cache miss here, however I need the shape list below
 		b := &w.bodies[sim.bodyId]
@@ -1459,9 +1459,9 @@ func solve(w *world, context *stepContext) {
 					bodyA := &w.bodies[w.shapes[cs.shapeIdA].bodyId]
 					bodyB := &w.bodies[w.shapes[cs.shapeIdB].bodyId]
 					if bodyA.bodyType != StaticBody && bodyB.bodyType == StaticBody {
-						event.Point = getBodySim(w, bodyB).center.Add(bestPoint.AnchorB)
+						event.Point = OffsetPos(getBodySim(w, bodyB).center, bestPoint.AnchorB)
 					} else {
-						event.Point = getBodySim(w, bodyA).center.Add(bestPoint.AnchorA)
+						event.Point = OffsetPos(getBodySim(w, bodyA).center, bestPoint.AnchorA)
 					}
 					event.ShapeIdA = shapeIdOf(w, &w.shapes[cs.shapeIdA])
 					event.ShapeIdB = shapeIdOf(w, &w.shapes[cs.shapeIdB])

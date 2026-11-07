@@ -529,8 +529,8 @@ func getContactSim(w *world, c *contact) *contactSim {
 // matches the point ids of the old manifold to carry the stored impulses
 // into the warm start. The AABBs of the shapes may not overlap. It
 // corresponds to b2UpdateContact in src/contact.c.
-func updateContact(w *world, cs *contactSim, shapeA *shape, transformA Transform, centerOffsetA Vec2,
-	shapeB *shape, transformB Transform, centerOffsetB Vec2) bool {
+func updateContact(w *world, cs *contactSim, shapeA *shape, transformA WorldTransform, centerOffsetA Vec2,
+	shapeB *shape, transformB WorldTransform, centerOffsetB Vec2) bool {
 	// Save the old manifold.
 	oldManifold := cs.manifold
 
@@ -538,7 +538,7 @@ func updateContact(w *world, cs *contactSim, shapeA *shape, transformA Transform
 	// relative to each shape origin. The relative transform subtracts the
 	// two world positions before the narrow phase, so precision holds far
 	// from the origin. anchorB = rot(qA, localPoint) + pA - pB.
-	relativeTransform := InvMulTransforms(transformA, transformB)
+	relativeTransform := InvMulWorldTransforms(transformA, transformB)
 	fcn := contactRegisters[shapeA.shapeType][shapeB.shapeType].fcn
 	local := fcn(shapeA, shapeB, relativeTransform, &cs.cache)
 
@@ -546,7 +546,7 @@ func updateContact(w *world, cs *contactSim, shapeA *shape, transformA Transform
 	cs.manifold.Normal = RotateVector(transformA.Q, local.Normal)
 	cs.manifold.PointCount = local.PointCount
 
-	originDelta := transformA.P.Sub(transformB.P)
+	originDelta := SubPos(transformA.P, transformB.P)
 	for i := range local.PointCount {
 		mp := &cs.manifold.Points[i]
 		mp.AnchorA = RotateVector(transformA.Q, local.Points[i].Point)

@@ -100,6 +100,9 @@ func (worldId WorldId) Step(timeStep Q, subStepCount int) {
 	if w.locked {
 		panic("dbox2d: the world is locked")
 	}
+	if w.recording != nil {
+		w.recording.rec(opStep, worldId, timeStep, subStepCount)
+	}
 	w.taskCount = 0
 	if w.workerCount > 1 {
 		w.executor.start(w.workerCount)
@@ -122,10 +125,12 @@ func (worldId WorldId) Step(timeStep Q, subStepCount int) {
 		w.endEventArrayIndex = 1 - w.endEventArrayIndex
 		w.sensorEndEvents[w.endEventArrayIndex] = w.sensorEndEvents[w.endEventArrayIndex][:0]
 		w.contactEndEvents[w.endEventArrayIndex] = w.contactEndEvents[w.endEventArrayIndex][:0]
+		recordStepEnd(w)
 		return
 	}
 
 	w.locked = true
+	updateMaxCapacity(w)
 
 	stepStart := time.Now()
 
@@ -191,6 +196,8 @@ func (worldId WorldId) Step(timeStep Q, subStepCount int) {
 		panic("dbox2d: the arena is not empty after the step")
 	}
 
+	w.maxCapacity.arenaByteCount = max(w.maxCapacity.arenaByteCount, getMaxArenaAllocation(&w.arena))
+
 	// Ensure stack is large enough
 	w.arena.grow()
 
@@ -198,6 +205,7 @@ func (worldId WorldId) Step(timeStep Q, subStepCount int) {
 	w.endEventArrayIndex = 1 - w.endEventArrayIndex
 	w.sensorEndEvents[w.endEventArrayIndex] = w.sensorEndEvents[w.endEventArrayIndex][:0]
 	w.contactEndEvents[w.endEventArrayIndex] = w.contactEndEvents[w.endEventArrayIndex][:0]
+	recordStepEnd(w)
 	w.locked = false
 }
 
@@ -263,7 +271,7 @@ func collideTask(startIndex, endIndex, workerIndex int, context *stepContext) {
 				cachedQA := cs.cachedRotationA
 				cachedQB := cs.cachedRotationB
 				xfc := cs.cachedRelativePose
-				xf := InvMulTransforms(transformA, transformB)
+				xf := InvMulWorldTransforms(transformA, transformB)
 
 				cosA := relativeCos(transformA.Q, cachedQA)
 				cosB := relativeCos(transformB.Q, cachedQB)
@@ -296,7 +304,7 @@ func collideTask(startIndex, endIndex, workerIndex int, context *stepContext) {
 					normal := cs.manifold.Normal
 
 					// Minimize round-off
-					dc := bodySimB.center.Sub(bodySimA.center)
+					dc := SubPos(bodySimB.center, bodySimA.center)
 
 					for i := range cs.manifold.PointCount {
 						// Keep anchors but update separation, same as
@@ -321,7 +329,7 @@ func collideTask(startIndex, endIndex, workerIndex int, context *stepContext) {
 			// Caching for contact recycling.
 			cs.cachedRotationA = transformA.Q
 			cs.cachedRotationB = transformB.Q
-			cs.cachedRelativePose = InvMulTransforms(transformA, transformB)
+			cs.cachedRelativePose = InvMulWorldTransforms(transformA, transformB)
 			cs.simFlags |= simRelativeTransformValid
 
 			centerOffsetA := RotateVector(transformA.Q, bodySimA.localCenter)

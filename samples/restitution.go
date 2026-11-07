@@ -41,7 +41,7 @@ func restitutionComputeEnergy(worldId b2.WorldId, bodyIds []b2.BodyId) (linear, 
 
 		linear += 0.5 * mass * (vx*vx + vy*vy)
 		angular += 0.5 * ToFloat64(massData.RotationalInertia) * w * w
-		potential -= mass * (gx*ToFloat64(center.X) + gy*ToFloat64(center.Y))
+		potential -= mass * (gx*ToFloat64(b2.ToVec2(center).X) + gy*ToFloat64(b2.ToVec2(center).Y))
 	}
 	return
 }
@@ -63,7 +63,7 @@ func (b *Base) restitutionDrawEnergy(linear, angular, potential, start, peak flo
 }
 
 func restitutionHLine(draw *b2.DebugDraw, x1, x2, y float64, color b2.HexColor) {
-	draw.DrawLineFcn(b2.V2(x1, y), b2.V2(x2, y), color)
+	draw.DrawLineFcn(b2.ToPos(b2.V2(x1, y)), b2.ToPos(b2.V2(x2, y)), color)
 }
 
 const varyingRestitutionCount = 40
@@ -131,7 +131,7 @@ func (s *VaryingRestitution) createBodies() {
 
 	for i := range varyingRestitutionCount {
 		bodyDef.Name = fmt.Sprintf("%.2f", ToFloat64(shapeDef.Material.Restitution))
-		bodyDef.Position = b2.Vec2{X: x, Y: b2.F(40)}
+		bodyDef.Position = b2.ToPos(b2.Vec2{X: x, Y: b2.F(40)})
 		bodyId := b2.CreateBody(s.WorldId, &bodyDef)
 
 		s.bodyIds[i] = bodyId
@@ -214,7 +214,7 @@ func NewSingleBoxRestitution(ctx *SampleContext) Sample {
 
 	bodyDef := b2.DefaultBodyDef()
 	bodyDef.Type = b2.DynamicBody
-	bodyDef.Position = b2.V2(0, s.height)
+	bodyDef.Position = b2.ToPos(b2.V2(0, s.height))
 	bodyDef.SafetyFactor = b2.QFromRatio(1, 100)
 	s.bodyId = b2.CreateBody(s.WorldId, &bodyDef)
 	b2.CreatePolygonShape(s.bodyId, &shapeDef, &box)
@@ -234,9 +234,9 @@ func (s *SingleBoxRestitution) Step() {
 
 	p := s.bodyId.GetPosition()
 	if len(events.HitEvents) == 1 {
-		s.maxY = ToFloat64(p.Y)
+		s.maxY = ToFloat64(b2.ToVec2(p).Y)
 	} else {
-		s.maxY = math.Max(s.maxY, ToFloat64(p.Y))
+		s.maxY = math.Max(s.maxY, ToFloat64(b2.ToVec2(p).Y))
 	}
 
 	s.DrawTextLine("maxY = %.2f", s.maxY)
@@ -283,7 +283,7 @@ func NewSingleCircleRestitution(ctx *SampleContext) Sample {
 
 	bodyDef := b2.DefaultBodyDef()
 	bodyDef.Type = b2.DynamicBody
-	bodyDef.Position = b2.V2(0, 10)
+	bodyDef.Position = b2.ToPos(b2.V2(0, 10))
 	bodyDef.SafetyFactor = b2.QFromRatio(1, 100)
 	s.bodyId = b2.CreateBody(s.WorldId, &bodyDef)
 	b2.CreateCircleShape(s.bodyId, &shapeDef, &circle)
@@ -303,9 +303,9 @@ func (s *SingleCircleRestitution) Step() {
 
 	p := s.bodyId.GetPosition()
 	if len(events.HitEvents) == 1 {
-		s.maxY = ToFloat64(p.Y)
+		s.maxY = ToFloat64(b2.ToVec2(p).Y)
 	} else {
-		s.maxY = math.Max(s.maxY, ToFloat64(p.Y))
+		s.maxY = math.Max(s.maxY, ToFloat64(b2.ToVec2(p).Y))
 	}
 
 	restitutionHLine(&s.Context.Draw, -4, 4, 10.5, b2.ColorRed)
@@ -350,7 +350,7 @@ func NewCircleStackRestitution(ctx *SampleContext) Sample {
 	}
 
 	bodyDef := b2.DefaultBodyDef()
-	bodyDef.Position = b2.V2(0, -1)
+	bodyDef.Position = b2.ToPos(b2.V2(0, -1))
 	groundId := b2.CreateBody(s.WorldId, &bodyDef)
 
 	shapeDef := b2.DefaultShapeDef()
@@ -366,7 +366,7 @@ func NewCircleStackRestitution(ctx *SampleContext) Sample {
 func (s *CircleStackRestitution) createBall(y, velocityY, restitution float64, hitEvents bool) b2.BodyId {
 	bodyDef := b2.DefaultBodyDef()
 	bodyDef.Type = b2.DynamicBody
-	bodyDef.Position = b2.V2(0, y)
+	bodyDef.Position = b2.ToPos(b2.V2(0, y))
 	bodyDef.LinearVelocity = b2.V2(0, velocityY)
 	bodyDef.EnableSleep = false
 	bodyId := b2.CreateBody(s.WorldId, &bodyDef)
@@ -508,7 +508,7 @@ func NewRestitutionPropagation(ctx *SampleContext) Sample {
 	}
 
 	bodyDef := b2.DefaultBodyDef()
-	bodyDef.Position = b2.V2(0, -1)
+	bodyDef.Position = b2.ToPos(b2.V2(0, -1))
 	groundId := b2.CreateBody(s.WorldId, &bodyDef)
 
 	shapeDef := b2.DefaultShapeDef()
@@ -537,7 +537,7 @@ func (s *RestitutionPropagation) createScene() {
 		for k := range column {
 			bodyDef := b2.DefaultBodyDef()
 			bodyDef.Type = b2.DynamicBody
-			bodyDef.Position = b2.V2(x, 0.5+float64(k))
+			bodyDef.Position = b2.ToPos(b2.V2(x, 0.5+float64(k)))
 			bodyDef.EnableSleep = false
 			crateId := b2.CreateBody(s.WorldId, &bodyDef)
 
@@ -554,7 +554,7 @@ func (s *RestitutionPropagation) createScene() {
 
 		bodyDef := b2.DefaultBodyDef()
 		bodyDef.Type = b2.DynamicBody
-		bodyDef.Position = b2.V2(x, s.restHeight[column]+propagationDropHeight)
+		bodyDef.Position = b2.ToPos(b2.V2(x, s.restHeight[column]+propagationDropHeight))
 		bodyDef.EnableSleep = false
 		ballId := b2.CreateBody(s.WorldId, &bodyDef)
 
@@ -595,7 +595,7 @@ func (s *RestitutionPropagation) Step() {
 
 	for column := range propagationColumnCount {
 		vy := ToFloat64(s.ballIds[column].GetLinearVelocity().Y)
-		height := ToFloat64(s.ballIds[column].GetPosition().Y) - s.restHeight[column]
+		height := ToFloat64(b2.ToVec2(s.ballIds[column].GetPosition()).Y) - s.restHeight[column]
 
 		// The first rebound apex: the ball starts at rest and falls, so upward velocity means it bounced
 		if !s.rebounding[column] && vy > 0 {
@@ -655,7 +655,7 @@ func NewBoxRestitution(ctx *SampleContext) Sample {
 	s.WorldId.SetGravity(b2.Vec2{})
 
 	bodyDef := b2.DefaultBodyDef()
-	bodyDef.Position = b2.V2(0, -1)
+	bodyDef.Position = b2.ToPos(b2.V2(0, -1))
 	groundId := b2.CreateBody(s.WorldId, &bodyDef)
 
 	shapeDef := b2.DefaultShapeDef()
@@ -675,7 +675,7 @@ func (s *BoxRestitution) createScene() {
 
 	bodyDef := b2.DefaultBodyDef()
 	bodyDef.Type = b2.DynamicBody
-	bodyDef.Position = b2.V2(0, 0.25+0.5*boxRestitutionImpactSpeed*(1.0/60.0))
+	bodyDef.Position = b2.ToPos(b2.V2(0, 0.25+0.5*boxRestitutionImpactSpeed*(1.0/60.0)))
 	bodyDef.LinearVelocity = b2.V2(0, -boxRestitutionImpactSpeed)
 	bodyDef.AngularVelocity = radiansToTurns(s.spin)
 	bodyDef.EnableSleep = false
@@ -812,7 +812,7 @@ func (s *RotatedBoxRestitution) createScene() {
 	x := b2.QFromInt(-(rotatedBoxCount - 1))
 
 	for i := range rotatedBoxCount {
-		bodyDef.Position = b2.Vec2{X: x, Y: b2.F(rotatedBoxDropHeight)}
+		bodyDef.Position = b2.ToPos(b2.Vec2{X: x, Y: b2.F(rotatedBoxDropHeight)})
 		// A square repeats every quarter turn: i * 0.5 * pi / count radians.
 		bodyDef.Rotation = b2.MakeRot(b2.QFromRatio(i, 4*rotatedBoxCount))
 		s.bodyIds[i] = b2.CreateBody(s.WorldId, &bodyDef)
@@ -875,7 +875,7 @@ func (s *RotatedBoxRestitution) Step() {
 			maxPercent = math.Max(maxPercent, percent)
 		}
 
-		s.Context.Draw.DrawStringFcn(b2.V2(x-0.5, rotatedBoxDropHeight+1.5), fmt.Sprintf("%.1f%%", percent), b2.ColorWhite)
+		s.Context.Draw.DrawStringFcn(b2.ToPos(b2.V2(x-0.5, rotatedBoxDropHeight+1.5)), fmt.Sprintf("%.1f%%", percent), b2.ColorWhite)
 		x += 2
 	}
 
@@ -918,12 +918,12 @@ func NewTwoBoxRestitution(ctx *SampleContext) Sample {
 	bodyDef := b2.DefaultBodyDef()
 	bodyDef.Type = b2.DynamicBody
 
-	bodyDef.Position.Y = b2.QHalf()
+	setPosY(&bodyDef.Position, b2.QHalf())
 	s.bodyIds[0] = b2.CreateBody(s.WorldId, &bodyDef)
 	b2.CreatePolygonShape(s.bodyIds[0], &shapeDef, &box)
 
-	bodyDef.Position.X = bodyDef.Position.X.Add(b2.QFromRatio(1, 10))
-	bodyDef.Position.Y = b2.F(6)
+	setPosX(&bodyDef.Position, b2.ToVec2(bodyDef.Position).X.Add(b2.QFromRatio(1, 10)))
+	setPosY(&bodyDef.Position, b2.F(6))
 	s.bodyIds[1] = b2.CreateBody(s.WorldId, &bodyDef)
 	b2.CreatePolygonShape(s.bodyIds[1], &shapeDef, &box)
 
@@ -982,12 +982,12 @@ func NewCircleRestitution(ctx *SampleContext) Sample {
 	for range circleRestitutionCount {
 		name := fmt.Sprintf("%.2f", ToFloat64(shapeDef.Material.Restitution))
 
-		bodyDef.Position = b2.Vec2{X: x, Y: b2.QOne()}
+		bodyDef.Position = b2.ToPos(b2.Vec2{X: x, Y: b2.QOne()})
 		bodyDef.Name = name
 		bodyId := b2.CreateBody(s.WorldId, &bodyDef)
 		b2.CreateCircleShape(bodyId, &shapeDef, &circle)
 
-		bodyDef.Position = b2.Vec2{X: x, Y: b2.F(4)}
+		bodyDef.Position = b2.ToPos(b2.Vec2{X: x, Y: b2.F(4)})
 		bodyDef.Name = name
 		bodyId = b2.CreateBody(s.WorldId, &bodyDef)
 		b2.CreateCircleShape(bodyId, &shapeDef, &circle)

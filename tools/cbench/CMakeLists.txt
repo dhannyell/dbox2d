@@ -4,14 +4,14 @@ project(cbench C)
 set(CMAKE_C_STANDARD 17)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
-# The reference tree is not vendored here: it is Box2D v3.1.1, cloned
-# wherever you like and named on the command line. The default is a sibling
-# checkout of this repository, so `git clone --branch v3.1.1
+# The reference tree is not vendored here: it is Box2D v3.2.0 (or v3.1.1),
+# cloned wherever you like and named on the command line. The default is a
+# sibling checkout of this repository, so `git clone --branch v3.2.0
 # https://github.com/erincatto/box2d` next to it needs no flag.
-set(BOX2D_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../box2d" CACHE PATH "Box2D v3.1.1 source directory")
+set(BOX2D_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../box2d" CACHE PATH "Box2D v3.2.0 or v3.1.1 source directory")
 
-if(NOT EXISTS "${BOX2D_SOURCE_DIR}/src/world.c")
-	message(FATAL_ERROR "BOX2D_SOURCE_DIR=${BOX2D_SOURCE_DIR} does not hold a Box2D source tree. Clone Box2D v3.1.1 and pass -DBOX2D_SOURCE_DIR=<path>.")
+if(NOT EXISTS "${BOX2D_SOURCE_DIR}/src/world.c" AND NOT EXISTS "${BOX2D_SOURCE_DIR}/src/physics_world.c")
+	message(FATAL_ERROR "BOX2D_SOURCE_DIR=${BOX2D_SOURCE_DIR} does not hold a Box2D source tree. Clone Box2D v3.1.1 or v3.2.0 and pass -DBOX2D_SOURCE_DIR=<path>.")
 endif()
 
 # The port never fuses a multiply with an add, on any lane path, so the
@@ -23,8 +23,9 @@ elseif(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
 	add_compile_options(-ffp-contract=off -fno-fast-math)
 endif()
 
-# The wide arm: b2FloatW becomes __m256 and B2_SIMD_WIDTH becomes 8, which
-# is the width the port's avx2 lane path uses.
+# The wide arm under v3.1.1: b2FloatW becomes __m256 and B2_SIMD_WIDTH
+# becomes 8, which is the width the port's avx2 lane path uses. v3.2 has no
+# such option: it builds both widths and picks 8 at run time on an AVX2 CPU.
 set(BOX2D_AVX2 ON CACHE BOOL "" FORCE)
 set(BOX2D_SAMPLES OFF CACHE BOOL "" FORCE)
 set(BOX2D_BENCHMARKS OFF CACHE BOOL "" FORCE)
@@ -36,6 +37,12 @@ add_subdirectory("${BOX2D_SOURCE_DIR}" box2d)
 add_subdirectory("${BOX2D_SOURCE_DIR}/shared" shared)
 
 add_executable(cbench main.c)
+
+# The v3.2 headers add math_types.h; its presence selects the v3.2 API, where
+# the world queries take an origin.
+if(EXISTS "${BOX2D_SOURCE_DIR}/include/box2d/math_types.h")
+	target_compile_definitions(cbench PRIVATE CBENCH_V32)
+endif()
 target_include_directories(cbench PRIVATE "${BOX2D_SOURCE_DIR}/shared" "${BOX2D_SOURCE_DIR}/src")
 target_link_libraries(cbench PRIVATE box2d shared)
 

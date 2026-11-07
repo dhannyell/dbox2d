@@ -64,7 +64,7 @@ func TestSetTransformMovesBodyAndProxy(t *testing.T) {
 	worldId := createTestWorld(t)
 
 	plateDef := DefaultBodyDef()
-	plateDef.Position = v2(0, -1)
+	plateDef.Position = ToPos(v2(0, -1))
 	plate := CreateBody(worldId, &plateDef)
 	shapeDef := DefaultShapeDef()
 	shapeDef.EnableContactEvents = true
@@ -73,14 +73,14 @@ func TestSetTransformMovesBodyAndProxy(t *testing.T) {
 
 	bodyDef := DefaultBodyDef()
 	bodyDef.Type = DynamicBody
-	bodyDef.Position = v2(10, 0)
+	bodyDef.Position = ToPos(v2(10, 0))
 	body := CreateBody(worldId, &bodyDef)
 	bodyBox := MakeSquare(QHalf())
 	bodyShape := CreatePolygonShape(body, &shapeDef, &bodyBox)
 
 	newPosition := v2(0, -1)
-	body.SetTransform(newPosition, RotIdentity())
-	if got := body.GetPosition(); got != newPosition {
+	body.SetTransform(ToPos(newPosition), RotIdentity())
+	if got := body.GetPosition(); got != ToPos(newPosition) {
 		t.Fatalf("position = %v, want %v", got, newPosition)
 	}
 
@@ -109,7 +109,7 @@ func newSetTypeScenario(t *testing.T) setTypeScenario {
 	worldId := createTestWorld(t)
 
 	groundDef := DefaultBodyDef()
-	groundDef.Position = v2(0, -1)
+	groundDef.Position = ToPos(v2(0, -1))
 	ground := CreateBody(worldId, &groundDef)
 	shapeDef := DefaultShapeDef()
 	shapeDef.EnableContactEvents = true
@@ -118,12 +118,12 @@ func newSetTypeScenario(t *testing.T) setTypeScenario {
 
 	bodyDef := DefaultBodyDef()
 	bodyDef.Type = DynamicBody
-	bodyDef.Position = v2(-1, 0)
+	bodyDef.Position = ToPos(v2(-1, 0))
 	bodyA := CreateBody(worldId, &bodyDef)
 	bodyBox := MakeSquare(QHalf())
 	bodyAShape := CreatePolygonShape(bodyA, &shapeDef, &bodyBox)
 
-	bodyDef.Position = v2(1, 0)
+	bodyDef.Position = ToPos(v2(1, 0))
 	bodyB := CreateBody(worldId, &bodyDef)
 	CreatePolygonShape(bodyB, &shapeDef, &bodyBox)
 
@@ -185,7 +185,7 @@ func TestDisableEmitsEndEventsAndFreezes(t *testing.T) {
 
 func TestEnableRecreatesContacts(t *testing.T) {
 	scenario := newSetTypeScenario(t)
-	restingY := scenario.bodyA.GetPosition().Y
+	restingY := posY(scenario.bodyA.GetPosition())
 	scenario.bodyA.Disable()
 	scenario.bodyA.Enable()
 
@@ -214,7 +214,7 @@ func TestEnableRecreatesContacts(t *testing.T) {
 	if !foundGround {
 		t.Fatalf("body A contacts = %+v, want a ground contact", data[:count])
 	}
-	if got := scenario.bodyA.GetPosition().Y; !withinQ(got, restingY, QMustParse("0.01")) {
+	if got := posY(scenario.bodyA.GetPosition()); !withinQ(got, restingY, QMustParse("0.01")) {
 		t.Fatalf("body A y = %v, want %v", got, restingY)
 	}
 	validateWorld(scenario.w)
@@ -255,7 +255,7 @@ func TestDisableStaticBody(t *testing.T) {
 func TestDisableStaticBodyWakesTheSleeper(t *testing.T) {
 	worldId := createTestWorld(t)
 	groundDef := DefaultBodyDef()
-	groundDef.Position = v2(0, -1)
+	groundDef.Position = ToPos(v2(0, -1))
 	ground := CreateBody(worldId, &groundDef)
 	shapeDef := DefaultShapeDef()
 	groundBox := MakeBox(QFromInt(5), QHalf())
@@ -263,7 +263,7 @@ func TestDisableStaticBodyWakesTheSleeper(t *testing.T) {
 
 	bodyDef := DefaultBodyDef()
 	bodyDef.Type = DynamicBody
-	bodyDef.Position = v2(0, 0)
+	bodyDef.Position = ToPos(v2(0, 0))
 	box := CreateBody(worldId, &bodyDef)
 	boxShape := MakeSquare(QHalf())
 	CreatePolygonShape(box, &shapeDef, &boxShape)
@@ -280,7 +280,7 @@ func TestDisableStaticBodyWakesTheSleeper(t *testing.T) {
 		t.Fatal("the box never fell asleep on the ground")
 	}
 
-	restingY := box.GetPosition().Y
+	restingY := posY(box.GetPosition())
 	ground.Disable()
 	if !box.IsAwake() {
 		t.Fatal("disabling the ground did not wake the box resting on it")
@@ -289,7 +289,7 @@ func TestDisableStaticBodyWakesTheSleeper(t *testing.T) {
 	for range 10 {
 		worldId.Step(stepDt(), 4)
 	}
-	if got := box.GetPosition().Y; !got.Less(restingY) {
+	if got := posY(box.GetPosition()); !got.Less(restingY) {
 		t.Fatalf("box y = %v, want a fall below %v", got, restingY)
 	}
 }
@@ -324,7 +324,7 @@ func TestSetTypeDynamicToStaticHolds(t *testing.T) {
 func TestSetTypeStaticToDynamicFalls(t *testing.T) {
 	worldId := createTestWorld(t)
 	bodyDef := DefaultBodyDef()
-	bodyDef.Position = v2(0, 5)
+	bodyDef.Position = ToPos(v2(0, 5))
 	body := CreateBody(worldId, &bodyDef)
 	shapeDef := DefaultShapeDef()
 	box := MakeSquare(QHalf())
@@ -334,11 +334,11 @@ func TestSetTypeStaticToDynamicFalls(t *testing.T) {
 	w := getWorldFromId(worldId)
 	validateWorld(w)
 	validateSolverSets(w)
-	startY := body.GetPosition().Y
+	startY := posY(body.GetPosition())
 	for range 30 {
 		worldId.Step(stepDt(), 4)
 	}
-	if got := body.GetPosition().Y; !got.Less(startY) {
+	if got := posY(body.GetPosition()); !got.Less(startY) {
 		t.Fatalf("body y = %v, want less than %v", got, startY)
 	}
 	validateWorld(w)
@@ -363,7 +363,7 @@ func TestSetTypeKinematicFollowsVelocity(t *testing.T) {
 		worldId.Step(stepDt(), 4)
 	}
 	wantX := QOne()
-	if got := body.GetPosition().X; !withinQ(got, wantX, qUlps(64)) {
+	if got := posX(body.GetPosition()); !withinQ(got, wantX, qUlps(64)) {
 		t.Fatalf("body x = %v, want %v", got, wantX)
 	}
 	validateWorld(w)
@@ -403,7 +403,7 @@ func TestSetTypeKeepsJointAndContacts(t *testing.T) {
 func TestSetTargetTransformDerivesVelocity(t *testing.T) {
 	worldId := createTestWorld(t)
 	body := addDynamicBox(t, worldId, Vec2Zero())
-	body.SetTargetTransform(Transform{P: v2(1, 0), Q: MakeRot(QMustParse("0.25"))}, QFromRatio(1, 60), true)
+	body.SetTargetTransform(WorldTransform{P: ToPos(v2(1, 0)), Q: MakeRot(QMustParse("0.25"))}, QFromRatio(1, 60), true)
 
 	// (1 m - 0 m) / (1/60 s) = 60 m/s; (0.25 turn - 0 turn) / (1/60 s) = 15 turns/s.
 	linearWant := v2(60, 0)
@@ -448,7 +448,7 @@ func TestApplyForceOffCenterGivesTorque(t *testing.T) {
 	worldId := CreateWorld(&def)
 	t.Cleanup(func() { DestroyWorld(worldId) })
 	bodyId := addDynamicBox(t, worldId, Vec2Zero())
-	bodyId.ApplyForce(v2(0, 10), v2(1, 0), true)
+	bodyId.ApplyForce(v2(0, 10), ToPos(v2(1, 0)), true)
 	worldId.Step(stepDt(), 4)
 	if !QZero().Less(bodyId.GetAngularVelocity()) {
 		t.Fatalf("angular velocity = %v, want positive", bodyId.GetAngularVelocity())
@@ -519,7 +519,7 @@ func TestMotionLocksHoldTheLockedAxes(t *testing.T) {
 	makeBody := func(position Vec2, locks MotionLocks) BodyId {
 		bd := DefaultBodyDef()
 		bd.Type = DynamicBody
-		bd.Position = position
+		bd.Position = ToPos(position)
 		bd.LinearVelocity = v2(3, 0)
 		bd.AngularVelocity = QOne()
 		bd.MotionLocks = locks
@@ -536,13 +536,13 @@ func TestMotionLocksHoldTheLockedAxes(t *testing.T) {
 		worldId.Step(stepDt(), 4)
 	}
 
-	if p := lockX.GetWorldCenter(); !p.X.Eq(startX.X) || !p.Y.Less(startX.Y) {
+	if p := lockX.GetWorldCenter(); !posX(p).Eq(posX(startX)) || !posY(p).Less(posY(startX)) {
 		t.Errorf("the x lock moved the center from %v to %v", startX, p)
 	}
-	if p := lockY.GetWorldCenter(); !p.Y.Eq(startY.Y) || !startY.X.Less(p.X) {
+	if p := lockY.GetWorldCenter(); !posY(p).Eq(posY(startY)) || !posX(startY).Less(posX(p)) {
 		t.Errorf("the y lock moved the center from %v to %v", startY, p)
 	}
-	if p := lockAll.GetPosition(); p != v2(20, 10) || lockAll.GetRotation() != RotIdentity() {
+	if p := lockAll.GetPosition(); p != ToPos(v2(20, 10)) || lockAll.GetRotation() != RotIdentity() {
 		t.Errorf("the full lock moved the body to %v, %v", p, lockAll.GetRotation())
 	}
 	if v := lockX.GetLinearVelocity(); !v.X.Eq(QZero()) {
@@ -554,14 +554,14 @@ func TestMotionLocksHoldTheLockedAxes(t *testing.T) {
 func TestGetContactDataReturnsTouchingManifold(t *testing.T) {
 	worldId := createTestWorld(t)
 	groundDef := DefaultBodyDef()
-	groundDef.Position = v2(0, -2)
+	groundDef.Position = ToPos(v2(0, -2))
 	ground := CreateBody(worldId, &groundDef)
 	shapeDef := DefaultShapeDef()
 	groundBox := MakeBox(QFromInt(5), QHalf())
 	groundShape := CreatePolygonShape(ground, &shapeDef, &groundBox)
 	bodyDef := DefaultBodyDef()
 	bodyDef.Type = DynamicBody
-	bodyDef.Position = v2(0, -1)
+	bodyDef.Position = ToPos(v2(0, -1))
 	body := CreateBody(worldId, &bodyDef)
 	box := MakeSquare(QOne())
 	bodyShape := CreatePolygonShape(body, &shapeDef, &box)

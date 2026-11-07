@@ -409,7 +409,7 @@ func TestGetConstraintForceMatchesWeight(t *testing.T) {
 	staticId := CreateBody(worldId, &staticDef)
 	dynamicDef := DefaultBodyDef()
 	dynamicDef.Type = DynamicBody
-	dynamicDef.Position = Vec2{Y: QFromInt(-1)}
+	dynamicDef.Position = ToPos(Vec2{Y: QFromInt(-1)})
 	dynamicDef.EnableSleep = false
 	dynamicId := CreateBody(worldId, &dynamicDef)
 	shapeDef := DefaultShapeDef()
@@ -448,14 +448,14 @@ func TestGetLinearAndAngularSeparation(t *testing.T) {
 	jointId := CreateRevoluteJoint(worldId, &def)
 
 	separation := QMustParse("0.1")
-	bodyB.SetTransform(Vec2{X: separation}, MakeRot(QZero()))
+	bodyB.SetTransform(ToPos(Vec2{X: separation}), MakeRot(QZero()))
 	tolerance := QMustParse("0.0001")
 	if got := jointId.GetLinearSeparation(); !withinQ(got, separation, tolerance) {
 		t.Errorf("linear separation = %v, want %v", got, separation)
 	}
 
 	quarterTurn := QMustParse("0.25")
-	bodyB.SetTransform(Vec2{X: separation}, MakeRot(quarterTurn))
+	bodyB.SetTransform(ToPos(Vec2{X: separation}), MakeRot(quarterTurn))
 	if got := jointId.GetAngularSeparation(); !withinQ(got, quarterTurn, tolerance) {
 		t.Errorf("angular separation = %v, want %v turns", got, quarterTurn)
 	}

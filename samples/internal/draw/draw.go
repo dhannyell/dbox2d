@@ -37,16 +37,16 @@ func New(camera *samples.Camera) *Draw {
 func (d *Draw) DrawPolygon(vertices []b2.Vec2, color b2.HexColor) {
 	p1 := vertices[len(vertices)-1]
 	for _, p2 := range vertices {
-		d.DrawSegment(p1, p2, color)
+		d.drawSegment(p1, p2, color)
 		p1 = p2
 	}
 }
 
 // DrawSolidPolygon appends one solid-polygon instance (draw.cpp
 // Draw::DrawSolidPolygon / GLSolidPolygons::AddPolygon).
-func (d *Draw) DrawSolidPolygon(transform b2.Transform, vertices []b2.Vec2, radius b2.Q, color b2.HexColor) {
+func (d *Draw) DrawSolidPolygon(transform b2.WorldTransform, vertices []b2.Vec2, radius b2.Q, color b2.HexColor) {
 	data := PolygonData{
-		Transform: Transformf{P: v2f(transform.P), C: f32(transform.Q.Cos), S: f32(transform.Q.Sin)},
+		Transform: Transformf{P: v2f(b2.ToVec2(transform.P)), C: f32(transform.Q.Cos), S: f32(transform.Q.Sin)},
 		Radius:    f32(radius),
 		Color:     MakeRGBA8(color, 1.0),
 	}
@@ -59,9 +59,9 @@ func (d *Draw) DrawSolidPolygon(transform b2.Transform, vertices []b2.Vec2, radi
 }
 
 // DrawCircle appends one outline-circle instance.
-func (d *Draw) DrawCircle(center b2.Vec2, radius b2.Q, color b2.HexColor) {
+func (d *Draw) DrawCircle(center b2.Pos, radius b2.Q, color b2.HexColor) {
 	d.Batches.Circles = append(d.Batches.Circles, CircleData{
-		Position: v2f(center),
+		Position: v2f(b2.ToVec2(center)),
 		Radius:   f32(radius),
 		Color:    MakeRGBA8(color, 1.0),
 	})
@@ -69,10 +69,10 @@ func (d *Draw) DrawCircle(center b2.Vec2, radius b2.Q, color b2.HexColor) {
 
 // DrawSolidCircle appends one solid-circle instance. The centre is folded
 // into the transform's position first, matching Draw::DrawSolidCircle.
-func (d *Draw) DrawSolidCircle(transform b2.Transform, center b2.Vec2, radius b2.Q, color b2.HexColor) {
-	transform.P = b2.TransformPoint(transform, center)
+func (d *Draw) DrawSolidCircle(transform b2.WorldTransform, center b2.Vec2, radius b2.Q, color b2.HexColor) {
+	transform.P = b2.TransformWorldPoint(transform, center)
 	d.Batches.SolidCircles = append(d.Batches.SolidCircles, SolidCircleData{
-		Transform: Transformf{P: v2f(transform.P), C: f32(transform.Q.Cos), S: f32(transform.Q.Sin)},
+		Transform: Transformf{P: v2f(b2.ToVec2(transform.P)), C: f32(transform.Q.Cos), S: f32(transform.Q.Sin)},
 		Radius:    f32(radius),
 		Color:     MakeRGBA8(color, 1.0),
 	})
@@ -81,8 +81,8 @@ func (d *Draw) DrawSolidCircle(transform b2.Transform, center b2.Vec2, radius b2
 // DrawSolidCapsule appends one solid-capsule instance. The transform is
 // derived from the two endpoints in float32, matching
 // GLSolidCapsules::AddCapsule.
-func (d *Draw) DrawSolidCapsule(p1, p2 b2.Vec2, radius b2.Q, color b2.HexColor) {
-	a, b := v2f(p1), v2f(p2)
+func (d *Draw) DrawSolidCapsule(p1, p2 b2.Pos, radius b2.Q, color b2.HexColor) {
+	a, b := v2f(b2.ToVec2(p1)), v2f(b2.ToVec2(p2))
 	dx, dy := b.X-a.X, b.Y-a.Y
 	l := hypot32(dx, dy)
 	if l < minCapsuleLength {
@@ -105,7 +105,12 @@ func hypot32(x, y float32) float32 {
 }
 
 // DrawSegment appends one line segment.
-func (d *Draw) DrawSegment(p1, p2 b2.Vec2, color b2.HexColor) {
+func (d *Draw) DrawSegment(p1, p2 b2.Pos, color b2.HexColor) {
+	d.drawSegment(b2.ToVec2(p1), b2.ToVec2(p2), color)
+}
+
+// drawSegment is DrawSegment for endpoints already in presentation space.
+func (d *Draw) drawSegment(p1, p2 b2.Vec2, color b2.HexColor) {
 	rgba := MakeRGBA8(color, 1.0)
 	d.Batches.Lines = append(d.Batches.Lines,
 		VertexData{Position: v2f(p1), Color: rgba},
@@ -117,22 +122,22 @@ func (d *Draw) DrawSegment(p1, p2 b2.Vec2, color b2.HexColor) {
 const axisScale = 0.2
 
 // DrawTransform appends the red X axis and the green Y axis of transform.
-func (d *Draw) DrawTransform(transform b2.Transform) {
-	p1 := transform.P
+func (d *Draw) DrawTransform(transform b2.WorldTransform) {
+	p1 := b2.ToVec2(transform.P)
 	x := b2.RotGetXAxis(transform.Q)
 	p2 := b2.MulAdd(p1, samples.FromFloat64(axisScale), x)
-	d.DrawSegment(p1, p2, b2.ColorRed)
+	d.drawSegment(p1, p2, b2.ColorRed)
 
 	y := b2.RotGetYAxis(transform.Q)
 	p2 = b2.MulAdd(p1, samples.FromFloat64(axisScale), y)
-	d.DrawSegment(p1, p2, b2.ColorGreen)
+	d.drawSegment(p1, p2, b2.ColorGreen)
 }
 
 // DrawPoint appends one point sprite. Unlike the reference, this port never
 // doubles size for Apple hosts; a host does that itself if it needs to.
-func (d *Draw) DrawPoint(p b2.Vec2, size b2.Q, color b2.HexColor) {
+func (d *Draw) DrawPoint(p b2.Pos, size b2.Q, color b2.HexColor) {
 	d.Batches.Points = append(d.Batches.Points, PointData{
-		Position: v2f(p),
+		Position: v2f(b2.ToVec2(p)),
 		Size:     f32(size),
 		Color:    MakeRGBA8(color, 1.0),
 	})
@@ -157,8 +162,9 @@ func (d *Draw) DrawStringColor(x, y int, s string, c RGBA8) {
 
 // DrawStringAt appends one overlay line at a world position, converted to
 // screen space through the camera.
-func (d *Draw) DrawStringAt(p b2.Vec2, s string) {
-	ps := d.Camera.ConvertWorldToScreen(samples.Vec2f{X: samples.ToFloat64(p.X), Y: samples.ToFloat64(p.Y)})
+func (d *Draw) DrawStringAt(p b2.Pos, s string) {
+	v := b2.ToVec2(p)
+	ps := d.Camera.ConvertWorldToScreen(samples.Vec2f{X: samples.ToFloat64(v.X), Y: samples.ToFloat64(v.Y)})
 	d.Batches.Text = append(d.Batches.Text, TextItem{X: float32(ps.X), Y: float32(ps.Y), Text: s, Color: drawStringAtColor})
 }
 
@@ -169,10 +175,10 @@ func (d *Draw) DrawAABB(aabb b2.AABB, color b2.HexColor) {
 	p3 := aabb.UpperBound
 	p4 := b2.Vec2{X: aabb.LowerBound.X, Y: aabb.UpperBound.Y}
 
-	d.DrawSegment(p1, p2, color)
-	d.DrawSegment(p2, p3, color)
-	d.DrawSegment(p3, p4, color)
-	d.DrawSegment(p4, p1, color)
+	d.drawSegment(p1, p2, color)
+	d.drawSegment(p2, p3, color)
+	d.drawSegment(p3, p4, color)
+	d.drawSegment(p4, p1, color)
 }
 
 // DebugDraw returns callbacks that write into d, with the flags
@@ -182,7 +188,7 @@ func (d *Draw) DebugDraw() b2.DebugDraw {
 	dd.DrawPolygonFcn = func(transform b2.WorldTransform, vertices []b2.Vec2, color b2.HexColor) {
 		world := make([]b2.Vec2, len(vertices))
 		for i, v := range vertices {
-			world[i] = b2.TransformPoint(transform, v)
+			world[i] = b2.ToVec2(b2.TransformWorldPoint(transform, v))
 		}
 		d.DrawPolygon(world, color)
 	}

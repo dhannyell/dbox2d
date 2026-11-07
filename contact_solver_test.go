@@ -54,7 +54,7 @@ func restingBox(t *testing.T) (*world, *body, *stepContext) {
 	w := getWorldFromId(worldId)
 
 	groundDef := DefaultBodyDef()
-	groundDef.Position = Vec2{Y: QHalf().Neg()}
+	groundDef.Position = ToPos(Vec2{Y: QHalf().Neg()})
 	groundId := CreateBody(worldId, &groundDef)
 	shapeDef := DefaultShapeDef()
 	ground := MakeBox(QFromInt(5), QHalf())
@@ -62,7 +62,7 @@ func restingBox(t *testing.T) (*world, *body, *stepContext) {
 
 	boxDef := DefaultBodyDef()
 	boxDef.Type = DynamicBody
-	boxDef.Position = Vec2{Y: QHalf()}
+	boxDef.Position = ToPos(Vec2{Y: QHalf()})
 	boxId := CreateBody(worldId, &boxDef)
 	unit := MakeBox(QHalf(), QHalf())
 	CreatePolygonShape(boxId, &shapeDef, &unit)
@@ -218,7 +218,7 @@ func TestRestingBoxHoldsItsGround(t *testing.T) {
 	for range 60 {
 		// The collide pass refreshes the separation on each step. The box
 		// does not rotate, so the anchors stay put.
-		m.Points[0].Separation = sim.center.Y.Sub(QHalf())
+		m.Points[0].Separation = posY(sim.center).Sub(QHalf())
 		prepareOverflowContacts(context)
 		for range context.subStepCount {
 			integrateVelocitiesTask(0, 1, context)
@@ -235,7 +235,7 @@ func TestRestingBoxHoldsItsGround(t *testing.T) {
 	}
 
 	tolerance := QMustParse("0.001")
-	if !withinQ(sim.center.Y, QHalf(), tolerance) {
+	if !withinQ(posY(sim.center), QHalf(), tolerance) {
 		t.Errorf("the box rests at y %v, want 0.5", sim.center.Y)
 	}
 	state := getBodyState(w, box)

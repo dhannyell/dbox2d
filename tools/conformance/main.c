@@ -143,6 +143,27 @@ static void writeFloat( FILE* file, float value )
 	fprintf( file, " %08" PRIx32, floatBits( value ) );
 }
 
+#if defined( CONFORMANCE_V32 ) && defined( BOX2D_DOUBLE_PRECISION )
+// Large-world builds trace positions as 64-bit doubles: 16 hex digits instead of 8.
+static uint64_t doubleBits( double value )
+{
+	uint64_t bits;
+	memcpy( &bits, &value, sizeof( bits ) );
+	return bits;
+}
+
+static void writePosition( FILE* file, b2Pos value )
+{
+	fprintf( file, " %016" PRIx64 " %016" PRIx64, doubleBits( value.x ), doubleBits( value.y ) );
+}
+#elif defined( CONFORMANCE_V32 )
+static void writePosition( FILE* file, b2Pos value )
+{
+	writeFloat( file, value.x );
+	writeFloat( file, value.y );
+}
+#endif
+
 static void writeInt( FILE* file, int value )
 {
 	fprintf( file, " %d", value );
@@ -968,15 +989,37 @@ static uint64_t foldFloat( uint64_t hash, float value )
 	return hash;
 }
 
+#if defined( CONFORMANCE_V32 ) && defined( BOX2D_DOUBLE_PRECISION )
+static uint64_t foldPosition( uint64_t hash, double value )
+{
+	uint64_t word = doubleBits( value );
+	for ( int i = 0; i < 8; ++i )
+	{
+		hash ^= word & UINT64_C( 0xff );
+		hash *= UINT64_C( 1099511628211 );
+		word >>= 8;
+	}
+	return hash;
+}
+#else
+#define foldPosition foldFloat
+#endif
+
+#if defined( CONFORMANCE_V32 )
+typedef b2Pos TracePos;
+#else
+typedef b2Vec2 TracePos;
+#endif
+
 static uint64_t hashBodies( const BodyList* list )
 {
 	uint64_t hash = UINT64_C( 14695981039346656037 );
 	for ( int i = 0; i < list->count; ++i )
 	{
-		b2Vec2 position = b2Body_GetPosition( list->ids[i] );
+		TracePos position = b2Body_GetPosition( list->ids[i] );
 		b2Rot rotation = b2Body_GetRotation( list->ids[i] );
-		hash = foldFloat( hash, position.x );
-		hash = foldFloat( hash, position.y );
+		hash = foldPosition( hash, position.x );
+		hash = foldPosition( hash, position.y );
 		hash = foldFloat( hash, rotation.c );
 		hash = foldFloat( hash, rotation.s );
 	}
@@ -1007,10 +1050,14 @@ static void writeStep( FILE* file, int step, int totalSteps, const BodyList* lis
 	{
 		for ( int i = 0; i < list->count; ++i )
 		{
-			b2Vec2 position = b2Body_GetPosition( list->ids[i] );
+			TracePos position = b2Body_GetPosition( list->ids[i] );
 			b2Rot rotation = b2Body_GetRotation( list->ids[i] );
 			fprintf( file, "body %d", i );
+#if defined( CONFORMANCE_V32 )
+			writePosition( file, position );
+#else
 			writeVec2( file, position );
+#endif
 			writeRot( file, rotation );
 			fputc( '\n', file );
 		}

@@ -328,8 +328,8 @@ func drawJoint(draw *DebugDraw, w *world, joint *joint) {
 	base := getJointSim(w, joint)
 	transformA := getBodyTransformQuick(w, bodyA)
 	transformB := getBodyTransformQuick(w, bodyB)
-	pA := TransformPoint(transformA, base.localFrameA.P)
-	pB := TransformPoint(transformB, base.localFrameB.P)
+	pA := TransformWorldPoint(transformA, base.localFrameA.P)
+	pB := TransformWorldPoint(transformB, base.localFrameB.P)
 
 	scale := minJointDrawScale.Max(draw.JointScale.Mul(joint.drawScale))
 	pointSize := QFromInt(8)
@@ -486,6 +486,9 @@ func (jointId JointId) SetLocalFrameA(localFrame Transform) {
 		panic("dbox2d: SetLocalFrameA needs a valid transform")
 	}
 	w := getWorld(jointId.world0)
+	if w.recording != nil {
+		w.recording.rec(opJointSetLocalFrameA, jointId, localFrame)
+	}
 	j := getJointFullId(w, jointId)
 	getJointSim(w, j).localFrameA = localFrame
 }
@@ -503,6 +506,9 @@ func (jointId JointId) SetLocalFrameB(localFrame Transform) {
 		panic("dbox2d: SetLocalFrameB needs a valid transform")
 	}
 	w := getWorld(jointId.world0)
+	if w.recording != nil {
+		w.recording.rec(opJointSetLocalFrameB, jointId, localFrame)
+	}
 	j := getJointFullId(w, jointId)
 	getJointSim(w, j).localFrameB = localFrame
 }
@@ -517,6 +523,9 @@ func (jointId JointId) GetLocalFrameB() Transform {
 // SetCollideConnected changes whether the attached bodies collide (b2Joint_SetCollideConnected).
 func (jointId JointId) SetCollideConnected(shouldCollide bool) {
 	w := getWorldLocked(jointId.world0)
+	if w.recording != nil {
+		w.recording.rec(opJointSetCollideConnected, jointId, shouldCollide)
+	}
 	j := getJointFullId(w, jointId)
 	if j.collideConnected == shouldCollide {
 		return
@@ -576,6 +585,9 @@ func (jointId JointId) GetUserData() any {
 // WakeBodies wakes both bodies attached to the joint (b2Joint_WakeBodies).
 func (jointId JointId) WakeBodies() {
 	w := getWorldLocked(jointId.world0)
+	if w.recording != nil {
+		w.recording.rec(opJointWakeBodies, jointId)
+	}
 	j := getJointFullId(w, jointId)
 	wakeBody(w, &w.bodies[j.edges[0].bodyId])
 	wakeBody(w, &w.bodies[j.edges[1].bodyId])
@@ -695,8 +707,9 @@ func (jointId JointId) GetLinearSeparation() Q {
 	j := getJointFullId(w, jointId)
 	base := getJointSim(w, j)
 
-	xfA := getBodyTransform(w, j.edges[0].bodyId)
-	xfB := getBodyTransform(w, j.edges[1].bodyId)
+	wxfA := getBodyTransform(w, j.edges[0].bodyId)
+	wxfB := getBodyTransform(w, j.edges[1].bodyId)
+	xfA, xfB := jointRelativeFrames(wxfA, wxfB)
 	pA := TransformPoint(xfA, base.localFrameA.P)
 	pB := TransformPoint(xfB, base.localFrameB.P)
 	dp := pB.Sub(pA)
@@ -814,6 +827,9 @@ func (jointId JointId) SetConstraintTuning(hertz, dampingRatio Q) {
 		panic("dbox2d: SetConstraintTuning damping ratio is invalid")
 	}
 	w := getWorld(jointId.world0)
+	if w.recording != nil {
+		w.recording.rec(opJointSetConstraintTuning, jointId, hertz, dampingRatio)
+	}
 	j := getJointFullId(w, jointId)
 	base := getJointSim(w, j)
 	base.constraintHertz = hertz
@@ -834,6 +850,9 @@ func (jointId JointId) SetForceThreshold(threshold Q) {
 		panic("dbox2d: SetForceThreshold needs a valid non-negative threshold")
 	}
 	w := getWorld(jointId.world0)
+	if w.recording != nil {
+		w.recording.rec(opJointSetForceThreshold, jointId, threshold)
+	}
 	j := getJointFullId(w, jointId)
 	getJointSim(w, j).forceThreshold = threshold
 }
@@ -851,6 +870,9 @@ func (jointId JointId) SetTorqueThreshold(threshold Q) {
 		panic("dbox2d: SetTorqueThreshold needs a valid non-negative threshold")
 	}
 	w := getWorld(jointId.world0)
+	if w.recording != nil {
+		w.recording.rec(opJointSetTorqueThreshold, jointId, threshold)
+	}
 	j := getJointFullId(w, jointId)
 	getJointSim(w, j).torqueThreshold = threshold
 }
@@ -1138,7 +1160,11 @@ func makeJointId(w *world, pair jointPair) JointId {
 func CreateFilterJoint(worldId WorldId, def *FilterJointDef) JointId {
 	checkDef(def.internalValue)
 	w, pair := createJoint(worldId, &def.Base, FilterJoint)
-	return makeJointId(w, pair)
+	id := makeJointId(w, pair)
+	if w.recording != nil {
+		w.recording.recRet(opCreateFilterJoint, id, worldId, *def)
+	}
+	return id
 }
 
 // CreateDistanceJoint creates a distance joint. The definition must come
@@ -1183,7 +1209,11 @@ func CreateDistanceJoint(worldId WorldId, def *DistanceJointDef) JointId {
 	d.enableLimit = def.EnableLimit
 	d.enableMotor = def.EnableMotor
 
-	return makeJointId(w, pair)
+	id := makeJointId(w, pair)
+	if w.recording != nil {
+		w.recording.recRet(opCreateDistanceJoint, id, worldId, *def)
+	}
+	return id
 }
 
 // CreateMotorJoint creates a motor joint. The definition must come from
@@ -1219,7 +1249,11 @@ func CreateMotorJoint(worldId WorldId, def *MotorJointDef) JointId {
 	m.angularDampingRatio = def.AngularDampingRatio
 	m.maxSpringTorque = def.MaxSpringTorque
 
-	return makeJointId(w, pair)
+	id := makeJointId(w, pair)
+	if w.recording != nil {
+		w.recording.recRet(opCreateMotorJoint, id, worldId, *def)
+	}
+	return id
 }
 
 // CreateMoverJoint creates a mover joint. The definition must come from
@@ -1240,7 +1274,11 @@ func CreateMoverJoint(worldId WorldId, def *MoverJointDef) JointId {
 	js.mover().linearVelocity = def.LinearVelocity
 	js.mover().maxVelocityForce = def.MaxVelocityForce
 
-	return makeJointId(w, pair)
+	id := makeJointId(w, pair)
+	if w.recording != nil {
+		w.recording.recRet(opCreateMoverJoint, id, worldId, *def)
+	}
+	return id
 }
 
 // CreatePogoJoint creates a pogo joint. The definition must come from
@@ -1282,7 +1320,11 @@ func CreatePogoJoint(worldId WorldId, def *PogoJointDef) JointId {
 	p.impulse = def.Impulse
 	p.velocity = def.Velocity
 
-	return makeJointId(w, pair)
+	id := makeJointId(w, pair)
+	if w.recording != nil {
+		w.recording.recRet(opCreatePogoJoint, id, worldId, *def)
+	}
+	return id
 }
 
 // CreatePrismaticJoint creates a prismatic joint. The definition must come
@@ -1317,7 +1359,11 @@ func CreatePrismaticJoint(worldId WorldId, def *PrismaticJointDef) JointId {
 	p.enableLimit = def.EnableLimit
 	p.enableMotor = def.EnableMotor
 
-	return makeJointId(w, pair)
+	id := makeJointId(w, pair)
+	if w.recording != nil {
+		w.recording.recRet(opCreatePrismaticJoint, id, worldId, *def)
+	}
+	return id
 }
 
 // CreateRevoluteJoint creates a revolute joint. The definition must come
@@ -1359,7 +1405,11 @@ func CreateRevoluteJoint(worldId WorldId, def *RevoluteJointDef) JointId {
 	r.enableLimit = def.EnableLimit
 	r.enableMotor = def.EnableMotor
 
-	return makeJointId(w, pair)
+	id := makeJointId(w, pair)
+	if w.recording != nil {
+		w.recording.recRet(opCreateRevoluteJoint, id, worldId, *def)
+	}
+	return id
 }
 
 // CreateWeldJoint creates a weld joint. The definition must come from
@@ -1381,7 +1431,11 @@ func CreateWeldJoint(worldId WorldId, def *WeldJointDef) JointId {
 	wj.angularHertz = def.AngularHertz
 	wj.angularDampingRatio = def.AngularDampingRatio
 
-	return makeJointId(w, pair)
+	id := makeJointId(w, pair)
+	if w.recording != nil {
+		w.recording.recRet(opCreateWeldJoint, id, worldId, *def)
+	}
+	return id
 }
 
 // CreateWheelJoint creates a wheel joint. The definition must come from
@@ -1413,7 +1467,11 @@ func CreateWheelJoint(worldId WorldId, def *WheelJointDef) JointId {
 	wh.enableLimit = def.EnableLimit
 	wh.enableMotor = def.EnableMotor
 
-	return makeJointId(w, pair)
+	id := makeJointId(w, pair)
+	if w.recording != nil {
+		w.recording.recRet(opCreateWheelJoint, id, worldId, *def)
+	}
+	return id
 }
 
 // destroyJointInternal unlinks a joint from its bodies, its island and its
@@ -1517,6 +1575,9 @@ func destroyJointInternal(w *world, j *joint) {
 // DestroyJoint destroys a joint and wakes the two bodies.
 func DestroyJoint(jointId JointId) {
 	w := getWorldLocked(jointId.world0)
+	if w.recording != nil {
+		w.recording.rec(opDestroyJoint, jointId)
+	}
 
 	j := getJointFullId(w, jointId)
 
@@ -1767,4 +1828,14 @@ func storeJointVelocity(state *bodyState, v Vec2, w Q) {
 		state.linearVelocity = v
 		state.angularVelocity = w
 	}
+}
+
+// jointRelativeFrames returns the frames of two bodies relative to the
+// position of body A, as the reference does for the joint queries, so the
+// difference of two joint anchors stays in float precision far from the
+// origin. It corresponds to the b2ToRelativeTransform( wxfA, wxfA.p ) pairs
+// of src/joint.c, src/distance_joint.c, src/pogo_joint.c and
+// src/prismatic_joint.c.
+func jointRelativeFrames(a, b WorldTransform) (Transform, Transform) {
+	return ToRelativeTransform(a, a.P), ToRelativeTransform(b, a.P)
 }

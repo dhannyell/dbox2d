@@ -18,7 +18,7 @@ func weldedBox(t *testing.T, worldId WorldId, position Vec2, def *WeldJointDef) 
 
 	boxDef := DefaultBodyDef()
 	boxDef.Type = DynamicBody
-	boxDef.Position = position
+	boxDef.Position = ToPos(position)
 	boxId := CreateBody(worldId, &boxDef)
 	shapeDef := DefaultShapeDef()
 	unit := MakeBox(QHalf(), QHalf())

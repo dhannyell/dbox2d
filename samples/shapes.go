@@ -109,7 +109,7 @@ func (s *ChainShape) launch() {
 
 	bodyDef := b2.DefaultBodyDef()
 	bodyDef.Type = b2.DynamicBody
-	bodyDef.Position = b2.V2(-55.0, 13.5)
+	bodyDef.Position = b2.ToPos(b2.V2(-55.0, 13.5))
 	s.bodyId = b2.CreateBody(s.WorldId, &bodyDef)
 
 	shapeDef := b2.DefaultShapeDef()
@@ -167,8 +167,8 @@ func (s *ChainShape) UpdateGui() {
 func (s *ChainShape) Step() {
 	s.Base.Step()
 
-	s.Context.Draw.DrawLineFcn(b2.Vec2{}, b2.V2(0.5, 0.0), b2.ColorRed)
-	s.Context.Draw.DrawLineFcn(b2.Vec2{}, b2.V2(0.0, 0.5), b2.ColorGreen)
+	s.Context.Draw.DrawLineFcn(b2.ToPos(b2.Vec2{}), b2.ToPos(b2.V2(0.5, 0.0)), b2.ColorRed)
+	s.Context.Draw.DrawLineFcn(b2.ToPos(b2.Vec2{}), b2.ToPos(b2.V2(0.0, 0.5)), b2.ColorGreen)
 }
 
 // CompoundShapes shows how careful creation of compound shapes leads to
@@ -204,7 +204,7 @@ func NewCompoundShapes(ctx *SampleContext) Sample {
 	{
 		bodyDef := b2.DefaultBodyDef()
 		bodyDef.Type = b2.DynamicBody
-		bodyDef.Position = b2.V2(-15, 1)
+		bodyDef.Position = b2.ToPos(b2.V2(-15, 1))
 		s.table1Id = b2.CreateBody(s.WorldId, &bodyDef)
 
 		shapeDef := b2.DefaultShapeDef()
@@ -221,7 +221,7 @@ func NewCompoundShapes(ctx *SampleContext) Sample {
 	{
 		bodyDef := b2.DefaultBodyDef()
 		bodyDef.Type = b2.DynamicBody
-		bodyDef.Position = b2.V2(-5, 1)
+		bodyDef.Position = b2.ToPos(b2.V2(-5, 1))
 		s.table2Id = b2.CreateBody(s.WorldId, &bodyDef)
 
 		shapeDef := b2.DefaultShapeDef()
@@ -238,7 +238,7 @@ func NewCompoundShapes(ctx *SampleContext) Sample {
 	{
 		bodyDef := b2.DefaultBodyDef()
 		bodyDef.Type = b2.DynamicBody
-		bodyDef.Position = b2.V2(5, 1)
+		bodyDef.Position = b2.ToPos(b2.V2(5, 1))
 		s.ship1Id = b2.CreateBody(s.WorldId, &bodyDef)
 
 		shapeDef := b2.DefaultShapeDef()
@@ -264,7 +264,7 @@ func NewCompoundShapes(ctx *SampleContext) Sample {
 	{
 		bodyDef := b2.DefaultBodyDef()
 		bodyDef.Type = b2.DynamicBody
-		bodyDef.Position = b2.V2(15, 1)
+		bodyDef.Position = b2.ToPos(b2.V2(15, 1))
 		s.ship2Id = b2.CreateBody(s.WorldId, &bodyDef)
 
 		shapeDef := b2.DefaultShapeDef()
@@ -365,7 +365,7 @@ func (s *CompoundShapes) drawAABB(box b2.AABB, color b2.HexColor) {
 	v[1] = b2.Vec2{X: box.UpperBound.X, Y: box.LowerBound.Y}
 	v[2] = box.UpperBound
 	v[3] = b2.Vec2{X: box.LowerBound.X, Y: box.UpperBound.Y}
-	s.Context.Draw.DrawPolygonFcn(b2.TransformIdentity(), v[:], color)
+	s.Context.Draw.DrawPolygonFcn(b2.MakeWorldTransform(b2.TransformIdentity()), v[:], color)
 }
 
 func (s *CompoundShapes) Step() {
@@ -429,13 +429,13 @@ func NewShapeFilter(ctx *SampleContext) Sample {
 		bodyDef := b2.DefaultBodyDef()
 		bodyDef.Type = b2.DynamicBody
 
-		bodyDef.Position = b2.V2(0, 2)
+		bodyDef.Position = b2.ToPos(b2.V2(0, 2))
 		s.player1Id = b2.CreateBody(s.WorldId, &bodyDef)
 
-		bodyDef.Position = b2.V2(0, 5)
+		bodyDef.Position = b2.ToPos(b2.V2(0, 5))
 		s.player2Id = b2.CreateBody(s.WorldId, &bodyDef)
 
-		bodyDef.Position = b2.V2(0, 8)
+		bodyDef.Position = b2.ToPos(b2.V2(0, 8))
 		s.player3Id = b2.CreateBody(s.WorldId, &bodyDef)
 
 		box := b2.MakeBox(b2.F(2), b2.QOne())
@@ -498,13 +498,13 @@ func (s *ShapeFilter) Step() {
 	s.Base.Step()
 
 	p1 := s.player1Id.GetPosition()
-	s.Context.Draw.DrawStringFcn(b2.Vec2{X: p1.X.Sub(b2.QHalf()), Y: p1.Y}, "player 1", b2.ColorWhite)
+	s.Context.Draw.DrawStringFcn(b2.ToPos(b2.Vec2{X: b2.ToVec2(p1).X.Sub(b2.QHalf()), Y: b2.ToVec2(p1).Y}), "player 1", b2.ColorWhite)
 
 	p2 := s.player2Id.GetPosition()
-	s.Context.Draw.DrawStringFcn(b2.Vec2{X: p2.X.Sub(b2.QHalf()), Y: p2.Y}, "player 2", b2.ColorWhite)
+	s.Context.Draw.DrawStringFcn(b2.ToPos(b2.Vec2{X: b2.ToVec2(p2).X.Sub(b2.QHalf()), Y: b2.ToVec2(p2).Y}), "player 2", b2.ColorWhite)
 
 	p3 := s.player3Id.GetPosition()
-	s.Context.Draw.DrawStringFcn(b2.Vec2{X: p3.X.Sub(b2.QHalf()), Y: p3.Y}, "player 3", b2.ColorWhite)
+	s.Context.Draw.DrawStringFcn(b2.ToPos(b2.Vec2{X: b2.ToVec2(p3).X.Sub(b2.QHalf()), Y: b2.ToVec2(p3).Y}), "player 3", b2.ColorWhite)
 }
 
 const customFilterCount = 10
@@ -545,7 +545,7 @@ func NewCustomFilter(ctx *SampleContext) Sample {
 	x := b2.F(-customFilterCount)
 
 	for i := range customFilterCount {
-		bodyDef.Position = b2.Vec2{X: x, Y: b2.F(5)}
+		bodyDef.Position = b2.ToPos(b2.Vec2{X: x, Y: b2.F(5)})
 		s.bodyIds[i] = b2.CreateBody(s.WorldId, &bodyDef)
 
 		shapeDef.UserData = i + 1
@@ -631,7 +631,7 @@ func NewFriction(ctx *SampleContext) Sample {
 		for i := range 5 {
 			bodyDef := b2.DefaultBodyDef()
 			bodyDef.Type = b2.DynamicBody
-			bodyDef.Position = b2.Vec2{X: b2.F(-15 + 4*i), Y: b2.F(28)}
+			bodyDef.Position = b2.ToPos(b2.Vec2{X: b2.F(-15 + 4*i), Y: b2.F(28)})
 			bodyId := b2.CreateBody(s.WorldId, &bodyDef)
 
 			shapeDef.Material.Friction = friction[i]
@@ -680,7 +680,7 @@ func (s *RollingResistance) createScene() {
 		b2.CreateSegmentShape(groundId, &shapeDef, &segment)
 
 		bodyDef.Type = b2.DynamicBody
-		bodyDef.Position = b2.Vec2{X: b2.F(-39.5), Y: y.Add(b2.F(0.75))}
+		bodyDef.Position = b2.ToPos(b2.Vec2{X: b2.F(-39.5), Y: y.Add(b2.F(0.75))})
 		bodyDef.AngularVelocity = radiansToTurns(-10)
 		bodyDef.LinearVelocity = b2.V2(5, 0)
 
@@ -718,7 +718,7 @@ func (s *RollingResistance) Step() {
 	for i := range 20 {
 		p := b2.Vec2{X: b2.F(-41.5), Y: b2.F(2*i + 1)}
 		text := fmt.Sprintf("%.2f", ToFloat64(s.resistScale.Mul(b2.F(i))))
-		s.Context.Draw.DrawStringFcn(p, text, b2.ColorWhite)
+		s.Context.Draw.DrawStringFcn(b2.ToPos(p), text, b2.ColorWhite)
 	}
 }
 
@@ -747,7 +747,7 @@ func NewConveyorBelt(ctx *SampleContext) Sample {
 	// Platform
 	{
 		bodyDef := b2.DefaultBodyDef()
-		bodyDef.Position = b2.V2(-5, 5)
+		bodyDef.Position = b2.ToPos(b2.V2(-5, 5))
 		bodyId := b2.CreateBody(s.WorldId, &bodyDef)
 
 		box := b2.MakeRoundedBox(b2.F(10), b2.F(0.25), b2.F(0.25))
@@ -765,7 +765,7 @@ func NewConveyorBelt(ctx *SampleContext) Sample {
 	for i := range 5 {
 		bodyDef := b2.DefaultBodyDef()
 		bodyDef.Type = b2.DynamicBody
-		bodyDef.Position = b2.Vec2{X: b2.F(-10 + 2*i), Y: b2.F(7)}
+		bodyDef.Position = b2.ToPos(b2.Vec2{X: b2.F(-10 + 2*i), Y: b2.F(7)})
 		bodyId := b2.CreateBody(s.WorldId, &bodyDef)
 
 		b2.CreatePolygonShape(bodyId, &shapeDef, &cube)
@@ -846,7 +846,7 @@ func (s *TangentSpeed) dropBall() b2.BodyId {
 
 	bodyDef := b2.DefaultBodyDef()
 	bodyDef.Type = b2.DynamicBody
-	bodyDef.Position = b2.V2(110, -30)
+	bodyDef.Position = b2.ToPos(b2.V2(110, -30))
 	bodyId := b2.CreateBody(s.WorldId, &bodyDef)
 
 	shapeDef := b2.DefaultShapeDef()
@@ -918,7 +918,7 @@ func NewModifyGeometry(ctx *SampleContext) Sample {
 	{
 		bodyDef := b2.DefaultBodyDef()
 		bodyDef.Type = b2.DynamicBody
-		bodyDef.Position = b2.V2(0, 4)
+		bodyDef.Position = b2.ToPos(b2.V2(0, 4))
 		bodyId := b2.CreateBody(s.WorldId, &bodyDef)
 		shapeDef := b2.DefaultShapeDef()
 		box := b2.MakeBox(b2.QOne(), b2.QOne())
@@ -931,7 +931,7 @@ func NewModifyGeometry(ctx *SampleContext) Sample {
 		circle := b2.Circle{Radius: b2.QHalf()}
 		bodyDef := b2.DefaultBodyDef()
 		bodyDef.Type = b2.KinematicBody
-		bodyDef.Position = b2.V2(0, 1)
+		bodyDef.Position = b2.ToPos(b2.V2(0, 1))
 		bodyId := b2.CreateBody(s.WorldId, &bodyDef)
 		shapeDef := b2.DefaultShapeDef()
 		s.shapeId = b2.CreateCircleShape(bodyId, &shapeDef, &circle)
@@ -1057,21 +1057,21 @@ func NewChainLink(ctx *SampleContext) Sample {
 	shapeDef := b2.DefaultShapeDef()
 
 	{
-		bodyDef.Position = b2.V2(-5, 2)
+		bodyDef.Position = b2.ToPos(b2.V2(-5, 2))
 		bodyId := b2.CreateBody(s.WorldId, &bodyDef)
 		circle := b2.Circle{Radius: b2.QHalf()}
 		b2.CreateCircleShape(bodyId, &shapeDef, &circle)
 	}
 
 	{
-		bodyDef.Position = b2.V2(0, 2)
+		bodyDef.Position = b2.ToPos(b2.V2(0, 2))
 		bodyId := b2.CreateBody(s.WorldId, &bodyDef)
 		capsule := b2.Capsule{Center1: b2.V2(-0.5, 0.0), Center2: b2.V2(0.5, 0.0), Radius: b2.F(0.25)}
 		b2.CreateCapsuleShape(bodyId, &shapeDef, &capsule)
 	}
 
 	{
-		bodyDef.Position = b2.V2(5, 2)
+		bodyDef.Position = b2.ToPos(b2.V2(5, 2))
 		bodyId := b2.CreateBody(s.WorldId, &bodyDef)
 		h := b2.QHalf()
 		box := b2.MakeBox(h, h)
@@ -1129,7 +1129,7 @@ func NewRoundedShapes(ctx *SampleContext) Sample {
 	for range ycount {
 		x := b2.F(-5)
 		for range xcount {
-			bodyDef.Position = b2.Vec2{X: x, Y: y}
+			bodyDef.Position = b2.ToPos(b2.Vec2{X: x, Y: y})
 			bodyId := b2.CreateBody(s.WorldId, &bodyDef)
 
 			poly := shared.RandomPolygon(b2.QHalf())
@@ -1174,7 +1174,7 @@ func NewEllipseShape(ctx *SampleContext) Sample {
 	for range yCount {
 		x := b2.F(-5)
 		for range xCount {
-			bodyDef.Position = b2.Vec2{X: x, Y: y}
+			bodyDef.Position = b2.ToPos(b2.Vec2{X: x, Y: y})
 			bodyId := b2.CreateBody(s.WorldId, &bodyDef)
 			b2.CreatePolygonShape(bodyId, &shapeDef, &poly)
 
@@ -1204,7 +1204,7 @@ func NewOffsetShapes(ctx *SampleContext) Sample {
 
 	{
 		bodyDef := b2.DefaultBodyDef()
-		bodyDef.Position = b2.V2(-1, 1)
+		bodyDef.Position = b2.ToPos(b2.V2(-1, 1))
 		groundId := b2.CreateBody(s.WorldId, &bodyDef)
 
 		shapeDef := b2.DefaultShapeDef()
@@ -1215,7 +1215,7 @@ func NewOffsetShapes(ctx *SampleContext) Sample {
 	{
 		capsule := b2.Capsule{Center1: b2.V2(-5, 1), Center2: b2.V2(-4, 1), Radius: b2.F(0.25)}
 		bodyDef := b2.DefaultBodyDef()
-		bodyDef.Position = b2.V2(13.5, -0.75)
+		bodyDef.Position = b2.ToPos(b2.V2(13.5, -0.75))
 		bodyDef.Type = b2.DynamicBody
 		bodyId := b2.CreateBody(s.WorldId, &bodyDef)
 		shapeDef := b2.DefaultShapeDef()
@@ -1225,7 +1225,7 @@ func NewOffsetShapes(ctx *SampleContext) Sample {
 	{
 		box := b2.MakeOffsetBox(b2.F(0.75), b2.QHalf(), b2.V2(9, 2), quarter)
 		bodyDef := b2.DefaultBodyDef()
-		bodyDef.Position = b2.Vec2{}
+		bodyDef.Position = b2.ToPos(b2.Vec2{})
 		bodyDef.Type = b2.DynamicBody
 		bodyId := b2.CreateBody(s.WorldId, &bodyDef)
 		shapeDef := b2.DefaultShapeDef()
@@ -1238,7 +1238,7 @@ func NewOffsetShapes(ctx *SampleContext) Sample {
 func (s *OffsetShapes) Step() {
 	s.Base.Step()
 
-	s.Context.Draw.DrawTransformFcn(b2.TransformIdentity())
+	s.Context.Draw.DrawTransformFcn(b2.MakeWorldTransform(b2.TransformIdentity()))
 }
 
 // Explosion shows how to use explosions and demonstrates the projected
@@ -1281,13 +1281,13 @@ func NewExplosion(ctx *SampleContext) Sample {
 	r := b2.F(8)
 	for angle := 0; angle < 360; angle += 30 {
 		cosSin := b2.MakeRot(b2.QFromRatio(angle, 360))
-		bodyDef.Position = b2.Vec2{X: r.Mul(cosSin.Cos), Y: r.Mul(cosSin.Sin)}
+		bodyDef.Position = b2.ToPos(b2.Vec2{X: r.Mul(cosSin.Cos), Y: r.Mul(cosSin.Sin)})
 		bodyId := b2.CreateBody(s.WorldId, &bodyDef)
 
 		box := b2.MakeBox(b2.QOne(), b2.F(0.1))
 		b2.CreatePolygonShape(bodyId, &shapeDef, &box)
 
-		weldDef.Base.LocalFrameA.P = bodyDef.Position
+		weldDef.Base.LocalFrameA.P = b2.ToVec2(bodyDef.Position)
 		weldDef.Base.BodyIdB = bodyId
 		jointId := b2.CreateWeldJoint(s.WorldId, &weldDef)
 		s.jointIds = append(s.jointIds, jointId)
@@ -1306,7 +1306,7 @@ func (s *Explosion) UpdateGui() {
 
 	if gui.Button("Explode") {
 		def := b2.DefaultExplosionDef()
-		def.Position = b2.Vec2{}
+		def.Position = b2.ToPos(b2.Vec2{})
 		def.Radius = FromFloat64(s.radius)
 		def.Falloff = FromFloat64(s.falloff)
 		def.ImpulsePerLength = FromFloat64(s.impulse)
@@ -1340,8 +1340,8 @@ func (s *Explosion) Step() {
 
 	s.DrawTextLine("reference angle = %g", 2*math.Pi*ToFloat64(s.referenceAngle))
 
-	s.Context.Draw.DrawCircleFcn(b2.Vec2{}, FromFloat64(s.radius+s.falloff), b2.ColorBox2DBlue)
-	s.Context.Draw.DrawCircleFcn(b2.Vec2{}, FromFloat64(s.radius), b2.ColorBox2DYellow)
+	s.Context.Draw.DrawCircleFcn(b2.ToPos(b2.Vec2{}), FromFloat64(s.radius+s.falloff), b2.ColorBox2DBlue)
+	s.Context.Draw.DrawCircleFcn(b2.ToPos(b2.Vec2{}), FromFloat64(s.radius), b2.ColorBox2DYellow)
 }
 
 // RecreateStatic tests a static shape being recreated every step.
@@ -1361,7 +1361,7 @@ func NewRecreateStatic(ctx *SampleContext) Sample {
 	bodyDef := b2.DefaultBodyDef()
 	shapeDef := b2.DefaultShapeDef()
 	bodyDef.Type = b2.DynamicBody
-	bodyDef.Position = b2.V2(0, 1)
+	bodyDef.Position = b2.ToPos(b2.V2(0, 1))
 	bodyId := b2.CreateBody(s.WorldId, &bodyDef)
 
 	box := b2.MakeBox(b2.QOne(), b2.QOne())
@@ -1457,7 +1457,7 @@ func (s *ChainSegmentShape) launch() {
 
 	bodyDef := b2.DefaultBodyDef()
 	bodyDef.Type = b2.DynamicBody
-	bodyDef.Position = b2.V2(-18, 5)
+	bodyDef.Position = b2.ToPos(b2.V2(-18, 5))
 	s.bodyId = b2.CreateBody(s.WorldId, &bodyDef)
 
 	shapeDef := b2.DefaultShapeDef()
@@ -1591,7 +1591,7 @@ func (s *Wind) createScene() {
 	bodyDef.EnableSleep = false
 
 	for i := range s.count {
-		bodyDef.Position = b2.Vec2{Y: two.Sub(two.Mul(radius).Mul(b2.QFromInt(i)))}
+		bodyDef.Position = b2.ToPos(b2.Vec2{Y: two.Sub(two.Mul(radius).Mul(b2.QFromInt(i)))})
 		s.bodyIds[i] = b2.CreateBody(s.WorldId, &bodyDef)
 
 		switch s.shapeType {
@@ -1655,7 +1655,7 @@ func (s *Wind) Step() {
 		random := shared.RandomVec2(b2.F(-0.3), b2.F(0.3))
 		s.noise = b2.Lerp(s.noise, random, b2.F(0.05))
 
-		s.Context.Draw.DrawLineFcn(b2.Vec2{}, wind.Mul(b2.F(0.2)), b2.ColorFuchsia)
+		s.Context.Draw.DrawLineFcn(b2.ToPos(b2.Vec2{}), b2.ToPos(wind.Mul(b2.F(0.2))), b2.ColorFuchsia)
 	}
 
 	s.Base.Step()

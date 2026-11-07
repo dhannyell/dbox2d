@@ -137,7 +137,7 @@ func fattenAABB(aabb AABB, margin Q) AABB {
 
 // updateShapeAABBs refreshes the tight bounds of a shape and its fat bounds.
 // It corresponds to b2UpdateShapeAABBs.
-func updateShapeAABBs(s *shape, fatAABB *AABB, transform Transform, proxyType BodyType) {
+func updateShapeAABBs(s *shape, fatAABB *AABB, transform WorldTransform, proxyType BodyType) {
 	// Compute a bounding box with a speculative margin
 	aabb := computeFatShapeAABB(s, transform, speculativeDistance)
 	s.aabb = aabb
@@ -145,7 +145,7 @@ func updateShapeAABBs(s *shape, fatAABB *AABB, transform Transform, proxyType Bo
 }
 
 // createShapeInternal allocates the shape record and links it to the body.
-func createShapeInternal(w *world, b *body, transform Transform, def *ShapeDef, geometry any, shapeType ShapeType) *shape {
+func createShapeInternal(w *world, b *body, transform WorldTransform, def *ShapeDef, geometry any, shapeType ShapeType) *shape {
 	shapeId := w.shapeIdPool.allocId()
 
 	if shapeId == len(w.shapes) {
@@ -252,7 +252,11 @@ func createShape(bodyId BodyId, def *ShapeDef, geometry any, shapeType ShapeType
 		updateBodyMassData(w, b)
 	}
 
-	return ShapeId{index1: int32(s.id) + 1, world0: bodyId.world0, generation: s.generation}
+	id := ShapeId{index1: int32(s.id) + 1, world0: bodyId.world0, generation: s.generation}
+	if w.recording != nil {
+		recordCreateShape(w, shapeType, id, bodyId, def, geometry)
+	}
+	return id
 }
 
 // CreateCircleShape creates a circle shape on a body. The definition must
@@ -463,12 +467,19 @@ func CreateChain(bodyId BodyId, def *ChainDef) ChainId {
 		}
 	}
 
-	return ChainId{index1: int32(chainID) + 1, world0: w.worldId, generation: chain.generation}
+	id := ChainId{index1: int32(chainID) + 1, world0: w.worldId, generation: chain.generation}
+	if w.recording != nil {
+		w.recording.recRet(opCreateChain, id, bodyId, *def)
+	}
+	return id
 }
 
 // DestroyChain ports b2DestroyChain.
 func DestroyChain(chainId ChainId) {
 	w := getWorldLocked(chainId.world0)
+	if w.recording != nil {
+		w.recording.rec(opDestroyChain, chainId)
+	}
 	id := int(chainId.index1) - 1
 	chain := &w.chainShapes[id]
 	if chain.id != id || chain.generation != chainId.generation {
@@ -567,6 +578,9 @@ func destroyShapeInternal(w *world, s *shape, b *body) {
 // mass of the body from the remaining shapes.
 func DestroyShape(shapeId ShapeId, updateBodyMass bool) {
 	w := getWorldLocked(shapeId.world0)
+	if w.recording != nil {
+		w.recording.rec(opDestroyShape, shapeId, updateBodyMass)
+	}
 
 	s := getShape(w, shapeId)
 
@@ -586,7 +600,7 @@ func DestroyShape(shapeId ShapeId, updateBodyMass bool) {
 
 // createShapeProxy refreshes the bounds of a shape and inserts it in the
 // broadphase. It corresponds to b2CreateShapeProxy in src/shape.c.
-func createShapeProxy(w *world, s *shape, proxyType BodyType, transform Transform, forcePairCreation bool) {
+func createShapeProxy(w *world, s *shape, proxyType BodyType, transform WorldTransform, forcePairCreation bool) {
 	if s.proxyKey != nullIndex {
 		panic("dbox2d: the shape already has a proxy")
 	}
@@ -611,7 +625,7 @@ func destroyShapeProxy(s *shape, bp *broadPhase) {
 }
 
 // computeShapeAABB returns the bounds of a shape under a transform.
-func computeShapeAABB(s *shape, xf Transform) AABB {
+func computeShapeAABB(s *shape, xf WorldTransform) AABB {
 	switch s.shapeType {
 	case CapsuleShape:
 		return ComputeCapsuleBounds(s.capsule(), xf)
@@ -632,47 +646,44 @@ func computeShapeAABB(s *shape, xf Transform) AABB {
 // side. Like upstream, the radius and extra are summed before they meet the
 // position, so each bound rounds once. It corresponds to
 // b2ComputeFatShapeAABB.
-func computeFatShapeAABB(s *shape, xf Transform, extra Q) AABB {
-	var lower, upper Vec2
+func computeFatShapeAABB(s *shape, xf WorldTransform, extra Q) AABB {
+	var lower, upper Pos
 	radius := QZero()
 	switch s.shapeType {
 	case CapsuleShape:
 		c := s.capsule()
-		v1 := TransformPoint(xf, c.Center1)
-		v2 := TransformPoint(xf, c.Center2)
-		lower, upper, radius = Min(v1, v2), Max(v1, v2), c.Radius
+		v1 := TransformWorldPoint(xf, c.Center1)
+		v2 := TransformWorldPoint(xf, c.Center2)
+		lower, upper, radius = posMin(v1, v2), posMax(v1, v2), c.Radius
 	case CircleShape:
 		c := s.circle()
-		lower = TransformPoint(xf, c.Center)
+		lower = TransformWorldPoint(xf, c.Center)
 		upper, radius = lower, c.Radius
 	case PolygonShape:
 		poly := s.polygon()
-		lower = TransformPoint(xf, poly.Vertices[0])
+		lower = TransformWorldPoint(xf, poly.Vertices[0])
 		upper = lower
 		for i := 1; i < poly.Count; i++ {
-			v := TransformPoint(xf, poly.Vertices[i])
-			lower = Min(lower, v)
-			upper = Max(upper, v)
+			v := TransformWorldPoint(xf, poly.Vertices[i])
+			lower = posMin(lower, v)
+			upper = posMax(upper, v)
 		}
 		radius = poly.Radius
 	case SegmentShape:
 		seg := s.segment()
-		v1 := TransformPoint(xf, seg.Point1)
-		v2 := TransformPoint(xf, seg.Point2)
-		lower, upper = Min(v1, v2), Max(v1, v2)
+		v1 := TransformWorldPoint(xf, seg.Point1)
+		v2 := TransformWorldPoint(xf, seg.Point2)
+		lower, upper = posMin(v1, v2), posMax(v1, v2)
 	case ChainSegmentShape:
 		seg := &s.chainSegment().Segment
-		v1 := TransformPoint(xf, seg.Point1)
-		v2 := TransformPoint(xf, seg.Point2)
-		lower, upper = Min(v1, v2), Max(v1, v2)
+		v1 := TransformWorldPoint(xf, seg.Point1)
+		v2 := TransformWorldPoint(xf, seg.Point2)
+		lower, upper = posMin(v1, v2), posMax(v1, v2)
 	default:
 		panic("dbox2d: unknown shape type")
 	}
 
-	return AABB{
-		LowerBound: Vec2{X: qSubSum(lower.X, radius, extra), Y: qSubSum(lower.Y, radius, extra)},
-		UpperBound: Vec2{X: qAddSum(upper.X, radius, extra), Y: qAddSum(upper.Y, radius, extra)},
-	}
+	return posBox(lower, upper, radius, extra)
 }
 
 // getShapeCentroid returns the centroid of a shape in local coordinates.
@@ -1063,6 +1074,9 @@ func (chainId ChainId) SetSurfaceMaterial(material SurfaceMaterial, segmentIndex
 	validateMaterial(&material, "SetSurfaceMaterial material")
 
 	w := getWorldLocked(chainId.world0)
+	if w.recording != nil {
+		w.recording.rec(opChainSetSurfaceMaterial, chainId, material, segmentIndex)
+	}
 	chain := getChain(w, chainId)
 	if segmentIndex < 0 || len(chain.shapeIndices) <= segmentIndex {
 		panic("dbox2d: the chain segment index is out of range")
@@ -1076,6 +1090,9 @@ func (chainId ChainId) SetAllSurfaceMaterials(material SurfaceMaterial) {
 	validateMaterial(&material, "SetAllSurfaceMaterials material")
 
 	w := getWorldLocked(chainId.world0)
+	if w.recording != nil {
+		w.recording.rec(opChainSetAllSurfaceMaterials, chainId, material)
+	}
 	chain := getChain(w, chainId)
 	for _, shapeIndex := range chain.shapeIndices {
 		setShapeMaterial(&w.shapes[shapeIndex], material)
@@ -1163,11 +1180,11 @@ func (shapeId ShapeId) GetSensorData(overlaps []ShapeId) int {
 
 // TestPoint reports whether a world point lies within the shape. It
 // corresponds to b2Shape_TestPoint.
-func (shapeId ShapeId) TestPoint(point Vec2) bool {
+func (shapeId ShapeId) TestPoint(point Pos) bool {
 	w := getWorld(shapeId.world0)
 	s := getShape(w, shapeId)
 	transform := getBodyTransform(w, s.bodyId)
-	localPoint := InvTransformPoint(transform, point)
+	localPoint := InvTransformWorldPoint(transform, point)
 
 	switch s.shapeType {
 	case CapsuleShape:
@@ -1190,13 +1207,33 @@ func (shapeId ShapeId) TestPoint(point Vec2) bool {
 	}
 }
 
-// CastRay casts a world-space ray against the shape. It corresponds to
+// CastRay casts a ray against the shape. The ray starts at origin and the
+// translation is relative to it. The cast runs in the frame of the origin and
+// the hit point is lifted back to a world position. It corresponds to
 // b2Shape_CastRay.
-func (shapeId ShapeId) CastRay(input *RayCastInput) CastOutput {
+func (shapeId ShapeId) CastRay(origin Pos, translation Vec2) WorldCastOutput {
+	if !IsValidPos(origin) || !IsValidVec2(translation) {
+		panic("dbox2d: CastRay needs a valid origin and translation")
+	}
 	w := getWorld(shapeId.world0)
 	s := getShape(w, shapeId)
-	transform := getBodyTransform(w, s.bodyId)
-	return rayCastShape(input, s, transform)
+
+	// Re-center on the origin so the cast runs in float precision.
+	transform := ToRelativeTransform(getBodyTransform(w, s.bodyId), origin)
+
+	// The ray starts at the origin, so its origin in the re-centered frame is
+	// zero.
+	input := RayCastInput{Origin: Vec2Zero(), Translation: translation, MaxFraction: QOne()}
+
+	// Lift the re-centered float result back to a world position.
+	local := rayCastShape(&input, s, transform)
+	var output WorldCastOutput
+	output.Normal = local.Normal
+	output.Point = OffsetPos(origin, local.Point)
+	output.Fraction = local.Fraction
+	output.Iterations = local.Iterations
+	output.Hit = local.Hit
+	return output
 }
 
 // SetDensity changes the shape density and optionally updates body mass. It
@@ -1208,6 +1245,9 @@ func (shapeId ShapeId) SetDensity(density Q, updateBodyMass bool) {
 	}
 
 	w := getWorldLocked(shapeId.world0)
+	if w.recording != nil {
+		w.recording.rec(opShapeSetDensity, shapeId, density, updateBodyMass)
+	}
 	s := getShape(w, shapeId)
 	if density.Eq(s.density) {
 		return
@@ -1235,6 +1275,9 @@ func (shapeId ShapeId) SetFriction(friction Q) {
 	}
 
 	w := getWorldLocked(shapeId.world0)
+	if w.recording != nil {
+		w.recording.rec(opShapeSetFriction, shapeId, friction)
+	}
 	getShape(w, shapeId).friction = friction
 }
 
@@ -1254,6 +1297,9 @@ func (shapeId ShapeId) SetRestitution(restitution Q) {
 	}
 
 	w := getWorldLocked(shapeId.world0)
+	if w.recording != nil {
+		w.recording.rec(opShapeSetRestitution, shapeId, restitution)
+	}
 	getShape(w, shapeId).restitution = restitution
 }
 
@@ -1297,6 +1343,9 @@ func setShapeMaterial(s *shape, material SurfaceMaterial) {
 // b2Shape_SetUserMaterial.
 func (shapeId ShapeId) SetUserMaterial(material uint64) {
 	w := getWorldLocked(shapeId.world0)
+	if w.recording != nil {
+		w.recording.rec(opShapeSetUserMaterial, shapeId, material)
+	}
 	getShape(w, shapeId).userMaterialId = material
 }
 
@@ -1313,6 +1362,9 @@ func (shapeId ShapeId) SetSurfaceMaterial(material SurfaceMaterial) {
 	validateMaterial(&material, "SetSurfaceMaterial material")
 
 	w := getWorldLocked(shapeId.world0)
+	if w.recording != nil {
+		w.recording.rec(opShapeSetSurfaceMaterial, shapeId, material)
+	}
 	setShapeMaterial(getShape(w, shapeId), material)
 }
 
@@ -1339,6 +1391,9 @@ func (shapeId ShapeId) ApplyWind(wind Vec2, drag, lift Q, wake bool) {
 	}
 
 	w := getWorld(shapeId.world0)
+	if w.recording != nil {
+		w.recording.rec(opShapeApplyWind, shapeId, wind, drag, lift, wake)
+	}
 	s := getShape(w, shapeId)
 
 	shapeType := s.shapeType
@@ -1484,6 +1539,9 @@ func resetProxy(w *world, s *shape, wakeBodies, destroyProxy bool) {
 // b2Shape_SetFilter.
 func (shapeId ShapeId) SetFilter(filter Filter) {
 	w := getWorldLocked(shapeId.world0)
+	if w.recording != nil {
+		w.recording.rec(opShapeSetFilter, shapeId, filter)
+	}
 	s := getShape(w, shapeId)
 	if filter.MaskBits == s.filter.MaskBits &&
 		filter.CategoryBits == s.filter.CategoryBits &&
@@ -1500,6 +1558,9 @@ func (shapeId ShapeId) SetFilter(filter Filter) {
 // b2Shape_EnableSensorEvents.
 func (shapeId ShapeId) EnableSensorEvents(flag bool) {
 	w := getWorldLocked(shapeId.world0)
+	if w.recording != nil {
+		w.recording.rec(opShapeEnableSensorEvents, shapeId, flag)
+	}
 	getShape(w, shapeId).enableSensorEvents = flag
 }
 
@@ -1514,6 +1575,9 @@ func (shapeId ShapeId) AreSensorEventsEnabled() bool {
 // b2Shape_EnableContactEvents.
 func (shapeId ShapeId) EnableContactEvents(flag bool) {
 	w := getWorldLocked(shapeId.world0)
+	if w.recording != nil {
+		w.recording.rec(opShapeEnableContactEvents, shapeId, flag)
+	}
 	getShape(w, shapeId).enableContactEvents = flag
 }
 
@@ -1528,6 +1592,9 @@ func (shapeId ShapeId) AreContactEventsEnabled() bool {
 // to b2Shape_EnablePreSolveEvents.
 func (shapeId ShapeId) EnablePreSolveEvents(flag bool) {
 	w := getWorldLocked(shapeId.world0)
+	if w.recording != nil {
+		w.recording.rec(opShapeEnablePreSolveEvents, shapeId, flag)
+	}
 	getShape(w, shapeId).enablePreSolveEvents = flag
 }
 
@@ -1542,6 +1609,9 @@ func (shapeId ShapeId) ArePreSolveEventsEnabled() bool {
 // b2Shape_EnableHitEvents.
 func (shapeId ShapeId) EnableHitEvents(flag bool) {
 	w := getWorldLocked(shapeId.world0)
+	if w.recording != nil {
+		w.recording.rec(opShapeEnableHitEvents, shapeId, flag)
+	}
 	getShape(w, shapeId).enableHitEvents = flag
 }
 
@@ -1618,6 +1688,9 @@ func (shapeId ShapeId) GetPolygon() Polygon {
 // b2Shape_SetCircle.
 func (shapeId ShapeId) SetCircle(circle *Circle) {
 	w := getWorldLocked(shapeId.world0)
+	if w.recording != nil {
+		w.recording.rec(opShapeSetCircle, shapeId, *circle)
+	}
 	s := getShape(w, shapeId)
 	*s.circle() = *circle
 	s.shapeType = CircleShape
@@ -1629,6 +1702,9 @@ func (shapeId ShapeId) SetCircle(circle *Circle) {
 // b2Shape_SetCapsule.
 func (shapeId ShapeId) SetCapsule(capsule *Capsule) {
 	w := getWorldLocked(shapeId.world0)
+	if w.recording != nil {
+		w.recording.rec(opShapeSetCapsule, shapeId, *capsule)
+	}
 	s := getShape(w, shapeId)
 	*s.capsule() = *capsule
 	s.shapeType = CapsuleShape
@@ -1640,6 +1716,9 @@ func (shapeId ShapeId) SetCapsule(capsule *Capsule) {
 // b2Shape_SetSegment.
 func (shapeId ShapeId) SetSegment(segment *Segment) {
 	w := getWorldLocked(shapeId.world0)
+	if w.recording != nil {
+		w.recording.rec(opShapeSetSegment, shapeId, *segment)
+	}
 	s := getShape(w, shapeId)
 	*s.segment() = *segment
 	s.shapeType = SegmentShape
@@ -1668,6 +1747,9 @@ func (shapeId ShapeId) SetChainSegment(chainSegment *ChainSegment) {
 		return
 	}
 
+	if w.recording != nil {
+		w.recording.rec(opShapeSetChainSegment, shapeId, *chainSegment)
+	}
 	*s.chainSegment() = *chainSegment
 	s.chainSegment().ChainId = nullIndex
 	s.shapeType = ChainSegmentShape
@@ -1679,6 +1761,9 @@ func (shapeId ShapeId) SetChainSegment(chainSegment *ChainSegment) {
 // b2Shape_SetPolygon.
 func (shapeId ShapeId) SetPolygon(polygon *Polygon) {
 	w := getWorldLocked(shapeId.world0)
+	if w.recording != nil {
+		w.recording.rec(opShapeSetPolygon, shapeId, *polygon)
+	}
 	s := getShape(w, shapeId)
 	*s.polygon() = *polygon
 	s.shapeType = PolygonShape
@@ -1745,7 +1830,7 @@ func (shapeId ShapeId) ComputeMassData() MassData {
 
 // GetClosestPoint returns the closest point on the shape to a world target.
 // It corresponds to b2Shape_GetClosestPoint.
-func (shapeId ShapeId) GetClosestPoint(target Vec2) Vec2 {
+func (shapeId ShapeId) GetClosestPoint(target Pos) Pos {
 	w := getWorld(shapeId.world0)
 	s := getShape(w, shapeId)
 	b := &w.bodies[s.bodyId]
@@ -1754,14 +1839,14 @@ func (shapeId ShapeId) GetClosestPoint(target Vec2) Vec2 {
 	// The target rides in as the frame of proxy B, so the relative pose is
 	// differenced before the query.
 	zero := QZero()
-	targetTransform := Transform{P: target, Q: RotIdentity()}
+	targetTransform := WorldTransform{P: target, Q: RotIdentity()}
 	input := DistanceInput{
 		ProxyA:    makeShapeDistanceProxy(s),
 		ProxyB:    MakeProxy([]Vec2{Vec2Zero()}, zero),
-		Transform: InvMulTransforms(transform, targetTransform),
+		Transform: InvMulWorldTransforms(transform, targetTransform),
 		UseRadii:  true,
 	}
 	cache := SimplexCache{}
 	output := ComputeShapeDistance(&input, &cache, nil)
-	return TransformPoint(transform, output.PointA)
+	return TransformWorldPoint(transform, output.PointA)
 }

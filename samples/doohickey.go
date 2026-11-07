@@ -32,31 +32,31 @@ func (d *doohickey) spawn(worldId b2.WorldId, position b2.Vec2, scale b2.Q) {
 		Radius:  b2.F(0.15).Mul(scale),
 	}
 
-	bodyDef.Position = b2.MulAdd(position, scale, b2.Vec2{
+	bodyDef.Position = b2.ToPos(b2.MulAdd(position, scale, b2.Vec2{
 		X: b2.F(-5),
 		Y: b2.F(3),
-	})
+	}))
 	d.wheelId1 = b2.CreateBody(worldId, &bodyDef)
 	b2.CreateCircleShape(d.wheelId1, &shapeDef, &circle)
 
-	bodyDef.Position = b2.MulAdd(position, scale, b2.Vec2{
+	bodyDef.Position = b2.ToPos(b2.MulAdd(position, scale, b2.Vec2{
 		X: b2.F(5),
 		Y: b2.F(3),
-	})
+	}))
 	d.wheelId2 = b2.CreateBody(worldId, &bodyDef)
 	b2.CreateCircleShape(d.wheelId2, &shapeDef, &circle)
 
-	bodyDef.Position = b2.MulAdd(position, scale, b2.Vec2{
+	bodyDef.Position = b2.ToPos(b2.MulAdd(position, scale, b2.Vec2{
 		X: b2.F(-1.5),
 		Y: b2.F(3),
-	})
+	}))
 	d.barId1 = b2.CreateBody(worldId, &bodyDef)
 	b2.CreateCapsuleShape(d.barId1, &shapeDef, &capsule)
 
-	bodyDef.Position = b2.MulAdd(position, scale, b2.Vec2{
+	bodyDef.Position = b2.ToPos(b2.MulAdd(position, scale, b2.Vec2{
 		X: b2.F(1.5),
 		Y: b2.F(3),
-	})
+	}))
 	d.barId2 = b2.CreateBody(worldId, &bodyDef)
 	b2.CreateCapsuleShape(d.barId2, &shapeDef, &capsule)
 

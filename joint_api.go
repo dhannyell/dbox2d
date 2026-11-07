@@ -52,7 +52,10 @@ func currentAngularSpeed(w *world, js *jointSim) Q {
 // EnableSpring enables or disables the spring on a distance, prismatic,
 // revolute or wheel joint.
 func (jointId JointId) EnableSpring(enableSpring bool) {
-	_, j, js := jointSimOf(jointId)
+	w, j, js := jointSimOf(jointId)
+	if w.recording != nil {
+		w.recording.recJoint(j.jointType, "EnableSpring", jointId, enableSpring)
+	}
 	switch j.jointType {
 	case DistanceJoint:
 		js.distance().enableSpring = enableSpring
@@ -98,7 +101,10 @@ func (jointId JointId) IsSpringEnabled() bool {
 // pogo, prismatic, revolute or wheel joint.
 func (jointId JointId) SetSpringHertz(hertz Q) {
 	checkValidQ(hertz, "SetSpringHertz")
-	_, j, js := jointSimOf(jointId)
+	w, j, js := jointSimOf(jointId)
+	if w.recording != nil {
+		w.recording.recJoint(j.jointType, "SetSpringHertz", jointId, hertz)
+	}
 	switch j.jointType {
 	case DistanceJoint:
 		js.distance().hertz = hertz
@@ -139,7 +145,10 @@ func (jointId JointId) GetSpringHertz() Q {
 // pogo, prismatic, revolute or wheel joint.
 func (jointId JointId) SetSpringDampingRatio(dampingRatio Q) {
 	checkValidQ(dampingRatio, "SetSpringDampingRatio")
-	_, j, js := jointSimOf(jointId)
+	w, j, js := jointSimOf(jointId)
+	if w.recording != nil {
+		w.recording.recJoint(j.jointType, "SetSpringDampingRatio", jointId, dampingRatio)
+	}
 	switch j.jointType {
 	case DistanceJoint:
 		js.distance().dampingRatio = dampingRatio
@@ -179,7 +188,10 @@ func (jointId JointId) GetSpringDampingRatio() Q {
 // EnableLimit enables or disables the limit on a distance, prismatic,
 // revolute or wheel joint.
 func (jointId JointId) EnableLimit(enableLimit bool) {
-	_, j, js := jointSimOf(jointId)
+	w, j, js := jointSimOf(jointId)
+	if w.recording != nil {
+		w.recording.recJoint(j.jointType, "EnableLimit", jointId, enableLimit)
+	}
 	switch j.jointType {
 	case DistanceJoint:
 		js.distance().enableLimit = enableLimit
@@ -230,7 +242,17 @@ func (jointId JointId) IsLimitEnabled() bool {
 func (jointId JointId) SetLimits(lower, upper Q) {
 	checkValidQ(lower, "SetLimits")
 	checkValidQ(upper, "SetLimits")
-	_, j, js := jointSimOf(jointId)
+	w, j, js := jointSimOf(jointId)
+	if j.jointType == RevoluteJoint {
+		if upper.Less(lower) {
+			panic("dbox2d: SetLimits lower exceeds upper")
+		}
+		jointId.setRevoluteLimits(angleFromTurns(lower), angleFromTurns(upper))
+		return
+	}
+	if w.recording != nil {
+		w.recording.recJoint(j.jointType, "SetLimits", jointId, lower, upper)
+	}
 	switch j.jointType {
 	case DistanceJoint:
 		lower = lower.Clamp(linearSlop, Huge)
@@ -243,15 +265,6 @@ func (jointId JointId) SetLimits(lower, upper Q) {
 		}
 		js.prismatic().lowerTranslation = lower.Min(upper)
 		js.prismatic().upperTranslation = lower.Max(upper)
-	case RevoluteJoint:
-		if upper.Less(lower) {
-			panic("dbox2d: SetLimits lower exceeds upper")
-		}
-		// D-004: the reference bound of 0.99 pi is 0.495 turns.
-		lowerAngle := lower.Min(upper).Clamp(revoluteLimitAngle.Neg(), revoluteLimitAngle)
-		upperAngle := lower.Max(upper).Clamp(revoluteLimitAngle.Neg(), revoluteLimitAngle)
-		js.revolute().lowerAngle = angleFromTurns(lowerAngle)
-		js.revolute().upperAngle = angleFromTurns(upperAngle)
 	case WheelJoint:
 		if upper.Less(lower) {
 			panic("dbox2d: SetLimits lower exceeds upper")
@@ -261,6 +274,19 @@ func (jointId JointId) SetLimits(lower, upper Q) {
 	default:
 		unsupported("limits")
 	}
+}
+
+// setRevoluteLimits is SetLimits of a revolute joint in the angle unit of
+// the joint sim, the value the recording stores and the replay passes back
+// (D-025). D-004: the reference bound of 0.99 pi is 0.495 turns.
+func (jointId JointId) setRevoluteLimits(lower, upper Q) {
+	w, _, js := jointSimOf(jointId)
+	if w.recording != nil {
+		w.recording.recJoint(RevoluteJoint, "SetLimits", jointId, lower, upper)
+	}
+	bound := angleFromTurns(revoluteLimitAngle)
+	js.revolute().lowerAngle = lower.Min(upper).Clamp(bound.Neg(), bound)
+	js.revolute().upperAngle = lower.Max(upper).Clamp(bound.Neg(), bound)
 }
 
 // GetLowerLimit reports the lower limit: a length, a translation or an
@@ -304,7 +330,10 @@ func (jointId JointId) GetUpperLimit() Q {
 // EnableMotor enables or disables the motor on a distance, prismatic,
 // revolute or wheel joint.
 func (jointId JointId) EnableMotor(enableMotor bool) {
-	_, j, js := jointSimOf(jointId)
+	w, j, js := jointSimOf(jointId)
+	if w.recording != nil {
+		w.recording.recJoint(j.jointType, "EnableMotor", jointId, enableMotor)
+	}
 	switch j.jointType {
 	case DistanceJoint:
 		if enableMotor != js.distance().enableMotor {
@@ -354,16 +383,30 @@ func (jointId JointId) IsMotorEnabled() bool {
 // joint.
 func (jointId JointId) SetTargetMotorSpeed(motorSpeed Q) {
 	checkValidQ(motorSpeed, "SetTargetMotorSpeed")
-	_, j, js := jointSimOf(jointId)
+	_, j, _ := jointSimOf(jointId)
+	if j.jointType == RevoluteJoint || j.jointType == WheelJoint {
+		motorSpeed = angleFromTurns(motorSpeed)
+	}
+	jointId.setTargetMotorSpeedRaw(motorSpeed)
+}
+
+// setTargetMotorSpeedRaw is SetTargetMotorSpeed in the unit of the joint
+// sim: an angle unit per second for the revolute and wheel joints. The
+// recording stores this value and the replay passes it back (D-025).
+func (jointId JointId) setTargetMotorSpeedRaw(motorSpeed Q) {
+	w, j, js := jointSimOf(jointId)
+	if w.recording != nil {
+		w.recording.recJoint(j.jointType, "SetTargetMotorSpeed", jointId, motorSpeed)
+	}
 	switch j.jointType {
 	case DistanceJoint:
 		js.distance().motorSpeed = motorSpeed
 	case PrismaticJoint:
 		js.prismatic().motorSpeed = motorSpeed
 	case RevoluteJoint:
-		js.revolute().motorSpeed = angleFromTurns(motorSpeed)
+		js.revolute().motorSpeed = motorSpeed
 	case WheelJoint:
-		js.wheel().motorSpeed = angleFromTurns(motorSpeed)
+		js.wheel().motorSpeed = motorSpeed
 	default:
 		unsupported("a motor")
 	}
@@ -391,7 +434,10 @@ func (jointId JointId) GetTargetMotorSpeed() Q {
 // prismatic joint.
 func (jointId JointId) SetMaxMotorForce(force Q) {
 	checkValidQ(force, "SetMaxMotorForce")
-	_, j, js := jointSimOf(jointId)
+	w, j, js := jointSimOf(jointId)
+	if w.recording != nil {
+		w.recording.recJoint(j.jointType, "SetMaxMotorForce", jointId, force)
+	}
 	switch j.jointType {
 	case DistanceJoint:
 		js.distance().maxMotorForce = force
@@ -435,7 +481,10 @@ func (jointId JointId) GetCurrentMotorForce() Q {
 // joint.
 func (jointId JointId) SetMaxMotorTorque(torque Q) {
 	checkValidQ(torque, "SetMaxMotorTorque")
-	_, j, js := jointSimOf(jointId)
+	w, j, js := jointSimOf(jointId)
+	if w.recording != nil {
+		w.recording.recJoint(j.jointType, "SetMaxMotorTorque", jointId, torque)
+	}
 	switch j.jointType {
 	case RevoluteJoint:
 		js.revolute().maxMotorTorque = torque
@@ -479,7 +528,10 @@ func (jointId JointId) GetCurrentMotorTorque() Q {
 // distance joint clamps it to [linearSlop, Huge] and restarts its impulses.
 func (jointId JointId) SetRestLength(length Q) {
 	checkValidQ(length, "SetRestLength")
-	_, j, js := jointSimOf(jointId)
+	w, j, js := jointSimOf(jointId)
+	if w.recording != nil {
+		w.recording.recJoint(j.jointType, "SetRestLength", jointId, length)
+	}
 	switch j.jointType {
 	case DistanceJoint:
 		d := js.distance()
@@ -517,15 +569,16 @@ func (jointId JointId) GetCurrentLength() Q {
 	}
 	transformA := getBodyTransform(w, js.bodyIdA)
 	transformB := getBodyTransform(w, js.bodyIdB)
-	pA := TransformPoint(transformA, js.localFrameA.P)
-	pB := TransformPoint(transformB, js.localFrameB.P)
+	xfA, xfB := jointRelativeFrames(transformA, transformB)
+	pA := TransformPoint(xfA, js.localFrameA.P)
+	pB := TransformPoint(xfB, js.localFrameB.P)
 	d := pB.Sub(pA)
 	switch j.jointType {
 	case DistanceJoint:
 		return d.Len()
 	case PogoJoint:
 		axis := RotateVector(js.localFrameB.Q, pogoAxis())
-		axis = RotateVector(transformB.Q, axis)
+		axis = RotateVector(xfB.Q, axis)
 		return d.Dot(axis)
 	default:
 		unsupported("a current length")
@@ -560,6 +613,9 @@ func (jointId JointId) SetSpringForceRange(lowerForce, upperForce Q) {
 		panic("dbox2d: SetSpringForceRange lower exceeds upper")
 	}
 	w := getWorld(jointId.world0)
+	if w.recording != nil {
+		w.recording.recJoint(DistanceJoint, "SetSpringForceRange", jointId, lowerForce, upperForce)
+	}
 	js := getJointSimCheckType(w, jointId, DistanceJoint)
 	js.distance().lowerSpringForce = lowerForce.Min(upperForce)
 	js.distance().upperSpringForce = lowerForce.Max(upperForce)
@@ -587,6 +643,9 @@ func (jointId JointId) GetSpringForce() Q {
 func (jointId JointId) SetTargetTranslation(translation Q) {
 	checkValidQ(translation, "SetTargetTranslation")
 	w := getWorld(jointId.world0)
+	if w.recording != nil {
+		w.recording.recJoint(PrismaticJoint, "SetTargetTranslation", jointId, translation)
+	}
 	getJointSimCheckType(w, jointId, PrismaticJoint).prismatic().targetTranslation = translation
 }
 
@@ -604,9 +663,10 @@ func (jointId JointId) GetCurrentTranslation() Q {
 	transformA := getBodyTransform(w, js.bodyIdA)
 	transformB := getBodyTransform(w, js.bodyIdB)
 	localAxisA := RotGetXAxis(js.localFrameA.Q)
-	axisA := RotateVector(transformA.Q, localAxisA)
-	pA := TransformPoint(transformA, js.localFrameA.P)
-	pB := TransformPoint(transformB, js.localFrameB.P)
+	xfA, xfB := jointRelativeFrames(transformA, transformB)
+	axisA := RotateVector(xfA.Q, localAxisA)
+	pA := TransformPoint(xfA, js.localFrameA.P)
+	pB := TransformPoint(xfB, js.localFrameB.P)
 	return pB.Sub(pA).Dot(axisA)
 }
 
@@ -615,8 +675,17 @@ func (jointId JointId) GetCurrentTranslation() Q {
 // reference.
 func (jointId JointId) SetTargetAngle(angle Q) {
 	checkValidQ(angle, "SetTargetAngle")
+	jointId.setTargetAngleRaw(angleFromTurns(angle))
+}
+
+// setTargetAngleRaw is SetTargetAngle in the angle unit of the joint sim,
+// the value the recording stores and the replay passes back (D-025).
+func (jointId JointId) setTargetAngleRaw(angle Q) {
 	w := getWorld(jointId.world0)
-	getJointSimCheckType(w, jointId, RevoluteJoint).revolute().targetAngle = angleFromTurns(angle)
+	if w.recording != nil {
+		w.recording.recJoint(RevoluteJoint, "SetTargetAngle", jointId, angle)
+	}
+	getJointSimCheckType(w, jointId, RevoluteJoint).revolute().targetAngle = angle
 }
 
 // GetTargetAngle reports the spring target of a revolute joint in turns.
@@ -639,7 +708,10 @@ func (jointId JointId) GetCurrentAngle() Q {
 // joint.
 func (jointId JointId) SetLinearHertz(hertz Q) {
 	checkValidQ(hertz, "SetLinearHertz")
-	_, j, js := jointSimOf(jointId)
+	w, j, js := jointSimOf(jointId)
+	if w.recording != nil {
+		w.recording.recJoint(j.jointType, "SetLinearHertz", jointId, hertz)
+	}
 	switch j.jointType {
 	case MotorJoint:
 		js.motor().linearHertz = hertz
@@ -671,7 +743,10 @@ func (jointId JointId) GetLinearHertz() Q {
 // or weld joint.
 func (jointId JointId) SetLinearDampingRatio(dampingRatio Q) {
 	checkValidQ(dampingRatio, "SetLinearDampingRatio")
-	_, j, js := jointSimOf(jointId)
+	w, j, js := jointSimOf(jointId)
+	if w.recording != nil {
+		w.recording.recJoint(j.jointType, "SetLinearDampingRatio", jointId, dampingRatio)
+	}
 	switch j.jointType {
 	case MotorJoint:
 		js.motor().linearDampingRatio = dampingRatio
@@ -703,7 +778,10 @@ func (jointId JointId) GetLinearDampingRatio() Q {
 // joint.
 func (jointId JointId) SetAngularHertz(hertz Q) {
 	checkValidQ(hertz, "SetAngularHertz")
-	_, j, js := jointSimOf(jointId)
+	w, j, js := jointSimOf(jointId)
+	if w.recording != nil {
+		w.recording.recJoint(j.jointType, "SetAngularHertz", jointId, hertz)
+	}
 	switch j.jointType {
 	case MotorJoint:
 		js.motor().angularHertz = hertz
@@ -735,7 +813,10 @@ func (jointId JointId) GetAngularHertz() Q {
 // motor or weld joint.
 func (jointId JointId) SetAngularDampingRatio(dampingRatio Q) {
 	checkValidQ(dampingRatio, "SetAngularDampingRatio")
-	_, j, js := jointSimOf(jointId)
+	w, j, js := jointSimOf(jointId)
+	if w.recording != nil {
+		w.recording.recJoint(j.jointType, "SetAngularDampingRatio", jointId, dampingRatio)
+	}
 	switch j.jointType {
 	case MotorJoint:
 		js.motor().angularDampingRatio = dampingRatio
@@ -769,7 +850,10 @@ func (jointId JointId) SetLinearVelocity(velocity Vec2) {
 	if !IsValidVec2(velocity) {
 		panic("dbox2d: SetLinearVelocity needs a valid vector")
 	}
-	_, j, js := jointSimOf(jointId)
+	w, j, js := jointSimOf(jointId)
+	if w.recording != nil {
+		w.recording.recJoint(j.jointType, "SetLinearVelocity", jointId, velocity)
+	}
 	switch j.jointType {
 	case MotorJoint:
 		js.motor().linearVelocity = velocity
@@ -799,8 +883,18 @@ func (jointId JointId) GetLinearVelocity() Vec2 {
 // in turns per second.
 func (jointId JointId) SetAngularVelocity(velocity Q) {
 	checkValidQ(velocity, "SetAngularVelocity")
+	jointId.setMotorAngularVelocityRaw(angleFromTurns(velocity))
+}
+
+// setMotorAngularVelocityRaw is SetAngularVelocity of a motor joint in the
+// angle unit of the joint sim, the value the recording stores and the replay
+// passes back (D-025).
+func (jointId JointId) setMotorAngularVelocityRaw(velocity Q) {
 	w := getWorld(jointId.world0)
-	getJointSimCheckType(w, jointId, MotorJoint).motor().angularVelocity = angleFromTurns(velocity)
+	if w.recording != nil {
+		w.recording.recJoint(MotorJoint, "SetAngularVelocity", jointId, velocity)
+	}
+	getJointSimCheckType(w, jointId, MotorJoint).motor().angularVelocity = velocity
 }
 
 // GetAngularVelocity reports the target angular velocity of a motor joint
@@ -816,6 +910,9 @@ func (jointId JointId) GetAngularVelocity() Q {
 func (jointId JointId) SetMaxVelocityForce(maxForce Q) {
 	checkValidQ(maxForce, "SetMaxVelocityForce")
 	w := getWorld(jointId.world0)
+	if w.recording != nil {
+		w.recording.recJoint(MotorJoint, "SetMaxVelocityForce", jointId, maxForce)
+	}
 	getJointSimCheckType(w, jointId, MotorJoint).motor().maxVelocityForce = maxForce
 }
 
@@ -833,6 +930,9 @@ func (jointId JointId) SetMoverMaxVelocityForce(maxForce Vec2) {
 		panic("dbox2d: SetMoverMaxVelocityForce needs a valid vector")
 	}
 	w := getWorld(jointId.world0)
+	if w.recording != nil {
+		w.recording.recJoint(MoverJoint, "SetMaxVelocityForce", jointId, maxForce)
+	}
 	getJointSimCheckType(w, jointId, MoverJoint).mover().maxVelocityForce = maxForce
 }
 
@@ -848,6 +948,9 @@ func (jointId JointId) GetMoverMaxVelocityForce() Vec2 {
 func (jointId JointId) SetMaxVelocityTorque(maxTorque Q) {
 	checkValidQ(maxTorque, "SetMaxVelocityTorque")
 	w := getWorld(jointId.world0)
+	if w.recording != nil {
+		w.recording.recJoint(MotorJoint, "SetMaxVelocityTorque", jointId, maxTorque)
+	}
 	getJointSimCheckType(w, jointId, MotorJoint).motor().maxVelocityTorque = maxTorque
 }
 
@@ -863,6 +966,9 @@ func (jointId JointId) GetMaxVelocityTorque() Q {
 func (jointId JointId) SetMaxSpringForce(maxForce Q) {
 	checkValidQ(maxForce, "SetMaxSpringForce")
 	w := getWorld(jointId.world0)
+	if w.recording != nil {
+		w.recording.recJoint(MotorJoint, "SetMaxSpringForce", jointId, maxForce)
+	}
 	getJointSimCheckType(w, jointId, MotorJoint).motor().maxSpringForce = maxForce.Max(QZero())
 }
 
@@ -878,6 +984,9 @@ func (jointId JointId) GetMaxSpringForce() Q {
 func (jointId JointId) SetMaxSpringTorque(maxTorque Q) {
 	checkValidQ(maxTorque, "SetMaxSpringTorque")
 	w := getWorld(jointId.world0)
+	if w.recording != nil {
+		w.recording.recJoint(MotorJoint, "SetMaxSpringTorque", jointId, maxTorque)
+	}
 	getJointSimCheckType(w, jointId, MotorJoint).motor().maxSpringTorque = maxTorque.Max(QZero())
 }
 

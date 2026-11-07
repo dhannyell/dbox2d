@@ -139,7 +139,7 @@ type PreSolveFcn func(shapeIdA, shapeIdB ShapeId, manifold *Manifold)
 // event. It runs only for shapes with pre-solve events enabled. It
 // corresponds to b2PreContinuousCallbackFcn and has the threading rules of
 // PreSolveFcn.
-type PreContinuousFcn func(shapeIdA, shapeIdB ShapeId, point, normal Vec2) bool
+type PreContinuousFcn func(shapeIdA, shapeIdB ShapeId, point Pos, normal Vec2) bool
 
 // DefaultWorldDef returns the default world definition.
 func DefaultWorldDef() WorldDef {
@@ -201,7 +201,7 @@ type BodyDef struct {
 
 	// The initial world position. Create a body at its final position:
 	// creating it at the origin and moving it costs nearly twice as much.
-	Position Vec2
+	Position Pos
 
 	// The initial world rotation. Use MakeRot for an angle in turns.
 	Rotation Rot
@@ -332,7 +332,7 @@ type ExplosionDef struct {
 	MaskBits uint64
 
 	// Position is the center of the explosion in world space.
-	Position Vec2
+	Position Pos
 
 	// Radius is the full-impulse radius of the explosion.
 	Radius Q
@@ -565,7 +565,7 @@ type ContactHitEvent struct {
 
 	// Point is where the shapes hit at the start of the step. It is the
 	// mid-point between the two surfaces.
-	Point Vec2
+	Point Pos
 
 	// Normal points from shape A to shape B.
 	Normal Vec2
@@ -608,7 +608,7 @@ type SensorEvents struct {
 // it can sleep the object of the body. With sleep disabled, every dynamic
 // and kinematic body reports on every step.
 type BodyMoveEvent struct {
-	Transform  Transform
+	Transform  WorldTransform
 	BodyId     BodyId
 	UserData   any
 	FellAsleep bool
@@ -631,7 +631,7 @@ type OverlapResultFcn func(shapeId ShapeId) bool
 // shape, 0 to stop, the fraction to clip the ray for the closest hit, or
 // 1 to continue. It corresponds to b2CastResultFcn in
 // include/box2d/types.h; the closure carries the context.
-type CastResultFcn func(shapeId ShapeId, point, normal Vec2, fraction Q) Q
+type CastResultFcn func(shapeId ShapeId, point Pos, normal Vec2, fraction Q) Q
 
 // PlaneResultFcn receives each collision plane a mover query finds.
 // Return true to keep gathering planes. It corresponds to
@@ -645,7 +645,7 @@ type PlaneResultFcn func(shapeId ShapeId, result *PlaneResult) bool
 // include/box2d/types.h.
 type RayResult struct {
 	ShapeId    ShapeId
-	Point      Vec2
+	Point      Pos
 	Normal     Vec2
 	Fraction   Q
 	NodeVisits int

@@ -231,7 +231,7 @@ func readConformanceFunctionTrace(t *testing.T, path string) []conformanceFuncti
 }
 
 type conformanceSceneBody struct {
-	position [2]conformanceTraceFloat
+	position [2]conformanceTracePos
 	rotation [2]conformanceTraceFloat
 }
 
@@ -306,7 +306,7 @@ func readConformanceSceneTrace(t *testing.T, path string) conformanceSceneTrace 
 				t.Fatalf("scene trace %s repeats body %d at step %d", path, index, current.index)
 			}
 			current.bodies[index] = conformanceSceneBody{
-				position: [2]conformanceTraceFloat{parseConformanceFloat(t, fields[2]), parseConformanceFloat(t, fields[3])},
+				position: [2]conformanceTracePos{parseConformancePos(t, fields[2]), parseConformancePos(t, fields[3])},
 				rotation: [2]conformanceTraceFloat{parseConformanceFloat(t, fields[4]), parseConformanceFloat(t, fields[5])},
 			}
 		default:
@@ -317,6 +317,12 @@ func readConformanceSceneTrace(t *testing.T, path string) conformanceSceneTrace 
 		t.Fatalf("scene trace %s declares %d steps but contains %d", path, stepCount, len(trace.steps))
 	}
 	return trace
+}
+
+// conformanceRotationPos widens a traced rotation float so the scene
+// residue code treats positions and rotations alike.
+func conformanceRotationPos(f conformanceTraceFloat) conformanceTracePos {
+	return conformanceTracePos{bits: uint64(f.bits), value: float64(f.value)}
 }
 
 func conformanceFloatMode() bool {
@@ -741,7 +747,7 @@ func TestConformance(t *testing.T) {
 	if err != nil {
 		t.Fatalf("find function conformance traces: %v", err)
 	}
-	scenePaths, err := filepath.Glob(filepath.Join(root, "scenes", "*.txt"))
+	scenePaths, err := filepath.Glob(filepath.Join(conformanceSceneRoot, "scenes", "*.txt"))
 	if err != nil {
 		t.Fatalf("find scene conformance traces: %v", err)
 	}
@@ -779,7 +785,7 @@ func TestConformance(t *testing.T) {
 func conformanceSceneBodies(worldId WorldId) []BodyId {
 	aabb := AABB{LowerBound: Vec2{X: QFromInt(-1000000), Y: QFromInt(-1000000)}, UpperBound: Vec2{X: QFromInt(1000000), Y: QFromInt(1000000)}}
 	seen := make(map[BodyId]struct{})
-	worldId.OverlapAABB(Vec2{}, aabb, DefaultQueryFilter(), func(shapeId ShapeId) bool {
+	worldId.OverlapAABB(ToPos(Vec2{}), aabb, DefaultQueryFilter(), func(shapeId ShapeId) bool {
 		seen[shapeId.GetBody()] = struct{}{}
 		return true
 	})
@@ -795,8 +801,7 @@ func conformanceSceneHash(worldId WorldId) uint64 {
 	hash := FNVOffsetBasis
 	for _, bodyId := range conformanceSceneBodies(worldId) {
 		transform := bodyId.GetTransform()
-		hash = FNVFold(hash, qBits(transform.P.X))
-		hash = FNVFold(hash, qBits(transform.P.Y))
+		hash = foldConformancePos(hash, transform.P)
 		hash = FNVFold(hash, qBits(transform.Q.Cos))
 		hash = FNVFold(hash, qBits(transform.Q.Sin))
 	}
@@ -809,10 +814,10 @@ type conformanceSceneResidue struct {
 	field  string
 }
 
-func reportConformanceSceneAbs(t *testing.T, tolerance float64, gate bool, step, body int, field string, got Q, want conformanceTraceFloat) float64 {
-	difference := math.Abs(QToFloat64(got) - float64(want.value))
+func reportConformanceSceneAbs(t *testing.T, tolerance float64, gate bool, step, body int, field string, got float64, gotBits uint64, want conformanceTracePos) float64 {
+	difference := math.Abs(got - want.value)
 	if gate && difference > tolerance {
-		t.Errorf("step %d body %d %s mismatch: got 0x%016x (%g), want 0x%08x (%g), abs=%g", step, body, field, qBits(got), QToFloat64(got), want.bits, want.value, difference)
+		t.Errorf("step %d body %d %s mismatch: got 0x%016x (%g), want 0x%016x (%g), abs=%g", step, body, field, gotBits, got, want.bits, want.value, difference)
 	}
 	return difference
 }
@@ -877,21 +882,23 @@ func runConformanceSceneTrace(t *testing.T, name, path string, floatMode bool) {
 						continue
 					}
 					transform := bodyId.GetTransform()
+					gotX, gotY, gotXBits, gotYBits := positionSample(transform.P)
 					for _, sample := range []struct {
-						field string
-						got   Q
-						want  conformanceTraceFloat
+						field   string
+						got     float64
+						gotBits uint64
+						want    conformanceTracePos
 					}{
-						{field: "x", got: transform.P.X, want: want.position[0]},
-						{field: "y", got: transform.P.Y, want: want.position[1]},
-						{field: "c", got: transform.Q.Cos, want: want.rotation[0]},
-						{field: "s", got: transform.Q.Sin, want: want.rotation[1]},
+						{field: "x", got: gotX, gotBits: gotXBits, want: want.position[0]},
+						{field: "y", got: gotY, gotBits: gotYBits, want: want.position[1]},
+						{field: "c", got: QToFloat64(transform.Q.Cos), gotBits: qBits(transform.Q.Cos), want: conformanceRotationPos(want.rotation[0])},
+						{field: "s", got: QToFloat64(transform.Q.Sin), gotBits: qBits(transform.Q.Sin), want: conformanceRotationPos(want.rotation[1])},
 					} {
 						stepTolerance := tolerance.abs
 						if floatMode {
 							stepTolerance = tolerance.absFloat
 						}
-						difference := reportConformanceSceneAbs(t, stepTolerance, step == 1, step, bodyIndex, sample.field, sample.got, sample.want)
+						difference := reportConformanceSceneAbs(t, stepTolerance, step == 1, step, bodyIndex, sample.field, sample.got, sample.gotBits, sample.want)
 						if difference > residue.maxAbs {
 							residue.maxAbs = difference
 							residue.body = bodyIndex

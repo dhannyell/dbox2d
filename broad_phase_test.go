@@ -274,7 +274,7 @@ func TestBroadPhasePairsMatchBruteForce(t *testing.T) {
 	for i := range count {
 		bodyDef := DefaultBodyDef()
 		bodyDef.Type = types[i%3]
-		bodyDef.Position = Vec2{X: QFromRatio(rng.Intn(80), 4), Y: QFromRatio(rng.Intn(80), 4)}
+		bodyDef.Position = ToPos(Vec2{X: QFromRatio(rng.Intn(80), 4), Y: QFromRatio(rng.Intn(80), 4)})
 		bodyId := CreateBody(worldId, &bodyDef)
 		shapeDef := DefaultShapeDef()
 		shapeDef.Filter.CategoryBits = 1 << uint(rng.Intn(3))

@@ -75,7 +75,7 @@ func prepareMotorJoint(base *jointSim, context *stepContext) {
 
 	// Compute the initial center delta. Incremental position updates are
 	// relative to this.
-	joint.deltaCenter = bodySimB.center.Sub(bodySimA.center)
+	joint.deltaCenter = SubPos(bodySimB.center, bodySimA.center)
 
 	rA := joint.frameA.P
 	rB := joint.frameB.P

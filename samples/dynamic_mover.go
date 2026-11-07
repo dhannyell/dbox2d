@@ -194,7 +194,7 @@ func (m *dynamicMover) create(worldId b2.WorldId, def *dynamicMoverDef) {
 
 	// Position is the center of the capsule.
 	bodyDef.Type = b2.DynamicBody
-	bodyDef.Position = def.position
+	bodyDef.Position = b2.ToPos(def.position)
 	bodyDef.GravityScale = FromFloat64(m.gravityScale)
 	bodyDef.MotionLocks.AngularZ = true
 	bodyDef.EnableSleep = false
@@ -256,7 +256,7 @@ func (m *dynamicMover) jump() bool {
 
 	surfaceVelocity := b2.QZero()
 	if m.castResult.bodyId.IsValid() {
-		v := m.castResult.bodyId.GetWorldPointVelocity(m.castResult.point)
+		v := m.castResult.bodyId.GetWorldPointVelocity(b2.ToPos(m.castResult.point))
 		surfaceVelocity = v.Y
 	}
 
@@ -296,13 +296,13 @@ func (m *dynamicMover) update(timeStep, throttle b2.Q) {
 	translation := b2.Vec2{Y: rayLength.Neg()}
 
 	position := m.moverId.GetPosition()
-	origin := position.Add(m.capsule.Center1)
+	origin := b2.OffsetPos(position, m.capsule.Center1)
 
 	queryFilter := b2.QueryFilter{CategoryBits: m.filter.CategoryBits, MaskBits: m.filter.MaskBits}
 
 	m.castResult = dynamicMoverCastResult{}
-	m.worldId.CastRay(origin, translation, queryFilter, func(shapeId b2.ShapeId, point, normal b2.Vec2, fraction b2.Q) b2.Q {
-		m.castResult.point = point
+	m.worldId.CastRay(origin, translation, queryFilter, func(shapeId b2.ShapeId, point b2.Pos, normal b2.Vec2, fraction b2.Q) b2.Q {
+		m.castResult.point = b2.ToVec2(point)
 		m.castResult.normal = normal
 		m.castResult.bodyId = shapeId.GetBody()
 		m.castResult.fraction = fraction
@@ -310,7 +310,7 @@ func (m *dynamicMover) update(timeStep, throttle b2.Q) {
 		return fraction
 	})
 
-	m.pogoOrigin = origin
+	m.pogoOrigin = b2.ToVec2(origin)
 	m.pogoTranslation = translation
 	m.pogoFraction = one
 	if m.castResult.hit {
@@ -411,7 +411,7 @@ func (m *dynamicMover) update(timeStep, throttle b2.Q) {
 		moverWeight := FromFloat64(m.gravityScale).Mul(m.worldId.GetGravity().Len()).Mul(moverMass)
 
 		pogoDef := b2.DefaultPogoJointDef()
-		pogoDef.Base.LocalFrameA.P = m.castResult.bodyId.GetLocalPoint(m.castResult.point)
+		pogoDef.Base.LocalFrameA.P = m.castResult.bodyId.GetLocalPoint(b2.ToPos(m.castResult.point))
 		pogoDef.Base.LocalFrameB.P = m.capsule.Center1
 		pogoDef.Normal = m.castResult.normal
 		pogoDef.Base.BodyIdA = m.castResult.bodyId

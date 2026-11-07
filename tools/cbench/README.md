@@ -9,7 +9,7 @@ The two sides are:
 | side | harness | build |
 | --- | --- | --- |
 | Go | `TestSceneBench` in `bench_scene_test.go` | `dbox2d_simd`, `GOEXPERIMENT=simd`, Go 1.27.0 |
-| C | `tools/cbench` | Box2D v3.1.1 with `BOX2D_AVX2=ON` |
+| C | `tools/cbench` | Box2D v3.2.0, which picks AVX2 at run time (v3.1.1 needs `BOX2D_AVX2=ON`) |
 
 Both select the width-8 AVX2 lane path, so the comparison holds the
 algorithm, the lane width and the FMA rule fixed and varies only the
@@ -35,13 +35,13 @@ work, so `step_sum_ms` is the number that compares the two solvers and
 
 ## Reproduce
 
-The reference tree is not vendored. Clone Box2D v3.1.1 anywhere and name it
+The reference tree is not vendored. Clone Box2D v3.2.0 anywhere and name it
 with `BOX2D_SOURCE_DIR`; the default is a sibling checkout named `box2d`, so
 a clone next to this repository needs no flag. Configure refuses to proceed
 when the path holds no Box2D source.
 
 ```sh
-git clone --branch v3.1.1 --depth 1 https://github.com/erincatto/box2d ../box2d
+git clone --branch v3.2.0 --depth 1 https://github.com/erincatto/box2d ../box2d
 ```
 
 ```sh
@@ -112,7 +112,8 @@ Create the directory before the first run.
 ## Workers
 
 `b2CreateWorld` keeps `workerCount` only when `enqueueTask` and `finishTask`
-are both set (`src/world.c:224`). A harness that sets the count alone gets a
+are both set (`src/physics_world.c:285` in v3.2, `src/world.c:224` in
+v3.1.1). A harness that sets the count alone gets a
 world silently reset to one worker, so `--workers=8` would have measured
 single-threaded C against multi-threaded Go and called the difference a
 language gap.
@@ -124,6 +125,12 @@ box2d actually uses instead: split a range into chunks of at least
 `minRange`, run them on `workerCount` threads with distinct worker indices,
 and let the enqueueing thread take chunks while it waits, which is what
 `enkiWaitForTaskSet` does and what makes a one-worker run create no threads.
+
+v3.2 changed the contract: `enqueueTask` receives a whole task, which runs
+exactly once, and box2d splits the work itself. Under `CBENCH_V32`, set when
+the tree has `include/box2d/math_types.h`, the pool queues each task as one
+chunk of one item. The C harness passes no capacity hints, because the port
+has none.
 
 The port needs no equivalent: it carries its own executor, so `WorkerCount`
 alone is enough.
@@ -147,7 +154,10 @@ Drop `GOEXPERIMENT=simd`, or build with the Go 1.26 toolchain, and the same
 build tags quietly select the generic width-4 path. The build succeeds and
 the tests pass; only the measurement is wrong.
 
-On the C side `src/CMakeLists.txt` sets `BOX2D_AVX2` `PRIVATE` on the box2d
+On the C side v3.2 compiles the width-8 solver under a `target("avx2")`
+pragma and selects it at run time from CPUID. The harness reports the width
+that `b2GetSIMDWidth` returns, so a CPU without AVX2 reads as `sse2`. Under
+v3.1.1, `src/CMakeLists.txt` sets `BOX2D_AVX2` `PRIVATE` on the box2d
 target, so a harness that includes `core.h` without it reports `sse2` while
 linking an AVX2 library. `tools/cbench/CMakeLists.txt` passes the definition
 to the harness for that reason.
@@ -156,9 +166,10 @@ Both harnesses abort when the runtime path is not the one asked for.
 
 ## The clock
 
-`b2GetTicks` in `src/timer.c` reaches for `QueryPerformanceCounter` only
-under `_MSC_VER`. Built with MinGW it falls through to a stub that returns
-zero, so the reference cannot time itself in that configuration.
+In v3.1.1, `b2GetTicks` in `src/timer.c` reaches for
+`QueryPerformanceCounter` only under `_MSC_VER`. Built with MinGW it falls
+through to a stub that returns zero, so the reference cannot time itself in
+that configuration. v3.2 tests `_WIN32` instead.
 
 The Go monotonic clock on Windows quantises to the system tick, measured at
 500 microseconds here: a 4.5 ms step reads with double-digit percent error

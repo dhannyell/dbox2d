@@ -61,7 +61,7 @@ func sleepPair(t *testing.T, w *world, worldId WorldId) (idA, idB BodyId, sleepI
 func addStaticCircle(t *testing.T, worldId WorldId, position Vec2) BodyId {
 	t.Helper()
 	bodyDef := DefaultBodyDef()
-	bodyDef.Position = position
+	bodyDef.Position = ToPos(position)
 	bodyId := CreateBody(worldId, &bodyDef)
 	shapeDef := DefaultShapeDef()
 	circle := Circle{Radius: QHalf()}

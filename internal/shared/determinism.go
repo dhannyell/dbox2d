@@ -23,7 +23,7 @@ func CreateFallingHinges(worldId WorldId, opts Options) []BodyId {
 	}
 
 	groundDef := DefaultBodyDef()
-	groundDef.Position = Vec2{Y: QFromInt(-1)}
+	groundDef.Position = ToPos(Vec2{Y: QFromInt(-1)})
 	groundId := CreateBody(worldId, &groundDef)
 	ground := MakeBox(QFromInt(40), QOne())
 	shapeDef := DefaultShapeDef()
@@ -63,7 +63,7 @@ func CreateFallingHinges(worldId WorldId, opts Options) []BodyId {
 		for i := range rowCount {
 			bodyDef := DefaultBodyDef()
 			bodyDef.Type = DynamicBody
-			bodyDef.Position = Vec2{X: x.Add(offset.Mul(QFromInt(i))), Y: half.Add(QFromInt(2).Mul(half).Mul(QFromInt(i)))}
+			bodyDef.Position = ToPos(Vec2{X: x.Add(offset.Mul(QFromInt(i))), Y: half.Add(QFromInt(2).Mul(half).Mul(QFromInt(i)))})
 			// this tests the deterministic cosine and sine functions
 			angle := float32(-0.1)
 			if i&1 != 0 {

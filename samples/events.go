@@ -93,7 +93,7 @@ func NewSensorFunnel(ctx *SampleContext) Sample {
 		sign := b2.QOne()
 		y := b2.F(14)
 		for range 3 {
-			bodyDef.Position = b2.Vec2{Y: y}
+			bodyDef.Position = b2.ToPos(b2.Vec2{Y: y})
 			bodyDef.Type = b2.DynamicBody
 
 			bodyId := b2.CreateBody(s.WorldId, &bodyDef)
@@ -109,7 +109,7 @@ func NewSensorFunnel(ctx *SampleContext) Sample {
 			revoluteDef := b2.DefaultRevoluteJointDef()
 			revoluteDef.Base.BodyIdA = groundId
 			revoluteDef.Base.BodyIdB = bodyId
-			revoluteDef.Base.LocalFrameA.P = bodyDef.Position
+			revoluteDef.Base.LocalFrameA.P = b2.ToVec2(bodyDef.Position)
 			revoluteDef.Base.LocalFrameB.P = b2.Vec2{}
 			revoluteDef.MaxMotorTorque = b2.F(200)
 			revoluteDef.MotorSpeed = radiansQToTurns(b2.F(2).Mul(sign))
@@ -164,7 +164,7 @@ func (s *SensorFunnel) createElement() {
 		jointHertz := b2.F(6)
 		jointDamping := b2.QHalf()
 		colorize := true
-		*h = shared.CreateHuman(s.WorldId, center, scale, jointFriction, jointHertz, jointDamping, index+1, h, colorize)
+		*h = shared.CreateHuman(s.WorldId, b2.ToPos(center), scale, jointFriction, jointHertz, jointDamping, index+1, h, colorize)
 		h.EnableSensorEvents(true)
 	}
 
@@ -325,7 +325,7 @@ func NewSensorBookend(ctx *SampleContext) Sample {
 func (s *SensorBookend) createSensor1() {
 	bodyDef := b2.DefaultBodyDef()
 
-	bodyDef.Position = b2.V2(-2, 1)
+	bodyDef.Position = b2.ToPos(b2.V2(-2, 1))
 	s.sensorBodyId1 = b2.CreateBody(s.WorldId, &bodyDef)
 
 	shapeDef := b2.DefaultShapeDef()
@@ -339,7 +339,7 @@ func (s *SensorBookend) createSensor1() {
 func (s *SensorBookend) createSensor2() {
 	bodyDef := b2.DefaultBodyDef()
 	bodyDef.Type = b2.DynamicBody
-	bodyDef.Position = b2.V2(2, 1)
+	bodyDef.Position = b2.ToPos(b2.V2(2, 1))
 	s.sensorBodyId2 = b2.CreateBody(s.WorldId, &bodyDef)
 
 	shapeDef := b2.DefaultShapeDef()
@@ -358,7 +358,7 @@ func (s *SensorBookend) createSensor2() {
 
 func (s *SensorBookend) createVisitor() {
 	bodyDef := b2.DefaultBodyDef()
-	bodyDef.Position = b2.V2(-4, 1)
+	bodyDef.Position = b2.ToPos(b2.V2(-4, 1))
 	bodyDef.Type = b2.DynamicBody
 
 	s.visitorBodyId = b2.CreateBody(s.WorldId, &bodyDef)
@@ -538,7 +538,7 @@ func NewFootSensor(ctx *SampleContext) Sample {
 		bodyDef := b2.DefaultBodyDef()
 		bodyDef.Type = b2.DynamicBody
 		bodyDef.MotionLocks.AngularZ = true
-		bodyDef.Position = b2.V2(0, 1)
+		bodyDef.Position = b2.ToPos(b2.V2(0, 1))
 		s.playerId = b2.CreateBody(s.WorldId, &bodyDef)
 		shapeDef := b2.DefaultShapeDef()
 		shapeDef.Filter.CategoryBits = footPlayer
@@ -596,7 +596,7 @@ func (s *FootSensor) Step() {
 		shapeId := s.overlaps[i]
 		aabb := shapeId.GetBounds()
 		point := b2.AABBCenter(aabb)
-		s.Context.Draw.DrawPointFcn(point, b2.F(10), b2.ColorWhite)
+		s.Context.Draw.DrawPointFcn(b2.ToPos(point), b2.F(10), b2.ColorWhite)
 	}
 }
 
@@ -685,10 +685,10 @@ func (s *ContactEvent) spawnDebris() {
 	// Debris
 	bodyDef := b2.DefaultBodyDef()
 	bodyDef.Type = b2.DynamicBody
-	bodyDef.Position = b2.Vec2{
+	bodyDef.Position = b2.ToPos(b2.Vec2{
 		X: shared.RandomFloatRange(b2.F(-38), b2.F(38)),
 		Y: shared.RandomFloatRange(b2.F(-38), b2.F(38)),
-	}
+	})
 	// Turns; the reference range is -pi to pi radians.
 	bodyDef.Rotation = b2.MakeRot(shared.RandomFloatRange(b2.QHalf().Neg(), b2.QHalf()))
 	bodyDef.LinearVelocity = b2.Vec2{
@@ -749,8 +749,8 @@ func (s *ContactEvent) drawContactImpulses(shapeId, otherId, pairId b2.ShapeId, 
 			centerA := idA.GetBody().GetWorldCenter()
 			for k := range manifold.PointCount {
 				point := manifold.Points[k]
-				p1 := centerA.Add(point.AnchorA)
-				s.Context.Draw.DrawLineFcn(p1, b2.MulAdd(p1, point.TotalNormalImpulse, normal), color)
+				p1 := b2.OffsetPos(centerA, point.AnchorA)
+				s.Context.Draw.DrawLineFcn(p1, b2.ToPos(b2.MulAdd(b2.ToVec2(p1), point.TotalNormalImpulse, normal)), color)
 				s.Context.Draw.DrawPointFcn(p1, b2.F(10), b2.ColorWhite)
 			}
 		}
@@ -851,7 +851,7 @@ func (s *ContactEvent) Step() {
 
 		playerTransform := s.playerId.GetTransform()
 		debrisTransform := debrisId.GetTransform()
-		relativeTransform := b2.InvMulTransforms(playerTransform, debrisTransform)
+		relativeTransform := b2.InvMulWorldTransforms(playerTransform, debrisTransform)
 
 		shapeCount := debrisId.GetShapeCount()
 		if shapeCount == 0 {
@@ -980,7 +980,7 @@ func (s *BodyMove) createBodies() {
 
 	x, y := b2.F(-5), b2.F(10)
 	for i := 0; i < 10 && s.count < bodyMoveCount; i++ {
-		bodyDef.Position = b2.Vec2{X: x, Y: y}
+		bodyDef.Position = b2.ToPos(b2.Vec2{X: x, Y: y})
 		bodyDef.IsBullet = s.count%12 == 0
 		// The reference points the user data at the body id slot; the
 		// index is the Go form of that pointer.
@@ -1013,7 +1013,7 @@ func (s *BodyMove) UpdateGui() {
 
 	if gui.Button("Explode") {
 		def := b2.DefaultExplosionDef()
-		def.Position = s.explosionPosition
+		def.Position = b2.ToPos(s.explosionPosition)
 		def.Radius = s.explosionRadius
 		def.Falloff = b2.F(0.1)
 		def.ImpulsePerLength = FromFloat64(s.explosionMagnitude)
@@ -1062,7 +1062,7 @@ func (s *BodyMove) Step() {
 		}
 	}
 
-	s.Context.Draw.DrawCircleFcn(s.explosionPosition, s.explosionRadius, b2.ColorAzure)
+	s.Context.Draw.DrawCircleFcn(b2.ToPos(s.explosionPosition), s.explosionRadius, b2.ColorAzure)
 
 	s.DrawTextLine("sleep count: %d", s.sleepCount)
 }
@@ -1120,7 +1120,7 @@ func NewSensorTypes(ctx *SampleContext) Sample {
 		bodyDef := b2.DefaultBodyDef()
 		bodyDef.Name = "static sensor"
 		bodyDef.Type = b2.StaticBody
-		bodyDef.Position = b2.V2(-3.0, 0.8)
+		bodyDef.Position = b2.ToPos(b2.V2(-3.0, 0.8))
 		bodyId := b2.CreateBody(s.WorldId, &bodyDef)
 
 		shapeDef := b2.DefaultShapeDef()
@@ -1135,7 +1135,7 @@ func NewSensorTypes(ctx *SampleContext) Sample {
 		bodyDef := b2.DefaultBodyDef()
 		bodyDef.Name = "kinematic sensor"
 		bodyDef.Type = b2.KinematicBody
-		bodyDef.Position = b2.V2(0, 0)
+		bodyDef.Position = b2.ToPos(b2.V2(0, 0))
 		bodyDef.LinearVelocity = b2.V2(0, 1)
 		s.kinematicBodyId = b2.CreateBody(s.WorldId, &bodyDef)
 
@@ -1151,7 +1151,7 @@ func NewSensorTypes(ctx *SampleContext) Sample {
 		bodyDef := b2.DefaultBodyDef()
 		bodyDef.Name = "dynamic sensor"
 		bodyDef.Type = b2.DynamicBody
-		bodyDef.Position = b2.V2(3, 1)
+		bodyDef.Position = b2.ToPos(b2.V2(3, 1))
 		bodyId := b2.CreateBody(s.WorldId, &bodyDef)
 
 		shapeDef := b2.DefaultShapeDef()
@@ -1172,7 +1172,7 @@ func NewSensorTypes(ctx *SampleContext) Sample {
 	{
 		bodyDef := b2.DefaultBodyDef()
 		bodyDef.Name = "ball_01"
-		bodyDef.Position = b2.V2(-5, 1)
+		bodyDef.Position = b2.ToPos(b2.V2(-5, 1))
 		bodyDef.Type = b2.DynamicBody
 
 		bodyId := b2.CreateBody(s.WorldId, &bodyDef)
@@ -1215,9 +1215,9 @@ func (s *SensorTypes) printOverlaps(sensorShapeId b2.ShapeId, prefix string) {
 
 func (s *SensorTypes) Step() {
 	position := s.kinematicBodyId.GetPosition()
-	if position.Y.Less(b2.QZero()) {
+	if b2.ToVec2(position).Y.Less(b2.QZero()) {
 		s.kinematicBodyId.SetLinearVelocity(b2.V2(0, 1))
-	} else if position.Y.Greater(b2.F(3)) {
+	} else if b2.ToVec2(position).Y.Greater(b2.F(3)) {
 		s.kinematicBodyId.SetLinearVelocity(b2.V2(0, -1))
 	}
 
@@ -1229,8 +1229,8 @@ func (s *SensorTypes) Step() {
 
 	origin := b2.V2(5, 1)
 	translation := b2.V2(-10, 0)
-	result := s.WorldId.CastRayClosest(origin, translation, b2.DefaultQueryFilter())
-	s.Context.Draw.DrawLineFcn(origin, origin.Add(translation), b2.ColorDimGray)
+	result := s.WorldId.CastRayClosest(b2.ToPos(origin), translation, b2.DefaultQueryFilter())
+	s.Context.Draw.DrawLineFcn(b2.ToPos(origin), b2.ToPos(origin.Add(translation)), b2.ColorDimGray)
 
 	if result.Hit {
 		s.Context.Draw.DrawPointFcn(result.Point, b2.F(10), b2.ColorCyan)
@@ -1275,7 +1275,7 @@ func NewJointEvent(ctx *SampleContext) Sample {
 
 	// Each joint gets a fresh body and the shared thresholds.
 	newBody := func() b2.BodyId {
-		bodyDef.Position = position
+		bodyDef.Position = b2.ToPos(position)
 		bodyId := b2.CreateBody(s.WorldId, &bodyDef)
 		b2.CreatePolygonShape(bodyId, &shapeDef, &box)
 		return bodyId
@@ -1290,8 +1290,8 @@ func NewJointEvent(ctx *SampleContext) Sample {
 	}
 	pivotFrames := func(base *b2.JointDef, bodyId b2.BodyId) {
 		pivot := b2.Vec2{X: position.X.Sub(b2.QOne()), Y: position.Y}
-		base.LocalFrameA.P = groundId.GetLocalPoint(pivot)
-		base.LocalFrameB.P = bodyId.GetLocalPoint(pivot)
+		base.LocalFrameA.P = groundId.GetLocalPoint(b2.ToPos(pivot))
+		base.LocalFrameB.P = bodyId.GetLocalPoint(b2.ToPos(pivot))
 	}
 
 	// distance joint
@@ -1302,8 +1302,8 @@ func NewJointEvent(ctx *SampleContext) Sample {
 		pivot2 := b2.Vec2{X: position.X, Y: position.Y.Add(b2.QOne())}
 		jointDef := b2.DefaultDistanceJointDef()
 		setup(&jointDef.Base, bodyId)
-		jointDef.Base.LocalFrameA.P = groundId.GetLocalPoint(pivot1)
-		jointDef.Base.LocalFrameB.P = bodyId.GetLocalPoint(pivot2)
+		jointDef.Base.LocalFrameA.P = groundId.GetLocalPoint(b2.ToPos(pivot1))
+		jointDef.Base.LocalFrameB.P = bodyId.GetLocalPoint(b2.ToPos(pivot2))
 		jointDef.Length = length
 		s.jointIds[index] = b2.CreateDistanceJoint(s.WorldId, &jointDef)
 	}
@@ -1433,7 +1433,7 @@ func NewPersistentContact(ctx *SampleContext) Sample {
 	{
 		bodyDef := b2.DefaultBodyDef()
 		bodyDef.Type = b2.DynamicBody
-		bodyDef.Position = b2.V2(-8, 1)
+		bodyDef.Position = b2.ToPos(b2.V2(-8, 1))
 		bodyDef.LinearVelocity = b2.V2(2, 0)
 		bodyId := b2.CreateBody(s.WorldId, &bodyDef)
 
@@ -1469,9 +1469,9 @@ func (s *PersistentContact) Step() {
 		for i := range data.Manifold.PointCount {
 			manifoldPoint := &data.Manifold.Points[i]
 			bodyIdA := data.ShapeIdA.GetBody()
-			p1 := bodyIdA.GetWorldCenter().Add(manifoldPoint.AnchorA)
-			p2 := b2.MulAdd(p1, manifoldPoint.TotalNormalImpulse, data.Manifold.Normal)
-			draw.DrawLineFcn(p1, p2, b2.ColorCrimson)
+			p1 := b2.OffsetPos(bodyIdA.GetWorldCenter(), manifoldPoint.AnchorA)
+			p2 := b2.MulAdd(b2.ToVec2(p1), manifoldPoint.TotalNormalImpulse, data.Manifold.Normal)
+			draw.DrawLineFcn(p1, b2.ToPos(p2), b2.ColorCrimson)
 			draw.DrawPointFcn(p1, b2.F(6), b2.ColorCrimson)
 			draw.DrawStringFcn(p1, fmt.Sprintf("%.2f", ToFloat64(manifoldPoint.TotalNormalImpulse)), b2.ColorWhite)
 		}
@@ -1499,7 +1499,7 @@ type SensorHits struct {
 	shapeId b2.ShapeId
 
 	transformCount int
-	transforms     [sensorHitsTransformCapacity]b2.Transform
+	transforms     [sensorHitsTransformCapacity]b2.WorldTransform
 
 	isBullet   bool
 	beginCount int
@@ -1532,7 +1532,7 @@ func NewSensorHits(ctx *SampleContext) Sample {
 	{
 		bodyDef := b2.DefaultBodyDef()
 		bodyDef.Name = "static sensor"
-		bodyDef.Position = b2.V2(-4, 1)
+		bodyDef.Position = b2.ToPos(b2.V2(-4, 1))
 		bodyId := b2.CreateBody(s.WorldId, &bodyDef)
 		shapeDef := b2.DefaultShapeDef()
 		shapeDef.IsSensor = true
@@ -1547,7 +1547,7 @@ func NewSensorHits(ctx *SampleContext) Sample {
 		bodyDef := b2.DefaultBodyDef()
 		bodyDef.Name = "kinematic sensor"
 		bodyDef.Type = b2.KinematicBody
-		bodyDef.Position = b2.V2(0, 1)
+		bodyDef.Position = b2.ToPos(b2.V2(0, 1))
 		bodyDef.LinearVelocity = b2.V2(0.5, 0)
 		s.kinematicBodyId = b2.CreateBody(s.WorldId, &bodyDef)
 		shapeDef := b2.DefaultShapeDef()
@@ -1563,7 +1563,7 @@ func NewSensorHits(ctx *SampleContext) Sample {
 		bodyDef := b2.DefaultBodyDef()
 		bodyDef.Name = "dynamic sensor"
 		bodyDef.Type = b2.DynamicBody
-		bodyDef.Position = b2.V2(4, 1)
+		bodyDef.Position = b2.ToPos(b2.V2(4, 1))
 		s.dynamicBodyId = b2.CreateBody(s.WorldId, &bodyDef)
 		shapeDef := b2.DefaultShapeDef()
 		shapeDef.IsSensor = true
@@ -1572,7 +1572,7 @@ func NewSensorHits(ctx *SampleContext) Sample {
 		capsule := b2.Capsule{Center1: b2.V2(0, 1), Center2: b2.V2(0, 9), Radius: b2.F(0.1)}
 		s.dynamicSensorId = b2.CreateCapsuleShape(s.dynamicBodyId, &shapeDef, &capsule)
 
-		pivot := bodyDef.Position.Add(b2.V2(0, 6))
+		pivot := b2.OffsetPos(bodyDef.Position, b2.V2(0, 6))
 		axis := b2.MakeRotFromUnitVector(b2.V2(1, 0))
 		jointDef := b2.DefaultPrismaticJointDef()
 		jointDef.Base.BodyIdA = groundId
@@ -1603,7 +1603,7 @@ func (s *SensorHits) launch() {
 
 	bodyDef := b2.DefaultBodyDef()
 	bodyDef.Type = b2.DynamicBody
-	bodyDef.Position = b2.V2(-26.7, 6)
+	bodyDef.Position = b2.ToPos(b2.V2(-26.7, 6))
 	speed := shared.RandomFloatRange(b2.F(200), b2.F(300))
 	bodyDef.LinearVelocity = b2.Vec2{X: speed}
 	bodyDef.IsBullet = s.isBullet
@@ -1643,9 +1643,9 @@ func (s *SensorHits) collectTransforms(sensorShapeId b2.ShapeId) {
 
 func (s *SensorHits) Step() {
 	p := s.kinematicBodyId.GetPosition()
-	if p.X.Greater(b2.QOne()) {
+	if b2.ToVec2(p).X.Greater(b2.QOne()) {
 		s.kinematicBodyId.SetLinearVelocity(b2.V2(-0.5, 0))
-	} else if p.X.Less(b2.F(-1)) {
+	} else if b2.ToVec2(p).X.Less(b2.F(-1)) {
 		s.kinematicBodyId.SetLinearVelocity(b2.V2(0.5, 0))
 	}
 
@@ -1726,7 +1726,7 @@ func NewProjectileEvent(ctx *SampleContext) Sample {
 		if i%2 == 0 {
 			shift = offset.Neg()
 		}
-		bodyDef.Position = b2.Vec2{X: x.Add(shift), Y: b2.F(0.5).Add(b2.QFromInt(i))}
+		bodyDef.Position = b2.ToPos(b2.Vec2{X: x.Add(shift), Y: b2.F(0.5).Add(b2.QFromInt(i))})
 		bodyId := b2.CreateBody(s.WorldId, &bodyDef)
 		b2.CreatePolygonShape(bodyId, &shapeDef, &box)
 	}
@@ -1740,7 +1740,7 @@ func (s *ProjectileEvent) fireProjectile() {
 
 	bodyDef := b2.DefaultBodyDef()
 	bodyDef.Type = b2.DynamicBody
-	bodyDef.Position = s.point1
+	bodyDef.Position = b2.ToPos(s.point1)
 	bodyDef.LinearVelocity = s.point2.Sub(s.point1).Mul(b2.F(4))
 	bodyDef.IsBullet = true
 	s.projectileId = b2.CreateBody(s.WorldId, &bodyDef)
@@ -1778,9 +1778,9 @@ func (s *ProjectileEvent) Step() {
 
 	draw := &s.Context.Draw
 	if s.dragging {
-		draw.DrawLineFcn(s.point1, s.point2, b2.ColorWhite)
-		draw.DrawPointFcn(s.point1, b2.F(5), b2.ColorGreen)
-		draw.DrawPointFcn(s.point2, b2.F(5), b2.ColorRed)
+		draw.DrawLineFcn(b2.ToPos(s.point1), b2.ToPos(s.point2), b2.ColorWhite)
+		draw.DrawPointFcn(b2.ToPos(s.point1), b2.F(5), b2.ColorGreen)
+		draw.DrawPointFcn(b2.ToPos(s.point2), b2.F(5), b2.ColorRed)
 	}
 
 	contactEvents := s.WorldId.GetContactEvents()
@@ -1793,7 +1793,7 @@ func (s *ProjectileEvent) Step() {
 
 				if data.Manifold.PointCount > 0 {
 					explosionDef := b2.DefaultExplosionDef()
-					explosionDef.Position = data.ShapeIdA.GetBody().GetWorldCenter().Add(data.Manifold.Points[0].AnchorA)
+					explosionDef.Position = b2.OffsetPos(data.ShapeIdA.GetBody().GetWorldCenter(), data.Manifold.Points[0].AnchorA)
 					explosionDef.Radius = b2.QOne()
 					explosionDef.ImpulsePerLength = b2.F(20)
 					s.WorldId.Explode(&explosionDef)
@@ -1864,7 +1864,7 @@ func (s *CircleImpulse) spawn() {
 		bodyDef.GravityScale = b2.QZero()
 	}
 	bodyDef.LinearVelocity.Y = b2.F(-25)
-	bodyDef.Position.Y = b2.F(5.5)
+	setPosY(&bodyDef.Position, b2.F(5.5))
 
 	circle := b2.Circle{Radius: b2.F(0.25)}
 

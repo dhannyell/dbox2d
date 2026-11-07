@@ -22,7 +22,7 @@ func ropedBox(t *testing.T, worldId WorldId, position Vec2, def *DistanceJointDe
 
 	boxDef := DefaultBodyDef()
 	boxDef.Type = DynamicBody
-	boxDef.Position = position
+	boxDef.Position = ToPos(position)
 	boxId := CreateBody(worldId, &boxDef)
 	shapeDef := DefaultShapeDef()
 	unit := MakeBox(QHalf(), QHalf())
@@ -279,7 +279,7 @@ func mirrorBodies(t *testing.T, worldId WorldId) (BodyId, BodyId) {
 	makeBody := func(position Vec2, turns string) BodyId {
 		def := DefaultBodyDef()
 		def.Type = DynamicBody
-		def.Position = position
+		def.Position = ToPos(position)
 		def.Rotation = MakeRot(QMustParse(turns))
 		id := CreateBody(worldId, &def)
 		shapeDef := DefaultShapeDef()
@@ -391,7 +391,7 @@ func TestDistanceJointAccessorsRoundTrip(t *testing.T) {
 	groundId := CreateBody(worldId, &groundDef)
 	bodyDef := DefaultBodyDef()
 	bodyDef.Type = DynamicBody
-	bodyDef.Position = Vec2{X: QFromInt(2)}
+	bodyDef.Position = ToPos(Vec2{X: QFromInt(2)})
 	bodyId := CreateBody(worldId, &bodyDef)
 
 	def := DefaultDistanceJointDef()
@@ -450,7 +450,7 @@ func TestDistanceJointGetCurrentLength(t *testing.T) {
 	groundId := CreateBody(worldId, &groundDef)
 	bodyDef := DefaultBodyDef()
 	bodyDef.Type = DynamicBody
-	bodyDef.Position = Vec2{X: QFromInt(2)}
+	bodyDef.Position = ToPos(Vec2{X: QFromInt(2)})
 	bodyId := CreateBody(worldId, &bodyDef)
 
 	def := DefaultDistanceJointDef()

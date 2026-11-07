@@ -111,7 +111,7 @@ func TestComputePolygonBoundsContainsTheVertices(t *testing.T) {
 		Q: b2.MakeRot(b2.QMustParse("0.125")),
 	}
 
-	aabb := b2.ComputePolygonBounds(&box, xf)
+	aabb := b2.ComputePolygonBounds(&box, b2.MakeWorldTransform(xf))
 
 	for i := range box.Count {
 		v := b2.TransformPoint(xf, box.Vertices[i])
@@ -446,9 +446,9 @@ func TestShapeAABBsMatchTheReference(t *testing.T) {
 		got          b2.AABB
 		lower, upper b2.Vec2
 	}{
-		{"circle", b2.ComputeCircleBounds(&circle, xf), pt("1.25", "1.75"), pt("1.75", "2.25")},
-		{"capsule", b2.ComputeCapsuleBounds(&capsule, xf), pt("0.25", "1.75"), pt("1.75", "2.25")},
-		{"segment", b2.ComputeSegmentBounds(&segment, xf), pt("1", "1"), pt("3", "3")},
+		{"circle", b2.ComputeCircleBounds(&circle, b2.MakeWorldTransform(xf)), pt("1.25", "1.75"), pt("1.75", "2.25")},
+		{"capsule", b2.ComputeCapsuleBounds(&capsule, b2.MakeWorldTransform(xf)), pt("0.25", "1.75"), pt("1.75", "2.25")},
+		{"segment", b2.ComputeSegmentBounds(&segment, b2.MakeWorldTransform(xf)), pt("1", "1"), pt("3", "3")},
 	}
 
 	for _, c := range cases {

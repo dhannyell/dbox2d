@@ -79,7 +79,7 @@ func NewTileWorld(ctx *SampleContext) Sample {
 			// relative to the body origin.
 			// This makes a noticeable improvement in stability far from the origin.
 			if i%10 == 0 {
-				bodyDef.Position.X = b2.F(xBody)
+				setPosX(&bodyDef.Position, b2.F(xBody))
 				groundId = b2.CreateBody(s.WorldId, &bodyDef)
 				xShape = 0
 			}
@@ -112,24 +112,24 @@ func NewTileWorld(ctx *SampleContext) Sample {
 		if remainder == 0 {
 			bodyDef := b2.DefaultBodyDef()
 			bodyDef.Type = b2.DynamicBody
-			bodyDef.Position = b2.Vec2{X: xbase.Sub(b2.F(3)), Y: b2.F(10)}
+			bodyDef.Position = b2.ToPos(b2.Vec2{X: xbase.Sub(b2.F(3)), Y: b2.F(10)})
 
 			shapeDef := b2.DefaultShapeDef()
 			box := b2.MakeBox(b2.F(0.3), b2.F(0.2))
 
 			for range 10 {
-				bodyDef.Position.Y = b2.F(10)
+				setPosY(&bodyDef.Position, b2.F(10))
 				for range 5 {
 					bodyId := b2.CreateBody(s.WorldId, &bodyDef)
 					b2.CreatePolygonShape(bodyId, &shapeDef, &box)
-					bodyDef.Position.Y = bodyDef.Position.Y.Add(b2.QHalf())
+					setPosY(&bodyDef.Position, b2.ToVec2(bodyDef.Position).Y.Add(b2.QHalf()))
 				}
-				bodyDef.Position.X = bodyDef.Position.X.Add(b2.F(0.6))
+				setPosX(&bodyDef.Position, b2.ToVec2(bodyDef.Position).X.Add(b2.F(0.6)))
 			}
 		} else if remainder == 1 {
 			position := b2.Vec2{X: xbase.Sub(b2.F(2)), Y: b2.F(10)}
 			for range 5 {
-				shared.CreateHuman(s.WorldId, position, b2.F(1.5), b2.F(0.05), b2.QZero(), b2.QZero(), humanIndex+1, nil, false)
+				shared.CreateHuman(s.WorldId, b2.ToPos(position), b2.F(1.5), b2.F(0.05), b2.QZero(), b2.QZero(), humanIndex+1, nil, false)
 				humanIndex += 1
 				position.X = position.X.Add(b2.QOne())
 			}
@@ -194,7 +194,7 @@ func (s *TileWorld) Step() {
 	}
 
 	if s.followCar {
-		s.Context.Camera.Center.X = ToFloat64(s.car.chassisId.GetPosition().X)
+		s.Context.Camera.Center.X = ToFloat64(b2.ToVec2(s.car.chassisId.GetPosition()).X)
 	}
 
 	radius := b2.F(2)
@@ -202,7 +202,7 @@ func (s *TileWorld) Step() {
 		s.explosionPosition.X = b2.F(tileWorldPeriod/2 + s.cycleIndex*tileWorldPeriod - span)
 
 		def := b2.DefaultExplosionDef()
-		def.Position = s.explosionPosition
+		def.Position = b2.ToPos(s.explosionPosition)
 		def.Radius = radius
 		def.Falloff = b2.F(0.1)
 		def.ImpulsePerLength = b2.QOne()
@@ -212,7 +212,7 @@ func (s *TileWorld) Step() {
 	}
 
 	if s.explode {
-		s.Context.Draw.DrawCircleFcn(s.explosionPosition, radius, b2.ColorAzure)
+		s.Context.Draw.DrawCircleFcn(b2.ToPos(s.explosionPosition), radius, b2.ColorAzure)
 	}
 
 	if s.keyDown(KeyA) {
@@ -236,13 +236,20 @@ func scalarModeLabel() string {
 	if b2.ScalarMode == "fixed" {
 		return "Fixed-point Q32.32"
 	}
+	if b2.IsDoublePrecision() {
+		return "Float32 with double"
+	}
 	return "Float32"
 }
 
-// gridStepAt returns the spacing of representable scalars at x.
+// gridStepAt returns the spacing of representable positions at x. Under the
+// double tag positions are float64; every other quantity stays float32.
 func gridStepAt(x float64) float64 {
 	if b2.ScalarMode == "fixed" {
 		return math.Ldexp(1, -32)
+	}
+	if b2.IsDoublePrecision() {
+		return math.Nextafter(x, math.Inf(1)) - x
 	}
 	fx := float32(x)
 	return float64(math.Nextafter32(fx, float32(math.Inf(1))) - fx)
@@ -259,7 +266,7 @@ func NewFarPyramid(ctx *SampleContext) Sample {
 	s := &FarPyramid{Base: NewBase(ctx)}
 
 	// 1e7 is exactly representable in float, so integer box offsets stay exact.
-	origin := b2.Pos{X: b2.F(10.0e6), Y: b2.QZero()}
+	origin := b2.ToPos(b2.Vec2{X: b2.F(10.0e6), Y: b2.QZero()})
 
 	if !ctx.Settings.Restart {
 		ctx.Camera.Center = Vec2f{X: 10.0e6, Y: 12}
@@ -316,7 +323,7 @@ const (
 func NewFarRagdolls(ctx *SampleContext) Sample {
 	s := &FarRagdolls{Base: NewBase(ctx)}
 
-	origin := b2.Pos{X: b2.F(10.0e6), Y: b2.QZero()}
+	origin := b2.ToPos(b2.Vec2{X: b2.F(10.0e6), Y: b2.QZero()})
 
 	if !ctx.Settings.Restart {
 		ctx.Camera.Center = Vec2f{X: 10.0e6, Y: 6}
@@ -378,7 +385,7 @@ func NewFarGate(ctx *SampleContext) Sample {
 	g := &FarGate{Base: NewBase(ctx)}
 
 	// 1e6 is exactly representable in float so the placement adds no error of its own.
-	origin := b2.Pos{X: b2.F(1.0e6), Y: b2.QZero()}
+	origin := b2.ToPos(b2.Vec2{X: b2.F(1.0e6), Y: b2.QZero()})
 	g.origin = origin
 
 	if !ctx.Settings.Restart {
@@ -499,7 +506,7 @@ func NewFarGate(ctx *SampleContext) Sample {
 		bodyId := b2.CreateBody(g.WorldId, &bodyDef)
 		b2.CreateCapsuleShape(bodyId, &shapeDef, &capsule)
 
-		pivot := b2.Pos{X: position.X, Y: position.Y.Add(linkHalfLength)}
+		pivot := b2.ToPos(b2.Vec2{X: b2.ToVec2(position).X, Y: b2.ToVec2(position).Y.Add(linkHalfLength)})
 		jointDef.Base.BodyIdA = prevBodyId
 		jointDef.Base.BodyIdB = bodyId
 		jointDef.Base.LocalFrameA.P = prevBodyId.GetLocalPoint(pivot)
@@ -507,7 +514,7 @@ func NewFarGate(ctx *SampleContext) Sample {
 		jointDef.Base.DrawScale = b2.F(0.2)
 		b2.CreateRevoluteJoint(g.WorldId, &jointDef)
 
-		position.Y = position.Y.Sub(linkHalfLength.Mul(b2.F(2)))
+		setPosY(&position, b2.ToVec2(position).Y.Sub(linkHalfLength.Mul(b2.F(2))))
 		prevBodyId = bodyId
 		lastLinkId = bodyId
 	}
@@ -603,6 +610,6 @@ func (g *FarGate) Step() {
 	g.Base.Step()
 
 	g.DrawTextLine("%s positions", scalarModeLabel())
-	g.DrawTextLine("%.0f km from the origin", ToFloat64(g.origin.X)/1000)
-	g.DrawTextLine("scalar grid step here = %g m, gear teeth are about 0.12 m", gridStepAt(ToFloat64(g.origin.X)))
+	g.DrawTextLine("%.0f km from the origin", ToFloat64(b2.ToVec2(g.origin).X)/1000)
+	g.DrawTextLine("scalar grid step here = %g m, gear teeth are about 0.12 m", gridStepAt(ToFloat64(b2.ToVec2(g.origin).X)))
 }

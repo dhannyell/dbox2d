@@ -8,7 +8,7 @@ import (
 func addSensorBox(t *testing.T, worldId WorldId, position Vec2, halfWidth, halfHeight Q) (BodyId, ShapeId) {
 	t.Helper()
 	bodyDef := DefaultBodyDef()
-	bodyDef.Position = position
+	bodyDef.Position = ToPos(position)
 	bodyId := CreateBody(worldId, &bodyDef)
 	shapeDef := DefaultShapeDef()
 	shapeDef.IsSensor = true
@@ -21,7 +21,7 @@ func addSensorVisitorBox(t *testing.T, worldId WorldId, position Vec2, halfWidth
 	t.Helper()
 	bodyDef := DefaultBodyDef()
 	bodyDef.Type = DynamicBody
-	bodyDef.Position = position
+	bodyDef.Position = ToPos(position)
 	bodyId := CreateBody(worldId, &bodyDef)
 	shapeDef := DefaultShapeDef()
 	shapeDef.EnableSensorEvents = enableEvents
@@ -79,11 +79,11 @@ func TestSensorEventsAreWorkerCountIndependent(t *testing.T) {
 		}
 		switch step {
 		case 0:
-			visitorOne.SetTransform(v2(10, 0), RotIdentity())
-			visitorFour.SetTransform(v2(10, 0), RotIdentity())
+			visitorOne.SetTransform(ToPos(v2(10, 0)), RotIdentity())
+			visitorFour.SetTransform(ToPos(v2(10, 0)), RotIdentity())
 		case 1:
-			visitorOne.SetTransform(Vec2Zero(), RotIdentity())
-			visitorFour.SetTransform(Vec2Zero(), RotIdentity())
+			visitorOne.SetTransform(ToPos(Vec2Zero()), RotIdentity())
+			visitorFour.SetTransform(ToPos(Vec2Zero()), RotIdentity())
 		}
 	}
 }
@@ -290,7 +290,7 @@ func addFastVisitorCircle(t *testing.T, worldId WorldId, position Vec2, dx Q) (B
 	t.Helper()
 	bodyDef := DefaultBodyDef()
 	bodyDef.Type = DynamicBody
-	bodyDef.Position = position
+	bodyDef.Position = ToPos(position)
 	bodyDef.GravityScale = QZero()
 	bodyDef.LinearVelocity = Vec2{X: dx.Div(stepDt())}
 	bodyId := CreateBody(worldId, &bodyDef)
@@ -333,7 +333,7 @@ func TestContinuousSensorHitStopsAtTheWall(t *testing.T) {
 	addSensorBox(t, worldId, Vec2Zero(), thin, QOne())
 
 	wallDef := DefaultBodyDef()
-	wallDef.Position = v2(-1, 0)
+	wallDef.Position = ToPos(v2(-1, 0))
 	wallId := CreateBody(worldId, &wallDef)
 	wallShapeDef := DefaultShapeDef()
 	wall := MakeBox(thin, QOne())

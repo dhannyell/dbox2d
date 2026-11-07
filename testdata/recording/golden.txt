@@ -1,0 +1,15 @@
+recordBytes 10339
+snapshotBytes 8981
+overlapCount 8
+rayCount 1
+stateHash fe895f65d471269e
+body 0 00000000 bf800000 3f800000 00000000
+body 1 3b8c9c47 3effe432 3f800000 39734217
+body 2 3eacc543 3fc0cafc 3f7ff95a 3c6978fd
+body 3 be30fa91 40201d84 3f7e93b1 3dd7a4d4
+body 4 4071b641 4083fa40 3f800000 00000000
+body 5 c04015ff 3e7f4f6f 3f800000 b9a7c6db
+body 6 40a00000 409fff6f 3f800000 00000000
+replayFrames 60
+replayFrame 60
+replayDiverged 0

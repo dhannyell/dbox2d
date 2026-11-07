@@ -52,7 +52,7 @@ func getPrismaticJointSpeed(w *world, base *jointSim) Q {
 	rA := RotateVector(qA, base.localFrameA.P.Sub(bodySimA.localCenter))
 	rB := RotateVector(qB, base.localFrameB.P.Sub(bodySimB.localCenter))
 
-	dc := bodySimB.center.Sub(bodySimA.center)
+	dc := SubPos(bodySimB.center, bodySimA.center)
 	d := dc.Add(rB.Sub(rA))
 
 	vA, vB := Vec2Zero(), Vec2Zero()
@@ -131,7 +131,7 @@ func preparePrismaticJoint(base *jointSim, context *stepContext) {
 
 	// Compute the initial center delta. Incremental position updates are
 	// relative to this.
-	joint.deltaCenter = bodySimB.center.Sub(bodySimA.center)
+	joint.deltaCenter = SubPos(bodySimB.center, bodySimA.center)
 
 	joint.springSoftness = makeSoft(joint.hertz, joint.dampingRatio, context.h)
 
@@ -436,29 +436,29 @@ func solvePrismaticJoint(base *jointSim, context *stepContext, useBias bool) {
 }
 
 // drawPrismaticJoint corresponds to b2DrawPrismaticJoint.
-func drawPrismaticJoint(draw *DebugDraw, base *jointSim, transformA, transformB Transform, drawScale Q) {
+func drawPrismaticJoint(draw *DebugDraw, base *jointSim, transformA, transformB WorldTransform, drawScale Q) {
 	joint := base.prismatic()
 
-	frameA := MulTransforms(transformA, base.localFrameA)
-	frameB := MulTransforms(transformB, base.localFrameB)
+	frameA := MulWorldTransforms(transformA, base.localFrameA)
+	frameB := MulWorldTransforms(transformB, base.localFrameB)
 	axisA := prismaticAxis(frameA.Q)
 
 	draw.DrawLineFcn(frameA.P, frameB.P, ColorDimGray)
 
 	if joint.enableLimit {
 		b := QMustParse("0.25").Mul(drawScale)
-		lower := MulAdd(frameA.P, joint.lowerTranslation, axisA)
-		upper := MulAdd(frameA.P, joint.upperTranslation, axisA)
+		lower := OffsetPos(frameA.P, axisA.Mul(joint.lowerTranslation))
+		upper := OffsetPos(frameA.P, axisA.Mul(joint.upperTranslation))
 		perp := LeftPerp(axisA)
 		draw.DrawLineFcn(lower, upper, ColorGray)
-		draw.DrawLineFcn(MulSub(lower, b, perp), MulAdd(lower, b, perp), ColorGreen)
-		draw.DrawLineFcn(MulSub(upper, b, perp), MulAdd(upper, b, perp), ColorRed)
+		draw.DrawLineFcn(offsetPosSub(lower, perp.Mul(b)), OffsetPos(lower, perp.Mul(b)), ColorGreen)
+		draw.DrawLineFcn(offsetPosSub(upper, perp.Mul(b)), OffsetPos(upper, perp.Mul(b)), ColorRed)
 	} else {
-		draw.DrawLineFcn(frameA.P.Sub(axisA), frameA.P.Add(axisA), ColorGray)
+		draw.DrawLineFcn(offsetPosSub(frameA.P, axisA), OffsetPos(frameA.P, axisA), ColorGray)
 	}
 
 	if joint.enableSpring {
-		p := MulAdd(frameA.P, joint.targetTranslation, axisA)
+		p := OffsetPos(frameA.P, axisA.Mul(joint.targetTranslation))
 		draw.DrawPointFcn(p, QFromInt(8), ColorViolet)
 	}
 

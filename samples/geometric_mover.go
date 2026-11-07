@@ -219,7 +219,7 @@ func (m *geometricMover) planeResult(shapeId b2.ShapeId, planeResult *b2.PlaneRe
 
 		// The plane point is relative to the origin passed to the collide call.
 		m.planeExtras[m.planeCount] = moverPlaneExtra{
-			point:   b2.OffsetPos(m.position, planeResult.Point),
+			point:   b2.ToVec2(b2.OffsetPos(b2.ToPos(m.position), planeResult.Point)),
 			shapeId: shapeId,
 		}
 		m.planeCount++
@@ -260,7 +260,7 @@ func (m *geometricMover) pushBodiesAlongPlanes() {
 		}
 
 		centerB := bodyId.GetWorldCenter()
-		rB := b2.SubPos(point, centerB)
+		rB := b2.SubPos(b2.ToPos(point), centerB)
 
 		rnB := b2.Cross(rB, normal)
 		kNormal := invMassA.Add(invMassB).Add(invIB.Mul(rnB).Mul(rnB))
@@ -280,7 +280,7 @@ func (m *geometricMover) pushBodiesAlongPlanes() {
 		P := normal.Mul(impulse)
 		m.velocity = b2.MulSub(m.velocity, invMassA, P)
 
-		bodyId.ApplyLinearImpulse(P, point, true)
+		bodyId.ApplyLinearImpulse(P, b2.ToPos(point), true)
 	}
 }
 
@@ -344,8 +344,8 @@ func (m *geometricMover) update(timeStep, throttle b2.Q) {
 	origin := m.position.Add(m.capsule.Center1)
 
 	var castResult moverCastResult
-	m.worldId.CastRay(origin, translation, m.filter, func(shapeId b2.ShapeId, point, normal b2.Vec2, fraction b2.Q) b2.Q {
-		castResult.point = point
+	m.worldId.CastRay(b2.ToPos(origin), translation, m.filter, func(shapeId b2.ShapeId, point b2.Pos, normal b2.Vec2, fraction b2.Q) b2.Q {
+		castResult.point = b2.ToVec2(point)
 		castResult.normal = normal
 		castResult.bodyId = shapeId.GetBody()
 		castResult.fraction = fraction
@@ -381,7 +381,7 @@ func (m *geometricMover) update(timeStep, throttle b2.Q) {
 		offset := pogoCurrentLength.Sub(restLength)
 		m.pogoVelocity = b2.SpringDamper(FromFloat64(m.pogoHertz), FromFloat64(m.pogoDampingRatio), offset, m.pogoVelocity, timeStep)
 
-		castResult.bodyId.ApplyForce(b2.Vec2{Y: FromFloat64(-m.pogoGroundForce)}, castResult.point, true)
+		castResult.bodyId.ApplyForce(b2.Vec2{Y: FromFloat64(-m.pogoGroundForce)}, b2.ToPos(castResult.point), true)
 	}
 
 	target := m.position.Add(m.velocity.Mul(timeStep)).Add(b2.Vec2{Y: timeStep.Mul(m.pogoVelocity)})
@@ -398,12 +398,12 @@ func (m *geometricMover) update(timeStep, throttle b2.Q) {
 	for range 5 {
 		m.planeCount = 0
 
-		m.worldId.CollideMover(m.position, &m.capsule, m.filter, m.planeResult)
+		m.worldId.CollideMover(b2.ToPos(m.position), &m.capsule, m.filter, m.planeResult)
 		result := b2.SolvePlanes(target.Sub(m.position), m.planes[:m.planeCount])
 
 		m.totalIterations += result.IterationCount
 
-		fraction := m.worldId.CastMover(m.position, &m.capsule, result.Translation, castFilter)
+		fraction := m.worldId.CastMover(b2.ToPos(m.position), &m.capsule, result.Translation, castFilter)
 
 		delta := result.Translation.Mul(fraction)
 		m.position = m.position.Add(delta)

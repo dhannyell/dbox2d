@@ -184,6 +184,12 @@ type world struct {
 	enableWarmStarting bool
 	enableContinuous   bool
 	inUse              bool
+
+	// recording is non-nil while the world records; see recording.go.
+	recording *Recording
+
+	// maxCapacity tracks the high water marks that a snapshot carries.
+	maxCapacity capacity
 }
 
 // defaultFrictionCallback is the geometric mean. It corresponds to
@@ -368,6 +374,10 @@ func CreateWorld(def *WorldDef) WorldId {
 // DestroyWorld destroys a world and every body and shape in it.
 func DestroyWorld(worldId WorldId) {
 	w := getWorldFromId(worldId)
+
+	// Detach any recording before teardown. The caller owns the recording buffer.
+	stopRecordingInternal(w)
+
 	w.treeTask.stop()
 	w.executor.stop()
 
@@ -769,7 +779,13 @@ func (worldId WorldId) GetGravity() Vec2 {
 // It corresponds to b2World_EnableSleeping in src/world.c.
 func (worldId WorldId) EnableSleeping(flag bool) {
 	w := getWorldFromId(worldId)
-	if w.locked || flag == w.enableSleep {
+	if w.locked {
+		return
+	}
+	if w.recording != nil {
+		w.recording.rec(opWorldEnableSleeping, worldId, flag)
+	}
+	if flag == w.enableSleep {
 		return
 	}
 	w.enableSleep = flag
@@ -793,6 +809,9 @@ func (worldId WorldId) EnableContinuous(flag bool) {
 	if w.locked {
 		panic("dbox2d: the world is locked")
 	}
+	if w.recording != nil {
+		w.recording.rec(opWorldEnableContinuous, worldId, flag)
+	}
 	w.enableContinuous = flag
 }
 
@@ -806,6 +825,9 @@ func (worldId WorldId) SetRestitutionThreshold(value Q) {
 	w := getWorldFromId(worldId)
 	if w.locked {
 		panic("dbox2d: the world is locked")
+	}
+	if w.recording != nil {
+		w.recording.rec(opWorldSetRestitutionThreshold, worldId, value)
 	}
 	w.restitutionThreshold = value.Max(QZero()).Min(QMaxValue())
 }
@@ -823,6 +845,9 @@ func (worldId WorldId) SetHitEventThreshold(value Q) {
 	if w.locked {
 		panic("dbox2d: the world is locked")
 	}
+	if w.recording != nil {
+		w.recording.rec(opWorldSetHitEventThreshold, worldId, value)
+	}
 	w.hitEventThreshold = value.Max(QZero()).Min(QMaxValue())
 }
 
@@ -832,7 +857,13 @@ func (worldId WorldId) GetHitEventThreshold() Q { return getWorldFromId(worldId)
 
 // SetGravity changes the world gravity vector.
 // It corresponds to b2World_SetGravity in src/world.c.
-func (worldId WorldId) SetGravity(gravity Vec2) { getWorldFromId(worldId).gravity = gravity }
+func (worldId WorldId) SetGravity(gravity Vec2) {
+	w := getWorldFromId(worldId)
+	if w.recording != nil {
+		w.recording.rec(opWorldSetGravity, worldId, gravity)
+	}
+	w.gravity = gravity
+}
 
 // SetContactTuning changes contact softness and push speed.
 // It corresponds to b2World_SetContactTuning in src/world.c.
@@ -840,6 +871,9 @@ func (worldId WorldId) SetContactTuning(hertz, dampingRatio, pushSpeed Q) {
 	w := getWorldFromId(worldId)
 	if w.locked {
 		panic("dbox2d: the world is locked")
+	}
+	if w.recording != nil {
+		w.recording.rec(opWorldSetContactTuning, worldId, hertz, dampingRatio, pushSpeed)
 	}
 	zero, maxValue := QZero(), QMaxValue()
 	w.contactHertz = hertz.Max(zero).Min(maxValue)
@@ -862,6 +896,9 @@ func (worldId WorldId) SetRestitutionIterations(iterations int) {
 	if w.locked {
 		panic("dbox2d: the world is locked")
 	}
+	if w.recording != nil {
+		w.recording.rec(opWorldSetRestitutionIterations, worldId, iterations)
+	}
 	w.restitutionIterations = min(max(iterations, 0), maxRestitutionIterations)
 }
 
@@ -878,6 +915,9 @@ func (worldId WorldId) EnableRestitutionPropagation(flag bool) {
 	w := getWorldFromId(worldId)
 	if w.locked {
 		panic("dbox2d: the world is locked")
+	}
+	if w.recording != nil {
+		w.recording.rec(opWorldEnableRestitutionPropagation, worldId, flag)
 	}
 	w.enableRestitutionPropagation = flag
 }
@@ -897,6 +937,9 @@ func (worldId WorldId) SetContactRecycleDistance(recycleDistance Q) {
 	if w.locked {
 		panic("dbox2d: the world is locked")
 	}
+	if w.recording != nil {
+		w.recording.rec(opWorldSetContactRecycleDistance, worldId, recycleDistance)
+	}
 	w.contactRecycleDistance = recycleDistance.Max(QZero()).Min(QMaxValue())
 }
 
@@ -915,6 +958,9 @@ func (worldId WorldId) SetMaxLinearSpeed(maximumLinearSpeed Q) {
 	w := getWorldFromId(worldId)
 	if w.locked {
 		panic("dbox2d: the world is locked")
+	}
+	if w.recording != nil {
+		w.recording.rec(opWorldSetMaxLinearSpeed, worldId, maximumLinearSpeed)
 	}
 	w.maxLinearSpeed = maximumLinearSpeed
 }
@@ -963,6 +1009,9 @@ func (worldId WorldId) EnableWarmStarting(flag bool) {
 	w := getWorldFromId(worldId)
 	if w.locked {
 		panic("dbox2d: the world is locked")
+	}
+	if w.recording != nil {
+		w.recording.rec(opWorldEnableWarmStarting, worldId, flag)
 	}
 	w.enableWarmStarting = flag
 }
@@ -1117,7 +1166,11 @@ func (worldId WorldId) SetRestitutionCallback(callback RestitutionCallback) {
 // It corresponds to b2World_SetCustomFilterCallback in src/world.c; the
 // reference also stores a void* context, dropped here per D-014.
 func (worldId WorldId) SetCustomFilterCallback(fcn CustomFilterFcn) {
-	getWorldFromId(worldId).customFilterFcn = fcn
+	w := getWorldFromId(worldId)
+	if fcn != nil && w.recording != nil {
+		panic("dbox2d: a custom filter callback is not supported while recording")
+	}
+	w.customFilterFcn = fcn
 }
 
 // SetPreSolveCallback sets the callback run after a contact's manifold is
@@ -1126,6 +1179,9 @@ func (worldId WorldId) SetCustomFilterCallback(fcn CustomFilterFcn) {
 // to b2World_SetPreSolveCallback in src/physics_world.c.
 func (worldId WorldId) SetPreSolveCallback(preSolveFcn PreSolveFcn, preContinuousFcn PreContinuousFcn) {
 	w := getWorldFromId(worldId)
+	if (preSolveFcn != nil || preContinuousFcn != nil) && w.recording != nil {
+		panic("dbox2d: a pre-solve callback is not supported while recording")
+	}
 	w.preSolveFcn = preSolveFcn
 	w.preContinuousFcn = preContinuousFcn
 }
@@ -1136,6 +1192,9 @@ func (worldId WorldId) RebuildStaticTree() {
 	w := getWorldFromId(worldId)
 	if w.locked {
 		panic("dbox2d: the world is locked")
+	}
+	if w.recording != nil {
+		w.recording.rec(opWorldRebuildStaticTree, worldId)
 	}
 
 	staticTree := &w.broadPhase.trees[StaticBody]
@@ -1404,10 +1463,21 @@ func validateContacts(w *world) {
 // b2World_OverlapAABB in src/world.c.
 func (worldId WorldId) OverlapAABB(origin Pos, aabb AABB, filter QueryFilter, fcn OverlapResultFcn) TreeStats {
 	w := getWorldFromId(worldId)
+	if w.recording == nil || w.locked {
+		return worldId.overlapAABBCore(origin, aabb, filter, fcn)
+	}
+	qr := beginQuery(w.recording, worldId, wirePos{origin}, aabb, filter)
+	stats := worldId.overlapAABBCore(origin, aabb, filter, qr.overlap(fcn))
+	qr.commit(opQueryOverlapAABB, &stats)
+	return stats
+}
+
+func (worldId WorldId) overlapAABBCore(origin Pos, aabb AABB, filter QueryFilter, fcn OverlapResultFcn) TreeStats {
+	w := getWorldFromId(worldId)
 	if w.locked {
 		panic("dbox2d: the world is locked")
 	}
-	if !IsValidVec2(origin) || !IsValidAABB(aabb) {
+	if !IsValidPos(origin) || !IsValidAABB(aabb) {
 		panic("dbox2d: OverlapAABB needs a valid box")
 	}
 	worldBox := offsetAABB(aabb, origin)
@@ -1434,16 +1504,27 @@ func (worldId WorldId) OverlapAABB(origin Pos, aabb AABB, filter QueryFilter, fc
 // locked world panics. It corresponds to b2World_CastRay in src/world.c.
 func (worldId WorldId) CastRay(origin Pos, translation Vec2, filter QueryFilter, fcn CastResultFcn) TreeStats {
 	w := getWorldFromId(worldId)
+	if w.recording == nil || w.locked {
+		return worldId.castRayCore(origin, translation, filter, fcn)
+	}
+	qr := beginQuery(w.recording, worldId, wirePos{origin}, translation, filter)
+	stats := worldId.castRayCore(origin, translation, filter, qr.cast(fcn))
+	qr.commit(opQueryCastRay, &stats)
+	return stats
+}
+
+func (worldId WorldId) castRayCore(origin Pos, translation Vec2, filter QueryFilter, fcn CastResultFcn) TreeStats {
+	w := getWorldFromId(worldId)
 	if w.locked {
 		panic("dbox2d: the world is locked")
 	}
-	if !IsValidVec2(origin) || !IsValidVec2(translation) {
+	if !IsValidPos(origin) || !IsValidVec2(translation) {
 		panic("dbox2d: CastRay needs a valid ray")
 	}
 
 	zero := QZero()
 	one := QOne()
-	input := RayCastInput{Origin: origin, Translation: translation, MaxFraction: one}
+	input := RayCastInput{Origin: ToVec2(origin), Translation: translation, MaxFraction: one}
 	fraction := one
 
 	callback := func(input *RayCastInput, _ int, userData uint64) Q {
@@ -1492,10 +1573,21 @@ func (worldId WorldId) CastRay(origin Pos, translation Vec2, filter QueryFilter,
 // b2World_OverlapShape in src/world.c.
 func (worldId WorldId) OverlapShape(origin Pos, proxy *ShapeProxy, filter QueryFilter, fcn OverlapResultFcn) TreeStats {
 	w := getWorldFromId(worldId)
+	if w.recording == nil || w.locked {
+		return worldId.overlapShapeCore(origin, proxy, filter, fcn)
+	}
+	qr := beginQuery(w.recording, worldId, wirePos{origin}, proxy, filter)
+	stats := worldId.overlapShapeCore(origin, proxy, filter, qr.overlap(fcn))
+	qr.commit(opQueryOverlapShape, &stats)
+	return stats
+}
+
+func (worldId WorldId) overlapShapeCore(origin Pos, proxy *ShapeProxy, filter QueryFilter, fcn OverlapResultFcn) TreeStats {
+	w := getWorldFromId(worldId)
 	if w.locked {
 		panic("dbox2d: the world is locked")
 	}
-	if !IsValidVec2(origin) {
+	if !IsValidPos(origin) {
 		panic("dbox2d: OverlapShape needs a valid origin")
 	}
 
@@ -1541,19 +1633,28 @@ func (worldId WorldId) OverlapShape(origin Pos, proxy *ShapeProxy, filter QueryF
 // panics. It corresponds to b2World_CastRayClosest in src/world.c; the
 // closure replaces b2RayCastClosestFcn.
 func (worldId WorldId) CastRayClosest(origin Pos, translation Vec2, filter QueryFilter) RayResult {
+	result := worldId.castRayClosestCore(origin, translation, filter)
+	if w := getWorldFromId(worldId); w.recording != nil {
+		recordOneShot(w.recording, opQueryCastRayClosest, worldId, wirePos{origin}, translation, filter,
+			result.ShapeId, wirePos{result.Point}, result.Normal, result.Fraction, result.NodeVisits, result.LeafVisits, result.Hit)
+	}
+	return result
+}
+
+func (worldId WorldId) castRayClosestCore(origin Pos, translation Vec2, filter QueryFilter) RayResult {
 	var result RayResult
 
 	w := getWorldFromId(worldId)
 	if w.locked {
 		panic("dbox2d: the world is locked")
 	}
-	if !IsValidVec2(origin) || !IsValidVec2(translation) {
+	if !IsValidPos(origin) || !IsValidVec2(translation) {
 		panic("dbox2d: CastRayClosest needs a valid ray")
 	}
 
 	zero := QZero()
 	one := QOne()
-	input := RayCastInput{Origin: origin, Translation: translation, MaxFraction: one}
+	input := RayCastInput{Origin: ToVec2(origin), Translation: translation, MaxFraction: one}
 	fraction := one
 
 	closest := func(shapeId ShapeId, point Pos, normal Vec2, hitFraction Q) Q {
@@ -1613,10 +1714,21 @@ func (worldId WorldId) CastRayClosest(origin Pos, translation Vec2, filter Query
 // corresponds to b2World_CastShape in src/world.c.
 func (worldId WorldId) CastShape(origin Pos, proxy *ShapeProxy, translation Vec2, filter QueryFilter, fcn CastResultFcn) TreeStats {
 	w := getWorldFromId(worldId)
+	if w.recording == nil || w.locked {
+		return worldId.castShapeCore(origin, proxy, translation, filter, fcn)
+	}
+	qr := beginQuery(w.recording, worldId, wirePos{origin}, proxy, translation, filter)
+	stats := worldId.castShapeCore(origin, proxy, translation, filter, qr.cast(fcn))
+	qr.commit(opQueryCastShape, &stats)
+	return stats
+}
+
+func (worldId WorldId) castShapeCore(origin Pos, proxy *ShapeProxy, translation Vec2, filter QueryFilter, fcn CastResultFcn) TreeStats {
+	w := getWorldFromId(worldId)
 	if w.locked {
 		panic("dbox2d: the world is locked")
 	}
-	if !IsValidVec2(origin) || !IsValidVec2(translation) {
+	if !IsValidPos(origin) || !IsValidVec2(translation) {
 		panic("dbox2d: CastShape needs a valid translation")
 	}
 
@@ -1684,7 +1796,15 @@ func (worldId WorldId) CastShape(origin Pos, proxy *ShapeProxy, translation Vec2
 // locked world panics. It corresponds to b2World_CastMover in
 // src/world.c.
 func (worldId WorldId) CastMover(origin Pos, mover *Capsule, translation Vec2, filter QueryFilter) Q {
-	if !IsValidVec2(origin) || !IsValidVec2(translation) {
+	fraction := worldId.castMoverCore(origin, mover, translation, filter)
+	if w := getWorldFromId(worldId); w.recording != nil {
+		recordOneShot(w.recording, opQueryCastMover, worldId, wirePos{origin}, *mover, translation, filter, fraction)
+	}
+	return fraction
+}
+
+func (worldId WorldId) castMoverCore(origin Pos, mover *Capsule, translation Vec2, filter QueryFilter) Q {
+	if !IsValidPos(origin) || !IsValidVec2(translation) {
 		panic("dbox2d: CastMover needs a valid translation")
 	}
 	if !linearSlop.Mul(QFromInt(2)).Less(mover.Radius) {
@@ -1760,10 +1880,21 @@ func (worldId WorldId) CastMover(origin Pos, mover *Capsule, translation Vec2, f
 // src/world.c.
 func (worldId WorldId) CollideMover(origin Pos, mover *Capsule, filter QueryFilter, fcn PlaneResultFcn) {
 	w := getWorldFromId(worldId)
+	if w.recording == nil || w.locked {
+		worldId.collideMoverCore(origin, mover, filter, fcn)
+		return
+	}
+	qr := beginQuery(w.recording, worldId, wirePos{origin}, *mover, filter)
+	worldId.collideMoverCore(origin, mover, filter, qr.plane(fcn))
+	qr.commit(opQueryCollideMover, nil)
+}
+
+func (worldId WorldId) collideMoverCore(origin Pos, mover *Capsule, filter QueryFilter, fcn PlaneResultFcn) {
+	w := getWorldFromId(worldId)
 	if w.locked {
 		panic("dbox2d: the world is locked")
 	}
-	if !IsValidVec2(origin) {
+	if !IsValidPos(origin) {
 		panic("dbox2d: CollideMover needs a valid origin")
 	}
 
@@ -1799,7 +1930,7 @@ func (worldId WorldId) CollideMover(origin Pos, mover *Capsule, filter QueryFilt
 // corresponds to the reference's ExplosionContext in src/world.c.
 type explosionContext struct {
 	w                *world
-	position         Vec2
+	position         Pos
 	radius           Q
 	falloff          Q
 	impulsePerLength Q
@@ -1817,10 +1948,14 @@ func (ctx *explosionContext) explosionCallback(_ int, userData uint64) bool {
 	zero := QZero()
 	one := QOne()
 
+	// Re-center the explosion into the shape local frame so distance and
+	// direction stay precise far from the origin.
+	localPosition := InvTransformWorldPoint(transform, ctx.position)
+
 	input := DistanceInput{
 		ProxyA:    makeShapeDistanceProxy(s),
-		ProxyB:    MakeProxy([]Vec2{ctx.position}, zero),
-		Transform: InvMulTransforms(transform, TransformIdentity()),
+		ProxyB:    MakeProxy([]Vec2{localPosition}, zero),
+		Transform: TransformIdentity(),
 		UseRadii:  true,
 	}
 	cache := SimplexCache{}
@@ -1835,15 +1970,14 @@ func (ctx *explosionContext) explosionCallback(_ int, userData uint64) bool {
 		return true
 	}
 
-	// The distance runs in the frame of the shape; the explosion still works
-	// in world space until the v3.2 local-frame explosion is ported.
-	closestPoint := TransformPoint(transform, output.PointA)
+	// The distance runs in the frame of the shape.
+	closestPoint := output.PointA
 	// D-012: the reference's exact zero-distance check.
 	if output.Distance.Eq(zero) {
-		closestPoint = TransformPoint(transform, getShapeCentroid(s))
+		closestPoint = getShapeCentroid(s)
 	}
 
-	direction := closestPoint.Sub(ctx.position)
+	direction := closestPoint.Sub(localPosition)
 	// D-012: the guard reads the scalar mode; see DIVERGENCES.md.
 	if QFromInt(100).Mul(scalarEpsilonSq).Less(direction.LenSq()) {
 		direction = direction.Normalize()
@@ -1851,7 +1985,7 @@ func (ctx *explosionContext) explosionCallback(_ int, userData uint64) bool {
 		direction = Vec2{X: one}
 	}
 
-	localLine := InvRotateVector(transform.Q, LeftPerp(direction))
+	localLine := LeftPerp(direction)
 	perimeter := getShapeProjectedPerimeter(s, localLine)
 
 	scale := one
@@ -1861,12 +1995,14 @@ func (ctx *explosionContext) explosionCallback(_ int, userData uint64) bool {
 	}
 
 	magnitude := ctx.impulsePerLength.Mul(perimeter).Mul(scale)
-	impulse := direction.Mul(magnitude)
+	impulse := RotateVector(transform.Q, direction).Mul(magnitude)
 
 	state := getBodyState(w, b)
 	sim := getBodySim(w, b)
 	state.linearVelocity = MulAdd(state.linearVelocity, sim.invMass, impulse)
-	state.angularVelocity = state.angularVelocity.Add(sim.invInertia.Mul(Cross(closestPoint.Sub(sim.center), impulse)))
+	// Lever arm from the center of mass to the closest point, rotated to world.
+	r := RotateVector(transform.Q, closestPoint.Sub(sim.localCenter))
+	state.angularVelocity = state.angularVelocity.Add(sim.invInertia.Mul(Cross(r, impulse)))
 
 	return true
 }
@@ -1880,6 +2016,9 @@ func (worldId WorldId) Explode(def *ExplosionDef) {
 	if w.locked {
 		panic("dbox2d: the world is locked")
 	}
+	if w.recording != nil {
+		w.recording.rec(opWorldExplode, worldId, *def)
+	}
 
 	ctx := explosionContext{
 		w:                w,
@@ -1890,10 +2029,13 @@ func (worldId WorldId) Explode(def *ExplosionDef) {
 	}
 
 	reach := def.Radius.Add(def.Falloff)
-	aabb := AABB{
-		LowerBound: Vec2{X: def.Position.X.Sub(reach), Y: def.Position.Y.Sub(reach)},
-		UpperBound: Vec2{X: def.Position.X.Add(reach), Y: def.Position.Y.Add(reach)},
+	// The broad-phase tree is float, so translate a local query box out to
+	// world with outward rounding.
+	localBox := AABB{
+		LowerBound: Vec2{X: reach.Neg(), Y: reach.Neg()},
+		UpperBound: Vec2{X: reach, Y: reach},
 	}
+	aabb := offsetAABB(localBox, def.Position)
 
 	w.broadPhase.trees[DynamicBody].overlapAABB(aabb, def.MaskBits, ctx.explosionCallback)
 }

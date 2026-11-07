@@ -43,10 +43,10 @@ func (d *donut) create(worldId b2.WorldId, position b2.Vec2, scale b2.Q, groupIn
 
 	for i := range donutSideCount {
 		rot := b2.MakeRot(b2.QFromRatio(i, donutSideCount))
-		bodyDef.Position = b2.Vec2{
+		bodyDef.Position = b2.ToPos(b2.Vec2{
 			X: radius.Mul(rot.Cos).Add(position.X),
 			Y: radius.Mul(rot.Sin).Add(position.Y),
-		}
+		})
 		bodyDef.Rotation = rot
 		d.bodyIds[i] = b2.CreateBody(worldId, &bodyDef)
 		b2.CreateCapsuleShape(d.bodyIds[i], &shapeDef, &capsule)

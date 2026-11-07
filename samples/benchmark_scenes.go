@@ -91,7 +91,7 @@ func benchCreateCompounds(worldId b2.WorldId) {
 		for j := range rowCount {
 			y := b2.F(j).Mul(shift.Add(extraY)).Add(centerY).Add(yStart)
 
-			bodyDef.Position = b2.Vec2{X: x.Add(side), Y: y}
+			bodyDef.Position = b2.ToPos(b2.Vec2{X: x.Add(side), Y: y})
 			side = side.Neg()
 
 			bodyId := b2.CreateBody(worldId, &bodyDef)
@@ -109,7 +109,7 @@ func benchCreateWasher(worldId b2.WorldId) {
 		motorSpeed := b2.F(25).Div(b2.F(360))
 
 		bodyDef := b2.DefaultBodyDef()
-		bodyDef.Position = b2.V2(0, 10)
+		bodyDef.Position = b2.ToPos(b2.V2(0, 10))
 		bodyDef.Type = b2.KinematicBody
 		bodyDef.AngularVelocity = motorSpeed
 		bodyDef.LinearVelocity = b2.Vec2{X: b2.F(0.001), Y: b2.F(-0.002)}
@@ -169,7 +169,7 @@ func benchCreateWasher(worldId b2.WorldId) {
 		x := b2.F(-1.1).Mul(a).Mul(b2.F(gridCount))
 
 		for range gridCount {
-			bodyDef.Position = b2.Vec2{X: x, Y: y}
+			bodyDef.Position = b2.ToPos(b2.Vec2{X: x, Y: y})
 			bodyId := b2.CreateBody(worldId, &bodyDef)
 
 			b2.CreatePolygonShape(bodyId, &shapeDef, &polygon)
@@ -256,7 +256,7 @@ func (j *benchJunkyard) create(worldId b2.WorldId) {
 		for k := range rowCount {
 			y := b2.F(4 * k).Mul(radius).Add(yStart)
 
-			bodyDef.Position = b2.Vec2{X: x.Add(side), Y: y}
+			bodyDef.Position = b2.ToPos(b2.Vec2{X: x.Add(side), Y: y})
 			side = side.Neg()
 
 			bodyId := b2.CreateBody(worldId, &bodyDef)
@@ -265,7 +265,7 @@ func (j *benchJunkyard) create(worldId b2.WorldId) {
 	}
 
 	bodyDef.Type = b2.KinematicBody
-	bodyDef.Position = b2.Vec2{}
+	bodyDef.Position = b2.ToPos(b2.Vec2{})
 	j.pusherId = b2.CreateBody(worldId, &bodyDef)
 	box := b2.MakeOffsetBox(b2.F(2), b2.F(4), b2.V2(0, 4), b2.RotIdentity())
 	b2.CreatePolygonShape(j.pusherId, &shapeDef, &box)
@@ -280,7 +280,7 @@ func (j *benchJunkyard) step(stepCount int) {
 		P: b2.Vec2{X: b2.F(60).Mul(cs.Sin)},
 		Q: b2.RotIdentity(),
 	}
-	j.pusherId.SetTargetTransform(target, timeStep, true)
+	j.pusherId.SetTargetTransform(b2.MakeWorldTransform(target), timeStep, true)
 }
 
 const benchSleepPyramidCount = 10
@@ -308,7 +308,7 @@ func (d *benchSleep) createPyramid(worldId b2.WorldId, baseCount int, extent, ce
 
 		for j := i; j < baseCount; j++ {
 			x := b2.F(i + 1).Mul(extent).Add(two.Mul(b2.F(j - i)).Mul(extent)).Add(centerX)
-			bodyDef.Position = b2.Vec2{X: x, Y: y}
+			bodyDef.Position = b2.ToPos(b2.Vec2{X: x, Y: y})
 
 			bodyId := b2.CreateBody(worldId, &bodyDef)
 			b2.CreatePolygonShape(bodyId, &shapeDef, &box)
@@ -337,7 +337,7 @@ func (d *benchSleep) create(worldId b2.WorldId) {
 
 	{
 		bodyDef := b2.DefaultBodyDef()
-		bodyDef.Position = b2.V2(0, -1)
+		bodyDef.Position = b2.ToPos(b2.V2(0, -1))
 		groundId := b2.CreateBody(worldId, &bodyDef)
 
 		box := b2.MakeBox(b2.QHalf().Mul(span).Add(baseWidth), b2.QOne())
@@ -432,7 +432,7 @@ func (d *benchQueries) create(worldId b2.WorldId) {
 				continue
 			}
 
-			bodyDef.Position = b2.Vec2{X: x, Y: y}
+			bodyDef.Position = b2.ToPos(b2.Vec2{X: x, Y: y})
 			bodyId := b2.CreateBody(worldId, &bodyDef)
 
 			var box b2.Polygon
@@ -450,7 +450,7 @@ func (d *benchQueries) create(worldId b2.WorldId) {
 
 	// Ground for the pile.
 	{
-		bodyDef.Position = b2.Vec2{}
+		bodyDef.Position = b2.ToPos(b2.Vec2{})
 		groundId := b2.CreateBody(worldId, &bodyDef)
 		segment := b2.Segment{
 			Point1: b2.Vec2{X: pileX.Sub(b2.F(10)), Y: pileY},
@@ -465,7 +465,7 @@ func (d *benchQueries) create(worldId b2.WorldId) {
 		sensorDef.IsSensor = true
 		sensorBox := b2.MakeSquare(b2.F(2))
 		for i := range 8 {
-			bodyDef.Position = b2.Vec2{X: pileX.Add(b2.F(4 * i)), Y: pileY.Add(b2.F(2))}
+			bodyDef.Position = b2.ToPos(b2.Vec2{X: pileX.Add(b2.F(4 * i)), Y: pileY.Add(b2.F(2))})
 			sensorId := b2.CreateBody(worldId, &bodyDef)
 			b2.CreatePolygonShape(sensorId, &sensorDef, &sensorBox)
 		}
@@ -481,10 +481,10 @@ func (d *benchQueries) create(worldId b2.WorldId) {
 		bodyDef.Type = b2.DynamicBody
 		for i := range rowCount {
 			for j := range columnCount {
-				bodyDef.Position = b2.Vec2{
+				bodyDef.Position = b2.ToPos(b2.Vec2{
 					X: pileX.Add(spacing.Mul(b2.F(j))),
 					Y: pileY.Add(b2.QOne()).Add(spacing.Mul(b2.F(i))),
-				}
+				})
 				bodyId := b2.CreateBody(worldId, &bodyDef)
 				b2.CreatePolygonShape(bodyId, &shapeDef, &box)
 			}
@@ -494,7 +494,7 @@ func (d *benchQueries) create(worldId b2.WorldId) {
 	// Kinematic paddle sweeping through the bottom of the pile.
 	{
 		bodyDef.Type = b2.KinematicBody
-		bodyDef.Position = b2.Vec2{X: pileX.Sub(b2.F(5)), Y: pileY.Add(b2.F(1.2))}
+		bodyDef.Position = b2.ToPos(b2.Vec2{X: pileX.Sub(b2.F(5)), Y: pileY.Add(b2.F(1.2))})
 		bodyDef.LinearVelocity = b2.V2(5, 0)
 		d.paddleId = b2.CreateBody(worldId, &bodyDef)
 		paddle := b2.MakeBox(b2.QOne(), b2.QOne())
@@ -522,9 +522,9 @@ func (d *benchQueries) create(worldId b2.WorldId) {
 func (d *benchQueries) step(worldId b2.WorldId) int {
 	// Reverse the paddle at the ends of its sweep.
 	paddlePosition := d.paddleId.GetPosition()
-	if paddlePosition.X.Greater(d.paddleMaxX) {
+	if b2.ToVec2(paddlePosition).X.Greater(d.paddleMaxX) {
 		d.paddleId.SetLinearVelocity(b2.V2(-5, 0))
-	} else if paddlePosition.X.Less(d.paddleMinX) {
+	} else if b2.ToVec2(paddlePosition).X.Less(d.paddleMinX) {
 		d.paddleId.SetLinearVelocity(b2.V2(5, 0))
 	}
 
@@ -538,7 +538,7 @@ func (d *benchQueries) step(worldId b2.WorldId) int {
 
 	for _, filter := range filters {
 		for i := range benchQueryCount {
-			result := worldId.CastRayClosest(d.origins[i], d.translations[i], filter)
+			result := worldId.CastRayClosest(b2.ToPos(d.origins[i]), d.translations[i], filter)
 			stats.NodeVisits += result.NodeVisits
 			stats.LeafVisits += result.LeafVisits
 			if result.Hit {
@@ -548,8 +548,8 @@ func (d *benchQueries) step(worldId b2.WorldId) int {
 
 		for i := range benchQueryCount {
 			fraction := b2.QOne()
-			castStats := worldId.CastShape(d.origins[i], &circle, d.translations[i], filter,
-				func(_ b2.ShapeId, _, _ b2.Vec2, f b2.Q) b2.Q {
+			castStats := worldId.CastShape(b2.ToPos(d.origins[i]), &circle, d.translations[i], filter,
+				func(_ b2.ShapeId, _ b2.Pos, _ b2.Vec2, f b2.Q) b2.Q {
 					fraction = f
 					return f
 				})
@@ -563,7 +563,7 @@ func (d *benchQueries) step(worldId b2.WorldId) int {
 		for i := range benchQueryCount {
 			overlapCount := 0
 			aabb := b2.AABB{LowerBound: b2.V2(-5, -5), UpperBound: b2.V2(5, 5)}
-			overlapStats := worldId.OverlapAABB(d.origins[i], aabb, filter, func(b2.ShapeId) bool {
+			overlapStats := worldId.OverlapAABB(b2.ToPos(d.origins[i]), aabb, filter, func(b2.ShapeId) bool {
 				overlapCount++
 				return true
 			})

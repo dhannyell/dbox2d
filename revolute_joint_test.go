@@ -43,7 +43,7 @@ func pinnedBox(t *testing.T, worldId WorldId, position Vec2, def *RevoluteJointD
 
 	boxDef := DefaultBodyDef()
 	boxDef.Type = DynamicBody
-	boxDef.Position = position
+	boxDef.Position = ToPos(position)
 	boxId := CreateBody(worldId, &boxDef)
 	shapeDef := DefaultShapeDef()
 	unit := MakeBox(QHalf(), QHalf())
@@ -244,7 +244,7 @@ func TestRevoluteJointGetAngleInTurns(t *testing.T) {
 	def.Base.BodyIdA = groundId
 	def.Base.BodyIdB = bodyId
 	jointId := CreateRevoluteJoint(worldId, &def)
-	bodyId.SetTransform(Vec2Zero(), MakeRot(QFromRatio(1, 4)))
+	bodyId.SetTransform(ToPos(Vec2Zero()), MakeRot(QFromRatio(1, 4)))
 	if got := jointId.GetCurrentAngle(); !withinQ(got, QFromRatio(1, 4), qUlps(1<<12)) {
 		t.Errorf("angle = %v turns, want 0.25", got)
 	}

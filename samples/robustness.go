@@ -64,7 +64,7 @@ func NewHighMassRatio1(ctx *SampleContext) Sample {
 					if count == 1 {
 						yy = y.Add(b2.F(2))
 					}
-					bodyDef.Position = b2.Vec2{X: coeff.Mul(extent).Add(offset), Y: yy}
+					bodyDef.Position = b2.ToPos(b2.Vec2{X: coeff.Mul(extent).Add(offset), Y: yy})
 					bodyId := b2.CreateBody(s.WorldId, &bodyDef)
 
 					shapeDef.Density = b2.QOne()
@@ -107,19 +107,19 @@ func NewHighMassRatio2(ctx *SampleContext) Sample {
 		bigBox := b2.MakeBox(b2.F(10).Mul(extent), b2.F(10).Mul(extent))
 
 		{
-			bodyDef.Position = b2.Vec2{X: b2.F(-9).Mul(extent), Y: b2.QHalf().Mul(extent)}
+			bodyDef.Position = b2.ToPos(b2.Vec2{X: b2.F(-9).Mul(extent), Y: b2.QHalf().Mul(extent)})
 			bodyId := b2.CreateBody(s.WorldId, &bodyDef)
 			b2.CreatePolygonShape(bodyId, &shapeDef, &smallBox)
 		}
 
 		{
-			bodyDef.Position = b2.Vec2{X: b2.F(9).Mul(extent), Y: b2.QHalf().Mul(extent)}
+			bodyDef.Position = b2.ToPos(b2.Vec2{X: b2.F(9).Mul(extent), Y: b2.QHalf().Mul(extent)})
 			bodyId := b2.CreateBody(s.WorldId, &bodyDef)
 			b2.CreatePolygonShape(bodyId, &shapeDef, &smallBox)
 		}
 
 		{
-			bodyDef.Position = b2.Vec2{Y: b2.F(10 + 16).Mul(extent)}
+			bodyDef.Position = b2.ToPos(b2.Vec2{Y: b2.F(10 + 16).Mul(extent)})
 			bodyId := b2.CreateBody(s.WorldId, &bodyDef)
 			b2.CreatePolygonShape(bodyId, &shapeDef, &bigBox)
 		}
@@ -155,19 +155,19 @@ func NewHighMassRatio3(ctx *SampleContext) Sample {
 		bigBox := b2.MakeBox(b2.F(10).Mul(extent), b2.F(10).Mul(extent))
 
 		{
-			bodyDef.Position = b2.Vec2{X: b2.F(-9).Mul(extent), Y: half}
+			bodyDef.Position = b2.ToPos(b2.Vec2{X: b2.F(-9).Mul(extent), Y: half})
 			bodyId := b2.CreateBody(s.WorldId, &bodyDef)
 			b2.CreatePolygonShape(bodyId, &shapeDef, &smallTriangle)
 		}
 
 		{
-			bodyDef.Position = b2.Vec2{X: b2.F(9).Mul(extent), Y: half}
+			bodyDef.Position = b2.ToPos(b2.Vec2{X: b2.F(9).Mul(extent), Y: half})
 			bodyId := b2.CreateBody(s.WorldId, &bodyDef)
 			b2.CreatePolygonShape(bodyId, &shapeDef, &smallTriangle)
 		}
 
 		{
-			bodyDef.Position = b2.Vec2{Y: b2.F(10 + 4).Mul(extent)}
+			bodyDef.Position = b2.ToPos(b2.Vec2{Y: b2.F(10 + 4).Mul(extent)})
 			bodyId := b2.CreateBody(s.WorldId, &bodyDef)
 			b2.CreatePolygonShape(bodyId, &shapeDef, &bigBox)
 		}
@@ -240,7 +240,7 @@ func (s *OverlapRecovery) createScene() {
 	for i := range s.baseCount {
 		x := fraction.Mul(extent).Mul(b2.F(i - s.baseCount))
 		for j := i; j < s.baseCount; j++ {
-			bodyDef.Position = b2.Vec2{X: x, Y: y}
+			bodyDef.Position = b2.ToPos(b2.Vec2{X: x, Y: y})
 			bodyId := b2.CreateBody(s.WorldId, &bodyDef)
 
 			b2.CreatePolygonShape(bodyId, &shapeDef, &box)
@@ -317,7 +317,7 @@ func NewTinyPyramid(ctx *SampleContext) Sample {
 				x := b2.F(i + 1).Mul(s.extent).
 					Add(b2.QFromInt(2 * (j - i)).Mul(s.extent)).
 					Sub(b2.F(baseCount).Mul(s.extent))
-				bodyDef.Position = b2.Vec2{X: x, Y: y}
+				bodyDef.Position = b2.ToPos(b2.Vec2{X: x, Y: y})
 
 				bodyId := b2.CreateBody(s.WorldId, &bodyDef)
 				b2.CreatePolygonShape(bodyId, &shapeDef, &box)
@@ -361,7 +361,7 @@ func NewCart(ctx *SampleContext) Sample {
 
 	{
 		bodyDef := b2.DefaultBodyDef()
-		bodyDef.Position = b2.V2(0, -1)
+		bodyDef.Position = b2.ToPos(b2.V2(0, -1))
 		groundId := b2.CreateBody(s.WorldId, &bodyDef)
 
 		shapeDef := b2.DefaultShapeDef()
@@ -404,7 +404,7 @@ func (s *Cart) createScene() {
 
 	bodyDef := b2.DefaultBodyDef()
 	bodyDef.Type = b2.DynamicBody
-	bodyDef.Position = b2.Vec2{Y: yBase}
+	bodyDef.Position = b2.ToPos(b2.Vec2{Y: yBase})
 	s.chassisId = b2.CreateBody(s.WorldId, &bodyDef)
 
 	shapeDef := b2.DefaultShapeDef()
@@ -418,11 +418,11 @@ func (s *Cart) createScene() {
 	shapeDef.Density = b2.F(50)
 
 	circle := b2.Circle{Radius: b2.F(0.1)}
-	bodyDef.Position = b2.Vec2{X: b2.F(-0.9), Y: yBase.Sub(b2.F(0.15))}
+	bodyDef.Position = b2.ToPos(b2.Vec2{X: b2.F(-0.9), Y: yBase.Sub(b2.F(0.15))})
 	s.wheelId1 = b2.CreateBody(s.WorldId, &bodyDef)
 	b2.CreateCircleShape(s.wheelId1, &shapeDef, &circle)
 
-	bodyDef.Position = b2.Vec2{X: b2.F(0.9), Y: yBase.Sub(b2.F(0.15))}
+	bodyDef.Position = b2.ToPos(b2.Vec2{X: b2.F(0.9), Y: yBase.Sub(b2.F(0.15))})
 	s.wheelId2 = b2.CreateBody(s.WorldId, &bodyDef)
 	b2.CreateCircleShape(s.wheelId2, &shapeDef, &circle)
 
@@ -522,7 +522,7 @@ func NewMultiplePrismatic(ctx *SampleContext) Sample {
 
 	for i := range multiplePrismaticCount {
 		bodyDef := b2.DefaultBodyDef()
-		bodyDef.Position = b2.Vec2{Y: b2.F(0.6).Add(b2.F(1.2).Mul(b2.F(i)))}
+		bodyDef.Position = b2.ToPos(b2.Vec2{Y: b2.F(0.6).Add(b2.F(1.2).Mul(b2.F(i)))})
 		bodyDef.Type = b2.DynamicBody
 		bodyId := b2.CreateBody(s.WorldId, &bodyDef)
 

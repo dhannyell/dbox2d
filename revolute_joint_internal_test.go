@@ -235,7 +235,7 @@ func makeRevoluteMirrorCase(tb testing.TB) revoluteMirrorCase {
 	makeBody := func(position Vec2, turns string) BodyId {
 		def := DefaultBodyDef()
 		def.Type = DynamicBody
-		def.Position = position
+		def.Position = ToPos(position)
 		def.Rotation = MakeRot(QMustParse(turns))
 		id := CreateBody(worldId, &def)
 		shapeDef := DefaultShapeDef()

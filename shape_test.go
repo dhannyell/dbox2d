@@ -185,11 +185,7 @@ func TestRayCastHitsShape(t *testing.T) {
 	box := MakeSquare(QHalf())
 	shapeId := CreatePolygonShape(bodyId, &shapeDef, &box)
 
-	output := shapeId.CastRay(&RayCastInput{
-		Origin:      v2(-2, 0),
-		Translation: v2(4, 0),
-		MaxFraction: QOne(),
-	})
+	output := shapeId.CastRay(ToPos(v2(-2, 0)), v2(4, 0))
 	if !output.Hit {
 		t.Fatal("ray cast did not hit the box")
 	}
@@ -197,8 +193,8 @@ func TestRayCastHitsShape(t *testing.T) {
 		t.Fatalf("hit normal = %v, want (-1, 0)", output.Normal)
 	}
 	wantPoint := Vec2{X: QHalf().Neg()}
-	if !withinQ(output.Point.X, wantPoint.X, qUlps(16)) ||
-		!withinQ(output.Point.Y, wantPoint.Y, qUlps(16)) {
+	if !withinQ(posX(output.Point), wantPoint.X, qUlps(16)) ||
+		!withinQ(posY(output.Point), wantPoint.Y, qUlps(16)) {
 		t.Fatalf("hit point = %v, want %v", output.Point, wantPoint)
 	}
 }
@@ -211,9 +207,9 @@ func TestGetClosestPointOutsidePolygon(t *testing.T) {
 	box := MakeSquare(QHalf())
 	shapeId := CreatePolygonShape(bodyId, &shapeDef, &box)
 
-	got := shapeId.GetClosestPoint(v2(3, 0))
+	got := shapeId.GetClosestPoint(ToPos(v2(3, 0)))
 	want := Vec2{X: QHalf()}
-	if !withinQ(got.X, want.X, qUlps(16)) || !withinQ(got.Y, want.Y, qUlps(16)) {
+	if !withinQ(posX(got), want.X, qUlps(16)) || !withinQ(posY(got), want.Y, qUlps(16)) {
 		t.Fatalf("closest point = %v, want %v", got, want)
 	}
 }
@@ -221,16 +217,16 @@ func TestGetClosestPointOutsidePolygon(t *testing.T) {
 func TestTestPoint(t *testing.T) {
 	worldId := createTestWorld(t)
 	bodyDef := DefaultBodyDef()
-	bodyDef.Position = v2(2, 3)
+	bodyDef.Position = ToPos(v2(2, 3))
 	bodyId := CreateBody(worldId, &bodyDef)
 	shapeDef := DefaultShapeDef()
 	box := MakeSquare(QHalf())
 	shapeId := CreatePolygonShape(bodyId, &shapeDef, &box)
 
-	if !shapeId.TestPoint(v2(2, 3)) {
+	if !shapeId.TestPoint(ToPos(v2(2, 3))) {
 		t.Fatal("TestPoint rejected a point inside the box")
 	}
-	if shapeId.TestPoint(v2(3, 3)) {
+	if shapeId.TestPoint(ToPos(v2(3, 3))) {
 		t.Fatal("TestPoint accepted a point outside the box")
 	}
 }

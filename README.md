@@ -111,6 +111,14 @@ follow different trajectories. `ScalarMode` reports the active mode.
 | default | `float32` | General use, multiplayer, rollback, and authoritative simulation with a controlled build matrix |
 | `-tags dbox2d_fixed` | Signed Q32.32 fixed point | A stronger cross-platform reproducibility contract |
 
+`-tags dbox2d_double` is the large-world mode of Box2D v3.2.0
+(`BOX2D_DOUBLE_PRECISION`). Body positions and world transforms are `float64`
+(`Pos`, `WorldTransform`) while the solver stays `float32`, so a world far from
+the origin keeps its precision. It builds on the float mode, matches the
+upstream double traces bit for bit, and cannot be combined with
+`dbox2d_fixed`. `IsDoublePrecision` reports it. Its checksum is not comparable
+to the default one.
+
 Float is deterministic for a specific supported build and target. A silently
 introduced fused multiply-add (FMA), compiler change, or other floating-point
 variation can make two peers take different paths while each continues to
@@ -215,6 +223,16 @@ the C API's `void*` context.
 `DefaultDebugDraw` provides no-op callbacks. Implement the operations your
 host needs and call `worldId.Draw(&draw)`; the library walks the world and the
 host decides how to render it.
+
+## Recording, snapshots and replay
+
+`WorldId.StartRecording` writes every API call and a state hash per step in
+the Box2D v3.2.0 recording format. `GetSnapshot`, `RestoreFromSnapshot` and
+`CreateWorldFromSnapshot` save and roll back a world, and `CreateReplay` plays
+a recording with seek, frame queries and divergence detection. Float and
+double builds read and write the upstream bytes (checked against files made by
+`tools/recordgolden`); the fixed build uses an 8 byte scalar and its own
+layout hash, see D-022. Recording costs one nil check per call when off.
 
 ## Compatibility with Box2D
 

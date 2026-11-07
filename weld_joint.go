@@ -46,7 +46,7 @@ func prepareWeldJoint(base *jointSim, context *stepContext) {
 
 	// Compute the initial center delta. Incremental position updates are
 	// relative to this.
-	joint.deltaCenter = bodySimB.center.Sub(bodySimA.center)
+	joint.deltaCenter = SubPos(bodySimB.center, bodySimA.center)
 
 	zero := QZero()
 	ka := base.invIA.Add(base.invIB)
@@ -196,9 +196,9 @@ func solveWeldJoint(base *jointSim, context *stepContext, useBias bool) {
 }
 
 // drawWeldJoint corresponds to b2DrawWeldJoint: a box on each frame.
-func drawWeldJoint(draw *DebugDraw, base *jointSim, transformA, transformB Transform, drawScale Q) {
-	frameA := MulTransforms(transformA, base.localFrameA)
-	frameB := MulTransforms(transformB, base.localFrameB)
+func drawWeldJoint(draw *DebugDraw, base *jointSim, transformA, transformB WorldTransform, drawScale Q) {
+	frameA := MulWorldTransforms(transformA, base.localFrameA)
+	frameB := MulWorldTransforms(transformB, base.localFrameB)
 
 	box := MakeBox(QMustParse("0.25").Mul(drawScale), QMustParse("0.125").Mul(drawScale))
 	draw.DrawPolygonFcn(frameA, box.Vertices[:4], ColorDarkOrange)

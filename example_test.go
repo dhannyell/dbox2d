@@ -17,7 +17,7 @@ func exampleWorld() (b2.WorldId, b2.BodyId, b2.BodyId) {
 
 	boxDef := b2.DefaultBodyDef()
 	boxDef.Type = b2.DynamicBody
-	boxDef.Position = b2.Vec2{Y: b2.QFromInt(2)}
+	boxDef.Position = b2.ToPos(b2.Vec2{Y: b2.QFromInt(2)})
 	boxId := b2.CreateBody(worldId, &boxDef)
 	shapeDef := b2.DefaultShapeDef()
 	box := b2.MakeSquare(b2.QHalf())
@@ -83,7 +83,7 @@ func ExampleBodyId_SetTransform() {
 	worldId, _, boxId := exampleWorld()
 	defer b2.DestroyWorld(worldId)
 
-	boxId.SetTransform(b2.Vec2{X: b2.QOne(), Y: b2.QFromInt(3)}, b2.RotIdentity())
+	boxId.SetTransform(b2.ToPos(b2.Vec2{X: b2.QOne(), Y: b2.QFromInt(3)}), b2.RotIdentity())
 
 	fmt.Println(boxId.GetPosition())
 	// Output: {1 3}
@@ -234,13 +234,13 @@ func ExampleWorldId_SetPreSolveCallback() {
 		manifold.PointCount = 0
 	}, nil)
 
-	startY := boxId.GetPosition().Y
+	startY := b2.ToVec2(boxId.GetPosition()).Y
 	dt := b2.QOne().Div(b2.QFromInt(60))
 	for range 60 {
 		worldId.Step(dt, 4)
 	}
 
-	fmt.Println(boxId.GetPosition().Y.Less(startY))
+	fmt.Println(b2.ToVec2(boxId.GetPosition()).Y.Less(startY))
 	// Output: true
 }
 
@@ -257,7 +257,7 @@ func ExampleBodyId_GetContactData() {
 
 	boxDef := b2.DefaultBodyDef()
 	boxDef.Type = b2.DynamicBody
-	boxDef.Position = b2.Vec2{Y: b2.QOne()}
+	boxDef.Position = b2.ToPos(b2.Vec2{Y: b2.QOne()})
 	boxId := b2.CreateBody(worldId, &boxDef)
 	boxShapeDef := b2.DefaultShapeDef()
 	box := b2.MakeSquare(b2.QHalf())

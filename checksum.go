@@ -133,11 +133,11 @@ func checksumBody(w *world, b *body) uint64 {
 	pendingSplit := b.islandId != nullIndex && w.islands[b.islandId].constraintRemoveCount > 0
 	h = checksumBool(h, pendingSplit)
 
-	h = checksumVec2(h, sim.transform.P)
+	h = checksumPos(h, sim.transform.P)
 	h = checksumRot(h, sim.transform.Q)
-	h = checksumVec2(h, sim.center)
+	h = checksumPos(h, sim.center)
 	h = checksumRot(h, sim.rotation0)
-	h = checksumVec2(h, sim.center0)
+	h = checksumPos(h, sim.center0)
 	h = checksumVec2(h, sim.localCenter)
 	h = checksumVec2(h, sim.force)
 	h = checksumQ(h, sim.torque)

@@ -40,7 +40,7 @@ func createGopher(worldId b2.WorldId, position b2.Vec2, scale float64, groupInde
 		ox, oy float64
 	}
 	newPart := func(ox, oy float64) part {
-		bodyDef.Position = position.Add(b2.Vec2{X: q(ox), Y: q(oy)})
+		bodyDef.Position = b2.ToPos(position.Add(b2.Vec2{X: q(ox), Y: q(oy)}))
 		return part{id: b2.CreateBody(worldId, &bodyDef), ox: ox, oy: oy}
 	}
 	box := func(p part, def *b2.ShapeDef, color uint32, x, y, hw, hh, r float64) {

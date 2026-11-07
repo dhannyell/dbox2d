@@ -41,7 +41,7 @@ type sensorQueryContext struct {
 	world       *world
 	sensor      *sensor
 	sensorShape *shape
-	transform   Transform
+	transform   WorldTransform
 }
 
 // sensorQueryCallback records one exact sensor overlap. It corresponds to
@@ -78,7 +78,7 @@ func sensorQueryCallback(_ int, userData uint64, context *sensorQueryContext) bo
 	input := DistanceInput{
 		ProxyA:    makeShapeDistanceProxy(sensorShape),
 		ProxyB:    makeShapeDistanceProxy(otherShape),
-		Transform: InvMulTransforms(context.transform, otherTransform),
+		Transform: InvMulWorldTransforms(context.transform, otherTransform),
 		UseRadii:  true,
 	}
 	var cache SimplexCache

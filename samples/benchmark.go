@@ -264,7 +264,7 @@ func (s *Barrel) createScene() {
 
 		for j := range s.rowCount {
 			y := b2.F(j).Mul(shift.Add(extraY)).Add(centerY).Add(yStart)
-			bodyDef.Position = b2.Vec2{X: x.Add(side), Y: y}
+			bodyDef.Position = b2.ToPos(b2.Vec2{X: x.Add(side), Y: y})
 			side = side.Neg()
 
 			switch s.shapeType {
@@ -318,7 +318,7 @@ func (s *Barrel) createScene() {
 					index+1, nil, false,
 				)
 			case barrelGopherShape:
-				s.gophers[index] = createGopher(s.WorldId, bodyDef.Position, 3, index+1)
+				s.gophers[index] = createGopher(s.WorldId, b2.ToVec2(bodyDef.Position), 3, index+1)
 			}
 
 			index++
@@ -390,7 +390,7 @@ func NewManyTumblers(ctx *SampleContext) Sample {
 func (s *ManyTumblers) createTumbler(position b2.Vec2, index int) {
 	bodyDef := b2.DefaultBodyDef()
 	bodyDef.Type = b2.KinematicBody
-	bodyDef.Position = position
+	bodyDef.Position = b2.ToPos(position)
 	bodyDef.AngularVelocity = s.angularVelocity()
 	bodyID := b2.CreateBody(s.WorldId, &bodyDef)
 	s.tumblerIDs[index] = bodyID
@@ -486,7 +486,7 @@ func (s *ManyTumblers) Step() {
 		for i := range s.tumblerCount {
 			bodyDef := b2.DefaultBodyDef()
 			bodyDef.Type = b2.DynamicBody
-			bodyDef.Position = s.positions[i]
+			bodyDef.Position = b2.ToPos(s.positions[i])
 			s.bodyIDs[s.bodyIndex] = b2.CreateBody(s.WorldId, &bodyDef)
 			b2.CreateCapsuleShape(s.bodyIDs[s.bodyIndex], &shapeDef, &capsule)
 			s.bodyIndex++
@@ -607,7 +607,7 @@ func (s *CreateDestroy) CreateScene() {
 			x := b2.QFromRatio(i, 2).Mul(shift).
 				Add(b2.F(j - i).Mul(shift)).
 				Sub(centerX)
-			bodyDef.Position = b2.Vec2{X: x, Y: y}
+			bodyDef.Position = b2.ToPos(b2.Vec2{X: x, Y: y})
 
 			s.bodies[index] = b2.CreateBody(s.WorldId, &bodyDef)
 			b2.CreatePolygonShape(s.bodies[index], &shapeDef, &box)
@@ -776,7 +776,7 @@ func NewLargeCompounds(ctx *SampleContext) Sample {
 					Mul(b2.F(count)).
 					Mul(b2.F(span)).
 					Add(b2.F(n * span).Mul(grid))
-				bodyDef.Position = b2.Vec2{X: xBody, Y: yBody}
+				bodyDef.Position = b2.ToPos(b2.Vec2{X: xBody, Y: yBody})
 				bodyID := b2.CreateBody(s.WorldId, &bodyDef)
 
 				for i := range span {
@@ -940,7 +940,7 @@ func (s *Cast) buildScene() {
 			x := b2.F(j).Mul(s.grid)
 			fillTest := shared.RandomFloatRange(b2.QZero(), b2.QOne())
 			if !s.fill.Less(fillTest) {
-				bodyDef.Position = b2.Vec2{X: x, Y: y}
+				bodyDef.Position = b2.ToPos(b2.Vec2{X: x, Y: y})
 				bodyID := b2.CreateBody(s.WorldId, &bodyDef)
 
 				ratio := shared.RandomFloatRange(b2.QOne(), s.ratio)
@@ -1054,7 +1054,7 @@ func (s *Cast) Step() {
 		var drawResult b2.RayResult
 
 		for i := range sampleCount {
-			result := s.WorldId.CastRayClosest(s.origins[i], s.translations[i], filter)
+			result := s.WorldId.CastRayClosest(b2.ToPos(s.origins[i]), s.translations[i], filter)
 			if i == s.drawIndex {
 				drawResult = result
 			}
@@ -1072,9 +1072,9 @@ func (s *Cast) Step() {
 
 		p1 := s.origins[s.drawIndex]
 		p2 := p1.Add(s.translations[s.drawIndex])
-		s.Context.Draw.DrawLineFcn(p1, p2, b2.ColorWhite)
-		s.Context.Draw.DrawPointFcn(p1, b2.F(5), b2.ColorGreen)
-		s.Context.Draw.DrawPointFcn(p2, b2.F(5), b2.ColorRed)
+		s.Context.Draw.DrawLineFcn(b2.ToPos(p1), b2.ToPos(p2), b2.ColorWhite)
+		s.Context.Draw.DrawPointFcn(b2.ToPos(p1), b2.F(5), b2.ColorGreen)
+		s.Context.Draw.DrawPointFcn(b2.ToPos(p2), b2.F(5), b2.ColorRed)
 		if drawResult.Hit {
 			s.Context.Draw.DrawPointFcn(drawResult.Point, b2.F(5), b2.ColorWhite)
 		}
@@ -1086,8 +1086,8 @@ func (s *Cast) Step() {
 		for i := range sampleCount {
 			proxy := b2.MakeProxy([]b2.Vec2{{}}, s.radius)
 			result.hit = false
-			traversalResult := s.WorldId.CastShape(s.origins[i], &proxy, s.translations[i], filter, func(_ b2.ShapeId, point, _ b2.Vec2, fraction b2.Q) b2.Q {
-				result.point = point
+			traversalResult := s.WorldId.CastShape(b2.ToPos(s.origins[i]), &proxy, s.translations[i], filter, func(_ b2.ShapeId, point b2.Pos, _ b2.Vec2, fraction b2.Q) b2.Q {
+				result.point = b2.ToVec2(point)
 				result.fraction = fraction
 				result.hit = true
 				return fraction
@@ -1110,13 +1110,13 @@ func (s *Cast) Step() {
 
 		p1 := s.origins[s.drawIndex]
 		p2 := p1.Add(s.translations[s.drawIndex])
-		s.Context.Draw.DrawLineFcn(p1, p2, b2.ColorWhite)
-		s.Context.Draw.DrawPointFcn(p1, b2.F(5), b2.ColorGreen)
-		s.Context.Draw.DrawPointFcn(p2, b2.F(5), b2.ColorRed)
+		s.Context.Draw.DrawLineFcn(b2.ToPos(p1), b2.ToPos(p2), b2.ColorWhite)
+		s.Context.Draw.DrawPointFcn(b2.ToPos(p1), b2.F(5), b2.ColorGreen)
+		s.Context.Draw.DrawPointFcn(b2.ToPos(p2), b2.F(5), b2.ColorRed)
 		if drawResult.hit {
 			t := p1.Add(s.translations[s.drawIndex].Mul(drawResult.fraction))
-			s.Context.Draw.DrawCircleFcn(t, s.radius, b2.ColorWhite)
-			s.Context.Draw.DrawPointFcn(drawResult.point, b2.F(5), b2.ColorWhite)
+			s.Context.Draw.DrawCircleFcn(b2.ToPos(t), s.radius, b2.ColorWhite)
+			s.Context.Draw.DrawPointFcn(b2.ToPos(drawResult.point), b2.F(5), b2.ColorWhite)
 		}
 
 	case castOverlap:
@@ -1127,7 +1127,7 @@ func (s *Cast) Step() {
 		for i := range sampleCount {
 			aabb := b2.AABB{LowerBound: b2.Vec2{X: s.radius.Neg(), Y: s.radius.Neg()}, UpperBound: extent}
 			result.count = 0
-			traversalResult := s.WorldId.OverlapAABB(s.origins[i], aabb, filter, func(shapeID b2.ShapeId) bool {
+			traversalResult := s.WorldId.OverlapAABB(b2.ToPos(s.origins[i]), aabb, filter, func(shapeID b2.ShapeId) bool {
 				if result.count < len(result.points) {
 					result.points[result.count] = b2.AABBCenter(shapeID.GetBounds())
 					result.count++
@@ -1152,7 +1152,7 @@ func (s *Cast) Step() {
 		aabb := b2.AABB{LowerBound: origin.Sub(extent), UpperBound: origin.Add(extent)}
 		s.Context.Draw.DrawBoundsFcn(aabb, b2.ColorWhite)
 		for i := range drawResult.count {
-			s.Context.Draw.DrawPointFcn(drawResult.points[i], b2.F(5), b2.ColorHotPink)
+			s.Context.Draw.DrawPointFcn(b2.ToPos(drawResult.points[i]), b2.F(5), b2.ColorHotPink)
 		}
 	}
 
@@ -1318,16 +1318,16 @@ func (s *ShapeDistance) Step() {
 	xfA := s.transformAs[s.drawIndex]
 	xfB := s.transformBs[s.drawIndex]
 	output := s.outputs[s.drawIndex]
-	s.Context.Draw.DrawSolidPolygonFcn(xfA, s.polygonA.Vertices[:s.polygonA.Count], s.polygonA.Radius, b2.ColorBox2DGreen)
-	s.Context.Draw.DrawSolidPolygonFcn(xfB, s.polygonB.Vertices[:s.polygonB.Count], s.polygonB.Radius, b2.ColorBox2DBlue)
+	s.Context.Draw.DrawSolidPolygonFcn(b2.MakeWorldTransform(xfA), s.polygonA.Vertices[:s.polygonA.Count], s.polygonA.Radius, b2.ColorBox2DGreen)
+	s.Context.Draw.DrawSolidPolygonFcn(b2.MakeWorldTransform(xfB), s.polygonB.Vertices[:s.polygonB.Count], s.polygonB.Radius, b2.ColorBox2DBlue)
 	// The query returns frame A results; project to world for drawing.
 	worldPointA := b2.TransformPoint(xfA, output.PointA)
 	worldPointB := b2.TransformPoint(xfA, output.PointB)
 	worldNormal := b2.RotateVector(xfA.Q, output.Normal)
-	s.Context.Draw.DrawLineFcn(worldPointA, worldPointB, b2.ColorDimGray)
-	s.Context.Draw.DrawPointFcn(worldPointA, b2.F(10), b2.ColorWhite)
-	s.Context.Draw.DrawPointFcn(worldPointB, b2.F(10), b2.ColorWhite)
-	s.Context.Draw.DrawLineFcn(worldPointA, b2.MulAdd(worldPointA, b2.QHalf(), worldNormal), b2.ColorYellow)
+	s.Context.Draw.DrawLineFcn(b2.ToPos(worldPointA), b2.ToPos(worldPointB), b2.ColorDimGray)
+	s.Context.Draw.DrawPointFcn(b2.ToPos(worldPointA), b2.F(10), b2.ColorWhite)
+	s.Context.Draw.DrawPointFcn(b2.ToPos(worldPointB), b2.F(10), b2.ColorWhite)
+	s.Context.Draw.DrawLineFcn(b2.ToPos(worldPointA), b2.ToPos(b2.MulAdd(worldPointA, b2.QHalf(), worldNormal)), b2.ColorYellow)
 	s.DrawTextLine("distance = %s", output.Distance)
 
 	s.Base.Step()
@@ -1450,10 +1450,10 @@ func (s *Sensor) createRow(y b2.Q) {
 	for i := range sensorColumnCount {
 		// Stagger bodies to avoid bunching up events into a single update.
 		yOffset := shared.RandomFloatRange(b2.F(-1), b2.QOne())
-		bodyDef.Position = b2.Vec2{
+		bodyDef.Position = b2.ToPos(b2.Vec2{
 			X: b2.F(i).Mul(shift).Sub(xCenter),
 			Y: y.Add(yOffset),
-		}
+		})
 		bodyID := b2.CreateBody(s.WorldId, &bodyDef)
 		b2.CreateCircleShape(bodyID, &shapeDef, &circle)
 	}
@@ -1561,13 +1561,13 @@ func NewBarrel24(ctx *SampleContext) Sample {
 
 		// A quarter turn is the reference's 0.5 * pi.
 		bodyDef.Rotation = b2.MakeRot(b2.QFromRatio(1, 4))
-		bodyDef.Position = b2.Vec2{X: groundSize, Y: b2.F(2).Mul(groundSize)}
+		bodyDef.Position = b2.ToPos(b2.Vec2{X: groundSize, Y: b2.F(2).Mul(groundSize)})
 		groundId = b2.CreateBody(s.WorldId, &bodyDef)
 
 		box = b2.MakeBox(b2.F(2).Mul(groundSize), b2.F(1.2))
 		b2.CreatePolygonShape(groundId, &shapeDef, &box)
 
-		bodyDef.Position = b2.Vec2{X: groundSize.Neg(), Y: b2.F(2).Mul(groundSize)}
+		bodyDef.Position = b2.ToPos(b2.Vec2{X: groundSize.Neg(), Y: b2.F(2).Mul(groundSize)})
 		groundId = b2.CreateBody(s.WorldId, &bodyDef)
 		b2.CreatePolygonShape(groundId, &shapeDef, &box)
 	}
@@ -1595,7 +1595,7 @@ func NewBarrel24(ctx *SampleContext) Sample {
 		for j := range numj {
 			y := b2.F(j).Mul(shift).Add(centerY).Add(b2.F(2))
 
-			bodyDef.Position = b2.Vec2{X: x, Y: y}
+			bodyDef.Position = b2.ToPos(b2.Vec2{X: x, Y: y})
 
 			bodyId := b2.CreateBody(s.WorldId, &bodyDef)
 			b2.CreatePolygonShape(bodyId, &shapeDef, &cuboid)
@@ -1712,7 +1712,7 @@ func NewCapacity(ctx *SampleContext) Sample {
 
 	{
 		bodyDef := b2.DefaultBodyDef()
-		bodyDef.Position.Y = b2.F(-5)
+		setPosY(&bodyDef.Position, b2.F(-5))
 		groundId := b2.CreateBody(s.WorldId, &bodyDef)
 
 		box := b2.MakeBox(b2.F(800), b2.F(5))
@@ -1753,15 +1753,15 @@ func (s *Capacity) Step() {
 
 	bodyDef := b2.DefaultBodyDef()
 	bodyDef.Type = b2.DynamicBody
-	bodyDef.Position.Y = b2.F(200)
+	setPosY(&bodyDef.Position, b2.F(200))
 
 	shapeDef := b2.DefaultShapeDef()
 
 	count := 200
 	x := b2.F(-count)
 	for range count {
-		bodyDef.Position.X = x
-		bodyDef.Position.Y = bodyDef.Position.Y.Add(b2.QHalf())
+		setPosX(&bodyDef.Position, x)
+		setPosY(&bodyDef.Position, b2.ToVec2(bodyDef.Position).Y.Add(b2.QHalf()))
 
 		bodyId := b2.CreateBody(s.WorldId, &bodyDef)
 		b2.CreatePolygonShape(bodyId, &shapeDef, &s.square)
@@ -1827,9 +1827,9 @@ func (s *Queries) Step() {
 
 	origin := s.data.origins[s.drawIndex]
 	end := origin.Add(s.data.translations[s.drawIndex])
-	s.Context.Draw.DrawLineFcn(origin, end, b2.ColorWhite)
-	s.Context.Draw.DrawPointFcn(origin, b2.F(5), b2.ColorGreen)
-	s.Context.Draw.DrawPointFcn(end, b2.F(5), b2.ColorRed)
+	s.Context.Draw.DrawLineFcn(b2.ToPos(origin), b2.ToPos(end), b2.ColorWhite)
+	s.Context.Draw.DrawPointFcn(b2.ToPos(origin), b2.F(5), b2.ColorGreen)
+	s.Context.Draw.DrawPointFcn(b2.ToPos(end), b2.F(5), b2.ColorRed)
 
 	// The overlap box the same query runs.
 	extent := b2.F(5)

@@ -65,7 +65,7 @@ func prepareWheelJoint(base *jointSim, context *stepContext) {
 
 	// Compute the initial center delta. Incremental position updates are
 	// relative to this.
-	joint.deltaCenter = bodySimB.center.Sub(bodySimA.center)
+	joint.deltaCenter = SubPos(bodySimB.center, bodySimA.center)
 
 	rA := joint.frameA.P
 	rB := joint.frameB.P
@@ -342,11 +342,11 @@ func solveWheelJoint(base *jointSim, context *stepContext, useBias bool) {
 }
 
 // drawWheelJoint corresponds to b2DrawWheelJoint.
-func drawWheelJoint(draw *DebugDraw, base *jointSim, transformA, transformB Transform, drawScale Q) {
+func drawWheelJoint(draw *DebugDraw, base *jointSim, transformA, transformB WorldTransform, drawScale Q) {
 	joint := base.wheel()
 
-	frameA := MulTransforms(transformA, base.localFrameA)
-	frameB := MulTransforms(transformB, base.localFrameB)
+	frameA := MulWorldTransforms(transformA, base.localFrameA)
+	frameB := MulWorldTransforms(transformB, base.localFrameB)
 	axisA := prismaticAxis(frameA.Q)
 
 	c1 := ColorGray
@@ -358,15 +358,15 @@ func drawWheelJoint(draw *DebugDraw, base *jointSim, transformA, transformB Tran
 	draw.DrawLineFcn(frameA.P, frameB.P, c5)
 
 	if joint.enableLimit {
-		lower := MulAdd(frameA.P, joint.lowerTranslation, axisA)
-		upper := MulAdd(frameA.P, joint.upperTranslation, axisA)
+		lower := OffsetPos(frameA.P, axisA.Mul(joint.lowerTranslation))
+		upper := OffsetPos(frameA.P, axisA.Mul(joint.upperTranslation))
 		perp := LeftPerp(axisA)
 		b := QMustParse("0.1").Mul(drawScale)
 		draw.DrawLineFcn(lower, upper, c1)
-		draw.DrawLineFcn(MulSub(lower, b, perp), MulAdd(lower, b, perp), c2)
-		draw.DrawLineFcn(MulSub(upper, b, perp), MulAdd(upper, b, perp), c3)
+		draw.DrawLineFcn(offsetPosSub(lower, perp.Mul(b)), OffsetPos(lower, perp.Mul(b)), c2)
+		draw.DrawLineFcn(offsetPosSub(upper, perp.Mul(b)), OffsetPos(upper, perp.Mul(b)), c3)
 	} else {
-		draw.DrawLineFcn(frameA.P.Sub(axisA), frameA.P.Add(axisA), c1)
+		draw.DrawLineFcn(offsetPosSub(frameA.P, axisA), OffsetPos(frameA.P, axisA), c1)
 	}
 
 	draw.DrawPointFcn(frameA.P, QFromInt(5), c1)

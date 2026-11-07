@@ -38,7 +38,7 @@ func (c *car) spawn(worldId b2.WorldId, position b2.Vec2, scale, hertz, dampingR
 
 	bodyDef := b2.DefaultBodyDef()
 	bodyDef.Type = b2.DynamicBody
-	bodyDef.Position = b2.Vec2{Y: scale}.Add(position)
+	bodyDef.Position = b2.ToPos(b2.Vec2{Y: scale}.Add(position))
 	c.chassisId = b2.CreateBody(worldId, &bodyDef)
 	b2.CreatePolygonShape(c.chassisId, &shapeDef, &chassis)
 
@@ -46,12 +46,12 @@ func (c *car) spawn(worldId b2.WorldId, position b2.Vec2, scale, hertz, dampingR
 	shapeDef.Material.Friction = b2.F(1.5)
 	shapeDef.Material.RollingResistance = b2.F(0.1)
 
-	bodyDef.Position = b2.Vec2{X: scale.Neg(), Y: b2.F(0.35).Mul(scale)}.Add(position)
+	bodyDef.Position = b2.ToPos(b2.Vec2{X: scale.Neg(), Y: b2.F(0.35).Mul(scale)}.Add(position))
 	bodyDef.AllowFastRotation = true
 	c.rearWheelId = b2.CreateBody(worldId, &bodyDef)
 	b2.CreateCircleShape(c.rearWheelId, &shapeDef, &circle)
 
-	bodyDef.Position = b2.Vec2{X: scale, Y: b2.F(0.4).Mul(scale)}.Add(position)
+	bodyDef.Position = b2.ToPos(b2.Vec2{X: scale, Y: b2.F(0.4).Mul(scale)}.Add(position))
 	bodyDef.AllowFastRotation = true
 	c.frontWheelId = b2.CreateBody(worldId, &bodyDef)
 	b2.CreateCircleShape(c.frontWheelId, &shapeDef, &circle)
@@ -154,7 +154,7 @@ func (t *truck) spawn(worldId b2.WorldId, position b2.Vec2, scale, hertz, dampin
 
 	bodyDef := b2.DefaultBodyDef()
 	bodyDef.Type = b2.DynamicBody
-	bodyDef.Position = b2.Vec2{Y: scale}.Add(position)
+	bodyDef.Position = b2.ToPos(b2.Vec2{Y: scale}.Add(position))
 	t.chassisId = b2.CreateBody(worldId, &bodyDef)
 	b2.CreatePolygonShape(t.chassisId, &shapeDef, &chassis)
 
@@ -171,11 +171,11 @@ func (t *truck) spawn(worldId b2.WorldId, position b2.Vec2, scale, hertz, dampin
 	shapeDef.Material.CustomColor = uint32(b2.ColorSilver)
 
 	circle := b2.Circle{Center: b2.Vec2{}, Radius: b2.F(0.4).Mul(scale)}
-	bodyDef.Position = b2.Vec2{X: b2.F(-2.75).Mul(scale), Y: b2.F(0.3).Mul(scale)}.Add(position)
+	bodyDef.Position = b2.ToPos(b2.Vec2{X: b2.F(-2.75).Mul(scale), Y: b2.F(0.3).Mul(scale)}.Add(position))
 	t.rearWheelId = b2.CreateBody(worldId, &bodyDef)
 	b2.CreateCircleShape(t.rearWheelId, &shapeDef, &circle)
 
-	bodyDef.Position = b2.Vec2{X: b2.F(0.8).Mul(scale), Y: b2.F(0.3).Mul(scale)}.Add(position)
+	bodyDef.Position = b2.ToPos(b2.Vec2{X: b2.F(0.8).Mul(scale), Y: b2.F(0.3).Mul(scale)}.Add(position))
 	t.frontWheelId = b2.CreateBody(worldId, &bodyDef)
 	b2.CreateCircleShape(t.frontWheelId, &shapeDef, &circle)
 

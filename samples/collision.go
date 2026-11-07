@@ -34,7 +34,7 @@ func clampFloat(a, lower, upper float64) float64 { return math.Max(lower, math.M
 // drawSolidCircleAt draws a solid circle whose center is local to the
 // transform, like the reference Draw::DrawSolidCircle.
 func drawSolidCircleAt(draw *b2.DebugDraw, transform b2.Transform, center b2.Vec2, radius b2.Q, color b2.HexColor) {
-	draw.DrawSolidCircleFcn(transform, center, radius, color)
+	draw.DrawSolidCircleFcn(b2.MakeWorldTransform(transform), center, radius, color)
 }
 
 // The proxy shapes of Shape Distance and Shape Cast.
@@ -86,7 +86,7 @@ func (ps *proxyShapes) drawShape(draw *b2.DebugDraw, shapeType int, transform b2
 		if radius.Greater(b2.QZero()) {
 			drawSolidCircleAt(draw, transform, ps.point, radius, color)
 		} else {
-			draw.DrawPointFcn(p, b2.F(5), color)
+			draw.DrawPointFcn(b2.ToPos(p), b2.F(5), color)
 		}
 
 	case proxySegment:
@@ -94,16 +94,16 @@ func (ps *proxyShapes) drawShape(draw *b2.DebugDraw, shapeType int, transform b2
 		p2 := b2.TransformPoint(transform, ps.segment.Point2)
 
 		if radius.Greater(b2.QZero()) {
-			draw.DrawSolidCapsuleFcn(p1, p2, radius, color)
+			draw.DrawSolidCapsuleFcn(b2.ToPos(p1), b2.ToPos(p2), radius, color)
 		} else {
-			draw.DrawLineFcn(p1, p2, color)
+			draw.DrawLineFcn(b2.ToPos(p1), b2.ToPos(p2), color)
 		}
 
 	case proxyTriangle:
-		draw.DrawSolidPolygonFcn(transform, ps.triangle.Vertices[:ps.triangle.Count], radius, color)
+		draw.DrawSolidPolygonFcn(b2.MakeWorldTransform(transform), ps.triangle.Vertices[:ps.triangle.Count], radius, color)
 
 	case proxyBox:
-		draw.DrawSolidPolygonFcn(transform, ps.box.Vertices[:ps.box.Count], radius, color)
+		draw.DrawSolidPolygonFcn(b2.MakeWorldTransform(transform), ps.box.Vertices[:ps.box.Count], radius, color)
 	}
 }
 
@@ -308,35 +308,35 @@ func (s *CollisionShapeDistance) Step() {
 			// The first recorded simplex does not have valid barycentric coordinates
 			pointA, pointB := computeSimplexWitnessPoints(simplex)
 
-			draw.DrawLineFcn(pointA, pointB, b2.ColorWhite)
-			draw.DrawPointFcn(pointA, ten, b2.ColorWhite)
-			draw.DrawPointFcn(pointB, ten, b2.ColorWhite)
+			draw.DrawLineFcn(b2.ToPos(pointA), b2.ToPos(pointB), b2.ColorWhite)
+			draw.DrawPointFcn(b2.ToPos(pointA), ten, b2.ColorWhite)
+			draw.DrawPointFcn(b2.ToPos(pointB), ten, b2.ColorWhite)
 		}
 
 		colors := [3]b2.HexColor{b2.ColorRed, b2.ColorGreen, b2.ColorBlue}
 
 		for i := 0; i < simplex.Count; i++ {
 			vertex := vertices[i]
-			draw.DrawPointFcn(vertex.WA, ten, colors[i])
-			draw.DrawPointFcn(vertex.WB, ten, colors[i])
+			draw.DrawPointFcn(b2.ToPos(vertex.WA), ten, colors[i])
+			draw.DrawPointFcn(b2.ToPos(vertex.WB), ten, colors[i])
 		}
 	} else {
-		draw.DrawLineFcn(output.PointA, output.PointB, b2.ColorDimGray)
-		draw.DrawPointFcn(output.PointA, ten, b2.ColorWhite)
-		draw.DrawPointFcn(output.PointB, ten, b2.ColorWhite)
+		draw.DrawLineFcn(b2.ToPos(output.PointA), b2.ToPos(output.PointB), b2.ColorDimGray)
+		draw.DrawPointFcn(b2.ToPos(output.PointA), ten, b2.ColorWhite)
+		draw.DrawPointFcn(b2.ToPos(output.PointB), ten, b2.ColorWhite)
 
-		draw.DrawLineFcn(output.PointA, b2.MulAdd(output.PointA, b2.QHalf(), output.Normal), b2.ColorYellow)
+		draw.DrawLineFcn(b2.ToPos(output.PointA), b2.ToPos(b2.MulAdd(output.PointA, b2.QHalf(), output.Normal)), b2.ColorYellow)
 	}
 
 	if s.showIndices {
 		for i := 0; i < s.proxyA.Count; i++ {
 			p := s.proxyA.Points[i]
-			draw.DrawStringFcn(p, fmt.Sprintf(" %d", i), b2.ColorWhite)
+			draw.DrawStringFcn(b2.ToPos(p), fmt.Sprintf(" %d", i), b2.ColorWhite)
 		}
 
 		for i := 0; i < s.proxyB.Count; i++ {
 			p := b2.TransformPoint(s.transform, s.proxyB.Points[i])
-			draw.DrawStringFcn(p, fmt.Sprintf(" %d", i), b2.ColorWhite)
+			draw.DrawStringFcn(b2.ToPos(p), fmt.Sprintf(" %d", i), b2.ColorWhite)
 		}
 	}
 
@@ -552,7 +552,7 @@ func (s *DynamicTree) drawAABB(box b2.AABB, color b2.HexColor) {
 	v[1] = b2.Vec2{X: box.UpperBound.X, Y: box.LowerBound.Y}
 	v[2] = box.UpperBound
 	v[3] = b2.Vec2{X: box.LowerBound.X, Y: box.UpperBound.Y}
-	s.Context.Draw.DrawPolygonFcn(b2.TransformIdentity(), v[:], color)
+	s.Context.Draw.DrawPolygonFcn(b2.MakeWorldTransform(b2.TransformIdentity()), v[:], color)
 }
 
 func elapsedMilliseconds(start time.Time) float64 {
@@ -581,9 +581,9 @@ func (s *DynamicTree) Step() {
 			return input.MaxFraction
 		})
 
-		draw.DrawLineFcn(s.startPoint, s.endPoint, b2.ColorWhite)
-		draw.DrawPointFcn(s.startPoint, b2.F(5), b2.ColorGreen)
-		draw.DrawPointFcn(s.endPoint, b2.F(5), b2.ColorRed)
+		draw.DrawLineFcn(b2.ToPos(s.startPoint), b2.ToPos(s.endPoint), b2.ColorWhite)
+		draw.DrawPointFcn(b2.ToPos(s.startPoint), b2.F(5), b2.ColorGreen)
+		draw.DrawPointFcn(b2.ToPos(s.endPoint), b2.F(5), b2.ColorRed)
 
 		s.DrawTextLine("node visits = %d, leaf visits = %d", result.NodeVisits, result.LeafVisits)
 	}
@@ -781,25 +781,25 @@ func (s *RayCast) drawRay(output *b2.CastOutput) {
 
 		if output.Fraction.Eq(b2.QZero()) {
 			p = output.Point
-			draw.DrawPointFcn(output.Point, five, b2.ColorPeru)
+			draw.DrawPointFcn(b2.ToPos(output.Point), five, b2.ColorPeru)
 		} else {
 			p = b2.MulAdd(p1, output.Fraction, d)
-			draw.DrawLineFcn(p1, p, b2.ColorWhite)
-			draw.DrawPointFcn(p1, five, b2.ColorGreen)
-			draw.DrawPointFcn(output.Point, five, b2.ColorWhite)
+			draw.DrawLineFcn(b2.ToPos(p1), b2.ToPos(p), b2.ColorWhite)
+			draw.DrawPointFcn(b2.ToPos(p1), five, b2.ColorGreen)
+			draw.DrawPointFcn(b2.ToPos(output.Point), five, b2.ColorWhite)
 
 			n := b2.MulAdd(p, b2.QOne(), output.Normal)
-			draw.DrawLineFcn(p, n, b2.ColorViolet)
+			draw.DrawLineFcn(b2.ToPos(p), b2.ToPos(n), b2.ColorViolet)
 		}
 
 		if s.showFraction {
 			ps := b2.Vec2{X: p.X.Add(b2.F(0.05)), Y: p.Y.Sub(b2.F(0.02))}
-			draw.DrawStringFcn(ps, fmt.Sprintf("%.2f", ToFloat64(output.Fraction)), b2.ColorWhite)
+			draw.DrawStringFcn(b2.ToPos(ps), fmt.Sprintf("%.2f", ToFloat64(output.Fraction)), b2.ColorWhite)
 		}
 	} else {
-		draw.DrawLineFcn(p1, p2, b2.ColorWhite)
-		draw.DrawPointFcn(p1, five, b2.ColorGreen)
-		draw.DrawPointFcn(p2, five, b2.ColorRed)
+		draw.DrawLineFcn(b2.ToPos(p1), b2.ToPos(p2), b2.ColorWhite)
+		draw.DrawPointFcn(b2.ToPos(p1), five, b2.ColorGreen)
+		draw.DrawPointFcn(b2.ToPos(p2), five, b2.ColorRed)
 	}
 }
 
@@ -847,7 +847,7 @@ func (s *RayCast) Step() {
 		transform := b2.Transform{P: s.transform.P.Add(offset), Q: s.transform.Q}
 		v1 := b2.TransformPoint(transform, s.capsule.Center1)
 		v2 := b2.TransformPoint(transform, s.capsule.Center2)
-		draw.DrawSolidCapsuleFcn(v1, v2, s.capsule.Radius, color1)
+		draw.DrawSolidCapsuleFcn(b2.ToPos(v1), b2.ToPos(v2), s.capsule.Radius, color1)
 
 		cast(transform, func(input *b2.RayCastInput) b2.CastOutput {
 			return b2.CastRayCapsule(&s.capsule, input)
@@ -859,7 +859,7 @@ func (s *RayCast) Step() {
 	// box
 	{
 		transform := b2.Transform{P: s.transform.P.Add(offset), Q: s.transform.Q}
-		draw.DrawSolidPolygonFcn(transform, s.box.Vertices[:s.box.Count], b2.QZero(), color1)
+		draw.DrawSolidPolygonFcn(b2.MakeWorldTransform(transform), s.box.Vertices[:s.box.Count], b2.QZero(), color1)
 
 		cast(transform, func(input *b2.RayCastInput) b2.CastOutput {
 			return b2.CastRayPolygon(&s.box, input)
@@ -871,7 +871,7 @@ func (s *RayCast) Step() {
 	// triangle
 	{
 		transform := b2.Transform{P: s.transform.P.Add(offset), Q: s.transform.Q}
-		draw.DrawSolidPolygonFcn(transform, s.triangle.Vertices[:s.triangle.Count], b2.QZero(), color1)
+		draw.DrawSolidPolygonFcn(b2.MakeWorldTransform(transform), s.triangle.Vertices[:s.triangle.Count], b2.QZero(), color1)
 
 		cast(transform, func(input *b2.RayCastInput) b2.CastOutput {
 			return b2.CastRayPolygon(&s.triangle, input)
@@ -886,7 +886,7 @@ func (s *RayCast) Step() {
 
 		p1 := b2.TransformPoint(transform, s.segment.Point1)
 		p2 := b2.TransformPoint(transform, s.segment.Point2)
-		draw.DrawLineFcn(p1, p2, color1)
+		draw.DrawLineFcn(b2.ToPos(p1), b2.ToPos(p2), color1)
 
 		cast(transform, func(input *b2.RayCastInput) b2.CastOutput {
 			return b2.CastRaySegment(&s.segment, input, false)
@@ -920,14 +920,14 @@ func castIgnored(shapeId b2.ShapeId, fraction b2.Q) bool {
 
 // rayCastClosest finds the closest hit. This is the most common callback
 // used in games.
-func (c *castContext) rayCastClosest(shapeId b2.ShapeId, point, normal b2.Vec2, fraction b2.Q) b2.Q {
+func (c *castContext) rayCastClosest(shapeId b2.ShapeId, point b2.Pos, normal b2.Vec2, fraction b2.Q) b2.Q {
 	if castIgnored(shapeId, fraction) {
 		// By returning -1, we instruct the calling code to ignore this shape and
 		// continue the ray-cast to the next shape.
 		return b2.QOne().Neg()
 	}
 
-	c.points[0] = point
+	c.points[0] = b2.ToVec2(point)
 	c.normals[0] = normal
 	c.fractions[0] = fraction
 	c.count = 1
@@ -941,12 +941,12 @@ func (c *castContext) rayCastClosest(shapeId b2.ShapeId, point, normal b2.Vec2, 
 // rayCastAny finds any hit. For this type of query we are usually just
 // checking for obstruction, so the hit data is not relevant.
 // NOTE: shape hits are not ordered, so this may not return the closest hit
-func (c *castContext) rayCastAny(shapeId b2.ShapeId, point, normal b2.Vec2, fraction b2.Q) b2.Q {
+func (c *castContext) rayCastAny(shapeId b2.ShapeId, point b2.Pos, normal b2.Vec2, fraction b2.Q) b2.Q {
 	if castIgnored(shapeId, fraction) {
 		return b2.QOne().Neg()
 	}
 
-	c.points[0] = point
+	c.points[0] = b2.ToVec2(point)
 	c.normals[0] = normal
 	c.fractions[0] = fraction
 	c.count = 1
@@ -961,14 +961,14 @@ func (c *castContext) rayCastAny(shapeId b2.ShapeId, point, normal b2.Vec2, frac
 // NOTE: shape hits are not ordered, so this may return hits in any order. This means that
 // if you limit the number of results, you may discard the closest hit. You can see this
 // behavior in the sample.
-func (c *castContext) rayCastMultiple(shapeId b2.ShapeId, point, normal b2.Vec2, fraction b2.Q) b2.Q {
+func (c *castContext) rayCastMultiple(shapeId b2.ShapeId, point b2.Pos, normal b2.Vec2, fraction b2.Q) b2.Q {
 	if castIgnored(shapeId, fraction) {
 		return b2.QOne().Neg()
 	}
 
 	count := c.count
 
-	c.points[count] = point
+	c.points[count] = b2.ToVec2(point)
 	c.normals[count] = normal
 	c.fractions[count] = fraction
 	c.count = count + 1
@@ -984,7 +984,7 @@ func (c *castContext) rayCastMultiple(shapeId b2.ShapeId, point, normal b2.Vec2,
 }
 
 // rayCastSorted collects multiple hits along the ray and sorts them.
-func (c *castContext) rayCastSorted(shapeId b2.ShapeId, point, normal b2.Vec2, fraction b2.Q) b2.Q {
+func (c *castContext) rayCastSorted(shapeId b2.ShapeId, point b2.Pos, normal b2.Vec2, fraction b2.Q) b2.Q {
 	if castIgnored(shapeId, fraction) {
 		return b2.QOne().Neg()
 	}
@@ -1012,7 +1012,7 @@ func (c *castContext) rayCastSorted(shapeId b2.ShapeId, point, normal b2.Vec2, f
 		c.fractions[j] = c.fractions[j-1]
 	}
 
-	c.points[index] = point
+	c.points[index] = b2.ToVec2(point)
 	c.normals[index] = normal
 	c.fractions[index] = fraction
 	if count < 3 {
@@ -1184,7 +1184,7 @@ func (s *CastWorld) create(index int) {
 	y := shared.RandomFloatRange(b2.QZero(), b2.F(20))
 
 	bodyDef := b2.DefaultBodyDef()
-	bodyDef.Position = b2.Vec2{X: x, Y: y}
+	bodyDef.Position = b2.ToPos(b2.Vec2{X: x, Y: y})
 	bodyDef.Rotation = b2.MakeRot(shared.RandomFloatRange(b2.QHalf().Neg(), b2.QHalf()))
 
 	mod := s.bodyIndex % 3
@@ -1341,16 +1341,16 @@ func (s *CastWorld) Step() {
 		s.DrawTextLine("Simple closest point ray cast")
 
 		// This version doesn't have a callback, but it doesn't skip the ignored shape
-		result := s.WorldId.CastRayClosest(s.rayStart, rayTranslation, b2.DefaultQueryFilter())
+		result := s.WorldId.CastRayClosest(b2.ToPos(s.rayStart), rayTranslation, b2.DefaultQueryFilter())
 
 		if result.Hit && result.Fraction.Greater(b2.QZero()) {
 			c := b2.MulAdd(s.rayStart, result.Fraction, rayTranslation)
 			draw.DrawPointFcn(result.Point, five, color1)
-			draw.DrawLineFcn(s.rayStart, c, color2)
-			head := b2.MulAdd(result.Point, b2.QHalf(), result.Normal)
-			draw.DrawLineFcn(result.Point, head, color3)
+			draw.DrawLineFcn(b2.ToPos(s.rayStart), b2.ToPos(c), color2)
+			head := b2.MulAdd(b2.ToVec2(result.Point), b2.QHalf(), result.Normal)
+			draw.DrawLineFcn(result.Point, b2.ToPos(head), color3)
 		} else {
-			draw.DrawLineFcn(s.rayStart, s.rayEnd, color2)
+			draw.DrawLineFcn(b2.ToPos(s.rayStart), b2.ToPos(s.rayEnd), color2)
 		}
 	} else {
 		switch s.mode {
@@ -1392,7 +1392,7 @@ func (s *CastWorld) Step() {
 		var proxy b2.ShapeProxy
 
 		if s.castType == castTypeRay {
-			s.WorldId.CastRay(s.rayStart, rayTranslation, b2.DefaultQueryFilter(), modeFcn)
+			s.WorldId.CastRay(b2.ToPos(s.rayStart), rayTranslation, b2.DefaultQueryFilter(), modeFcn)
 		} else {
 			if s.castType == castTypeCircle {
 				proxy = b2.MakeProxy([]b2.Vec2{circle.Center}, circle.Radius)
@@ -1402,7 +1402,7 @@ func (s *CastWorld) Step() {
 				proxy = b2.MakeProxy(box.Vertices[:box.Count], box.Radius)
 			}
 
-			s.WorldId.CastShape(s.rayStart, &proxy, rayTranslation, b2.DefaultQueryFilter(), modeFcn)
+			s.WorldId.CastShape(b2.ToPos(s.rayStart), &proxy, rayTranslation, b2.DefaultQueryFilter(), modeFcn)
 		}
 
 		if context.count > 0 {
@@ -1411,10 +1411,10 @@ func (s *CastWorld) Step() {
 				c := b2.MulAdd(s.rayStart, context.fractions[i], rayTranslation)
 				p := context.points[i]
 				n := context.normals[i]
-				draw.DrawPointFcn(p, five, colors[i])
-				draw.DrawLineFcn(s.rayStart, c, color2)
+				draw.DrawPointFcn(b2.ToPos(p), five, colors[i])
+				draw.DrawLineFcn(b2.ToPos(s.rayStart), b2.ToPos(c), color2)
 				head := b2.MulAdd(p, b2.QOne(), n)
-				draw.DrawLineFcn(p, head, color3)
+				draw.DrawLineFcn(b2.ToPos(p), b2.ToPos(head), color3)
 
 				// The swept shape rests at the contact position c
 				shiftedTransform := b2.Transform{P: c, Q: b2.RotIdentity()}
@@ -1424,33 +1424,33 @@ func (s *CastWorld) Step() {
 				} else if s.castType == castTypeCapsule {
 					p1 := capsule.Center1.Add(c)
 					p2 := capsule.Center2.Add(c)
-					draw.DrawSolidCapsuleFcn(p1, p2, castRadius, b2.ColorYellow)
+					draw.DrawSolidCapsuleFcn(b2.ToPos(p1), b2.ToPos(p2), castRadius, b2.ColorYellow)
 				} else if s.castType == castTypePolygon {
-					draw.DrawSolidPolygonFcn(shiftedTransform, box.Vertices[:box.Count], box.Radius, b2.ColorYellow)
+					draw.DrawSolidPolygonFcn(b2.MakeWorldTransform(shiftedTransform), box.Vertices[:box.Count], box.Radius, b2.ColorYellow)
 				}
 			}
 		} else {
 			// No hit, so the swept shape rests at the end of the ray
 			shiftedTransform := b2.Transform{P: s.rayEnd, Q: b2.RotIdentity()}
-			draw.DrawLineFcn(s.rayStart, s.rayEnd, color2)
+			draw.DrawLineFcn(b2.ToPos(s.rayStart), b2.ToPos(s.rayEnd), color2)
 
 			if s.castType == castTypeCircle {
 				drawSolidCircleAt(draw, shiftedTransform, b2.Vec2{}, castRadius, b2.ColorGray)
 			} else if s.castType == castTypeCapsule {
 				p1 := capsule.Center1.Add(s.rayEnd)
 				p2 := capsule.Center2.Add(s.rayEnd)
-				draw.DrawSolidCapsuleFcn(p1, p2, castRadius, b2.ColorYellow)
+				draw.DrawSolidCapsuleFcn(b2.ToPos(p1), b2.ToPos(p2), castRadius, b2.ColorYellow)
 			} else if s.castType == castTypePolygon {
-				draw.DrawSolidPolygonFcn(shiftedTransform, box.Vertices[:box.Count], box.Radius, b2.ColorYellow)
+				draw.DrawSolidPolygonFcn(b2.MakeWorldTransform(shiftedTransform), box.Vertices[:box.Count], box.Radius, b2.ColorYellow)
 			}
 		}
 	}
 
-	draw.DrawPointFcn(s.rayStart, five, b2.ColorGreen)
+	draw.DrawPointFcn(b2.ToPos(s.rayStart), five, b2.ColorGreen)
 
 	if !s.bodyIds[s.ignoreIndex].IsNull() {
 		p := s.bodyIds[s.ignoreIndex].GetPosition()
-		p.X = p.X.Sub(b2.F(0.2))
+		setPosX(&p, b2.ToVec2(p).X.Sub(b2.F(0.2)))
 		draw.DrawStringFcn(p, "ign", b2.ColorWhite)
 	}
 }
@@ -1524,7 +1524,7 @@ func (s *OverlapWorld) create(index int) {
 	y := shared.RandomFloatRange(b2.QZero(), b2.F(20))
 
 	bodyDef := b2.DefaultBodyDef()
-	bodyDef.Position = b2.Vec2{X: x, Y: y}
+	bodyDef.Position = b2.ToPos(b2.Vec2{X: x, Y: y})
 	bodyDef.Rotation = b2.MakeRot(shared.RandomFloatRange(b2.QHalf().Neg(), b2.QHalf()))
 
 	s.bodyIds[s.bodyIndex] = b2.CreateBody(s.WorldId, &bodyDef)
@@ -1647,14 +1647,14 @@ func (s *OverlapWorld) Step() {
 			Radius:  b2.QHalf(),
 		}
 		proxy = b2.MakeProxy([]b2.Vec2{capsule.Center1, capsule.Center2}, capsule.Radius)
-		draw.DrawSolidCapsuleFcn(capsule.Center1.Add(s.position), capsule.Center2.Add(s.position), capsule.Radius, b2.ColorWhite)
+		draw.DrawSolidCapsuleFcn(b2.ToPos(capsule.Center1.Add(s.position)), b2.ToPos(capsule.Center2.Add(s.position)), capsule.Radius, b2.ColorWhite)
 	} else if s.shapeType == overlapBox {
 		box := b2.MakeOffsetBox(b2.F(2), b2.QHalf(), b2.Vec2{}, rotation)
 		proxy = b2.MakeProxy(box.Vertices[:box.Count], box.Radius)
-		draw.DrawPolygonFcn(placed, box.Vertices[:box.Count], b2.ColorWhite)
+		draw.DrawPolygonFcn(b2.MakeWorldTransform(placed), box.Vertices[:box.Count], b2.ColorWhite)
 	}
 
-	s.WorldId.OverlapShape(s.position, &proxy, b2.DefaultQueryFilter(), func(shapeId b2.ShapeId) bool {
+	s.WorldId.OverlapShape(b2.ToPos(s.position), &proxy, b2.DefaultQueryFilter(), func(shapeId b2.ShapeId) bool {
 		userData, _ := shapeId.GetUserData().(*castShapeUserData)
 		if userData != nil && userData.ignore {
 			// continue the query
@@ -1673,7 +1673,7 @@ func (s *OverlapWorld) Step() {
 
 	if !s.bodyIds[s.ignoreIndex].IsNull() {
 		p := s.bodyIds[s.ignoreIndex].GetPosition()
-		p.X = p.X.Sub(b2.F(0.2))
+		setPosX(&p, b2.ToVec2(p).X.Sub(b2.F(0.2)))
 		draw.DrawStringFcn(p, "skip", b2.ColorWhite)
 	}
 
@@ -1810,7 +1810,7 @@ func (s *Manifold) drawManifold(manifold *b2.LocalManifold, transformA, transfor
 
 	if s.showCount {
 		p := transformA.P.Add(transformB.P).Mul(b2.QHalf())
-		draw.DrawStringFcn(p, fmt.Sprintf("%d", manifold.PointCount), b2.ColorWhite)
+		draw.DrawStringFcn(b2.ToPos(p), fmt.Sprintf("%d", manifold.PointCount), b2.ColorWhite)
 	}
 
 	for i := 0; i < manifold.PointCount; i++ {
@@ -1818,22 +1818,22 @@ func (s *Manifold) drawManifold(manifold *b2.LocalManifold, transformA, transfor
 
 		p1 := b2.TransformPoint(transformA, mp.Point)
 		p2 := b2.MulAdd(p1, b2.QHalf(), normal)
-		draw.DrawLineFcn(p1, p2, b2.ColorViolet)
+		draw.DrawLineFcn(b2.ToPos(p1), b2.ToPos(p2), b2.ColorViolet)
 
 		if s.showAnchors {
-			draw.DrawPointFcn(p1, b2.F(5), b2.ColorRed)
+			draw.DrawPointFcn(b2.ToPos(p1), b2.F(5), b2.ColorRed)
 		} else {
-			draw.DrawPointFcn(p1, b2.F(10), b2.ColorBlue)
+			draw.DrawPointFcn(b2.ToPos(p1), b2.F(10), b2.ColorBlue)
 		}
 
 		if s.showIds {
 			p := b2.Vec2{X: p1.X.Add(b2.F(0.05)), Y: p1.Y.Sub(b2.F(0.02))}
-			draw.DrawStringFcn(p, fmt.Sprintf("0x%04x", mp.Id), b2.ColorWhite)
+			draw.DrawStringFcn(b2.ToPos(p), fmt.Sprintf("0x%04x", mp.Id), b2.ColorWhite)
 		}
 
 		if s.showSeparation {
 			p := b2.Vec2{X: p1.X.Add(b2.F(0.05)), Y: p1.Y.Add(b2.F(0.03))}
-			draw.DrawStringFcn(p, fmt.Sprintf("%.3f", ToFloat64(mp.Separation)), b2.ColorWhite)
+			draw.DrawStringFcn(b2.ToPos(p), fmt.Sprintf("%.3f", ToFloat64(mp.Separation)), b2.ColorWhite)
 		}
 	}
 }
@@ -1892,7 +1892,7 @@ func (s *Manifold) Step() {
 
 		v1 := b2.TransformPoint(transform1, capsule.Center1)
 		v2 := b2.TransformPoint(transform1, capsule.Center2)
-		draw.DrawSolidCapsuleFcn(v1, v2, capsule.Radius, color1)
+		draw.DrawSolidCapsuleFcn(b2.ToPos(v1), b2.ToPos(v2), capsule.Radius, color1)
 
 		drawSolidCircleAt(draw, transform2, circle.Center, circle.Radius, color2)
 
@@ -1912,7 +1912,7 @@ func (s *Manifold) Step() {
 
 		p1 := b2.TransformPoint(transform1, segment.Point1)
 		p2 := b2.TransformPoint(transform1, segment.Point2)
-		draw.DrawLineFcn(p1, p2, color1)
+		draw.DrawLineFcn(b2.ToPos(p1), b2.ToPos(p2), color1)
 
 		drawSolidCircleAt(draw, transform2, circle.Center, circle.Radius, color2)
 
@@ -1931,7 +1931,7 @@ func (s *Manifold) Step() {
 
 		m := b2.CollidePolygonAndCircle(&box, &circle, b2.InvMulTransforms(transform1, transform2))
 
-		draw.DrawSolidPolygonFcn(transform1, box.Vertices[:box.Count], round, color1)
+		draw.DrawSolidPolygonFcn(b2.MakeWorldTransform(transform1), box.Vertices[:box.Count], round, color1)
 		drawSolidCircleAt(draw, transform2, circle.Center, circle.Radius, color2)
 
 		s.drawManifold(&m, transform1, transform2)
@@ -1950,11 +1950,11 @@ func (s *Manifold) Step() {
 
 		v1 := b2.TransformPoint(transform1, capsule1.Center1)
 		v2 := b2.TransformPoint(transform1, capsule1.Center2)
-		draw.DrawSolidCapsuleFcn(v1, v2, capsule1.Radius, color1)
+		draw.DrawSolidCapsuleFcn(b2.ToPos(v1), b2.ToPos(v2), capsule1.Radius, color1)
 
 		v1 = b2.TransformPoint(transform2, capsule2.Center1)
 		v2 = b2.TransformPoint(transform2, capsule2.Center2)
-		draw.DrawSolidCapsuleFcn(v1, v2, capsule2.Radius, color2)
+		draw.DrawSolidCapsuleFcn(b2.ToPos(v1), b2.ToPos(v2), capsule2.Radius, color2)
 
 		s.drawManifold(&m, transform1, transform2)
 
@@ -1970,11 +1970,11 @@ func (s *Manifold) Step() {
 
 		m := b2.CollidePolygonAndCapsule(&box, &capsule, b2.InvMulTransforms(transform1, transform2))
 
-		draw.DrawSolidPolygonFcn(transform1, box.Vertices[:box.Count], box.Radius, color1)
+		draw.DrawSolidPolygonFcn(b2.MakeWorldTransform(transform1), box.Vertices[:box.Count], box.Radius, color1)
 
 		v1 := b2.TransformPoint(transform2, capsule.Center1)
 		v2 := b2.TransformPoint(transform2, capsule.Center2)
-		draw.DrawSolidCapsuleFcn(v1, v2, capsule.Radius, color2)
+		draw.DrawSolidCapsuleFcn(b2.ToPos(v1), b2.ToPos(v2), capsule.Radius, color2)
 
 		s.drawManifold(&m, transform1, transform2)
 
@@ -1992,11 +1992,11 @@ func (s *Manifold) Step() {
 
 		p1 := b2.TransformPoint(transform1, segment.Point1)
 		p2 := b2.TransformPoint(transform1, segment.Point2)
-		draw.DrawLineFcn(p1, p2, color1)
+		draw.DrawLineFcn(b2.ToPos(p1), b2.ToPos(p2), color1)
 
 		p1 = b2.TransformPoint(transform2, capsule.Center1)
 		p2 = b2.TransformPoint(transform2, capsule.Center2)
-		draw.DrawSolidCapsuleFcn(p1, p2, capsule.Radius, color2)
+		draw.DrawSolidCapsuleFcn(b2.ToPos(p1), b2.ToPos(p2), capsule.Radius, color2)
 
 		s.drawManifold(&m, transform1, transform2)
 
@@ -2014,8 +2014,8 @@ func (s *Manifold) Step() {
 
 		m := b2.CollidePolygons(&box1, &box, b2.InvMulTransforms(transform1, transform2))
 
-		draw.DrawSolidPolygonFcn(transform1, box1.Vertices[:box1.Count], box1.Radius, color1)
-		draw.DrawSolidPolygonFcn(transform2, box.Vertices[:box.Count], box.Radius, color2)
+		draw.DrawSolidPolygonFcn(b2.MakeWorldTransform(transform1), box1.Vertices[:box1.Count], box1.Radius, color1)
+		draw.DrawSolidPolygonFcn(b2.MakeWorldTransform(transform2), box.Vertices[:box.Count], box.Radius, color2)
 
 		s.drawManifold(&m, transform1, transform2)
 
@@ -2031,8 +2031,8 @@ func (s *Manifold) Step() {
 
 		m := b2.CollidePolygons(&box1, &box, b2.InvMulTransforms(transform1, transform2))
 
-		draw.DrawSolidPolygonFcn(transform1, box1.Vertices[:box1.Count], box1.Radius, color1)
-		draw.DrawSolidPolygonFcn(transform2, box.Vertices[:box.Count], box.Radius, color2)
+		draw.DrawSolidPolygonFcn(b2.MakeWorldTransform(transform1), box1.Vertices[:box1.Count], box1.Radius, color1)
+		draw.DrawSolidPolygonFcn(b2.MakeWorldTransform(transform2), box.Vertices[:box.Count], box.Radius, color2)
 
 		s.drawManifold(&m, transform1, transform2)
 
@@ -2048,8 +2048,8 @@ func (s *Manifold) Step() {
 
 		m := b2.CollidePolygons(&box, &rox, b2.InvMulTransforms(transform1, transform2))
 
-		draw.DrawSolidPolygonFcn(transform1, box.Vertices[:box.Count], box.Radius, color1)
-		draw.DrawSolidPolygonFcn(transform2, rox.Vertices[:rox.Count], rox.Radius, color2)
+		draw.DrawSolidPolygonFcn(b2.MakeWorldTransform(transform1), box.Vertices[:box.Count], box.Radius, color1)
+		draw.DrawSolidPolygonFcn(b2.MakeWorldTransform(transform2), rox.Vertices[:rox.Count], rox.Radius, color2)
 
 		s.drawManifold(&m, transform1, transform2)
 
@@ -2064,8 +2064,8 @@ func (s *Manifold) Step() {
 
 		m := b2.CollidePolygons(&rox, &rox, b2.InvMulTransforms(transform1, transform2))
 
-		draw.DrawSolidPolygonFcn(transform1, rox.Vertices[:rox.Count], rox.Radius, color1)
-		draw.DrawSolidPolygonFcn(transform2, rox.Vertices[:rox.Count], rox.Radius, color2)
+		draw.DrawSolidPolygonFcn(b2.MakeWorldTransform(transform1), rox.Vertices[:rox.Count], rox.Radius, color1)
+		draw.DrawSolidPolygonFcn(b2.MakeWorldTransform(transform2), rox.Vertices[:rox.Count], rox.Radius, color2)
 
 		s.drawManifold(&m, transform1, transform2)
 
@@ -2083,8 +2083,8 @@ func (s *Manifold) Step() {
 
 		p1 := b2.TransformPoint(transform1, segment.Point1)
 		p2 := b2.TransformPoint(transform1, segment.Point2)
-		draw.DrawLineFcn(p1, p2, color1)
-		draw.DrawSolidPolygonFcn(transform2, rox.Vertices[:rox.Count], rox.Radius, color2)
+		draw.DrawLineFcn(b2.ToPos(p1), b2.ToPos(p2), color1)
+		draw.DrawSolidPolygonFcn(b2.MakeWorldTransform(transform2), rox.Vertices[:rox.Count], rox.Radius, color2)
 
 		s.drawManifold(&m, transform1, transform2)
 
@@ -2099,10 +2099,10 @@ func (s *Manifold) Step() {
 
 		m := b2.CollidePolygons(&wox, &wox, b2.InvMulTransforms(transform1, transform2))
 
-		draw.DrawSolidPolygonFcn(transform1, wox.Vertices[:wox.Count], wox.Radius, color1)
-		draw.DrawSolidPolygonFcn(transform1, wox.Vertices[:wox.Count], b2.QZero(), color1)
-		draw.DrawSolidPolygonFcn(transform2, wox.Vertices[:wox.Count], wox.Radius, color2)
-		draw.DrawSolidPolygonFcn(transform2, wox.Vertices[:wox.Count], b2.QZero(), color2)
+		draw.DrawSolidPolygonFcn(b2.MakeWorldTransform(transform1), wox.Vertices[:wox.Count], wox.Radius, color1)
+		draw.DrawSolidPolygonFcn(b2.MakeWorldTransform(transform1), wox.Vertices[:wox.Count], b2.QZero(), color1)
+		draw.DrawSolidPolygonFcn(b2.MakeWorldTransform(transform2), wox.Vertices[:wox.Count], wox.Radius, color2)
+		draw.DrawSolidPolygonFcn(b2.MakeWorldTransform(transform2), wox.Vertices[:wox.Count], b2.QZero(), color2)
 
 		s.drawManifold(&m, transform1, transform2)
 
@@ -2123,10 +2123,10 @@ func (s *Manifold) Step() {
 
 		m := b2.CollidePolygons(&w1, &w2, b2.InvMulTransforms(transform1, transform2))
 
-		draw.DrawSolidPolygonFcn(transform1, w1.Vertices[:w1.Count], w1.Radius, color1)
-		draw.DrawSolidPolygonFcn(transform1, w1.Vertices[:w1.Count], b2.QZero(), color1)
-		draw.DrawSolidPolygonFcn(transform2, w2.Vertices[:w2.Count], w2.Radius, color2)
-		draw.DrawSolidPolygonFcn(transform2, w2.Vertices[:w2.Count], b2.QZero(), color2)
+		draw.DrawSolidPolygonFcn(b2.MakeWorldTransform(transform1), w1.Vertices[:w1.Count], w1.Radius, color1)
+		draw.DrawSolidPolygonFcn(b2.MakeWorldTransform(transform1), w1.Vertices[:w1.Count], b2.QZero(), color1)
+		draw.DrawSolidPolygonFcn(b2.MakeWorldTransform(transform2), w2.Vertices[:w2.Count], w2.Radius, color2)
+		draw.DrawSolidPolygonFcn(b2.MakeWorldTransform(transform2), w2.Vertices[:w2.Count], b2.QZero(), color2)
 
 		s.drawManifold(&m, transform1, transform2)
 
@@ -2145,8 +2145,8 @@ func (s *Manifold) Step() {
 
 		m := b2.CollidePolygons(&box, &tri, b2.InvMulTransforms(transform1, transform2))
 
-		draw.DrawSolidPolygonFcn(transform1, box.Vertices[:box.Count], b2.QZero(), color1)
-		draw.DrawSolidPolygonFcn(transform2, tri.Vertices[:tri.Count], b2.QZero(), color2)
+		draw.DrawSolidPolygonFcn(b2.MakeWorldTransform(transform1), box.Vertices[:box.Count], b2.QZero(), color1)
+		draw.DrawSolidPolygonFcn(b2.MakeWorldTransform(transform2), tri.Vertices[:tri.Count], b2.QZero(), color2)
 
 		s.drawManifold(&m, transform1, transform2)
 
@@ -2177,20 +2177,20 @@ func (s *Manifold) Step() {
 			g2 := b2.TransformPoint(transform1, segment1.Ghost2)
 			p1 := b2.TransformPoint(transform1, segment1.Segment.Point1)
 			p2 := b2.TransformPoint(transform1, segment1.Segment.Point2)
-			draw.DrawLineFcn(p1, p2, color1)
-			draw.DrawPointFcn(p1, four, color1)
-			draw.DrawPointFcn(p2, four, color1)
-			draw.DrawLineFcn(p2, g2, b2.ColorLightGray)
+			draw.DrawLineFcn(b2.ToPos(p1), b2.ToPos(p2), color1)
+			draw.DrawPointFcn(b2.ToPos(p1), four, color1)
+			draw.DrawPointFcn(b2.ToPos(p2), four, color1)
+			draw.DrawLineFcn(b2.ToPos(p2), b2.ToPos(g2), b2.ColorLightGray)
 		}
 
 		{
 			g1 := b2.TransformPoint(transform1, segment2.Ghost1)
 			p1 := b2.TransformPoint(transform1, segment2.Segment.Point1)
 			p2 := b2.TransformPoint(transform1, segment2.Segment.Point2)
-			draw.DrawLineFcn(g1, p1, b2.ColorLightGray)
-			draw.DrawLineFcn(p1, p2, color1)
-			draw.DrawPointFcn(p1, four, color1)
-			draw.DrawPointFcn(p2, four, color1)
+			draw.DrawLineFcn(b2.ToPos(g1), b2.ToPos(p1), b2.ColorLightGray)
+			draw.DrawLineFcn(b2.ToPos(p1), b2.ToPos(p2), color1)
+			draw.DrawPointFcn(b2.ToPos(p1), four, color1)
+			draw.DrawPointFcn(b2.ToPos(p2), four, color1)
 		}
 	}
 
@@ -2207,9 +2207,9 @@ func (s *Manifold) Step() {
 		g2 := b2.TransformPoint(transform1, segment.Ghost2)
 		p1 := b2.TransformPoint(transform1, segment.Segment.Point1)
 		p2 := b2.TransformPoint(transform1, segment.Segment.Point2)
-		draw.DrawLineFcn(g1, p1, b2.ColorLightGray)
-		draw.DrawLineFcn(p1, p2, color1)
-		draw.DrawLineFcn(p2, g2, b2.ColorLightGray)
+		draw.DrawLineFcn(b2.ToPos(g1), b2.ToPos(p1), b2.ColorLightGray)
+		draw.DrawLineFcn(b2.ToPos(p1), b2.ToPos(p2), color1)
+		draw.DrawLineFcn(b2.ToPos(p2), b2.ToPos(g2), b2.ColorLightGray)
 		drawSolidCircleAt(draw, transform2, circle.Center, circle.Radius, color2)
 
 		s.drawManifold(&m, transform1, transform2)
@@ -2228,8 +2228,8 @@ func (s *Manifold) Step() {
 
 		drawChainPair(transform1)
 
-		draw.DrawSolidPolygonFcn(transform2, rox.Vertices[:rox.Count], rox.Radius, color2)
-		draw.DrawPointFcn(b2.TransformPoint(transform2, rox.Centroid), five, b2.ColorGainsboro)
+		draw.DrawSolidPolygonFcn(b2.MakeWorldTransform(transform2), rox.Vertices[:rox.Count], rox.Radius, color2)
+		draw.DrawPointFcn(b2.ToPos(b2.TransformPoint(transform2, rox.Centroid)), five, b2.ColorGainsboro)
 
 		s.drawManifold(&m1, transform1, transform2)
 		s.drawManifold(&m2, transform1, transform2)
@@ -2250,9 +2250,9 @@ func (s *Manifold) Step() {
 
 		p1 := b2.TransformPoint(transform2, capsule.Center1)
 		p2 := b2.TransformPoint(transform2, capsule.Center2)
-		draw.DrawSolidCapsuleFcn(p1, p2, capsule.Radius, color2)
+		draw.DrawSolidCapsuleFcn(b2.ToPos(p1), b2.ToPos(p2), capsule.Radius, color2)
 
-		draw.DrawPointFcn(b2.Lerp(p1, p2, b2.QHalf()), five, b2.ColorGainsboro)
+		draw.DrawPointFcn(b2.ToPos(b2.Lerp(p1, p2, b2.QHalf())), five, b2.ColorGainsboro)
 
 		s.drawManifold(&m1, transform1, transform2)
 		s.drawManifold(&m2, transform1, transform2)
@@ -2446,19 +2446,19 @@ func (s *SmoothManifold) drawManifold(manifold *b2.LocalManifold) {
 
 		p1 := mp.Point
 		p2 := b2.MulAdd(p1, b2.QHalf(), manifold.Normal)
-		draw.DrawLineFcn(p1, p2, b2.ColorWhite)
+		draw.DrawLineFcn(b2.ToPos(p1), b2.ToPos(p2), b2.ColorWhite)
 
 		// The reference draws the same point with or without anchors.
-		draw.DrawPointFcn(p1, b2.F(5), b2.ColorGreen)
+		draw.DrawPointFcn(b2.ToPos(p1), b2.F(5), b2.ColorGreen)
 
 		if s.showIds {
 			p := b2.Vec2{X: p1.X.Add(b2.F(0.05)), Y: p1.Y.Sub(b2.F(0.02))}
-			draw.DrawStringFcn(p, fmt.Sprintf("0x%04x", mp.Id), b2.ColorWhite)
+			draw.DrawStringFcn(b2.ToPos(p), fmt.Sprintf("0x%04x", mp.Id), b2.ColorWhite)
 		}
 
 		if s.showSeparation {
 			p := b2.Vec2{X: p1.X.Add(b2.F(0.05)), Y: p1.Y.Add(b2.F(0.03))}
-			draw.DrawStringFcn(p, fmt.Sprintf("%.3f", ToFloat64(mp.Separation)), b2.ColorWhite)
+			draw.DrawStringFcn(b2.ToPos(p), fmt.Sprintf("%.3f", ToFloat64(mp.Separation)), b2.ColorWhite)
 		}
 	}
 }
@@ -2476,8 +2476,8 @@ func (s *SmoothManifold) Step() {
 		segment := &s.segments[i]
 		p1 := b2.TransformPoint(transform1, segment.Segment.Point1)
 		p2 := b2.TransformPoint(transform1, segment.Segment.Point2)
-		draw.DrawLineFcn(p1, p2, color1)
-		draw.DrawPointFcn(p1, b2.F(4), color1)
+		draw.DrawLineFcn(b2.ToPos(p1), b2.ToPos(p2), color1)
+		draw.DrawPointFcn(b2.ToPos(p1), b2.F(4), color1)
 	}
 
 	// chain-segment vs circle
@@ -2493,7 +2493,7 @@ func (s *SmoothManifold) Step() {
 		round := FromFloat64(s.round)
 		h := b2.QHalf().Sub(round)
 		rox := b2.MakeRoundedBox(h, h, round)
-		draw.DrawSolidPolygonFcn(transform2, rox.Vertices[:rox.Count], rox.Radius, color2)
+		draw.DrawSolidPolygonFcn(b2.MakeWorldTransform(transform2), rox.Vertices[:rox.Count], rox.Radius, color2)
 
 		for i := range s.segments {
 			cache := b2.SimplexCache{}
@@ -2682,22 +2682,22 @@ func (s *ShapeCast) Step() {
 		s.shapes.drawShape(draw, s.typeB, transform, FromFloat64(s.radiusB), b2.ColorPlum)
 
 		if output.Fraction.Greater(b2.QZero()) {
-			draw.DrawPointFcn(output.Point, b2.F(5), b2.ColorWhite)
-			draw.DrawLineFcn(output.Point, b2.MulAdd(output.Point, b2.QHalf(), output.Normal), b2.ColorYellow)
+			draw.DrawPointFcn(b2.ToPos(output.Point), b2.F(5), b2.ColorWhite)
+			draw.DrawLineFcn(b2.ToPos(output.Point), b2.ToPos(b2.MulAdd(output.Point, b2.QHalf(), output.Normal)), b2.ColorYellow)
 		} else {
-			draw.DrawPointFcn(output.Point, b2.F(5), b2.ColorPeru)
+			draw.DrawPointFcn(b2.ToPos(output.Point), b2.F(5), b2.ColorPeru)
 		}
 	}
 
 	if s.showIndices {
 		for i := 0; i < s.proxyA.Count; i++ {
 			p := s.proxyA.Points[i]
-			draw.DrawStringFcn(p, fmt.Sprintf(" %d", i), b2.ColorWhite)
+			draw.DrawStringFcn(b2.ToPos(p), fmt.Sprintf(" %d", i), b2.ColorWhite)
 		}
 
 		for i := 0; i < s.proxyB.Count; i++ {
 			p := b2.TransformPoint(s.transform, s.proxyB.Points[i])
-			draw.DrawStringFcn(p, fmt.Sprintf(" %d", i), b2.ColorWhite)
+			draw.DrawStringFcn(b2.ToPos(p), fmt.Sprintf(" %d", i), b2.ColorWhite)
 		}
 	}
 
@@ -2771,28 +2771,28 @@ func (s *TimeOfImpact) Step() {
 	for i := 0; i < countA; i++ {
 		vertices[i] = b2.TransformPoint(transformA, s.verticesA[i])
 	}
-	draw.DrawPolygonFcn(b2.TransformIdentity(), vertices[:countA], b2.ColorGray)
+	draw.DrawPolygonFcn(b2.MakeWorldTransform(b2.TransformIdentity()), vertices[:countA], b2.ColorGray)
 
 	// Draw B at t = 0
 	transformB := b2.GetSweepTransform(&sweepB, b2.QZero())
 	for i := 0; i < countB; i++ {
 		vertices[i] = b2.TransformPoint(transformB, s.verticesB[i])
 	}
-	draw.DrawSolidCapsuleFcn(vertices[0], vertices[1], s.radiusB, b2.ColorGreen)
+	draw.DrawSolidCapsuleFcn(b2.ToPos(vertices[0]), b2.ToPos(vertices[1]), s.radiusB, b2.ColorGreen)
 
 	// Draw B at t = hit_time
 	transformB = b2.GetSweepTransform(&sweepB, output.Fraction)
 	for i := 0; i < countB; i++ {
 		vertices[i] = b2.TransformPoint(transformB, s.verticesB[i])
 	}
-	draw.DrawPolygonFcn(b2.TransformIdentity(), vertices[:countB], b2.ColorOrange)
+	draw.DrawPolygonFcn(b2.MakeWorldTransform(b2.TransformIdentity()), vertices[:countB], b2.ColorOrange)
 
 	// Draw B at t = 1
 	transformB = b2.GetSweepTransform(&sweepB, b2.QOne())
 	for i := 0; i < countB; i++ {
 		vertices[i] = b2.TransformPoint(transformB, s.verticesB[i])
 	}
-	draw.DrawSolidCapsuleFcn(vertices[0], vertices[1], s.radiusB, b2.ColorRed)
+	draw.DrawSolidCapsuleFcn(b2.ToPos(vertices[0]), b2.ToPos(vertices[1]), s.radiusB, b2.ColorRed)
 
 	if output.State == b2.TOIStateHit {
 		distanceInput := b2.DistanceInput{

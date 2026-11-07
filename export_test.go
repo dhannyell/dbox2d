@@ -32,3 +32,17 @@ func SetRevoluteMotorSpeedRadians(worldId WorldId, jointId JointId, radians Q) {
 // BodyIndex exposes creation order for deterministic scene hashes. BodyId
 // intentionally has no public ordering.
 func BodyIndex(bodyId BodyId) int { return int(bodyId.index1) }
+
+// PosBits returns the raw words of a position (test bridge).
+func PosBits(p Pos) (uint64, uint64) { return posBits(p) }
+
+// ResetWorldGenerations rewinds the generation of every free world slot, so a
+// test that compares bytes with a recording made by a fresh process sees the
+// world id of a fresh process. Call it only while the test owns no world.
+func ResetWorldGenerations() {
+	for i := range worlds {
+		if !worlds[i].inUse {
+			worlds[i].generation = 0
+		}
+	}
+}

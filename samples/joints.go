@@ -127,10 +127,10 @@ func (s *DistanceJoint) createScene(newCount int) {
 		bodyDef := b2.DefaultBodyDef()
 		bodyDef.Type = b2.DynamicBody
 		bodyDef.AngularDamping = b2.F(1)
-		bodyDef.Position = b2.Vec2{
+		bodyDef.Position = b2.ToPos(b2.Vec2{
 			X: FromFloat64(s.length * float64(i+1)),
 			Y: yOffset,
-		}
+		})
 		s.bodyIds[i] = b2.CreateBody(s.WorldId, &bodyDef)
 		b2.CreateCircleShape(s.bodyIds[i], &shapeDef, &circle)
 
@@ -138,8 +138,8 @@ func (s *DistanceJoint) createScene(newCount int) {
 		pivotB := b2.Vec2{X: FromFloat64(s.length * float64(i+1)), Y: yOffset}
 		jointDef.Base.BodyIdA = prevBodyId
 		jointDef.Base.BodyIdB = s.bodyIds[i]
-		jointDef.Base.LocalFrameA.P = prevBodyId.GetLocalPoint(pivotA)
-		jointDef.Base.LocalFrameB.P = s.bodyIds[i].GetLocalPoint(pivotB)
+		jointDef.Base.LocalFrameA.P = prevBodyId.GetLocalPoint(b2.ToPos(pivotA))
+		jointDef.Base.LocalFrameB.P = s.bodyIds[i].GetLocalPoint(b2.ToPos(pivotB))
 		s.jointIds[i] = b2.CreateDistanceJoint(s.WorldId, &jointDef)
 
 		prevBodyId = s.bodyIds[i]
@@ -264,13 +264,13 @@ func NewMotorJoint(ctx *SampleContext) Sample {
 	// Define a target body
 	targetDef := b2.DefaultBodyDef()
 	targetDef.Type = b2.KinematicBody
-	targetDef.Position = s.transform.P
+	targetDef.Position = b2.ToPos(s.transform.P)
 	s.targetId = b2.CreateBody(s.WorldId, &targetDef)
 
 	// Define motorized body
 	bodyDef := b2.DefaultBodyDef()
 	bodyDef.Type = b2.DynamicBody
-	bodyDef.Position = s.transform.P
+	bodyDef.Position = b2.ToPos(s.transform.P)
 	s.bodyId = b2.CreateBody(s.WorldId, &bodyDef)
 
 	box := b2.MakeBox(FromFloat64(2.0), FromFloat64(0.5))
@@ -294,7 +294,7 @@ func NewMotorJoint(ctx *SampleContext) Sample {
 	// Define spring body
 	springBodyDef := b2.DefaultBodyDef()
 	springBodyDef.Type = b2.DynamicBody
-	springBodyDef.Position = b2.Vec2{X: FromFloat64(-2.0), Y: FromFloat64(2.0)}
+	springBodyDef.Position = b2.ToPos(b2.Vec2{X: FromFloat64(-2.0), Y: FromFloat64(2.0)})
 	springId := b2.CreateBody(s.WorldId, &springBodyDef)
 
 	square := b2.MakeSquare(FromFloat64(0.5))
@@ -305,7 +305,7 @@ func NewMotorJoint(ctx *SampleContext) Sample {
 	springDef := b2.DefaultMotorJointDef()
 	springDef.Base.BodyIdA = groundId
 	springDef.Base.BodyIdB = springId
-	springDef.Base.LocalFrameA.P = springBodyDef.Position.Add(corner)
+	springDef.Base.LocalFrameA.P = b2.ToVec2(springBodyDef.Position).Add(corner)
 	springDef.Base.LocalFrameB.P = corner
 	springDef.LinearHertz = FromFloat64(7.5)
 	springDef.LinearDampingRatio = FromFloat64(0.7)
@@ -358,10 +358,10 @@ func (s *MotorJoint) Step() {
 		angularOffsetTurns := FromFloat64(2.0 * s.time / (2.0 * math.Pi))
 		s.transform = b2.Transform{P: linearOffset, Q: b2.MakeRot(angularOffsetTurns)}
 
-		s.targetId.SetTargetTransform(s.transform, FromFloat64(timeStep), true)
+		s.targetId.SetTargetTransform(b2.MakeWorldTransform(s.transform), FromFloat64(timeStep), true)
 	}
 
-	s.Context.Draw.DrawTransformFcn(s.transform)
+	s.Context.Draw.DrawTransformFcn(b2.MakeWorldTransform(s.transform))
 
 	s.Base.Step()
 
@@ -395,13 +395,13 @@ func NewFilterJoint(ctx *SampleContext) Sample {
 
 	bodyDef := b2.DefaultBodyDef()
 	bodyDef.Type = b2.DynamicBody
-	bodyDef.Position = b2.Vec2{X: FromFloat64(-4.0), Y: FromFloat64(2.0)}
+	bodyDef.Position = b2.ToPos(b2.Vec2{X: FromFloat64(-4.0), Y: FromFloat64(2.0)})
 	body1 := b2.CreateBody(s.WorldId, &bodyDef)
 	box := b2.MakeSquare(FromFloat64(2.0))
 	shapeDef := b2.DefaultShapeDef()
 	b2.CreatePolygonShape(body1, &shapeDef, &box)
 
-	bodyDef.Position = b2.Vec2{X: FromFloat64(4.0), Y: FromFloat64(2.0)}
+	bodyDef.Position = b2.ToPos(b2.Vec2{X: FromFloat64(4.0), Y: FromFloat64(2.0)})
 	body2 := b2.CreateBody(s.WorldId, &bodyDef)
 	b2.CreatePolygonShape(body2, &shapeDef, &box)
 
@@ -442,7 +442,7 @@ func NewRevoluteJoint(ctx *SampleContext) Sample {
 	var groundID b2.BodyId
 	{
 		bodyDef := b2.DefaultBodyDef()
-		bodyDef.Position = b2.V2(0, -1)
+		bodyDef.Position = b2.ToPos(b2.V2(0, -1))
 		groundID = b2.CreateBody(s.WorldId, &bodyDef)
 
 		box := b2.MakeBox(b2.F(40), b2.F(1))
@@ -462,7 +462,7 @@ func NewRevoluteJoint(ctx *SampleContext) Sample {
 	{
 		bodyDef := b2.DefaultBodyDef()
 		bodyDef.Type = b2.DynamicBody
-		bodyDef.Position = b2.V2(-10, 20)
+		bodyDef.Position = b2.ToPos(b2.V2(-10, 20))
 		bodyID := b2.CreateBody(s.WorldId, &bodyDef)
 
 		shapeDef := b2.DefaultShapeDef()
@@ -478,8 +478,8 @@ func NewRevoluteJoint(ctx *SampleContext) Sample {
 		jointDef := b2.DefaultRevoluteJointDef()
 		jointDef.Base.BodyIdA = groundID
 		jointDef.Base.BodyIdB = bodyID
-		jointDef.Base.LocalFrameA.P = groundID.GetLocalPoint(pivot)
-		jointDef.Base.LocalFrameB.P = bodyID.GetLocalPoint(pivot)
+		jointDef.Base.LocalFrameA.P = groundID.GetLocalPoint(b2.ToPos(pivot))
+		jointDef.Base.LocalFrameB.P = bodyID.GetLocalPoint(b2.ToPos(pivot))
 		// Convert the GUI's degrees to the public API's turns.
 		jointDef.TargetAngle = FromFloat64(s.targetDegrees).Div(b2.F(360))
 		jointDef.EnableSpring = s.enableSpring
@@ -505,7 +505,7 @@ func NewRevoluteJoint(ctx *SampleContext) Sample {
 		circle := b2.Circle{Radius: b2.F(2)}
 		bodyDef := b2.DefaultBodyDef()
 		bodyDef.Type = b2.DynamicBody
-		bodyDef.Position = b2.V2(5, 30)
+		bodyDef.Position = b2.ToPos(b2.V2(5, 30))
 		s.ball = b2.CreateBody(s.WorldId, &bodyDef)
 
 		shapeDef := b2.DefaultShapeDef()
@@ -515,7 +515,7 @@ func NewRevoluteJoint(ctx *SampleContext) Sample {
 
 	{
 		bodyDef := b2.DefaultBodyDef()
-		bodyDef.Position = b2.V2(20, 10)
+		bodyDef.Position = b2.ToPos(b2.V2(20, 10))
 		bodyDef.Type = b2.DynamicBody
 		bodyID := b2.CreateBody(s.WorldId, &bodyDef)
 
@@ -531,8 +531,8 @@ func NewRevoluteJoint(ctx *SampleContext) Sample {
 		jointDef := b2.DefaultRevoluteJointDef()
 		jointDef.Base.BodyIdA = groundID
 		jointDef.Base.BodyIdB = bodyID
-		jointDef.Base.LocalFrameA.P = groundID.GetLocalPoint(pivot)
-		jointDef.Base.LocalFrameB.P = bodyID.GetLocalPoint(pivot)
+		jointDef.Base.LocalFrameA.P = groundID.GetLocalPoint(b2.ToPos(pivot))
+		jointDef.Base.LocalFrameB.P = bodyID.GetLocalPoint(b2.ToPos(pivot))
 		// -0.25*PI radians is -1/8 turn; the upper limit is zero.
 		jointDef.LowerAngle = b2.QFromRatio(-1, 8)
 		jointDef.UpperAngle = b2.QZero()
@@ -657,7 +657,7 @@ func NewPrismaticJoint(ctx *SampleContext) Sample {
 
 	{
 		bodyDef := b2.DefaultBodyDef()
-		bodyDef.Position = b2.V2(0, 10)
+		bodyDef.Position = b2.ToPos(b2.V2(0, 10))
 		bodyDef.Type = b2.DynamicBody
 		bodyID := b2.CreateBody(s.WorldId, &bodyDef)
 
@@ -672,8 +672,8 @@ func NewPrismaticJoint(ctx *SampleContext) Sample {
 		jointDef.Base.BodyIdB = bodyID
 		jointDef.Base.LocalFrameA.Q = b2.MakeRotFromUnitVector(groundID.GetLocalVector(axis))
 		jointDef.Base.LocalFrameB.Q = jointDef.Base.LocalFrameA.Q
-		jointDef.Base.LocalFrameA.P = groundID.GetLocalPoint(pivot)
-		jointDef.Base.LocalFrameB.P = bodyID.GetLocalPoint(pivot)
+		jointDef.Base.LocalFrameA.P = groundID.GetLocalPoint(b2.ToPos(pivot))
+		jointDef.Base.LocalFrameB.P = bodyID.GetLocalPoint(b2.ToPos(pivot))
 		jointDef.Base.DrawScale = b2.F(2)
 		jointDef.MotorSpeed = FromFloat64(s.motorSpeed)
 		jointDef.MaxMotorForce = FromFloat64(s.motorForce)
@@ -795,7 +795,7 @@ func NewWheelJoint(ctx *SampleContext) Sample {
 	s.dampingRatio = 0.7
 
 	bodyDef := b2.DefaultBodyDef()
-	bodyDef.Position = b2.V2(0.0, 10.25)
+	bodyDef.Position = b2.ToPos(b2.V2(0.0, 10.25))
 	bodyDef.Type = b2.DynamicBody
 	bodyID := b2.CreateBody(s.WorldId, &bodyDef)
 
@@ -813,8 +813,8 @@ func NewWheelJoint(ctx *SampleContext) Sample {
 	jointDef.Base.BodyIdA = groundID
 	jointDef.Base.BodyIdB = bodyID
 	jointDef.Base.LocalFrameA.Q = b2.MakeRotFromUnitVector(groundID.GetLocalVector(axis))
-	jointDef.Base.LocalFrameA.P = groundID.GetLocalPoint(pivot)
-	jointDef.Base.LocalFrameB.P = bodyID.GetLocalPoint(pivot)
+	jointDef.Base.LocalFrameA.P = groundID.GetLocalPoint(b2.ToPos(pivot))
+	jointDef.Base.LocalFrameB.P = bodyID.GetLocalPoint(b2.ToPos(pivot))
 	jointDef.MotorSpeed = radiansToTurns(s.motorSpeed)
 	jointDef.MaxMotorTorque = FromFloat64(s.motorTorque)
 	jointDef.EnableMotor = s.enableMotor
@@ -925,10 +925,10 @@ func NewBridge(ctx *SampleContext) Sample {
 	for i := range bridgeCount {
 		bodyDef := b2.DefaultBodyDef()
 		bodyDef.Type = b2.DynamicBody
-		bodyDef.Position = b2.Vec2{
+		bodyDef.Position = b2.ToPos(b2.Vec2{
 			X: xbase.Add(b2.QHalf()).Add(b2.F(i)),
 			Y: b2.F(20),
-		}
+		})
 		bodyDef.LinearDamping = b2.F(0.1)
 		bodyDef.AngularDamping = b2.F(0.1)
 
@@ -938,8 +938,8 @@ func NewBridge(ctx *SampleContext) Sample {
 		pivot := b2.Vec2{X: xbase.Add(b2.F(i)), Y: b2.F(20)}
 		jointDef.Base.BodyIdA = prevBodyID
 		jointDef.Base.BodyIdB = s.bodyIDs[i]
-		jointDef.Base.LocalFrameA.P = jointDef.Base.BodyIdA.GetLocalPoint(pivot)
-		jointDef.Base.LocalFrameB.P = jointDef.Base.BodyIdB.GetLocalPoint(pivot)
+		jointDef.Base.LocalFrameA.P = jointDef.Base.BodyIdA.GetLocalPoint(b2.ToPos(pivot))
+		jointDef.Base.LocalFrameB.P = jointDef.Base.BodyIdB.GetLocalPoint(b2.ToPos(pivot))
 		s.jointIDs[jointIndex] = b2.CreateRevoluteJoint(s.WorldId, &jointDef)
 
 		prevBodyID = s.bodyIDs[i]
@@ -949,8 +949,8 @@ func NewBridge(ctx *SampleContext) Sample {
 	pivot := b2.Vec2{X: xbase.Add(b2.F(bridgeCount)), Y: b2.F(20)}
 	jointDef.Base.BodyIdA = prevBodyID
 	jointDef.Base.BodyIdB = groundID
-	jointDef.Base.LocalFrameA.P = jointDef.Base.BodyIdA.GetLocalPoint(pivot)
-	jointDef.Base.LocalFrameB.P = jointDef.Base.BodyIdB.GetLocalPoint(pivot)
+	jointDef.Base.LocalFrameA.P = jointDef.Base.BodyIdA.GetLocalPoint(b2.ToPos(pivot))
+	jointDef.Base.LocalFrameB.P = jointDef.Base.BodyIdB.GetLocalPoint(b2.ToPos(pivot))
 	s.jointIDs[jointIndex] = b2.CreateRevoluteJoint(s.WorldId, &jointDef)
 
 	for i := range 2 {
@@ -966,7 +966,7 @@ func NewBridge(ctx *SampleContext) Sample {
 		shapeDef.Density = b2.F(20)
 		bodyDef := b2.DefaultBodyDef()
 		bodyDef.Type = b2.DynamicBody
-		bodyDef.Position = b2.Vec2{X: b2.F(-8 + 8*i), Y: b2.F(22)}
+		bodyDef.Position = b2.ToPos(b2.Vec2{X: b2.F(-8 + 8*i), Y: b2.F(22)})
 		bodyID := b2.CreateBody(s.WorldId, &bodyDef)
 		b2.CreatePolygonShape(bodyID, &shapeDef, &triangle)
 	}
@@ -977,7 +977,7 @@ func NewBridge(ctx *SampleContext) Sample {
 		shapeDef.Density = b2.F(20)
 		bodyDef := b2.DefaultBodyDef()
 		bodyDef.Type = b2.DynamicBody
-		bodyDef.Position = b2.Vec2{X: b2.F(-6 + 6*i), Y: b2.F(25)}
+		bodyDef.Position = b2.ToPos(b2.Vec2{X: b2.F(-6 + 6*i), Y: b2.F(25)})
 		bodyID := b2.CreateBody(s.WorldId, &bodyDef)
 		b2.CreateCircleShape(bodyID, &shapeDef, &circle)
 	}
@@ -1058,10 +1058,10 @@ func NewBallAndChain(ctx *SampleContext) Sample {
 	for i := range ballAndChainCount {
 		bodyDef := b2.DefaultBodyDef()
 		bodyDef.Type = b2.DynamicBody
-		bodyDef.Position = b2.Vec2{
+		bodyDef.Position = b2.ToPos(b2.Vec2{
 			X: b2.F(1 + 2*i).Mul(hx),
 			Y: b2.F(ballAndChainCount).Mul(hx),
-		}
+		})
 		bodyID := b2.CreateBody(s.WorldId, &bodyDef)
 		b2.CreateCapsuleShape(bodyID, &shapeDef, &capsule)
 
@@ -1071,8 +1071,8 @@ func NewBallAndChain(ctx *SampleContext) Sample {
 		}
 		jointDef.Base.BodyIdA = prevBodyID
 		jointDef.Base.BodyIdB = bodyID
-		jointDef.Base.LocalFrameA.P = jointDef.Base.BodyIdA.GetLocalPoint(pivot)
-		jointDef.Base.LocalFrameB.P = jointDef.Base.BodyIdB.GetLocalPoint(pivot)
+		jointDef.Base.LocalFrameA.P = jointDef.Base.BodyIdA.GetLocalPoint(b2.ToPos(pivot))
+		jointDef.Base.LocalFrameB.P = jointDef.Base.BodyIdB.GetLocalPoint(b2.ToPos(pivot))
 		jointDef.EnableMotor = true
 		jointDef.MaxMotorTorque = FromFloat64(s.frictionTorque)
 		jointDef.EnableSpring = i > 0
@@ -1086,10 +1086,10 @@ func NewBallAndChain(ctx *SampleContext) Sample {
 	circle := b2.Circle{Radius: b2.F(4)}
 	bodyDef := b2.DefaultBodyDef()
 	bodyDef.Type = b2.DynamicBody
-	bodyDef.Position = b2.Vec2{
+	bodyDef.Position = b2.ToPos(b2.Vec2{
 		X: b2.F(1 + 2*ballAndChainCount).Mul(hx).Add(circle.Radius).Sub(hx),
 		Y: b2.F(ballAndChainCount).Mul(hx),
-	}
+	})
 	bodyID := b2.CreateBody(s.WorldId, &bodyDef)
 
 	shapeDef.Filter.CategoryBits = 0x2
@@ -1102,8 +1102,8 @@ func NewBallAndChain(ctx *SampleContext) Sample {
 	}
 	jointDef.Base.BodyIdA = prevBodyID
 	jointDef.Base.BodyIdB = bodyID
-	jointDef.Base.LocalFrameA.P = jointDef.Base.BodyIdA.GetLocalPoint(pivot)
-	jointDef.Base.LocalFrameB.P = jointDef.Base.BodyIdB.GetLocalPoint(pivot)
+	jointDef.Base.LocalFrameA.P = jointDef.Base.BodyIdA.GetLocalPoint(b2.ToPos(pivot))
+	jointDef.Base.LocalFrameB.P = jointDef.Base.BodyIdB.GetLocalPoint(b2.ToPos(pivot))
 	jointDef.EnableMotor = true
 	jointDef.MaxMotorTorque = FromFloat64(s.frictionTorque)
 	jointDef.EnableSpring = true
@@ -1178,17 +1178,17 @@ func NewCantilever(ctx *SampleContext) Sample {
 
 	previousID := groundID
 	for i := range cantileverCount {
-		bodyDef.Position = b2.Vec2{
+		bodyDef.Position = b2.ToPos(b2.Vec2{
 			X: b2.F(1 + 2*i).Mul(hx),
-		}
+		})
 		s.bodyIDs[i] = b2.CreateBody(s.WorldId, &bodyDef)
 		b2.CreateCapsuleShape(s.bodyIDs[i], &shapeDef, &capsule)
 
 		pivot := b2.Vec2{X: b2.F(2 * i).Mul(hx)}
 		jointDef.Base.BodyIdA = previousID
 		jointDef.Base.BodyIdB = s.bodyIDs[i]
-		jointDef.Base.LocalFrameA.P = previousID.GetLocalPoint(pivot)
-		jointDef.Base.LocalFrameB.P = s.bodyIDs[i].GetLocalPoint(pivot)
+		jointDef.Base.LocalFrameA.P = previousID.GetLocalPoint(b2.ToPos(pivot))
+		jointDef.Base.LocalFrameB.P = s.bodyIDs[i].GetLocalPoint(b2.ToPos(pivot))
 		jointDef.LinearHertz = FromFloat64(s.linearHertz)
 		jointDef.LinearDampingRatio = FromFloat64(s.linearDampingRatio)
 		jointDef.AngularHertz = FromFloat64(s.angularHertz)
@@ -1250,7 +1250,7 @@ func (s *Cantilever) Step() {
 	s.Base.Step()
 
 	position := s.tipID.GetPosition()
-	s.DrawTextLine("tip-y = %.2f", ToFloat64(position.Y))
+	s.DrawTextLine("tip-y = %.2f", ToFloat64(b2.ToVec2(position).Y))
 }
 
 const motionLocksCount = 6
@@ -1288,7 +1288,7 @@ func NewMotionLocks(ctx *SampleContext) Sample {
 	index := 0
 
 	// Distance joint.
-	bodyDef.Position = position
+	bodyDef.Position = b2.ToPos(position)
 	s.bodyIDs[index] = b2.CreateBody(s.WorldId, &bodyDef)
 	shapeDef := b2.DefaultShapeDef()
 	b2.CreatePolygonShape(s.bodyIDs[index], &shapeDef, &box)
@@ -1298,8 +1298,8 @@ func NewMotionLocks(ctx *SampleContext) Sample {
 	distanceDef := b2.DefaultDistanceJointDef()
 	distanceDef.Base.BodyIdA = groundID
 	distanceDef.Base.BodyIdB = s.bodyIDs[index]
-	distanceDef.Base.LocalFrameA.P = groundID.GetLocalPoint(pivot1)
-	distanceDef.Base.LocalFrameB.P = s.bodyIDs[index].GetLocalPoint(pivot2)
+	distanceDef.Base.LocalFrameA.P = groundID.GetLocalPoint(b2.ToPos(pivot1))
+	distanceDef.Base.LocalFrameB.P = s.bodyIDs[index].GetLocalPoint(b2.ToPos(pivot2))
 	distanceDef.Length = length
 	b2.CreateDistanceJoint(s.WorldId, &distanceDef)
 
@@ -1307,7 +1307,7 @@ func NewMotionLocks(ctx *SampleContext) Sample {
 	index++
 
 	// Motor joint.
-	bodyDef.Position = position
+	bodyDef.Position = b2.ToPos(position)
 	s.bodyIDs[index] = b2.CreateBody(s.WorldId, &bodyDef)
 	shapeDef = b2.DefaultShapeDef()
 	b2.CreatePolygonShape(s.bodyIDs[index], &shapeDef, &box)
@@ -1323,7 +1323,7 @@ func NewMotionLocks(ctx *SampleContext) Sample {
 	index++
 
 	// Prismatic joint.
-	bodyDef.Position = position
+	bodyDef.Position = b2.ToPos(position)
 	s.bodyIDs[index] = b2.CreateBody(s.WorldId, &bodyDef)
 	shapeDef = b2.DefaultShapeDef()
 	b2.CreatePolygonShape(s.bodyIDs[index], &shapeDef, &box)
@@ -1331,15 +1331,15 @@ func NewMotionLocks(ctx *SampleContext) Sample {
 	prismaticDef := b2.DefaultPrismaticJointDef()
 	prismaticDef.Base.BodyIdA = groundID
 	prismaticDef.Base.BodyIdB = s.bodyIDs[index]
-	prismaticDef.Base.LocalFrameA.P = groundID.GetLocalPoint(pivot)
-	prismaticDef.Base.LocalFrameB.P = s.bodyIDs[index].GetLocalPoint(pivot)
+	prismaticDef.Base.LocalFrameA.P = groundID.GetLocalPoint(b2.ToPos(pivot))
+	prismaticDef.Base.LocalFrameB.P = s.bodyIDs[index].GetLocalPoint(b2.ToPos(pivot))
 	b2.CreatePrismaticJoint(s.WorldId, &prismaticDef)
 
 	position.X = position.X.Add(b2.F(5))
 	index++
 
 	// Revolute joint.
-	bodyDef.Position = position
+	bodyDef.Position = b2.ToPos(position)
 	s.bodyIDs[index] = b2.CreateBody(s.WorldId, &bodyDef)
 	shapeDef = b2.DefaultShapeDef()
 	b2.CreatePolygonShape(s.bodyIDs[index], &shapeDef, &box)
@@ -1347,15 +1347,15 @@ func NewMotionLocks(ctx *SampleContext) Sample {
 	revoluteDef := b2.DefaultRevoluteJointDef()
 	revoluteDef.Base.BodyIdA = groundID
 	revoluteDef.Base.BodyIdB = s.bodyIDs[index]
-	revoluteDef.Base.LocalFrameA.P = groundID.GetLocalPoint(pivot)
-	revoluteDef.Base.LocalFrameB.P = s.bodyIDs[index].GetLocalPoint(pivot)
+	revoluteDef.Base.LocalFrameA.P = groundID.GetLocalPoint(b2.ToPos(pivot))
+	revoluteDef.Base.LocalFrameB.P = s.bodyIDs[index].GetLocalPoint(b2.ToPos(pivot))
 	b2.CreateRevoluteJoint(s.WorldId, &revoluteDef)
 
 	position.X = position.X.Add(b2.F(5))
 	index++
 
 	// Weld joint.
-	bodyDef.Position = position
+	bodyDef.Position = b2.ToPos(position)
 	s.bodyIDs[index] = b2.CreateBody(s.WorldId, &bodyDef)
 	shapeDef = b2.DefaultShapeDef()
 	b2.CreatePolygonShape(s.bodyIDs[index], &shapeDef, &box)
@@ -1363,8 +1363,8 @@ func NewMotionLocks(ctx *SampleContext) Sample {
 	weldDef := b2.DefaultWeldJointDef()
 	weldDef.Base.BodyIdA = groundID
 	weldDef.Base.BodyIdB = s.bodyIDs[index]
-	weldDef.Base.LocalFrameA.P = groundID.GetLocalPoint(pivot)
-	weldDef.Base.LocalFrameB.P = s.bodyIDs[index].GetLocalPoint(pivot)
+	weldDef.Base.LocalFrameA.P = groundID.GetLocalPoint(b2.ToPos(pivot))
+	weldDef.Base.LocalFrameB.P = s.bodyIDs[index].GetLocalPoint(b2.ToPos(pivot))
 	weldDef.AngularHertz = b2.QOne()
 	weldDef.AngularDampingRatio = b2.QHalf()
 	weldDef.LinearHertz = b2.QOne()
@@ -1375,7 +1375,7 @@ func NewMotionLocks(ctx *SampleContext) Sample {
 	index++
 
 	// Wheel joint.
-	bodyDef.Position = position
+	bodyDef.Position = b2.ToPos(position)
 	s.bodyIDs[index] = b2.CreateBody(s.WorldId, &bodyDef)
 	shapeDef = b2.DefaultShapeDef()
 	b2.CreatePolygonShape(s.bodyIDs[index], &shapeDef, &box)
@@ -1383,8 +1383,8 @@ func NewMotionLocks(ctx *SampleContext) Sample {
 	wheelDef := b2.DefaultWheelJointDef()
 	wheelDef.Base.BodyIdA = groundID
 	wheelDef.Base.BodyIdB = s.bodyIDs[index]
-	wheelDef.Base.LocalFrameA.P = groundID.GetLocalPoint(pivot)
-	wheelDef.Base.LocalFrameB.P = s.bodyIDs[index].GetLocalPoint(pivot)
+	wheelDef.Base.LocalFrameA.P = groundID.GetLocalPoint(b2.ToPos(pivot))
+	wheelDef.Base.LocalFrameB.P = s.bodyIDs[index].GetLocalPoint(b2.ToPos(pivot))
 	wheelDef.Hertz = b2.QOne()
 	wheelDef.DampingRatio = b2.QFromRatio(7, 10)
 	wheelDef.LowerTranslation = b2.F(-1)
@@ -1447,7 +1447,7 @@ func NewBreakableJoint(ctx *SampleContext) Sample {
 	position := b2.V2(-12.5, 10.0)
 	index := 0
 
-	bodyDef.Position = position
+	bodyDef.Position = b2.ToPos(position)
 	bodyID := b2.CreateBody(s.WorldId, &bodyDef)
 	b2.CreatePolygonShape(bodyID, &shapeDef, &box)
 	length := b2.F(2)
@@ -1455,15 +1455,15 @@ func NewBreakableJoint(ctx *SampleContext) Sample {
 	pivot2 := b2.Vec2{X: position.X, Y: position.Y.Add(b2.QOne())}
 	distanceDef := b2.DefaultDistanceJointDef()
 	distanceDef.Base.BodyIdA, distanceDef.Base.BodyIdB = groundID, bodyID
-	distanceDef.Base.LocalFrameA.P = groundID.GetLocalPoint(pivot1)
-	distanceDef.Base.LocalFrameB.P = bodyID.GetLocalPoint(pivot2)
+	distanceDef.Base.LocalFrameA.P = groundID.GetLocalPoint(b2.ToPos(pivot1))
+	distanceDef.Base.LocalFrameB.P = bodyID.GetLocalPoint(b2.ToPos(pivot2))
 	distanceDef.Length = length
 	distanceDef.Base.CollideConnected = true
 	s.jointIDs[index] = b2.CreateDistanceJoint(s.WorldId, &distanceDef)
 
 	position.X = position.X.Add(b2.F(5))
 	index++
-	bodyDef.Position = position
+	bodyDef.Position = b2.ToPos(position)
 	bodyID = b2.CreateBody(s.WorldId, &bodyDef)
 	b2.CreatePolygonShape(bodyID, &shapeDef, &box)
 	motorDef := b2.DefaultMotorJointDef()
@@ -1477,7 +1477,7 @@ func NewBreakableJoint(ctx *SampleContext) Sample {
 	for kind := range 4 {
 		position.X = position.X.Add(b2.F(5))
 		index++
-		bodyDef.Position = position
+		bodyDef.Position = b2.ToPos(position)
 		bodyID = b2.CreateBody(s.WorldId, &bodyDef)
 		b2.CreatePolygonShape(bodyID, &shapeDef, &box)
 		pivot := b2.Vec2{X: position.X.Sub(b2.QOne()), Y: position.Y}
@@ -1485,7 +1485,7 @@ func NewBreakableJoint(ctx *SampleContext) Sample {
 		case 0:
 			def := b2.DefaultPrismaticJointDef()
 			def.Base.BodyIdA, def.Base.BodyIdB = groundID, bodyID
-			def.Base.LocalFrameA.P, def.Base.LocalFrameB.P = groundID.GetLocalPoint(pivot), bodyID.GetLocalPoint(pivot)
+			def.Base.LocalFrameA.P, def.Base.LocalFrameB.P = groundID.GetLocalPoint(b2.ToPos(pivot)), bodyID.GetLocalPoint(b2.ToPos(pivot))
 			def.Base.LocalFrameA.Q = b2.MakeRotFromUnitVector(groundID.GetLocalVector(b2.Vec2{X: b2.QOne()}))
 			def.Base.LocalFrameB.Q = def.Base.LocalFrameA.Q
 			def.Base.CollideConnected = true
@@ -1493,19 +1493,19 @@ func NewBreakableJoint(ctx *SampleContext) Sample {
 		case 1:
 			def := b2.DefaultRevoluteJointDef()
 			def.Base.BodyIdA, def.Base.BodyIdB = groundID, bodyID
-			def.Base.LocalFrameA.P, def.Base.LocalFrameB.P = groundID.GetLocalPoint(pivot), bodyID.GetLocalPoint(pivot)
+			def.Base.LocalFrameA.P, def.Base.LocalFrameB.P = groundID.GetLocalPoint(b2.ToPos(pivot)), bodyID.GetLocalPoint(b2.ToPos(pivot))
 			def.Base.CollideConnected = true
 			s.jointIDs[index] = b2.CreateRevoluteJoint(s.WorldId, &def)
 		case 2:
 			def := b2.DefaultWeldJointDef()
 			def.Base.BodyIdA, def.Base.BodyIdB = groundID, bodyID
-			def.Base.LocalFrameA.P, def.Base.LocalFrameB.P = groundID.GetLocalPoint(pivot), bodyID.GetLocalPoint(pivot)
+			def.Base.LocalFrameA.P, def.Base.LocalFrameB.P = groundID.GetLocalPoint(b2.ToPos(pivot)), bodyID.GetLocalPoint(b2.ToPos(pivot))
 			def.Base.CollideConnected = true
 			s.jointIDs[index] = b2.CreateWeldJoint(s.WorldId, &def)
 		case 3:
 			def := b2.DefaultWheelJointDef()
 			def.Base.BodyIdA, def.Base.BodyIdB = groundID, bodyID
-			def.Base.LocalFrameA.P, def.Base.LocalFrameB.P = groundID.GetLocalPoint(pivot), bodyID.GetLocalPoint(pivot)
+			def.Base.LocalFrameA.P, def.Base.LocalFrameB.P = groundID.GetLocalPoint(b2.ToPos(pivot)), bodyID.GetLocalPoint(b2.ToPos(pivot))
 			def.Base.LocalFrameA.Q = b2.MakeRotFromUnitVector(groundID.GetLocalVector(b2.Vec2{X: b2.QOne()}))
 			def.Hertz, def.DampingRatio = b2.QOne(), b2.F(0.7)
 			def.LowerTranslation, def.UpperTranslation = b2.F(-1), b2.QOne()
@@ -1546,7 +1546,7 @@ func (s *BreakableJoint) Step() {
 			s.jointIDs[i] = b2.JointId{}
 		} else {
 			point := s.jointIDs[i].GetLocalFrameA().P
-			s.Context.Draw.DrawStringFcn(point, fmt.Sprintf("(%.1f, %.1f)", ToFloat64(force.X), ToFloat64(force.Y)), b2.ColorWhite)
+			s.Context.Draw.DrawStringFcn(b2.ToPos(point), fmt.Sprintf("(%.1f, %.1f)", ToFloat64(force.X), ToFloat64(force.Y)), b2.ColorWhite)
 		}
 	}
 	s.Base.Step()
@@ -1582,7 +1582,7 @@ func NewJointSeparation(ctx *SampleContext) Sample {
 	box := b2.MakeBox(b2.QOne(), b2.QOne())
 	position := b2.V2(-20, 10)
 	for i := range s.bodyIDs {
-		bodyDef.Position = position
+		bodyDef.Position = b2.ToPos(position)
 		s.bodyIDs[i] = b2.CreateBody(s.WorldId, &bodyDef)
 		b2.CreatePolygonShape(s.bodyIDs[i], &shapeDef, &box)
 		pivot := b2.Vec2{X: position.X.Sub(b2.QOne()), Y: position.Y}
@@ -1590,14 +1590,14 @@ func NewJointSeparation(ctx *SampleContext) Sample {
 		case 0:
 			def := b2.DefaultDistanceJointDef()
 			def.Base.BodyIdA, def.Base.BodyIdB = groundID, s.bodyIDs[i]
-			def.Base.LocalFrameA.P = groundID.GetLocalPoint(b2.Vec2{X: position.X, Y: position.Y.Add(b2.QOne()).Add(b2.F(2))})
-			def.Base.LocalFrameB.P = s.bodyIDs[i].GetLocalPoint(b2.Vec2{X: position.X, Y: position.Y.Add(b2.QOne())})
+			def.Base.LocalFrameA.P = groundID.GetLocalPoint(b2.ToPos(b2.Vec2{X: position.X, Y: position.Y.Add(b2.QOne()).Add(b2.F(2))}))
+			def.Base.LocalFrameB.P = s.bodyIDs[i].GetLocalPoint(b2.ToPos(b2.Vec2{X: position.X, Y: position.Y.Add(b2.QOne())}))
 			def.Length, def.Base.CollideConnected = b2.F(2), true
 			s.jointIDs[i] = b2.CreateDistanceJoint(s.WorldId, &def)
 		case 1:
 			def := b2.DefaultPrismaticJointDef()
 			def.Base.BodyIdA, def.Base.BodyIdB = groundID, s.bodyIDs[i]
-			def.Base.LocalFrameA.P, def.Base.LocalFrameB.P = groundID.GetLocalPoint(pivot), s.bodyIDs[i].GetLocalPoint(pivot)
+			def.Base.LocalFrameA.P, def.Base.LocalFrameB.P = groundID.GetLocalPoint(b2.ToPos(pivot)), s.bodyIDs[i].GetLocalPoint(b2.ToPos(pivot))
 			def.Base.LocalFrameA.Q = b2.MakeRotFromUnitVector(groundID.GetLocalVector(b2.Vec2{X: b2.QOne()}))
 			def.Base.LocalFrameB.Q = def.Base.LocalFrameA.Q
 			def.Base.CollideConnected = true
@@ -1605,19 +1605,19 @@ func NewJointSeparation(ctx *SampleContext) Sample {
 		case 2:
 			def := b2.DefaultRevoluteJointDef()
 			def.Base.BodyIdA, def.Base.BodyIdB = groundID, s.bodyIDs[i]
-			def.Base.LocalFrameA.P, def.Base.LocalFrameB.P = groundID.GetLocalPoint(pivot), s.bodyIDs[i].GetLocalPoint(pivot)
+			def.Base.LocalFrameA.P, def.Base.LocalFrameB.P = groundID.GetLocalPoint(b2.ToPos(pivot)), s.bodyIDs[i].GetLocalPoint(b2.ToPos(pivot))
 			def.Base.CollideConnected = true
 			s.jointIDs[i] = b2.CreateRevoluteJoint(s.WorldId, &def)
 		case 3:
 			def := b2.DefaultWeldJointDef()
 			def.Base.BodyIdA, def.Base.BodyIdB = groundID, s.bodyIDs[i]
-			def.Base.LocalFrameA.P, def.Base.LocalFrameB.P = groundID.GetLocalPoint(pivot), s.bodyIDs[i].GetLocalPoint(pivot)
+			def.Base.LocalFrameA.P, def.Base.LocalFrameB.P = groundID.GetLocalPoint(b2.ToPos(pivot)), s.bodyIDs[i].GetLocalPoint(b2.ToPos(pivot))
 			def.Base.CollideConnected = true
 			s.jointIDs[i] = b2.CreateWeldJoint(s.WorldId, &def)
 		case 4:
 			def := b2.DefaultWheelJointDef()
 			def.Base.BodyIdA, def.Base.BodyIdB = groundID, s.bodyIDs[i]
-			def.Base.LocalFrameA.P, def.Base.LocalFrameB.P = groundID.GetLocalPoint(pivot), s.bodyIDs[i].GetLocalPoint(pivot)
+			def.Base.LocalFrameA.P, def.Base.LocalFrameB.P = groundID.GetLocalPoint(b2.ToPos(pivot)), s.bodyIDs[i].GetLocalPoint(b2.ToPos(pivot))
 			def.Base.LocalFrameA.Q = b2.MakeRotFromUnitVector(groundID.GetLocalVector(b2.Vec2{X: b2.QOne()}))
 			def.Hertz, def.DampingRatio = b2.QOne(), b2.F(0.7)
 			def.LowerTranslation, def.UpperTranslation = b2.F(-1), b2.QOne()
@@ -1672,7 +1672,7 @@ func (s *JointSeparation) Step() {
 		angular := ToFloat64(s.jointIDs[i].GetAngularSeparation())
 		point := s.jointIDs[i].GetLocalFrameA().P
 		text := fmt.Sprintf("%.2f m, %.1f deg", linear, 360*angular)
-		s.Context.Draw.DrawStringFcn(point, text, b2.ColorWhite)
+		s.Context.Draw.DrawStringFcn(b2.ToPos(point), text, b2.ColorWhite)
 	}
 	s.Base.Step()
 }
@@ -1713,7 +1713,7 @@ func NewUserConstraint(ctx *SampleContext) Sample {
 func (s *UserConstraint) Step() {
 	s.Base.Step()
 
-	s.Context.Draw.DrawTransformFcn(b2.TransformIdentity())
+	s.Context.Draw.DrawTransformFcn(b2.MakeWorldTransform(b2.TransformIdentity()))
 	if s.Context.Settings.Pause {
 		return
 	}
@@ -1765,20 +1765,20 @@ func (s *UserConstraint) Step() {
 	for i := range localAnchors {
 		anchorA := b2.V2(3, 0)
 		anchorB := s.bodyId.GetWorldPoint(localAnchors[i])
-		deltaAnchor := anchorB.Sub(anchorA)
+		deltaAnchor := b2.SubPos(anchorB, b2.ToPos(anchorA))
 
 		slackLength := one
 		length := deltaAnchor.Len()
 		constraintError := length.Sub(slackLength)
 		if constraintError.Less(zero) || length.Less(b2.F(0.001)) {
-			s.Context.Draw.DrawLineFcn(anchorA, anchorB, b2.ColorLightCyan)
+			s.Context.Draw.DrawLineFcn(b2.ToPos(anchorA), anchorB, b2.ColorLightCyan)
 			s.impulses[i] = zero
 			continue
 		}
 
-		s.Context.Draw.DrawLineFcn(anchorA, anchorB, b2.ColorViolet)
+		s.Context.Draw.DrawLineFcn(b2.ToPos(anchorA), anchorB, b2.ColorViolet)
 		axis := deltaAnchor.Normalize()
-		rB := anchorB.Sub(pB)
+		rB := b2.SubPos(anchorB, pB)
 		Jb := b2.Cross(rB, axis)
 		K := invMass.Add(Jb.Mul(invI).Mul(Jb))
 		invK := zero
@@ -1838,7 +1838,7 @@ func NewDoor(ctx *SampleContext) Sample {
 
 	bodyDef := b2.DefaultBodyDef()
 	bodyDef.Type = b2.DynamicBody
-	bodyDef.Position = b2.V2(0.0, 1.5)
+	bodyDef.Position = b2.ToPos(b2.V2(0.0, 1.5))
 	bodyDef.GravityScale = b2.QZero()
 	s.doorId = b2.CreateBody(s.WorldId, &bodyDef)
 
@@ -1907,7 +1907,7 @@ func (s *Door) Step() {
 
 	point := s.doorId.GetWorldPoint(b2.V2(0.0, 1.5))
 	s.Context.Draw.DrawPointFcn(point, b2.F(5), b2.ColorDarkKhaki)
-	s.Context.Draw.DrawTransformFcn(b2.TransformIdentity())
+	s.Context.Draw.DrawTransformFcn(b2.MakeWorldTransform(b2.TransformIdentity()))
 
 	translationError := s.jointId.GetLinearSeparation()
 	s.translationError = s.translationError.Max(translationError)
@@ -1958,7 +1958,7 @@ func NewRagdoll(ctx *SampleContext) Sample {
 func (s *Ragdoll) Spawn() {
 	s.human = shared.CreateHuman(
 		s.WorldId,
-		b2.V2(0, 25),
+		b2.ToPos(b2.V2(0, 25)),
 		b2.QOne(),
 		s.jointFrictionTorque,
 		s.jointHertz,
@@ -2034,7 +2034,7 @@ func (s *ScaleRagdoll) Spawn() {
 	jointDampingRatio := b2.QHalf()
 	s.human = shared.CreateHuman(
 		s.WorldId,
-		b2.V2(0, 5),
+		b2.ToPos(b2.V2(0, 5)),
 		s.scale,
 		jointFrictionTorque,
 		jointHertz,
@@ -2147,7 +2147,7 @@ func NewDriving(ctx *SampleContext) Sample {
 
 	{
 		bodyDef := b2.DefaultBodyDef()
-		bodyDef.Position = b2.Vec2{X: b2.F(140), Y: b2.QOne()}
+		bodyDef.Position = b2.ToPos(b2.Vec2{X: b2.F(140), Y: b2.QOne()})
 		bodyDef.AngularVelocity = radiansToTurns(1)
 		bodyDef.Type = b2.DynamicBody
 		bodyID := b2.CreateBody(s.WorldId, &bodyDef)
@@ -2178,10 +2178,10 @@ func NewDriving(ctx *SampleContext) Sample {
 		for i := range 20 {
 			bodyDef := b2.DefaultBodyDef()
 			bodyDef.Type = b2.DynamicBody
-			bodyDef.Position = b2.Vec2{
+			bodyDef.Position = b2.ToPos(b2.Vec2{
 				X: b2.F(161).Add(b2.F(2 * i)),
 				Y: b2.F(-0.125),
-			}
+			})
 			bodyID := b2.CreateBody(s.WorldId, &bodyDef)
 			b2.CreateCapsuleShape(bodyID, &shapeDef, &capsule)
 
@@ -2191,8 +2191,8 @@ func NewDriving(ctx *SampleContext) Sample {
 			}
 			jointDef.Base.BodyIdA = prevBodyID
 			jointDef.Base.BodyIdB = bodyID
-			jointDef.Base.LocalFrameA.P = prevBodyID.GetLocalPoint(pivot)
-			jointDef.Base.LocalFrameB.P = bodyID.GetLocalPoint(pivot)
+			jointDef.Base.LocalFrameA.P = prevBodyID.GetLocalPoint(b2.ToPos(pivot))
+			jointDef.Base.LocalFrameB.P = bodyID.GetLocalPoint(b2.ToPos(pivot))
 			b2.CreateRevoluteJoint(s.WorldId, &jointDef)
 			prevBodyID = bodyID
 		}
@@ -2200,8 +2200,8 @@ func NewDriving(ctx *SampleContext) Sample {
 		pivot := b2.V2(200.0, -0.125)
 		jointDef.Base.BodyIdA = prevBodyID
 		jointDef.Base.BodyIdB = groundID
-		jointDef.Base.LocalFrameA.P = prevBodyID.GetLocalPoint(pivot)
-		jointDef.Base.LocalFrameB.P = groundID.GetLocalPoint(pivot)
+		jointDef.Base.LocalFrameA.P = prevBodyID.GetLocalPoint(b2.ToPos(pivot))
+		jointDef.Base.LocalFrameB.P = groundID.GetLocalPoint(b2.ToPos(pivot))
 		jointDef.EnableMotor = true
 		jointDef.MaxMotorTorque = b2.F(50)
 		b2.CreateRevoluteJoint(s.WorldId, &jointDef)
@@ -2216,7 +2216,7 @@ func NewDriving(ctx *SampleContext) Sample {
 		shapeDef.Material.Restitution = b2.F(0.25)
 		shapeDef.Density = b2.F(0.25)
 		for i := range 5 {
-			bodyDef.Position = b2.Vec2{X: b2.F(230), Y: b2.F(i).Add(b2.QHalf())}
+			bodyDef.Position = b2.ToPos(b2.Vec2{X: b2.F(230), Y: b2.F(i).Add(b2.QHalf())})
 			bodyID := b2.CreateBody(s.WorldId, &bodyDef)
 			b2.CreatePolygonShape(bodyID, &shapeDef, &box)
 		}
@@ -2268,7 +2268,7 @@ func (s *Driving) Step() {
 	linearVelocity := s.car.chassisId.GetLinearVelocity()
 	kph := linearVelocity.X.Mul(b2.F(3.6))
 	s.DrawTextLine("speed in kph: %.2g", ToFloat64(kph))
-	s.Context.Camera.Center.X = ToFloat64(s.car.chassisId.GetPosition().X)
+	s.Context.Camera.Center.X = ToFloat64(b2.ToVec2(s.car.chassisId.GetPosition()).X)
 	s.Base.Step()
 }
 
@@ -2392,12 +2392,12 @@ func NewScissorLift(ctx *SampleContext) Sample {
 	var linkID1 b2.BodyId
 
 	for i := range 3 {
-		bodyDef.Position = b2.Vec2{Y: y}
+		bodyDef.Position = b2.ToPos(b2.Vec2{Y: y})
 		bodyDef.Rotation = b2.MakeRot(radiansToTurns(0.15))
 		bodyID1 := b2.CreateBody(s.WorldId, &bodyDef)
 		b2.CreateCapsuleShape(bodyID1, &shapeDef, &capsule)
 
-		bodyDef.Position = b2.Vec2{Y: y}
+		bodyDef.Position = b2.ToPos(b2.Vec2{Y: y})
 		bodyDef.Rotation = b2.MakeRot(radiansToTurns(0.15).Neg())
 		bodyID2 := b2.CreateBody(s.WorldId, &bodyDef)
 		b2.CreateCapsuleShape(bodyID2, &shapeDef, &capsule)
@@ -2455,7 +2455,7 @@ func NewScissorLift(ctx *SampleContext) Sample {
 		y = y.Add(b2.QOne())
 	}
 
-	bodyDef.Position = b2.Vec2{Y: y}
+	bodyDef.Position = b2.ToPos(b2.Vec2{Y: y})
 	bodyDef.Rotation = b2.RotIdentity()
 	platformID := b2.CreateBody(s.WorldId, &bodyDef)
 	box := b2.MakeBox(b2.F(3), b2.F(0.2))
@@ -2575,7 +2575,7 @@ func NewGearLift(ctx *SampleContext) Sample {
 
 	bodyDef := b2.DefaultBodyDef()
 	bodyDef.Type = b2.DynamicBody
-	bodyDef.Position = gearPosition1
+	bodyDef.Position = b2.ToPos(gearPosition1)
 	driverBodyId := b2.CreateBody(g.WorldId, &bodyDef)
 	shapeDef := b2.DefaultShapeDef()
 	shapeDef.Material.Friction = b2.F(0.1)
@@ -2598,14 +2598,14 @@ func NewGearLift(ctx *SampleContext) Sample {
 	g.enableMotor = true
 	revoluteDef.Base.BodyIdA = groundId
 	revoluteDef.Base.BodyIdB = driverBodyId
-	revoluteDef.Base.LocalFrameA.P = groundId.GetLocalPoint(gearPosition1)
+	revoluteDef.Base.LocalFrameA.P = groundId.GetLocalPoint(b2.ToPos(gearPosition1))
 	revoluteDef.Base.LocalFrameB.P = b2.Vec2{}
 	revoluteDef.EnableMotor = g.enableMotor
 	revoluteDef.MaxMotorTorque = FromFloat64(g.motorTorque)
 	revoluteDef.MotorSpeed = radiansToTurns(g.motorSpeed)
 	g.driverId = b2.CreateRevoluteJoint(g.WorldId, &revoluteDef)
 
-	bodyDef.Position = gearPosition2
+	bodyDef.Position = b2.ToPos(gearPosition2)
 	followerId := b2.CreateBody(g.WorldId, &bodyDef)
 	shapeDef.Material.Friction = b2.F(0.1)
 	shapeDef.Material.CustomColor = uint32(b2.ColorSaddleBrown)
@@ -2622,7 +2622,7 @@ func NewGearLift(ctx *SampleContext) Sample {
 	revoluteDef = b2.DefaultRevoluteJointDef()
 	revoluteDef.Base.BodyIdA = groundId
 	revoluteDef.Base.BodyIdB = followerId
-	revoluteDef.Base.LocalFrameA.P = groundId.GetLocalPoint(gearPosition2)
+	revoluteDef.Base.LocalFrameA.P = groundId.GetLocalPoint(b2.ToPos(gearPosition2))
 	revoluteDef.Base.LocalFrameB.P = b2.Vec2{}
 	revoluteDef.EnableMotor = true
 	revoluteDef.MaxMotorTorque = b2.F(0.5)
@@ -2645,14 +2645,14 @@ func NewGearLift(ctx *SampleContext) Sample {
 	prevBodyId := followerId
 	var lastLinkId b2.BodyId
 	for range 40 {
-		bodyDef.Position = position
+		bodyDef.Position = b2.ToPos(position)
 		bodyId := b2.CreateBody(g.WorldId, &bodyDef)
 		b2.CreateCapsuleShape(bodyId, &shapeDef, &capsule)
 		pivot := b2.Vec2{X: position.X, Y: position.Y.Add(linkHalfLength)}
 		jointDef.Base.BodyIdA = prevBodyId
 		jointDef.Base.BodyIdB = bodyId
-		jointDef.Base.LocalFrameA.P = prevBodyId.GetLocalPoint(pivot)
-		jointDef.Base.LocalFrameB.P = bodyId.GetLocalPoint(pivot)
+		jointDef.Base.LocalFrameA.P = prevBodyId.GetLocalPoint(b2.ToPos(pivot))
+		jointDef.Base.LocalFrameB.P = bodyId.GetLocalPoint(b2.ToPos(pivot))
 		jointDef.Base.DrawScale = b2.F(0.2)
 		b2.CreateRevoluteJoint(g.WorldId, &jointDef)
 		position.Y = position.Y.Sub(linkHalfLength.Mul(b2.F(2)))
@@ -2662,7 +2662,7 @@ func NewGearLift(ctx *SampleContext) Sample {
 
 	bodyDef = b2.DefaultBodyDef()
 	bodyDef.Type = b2.DynamicBody
-	bodyDef.Position = doorPosition
+	bodyDef.Position = b2.ToPos(doorPosition)
 	doorBodyId := b2.CreateBody(g.WorldId, &bodyDef)
 	box := b2.MakeBox(b2.F(0.15), doorHalfHeight)
 	shapeDef = b2.DefaultShapeDef()
@@ -2673,7 +2673,7 @@ func NewGearLift(ctx *SampleContext) Sample {
 	revoluteDef = b2.DefaultRevoluteJointDef()
 	revoluteDef.Base.BodyIdA = lastLinkId
 	revoluteDef.Base.BodyIdB = doorBodyId
-	revoluteDef.Base.LocalFrameA.P = lastLinkId.GetLocalPoint(pivot)
+	revoluteDef.Base.LocalFrameA.P = lastLinkId.GetLocalPoint(b2.ToPos(pivot))
 	revoluteDef.Base.LocalFrameB.P = b2.Vec2{Y: doorHalfHeight}
 	revoluteDef.EnableMotor = true
 	revoluteDef.MaxMotorTorque = b2.F(0.05)
@@ -2681,7 +2681,7 @@ func NewGearLift(ctx *SampleContext) Sample {
 	prismaticDef := b2.DefaultPrismaticJointDef()
 	prismaticDef.Base.BodyIdA = groundId
 	prismaticDef.Base.BodyIdB = doorBodyId
-	prismaticDef.Base.LocalFrameA.P = groundId.GetLocalPoint(doorPosition)
+	prismaticDef.Base.LocalFrameA.P = groundId.GetLocalPoint(b2.ToPos(doorPosition))
 	prismaticDef.Base.LocalFrameB.P = b2.Vec2{}
 	prismaticDef.Base.LocalFrameA.Q = b2.MakeRotFromUnitVector(b2.Vec2{Y: b2.QOne()})
 	prismaticDef.Base.LocalFrameB.Q = prismaticDef.Base.LocalFrameA.Q
@@ -2699,7 +2699,7 @@ func NewGearLift(ctx *SampleContext) Sample {
 	for range 20 {
 		x := b2.F(-3.15)
 		for range 10 {
-			bodyDef.Position = b2.Vec2{X: x, Y: y}
+			bodyDef.Position = b2.ToPos(b2.Vec2{X: x, Y: y})
 			bodyId := b2.CreateBody(g.WorldId, &bodyDef)
 			poly := shared.RandomPolygon(b2.F(0.1))
 			poly.Radius = shared.RandomFloatRange(b2.F(0.01), b2.F(0.02))
@@ -2795,7 +2795,7 @@ func NewTopDownFriction(ctx *SampleContext) Sample {
 	x, y := b2.F(-5), b2.F(15)
 	for i := range n {
 		for j := range n {
-			bodyDef.Position = b2.Vec2{X: x, Y: y}
+			bodyDef.Position = b2.ToPos(b2.Vec2{X: x, Y: y})
 			bodyId := b2.CreateBody(s.WorldId, &bodyDef)
 
 			switch (n*i + j) % 4 {
@@ -2831,7 +2831,7 @@ func (s *TopDownFriction) UpdateGui() {
 	gui.Begin("Top Down Friction", 10, s.Context.Camera.Height-height-25, 200, height)
 	if gui.Button("Explode") {
 		def := b2.DefaultExplosionDef()
-		def.Position = b2.V2(0, 10)
+		def.Position = b2.ToPos(b2.V2(0, 10))
 		def.Radius = b2.F(10)
 		def.Falloff = b2.F(5)
 		def.ImpulsePerLength = b2.F(10)
@@ -2890,7 +2890,7 @@ func NewTheoJansen(ctx *SampleContext) Sample {
 
 		bodyDef := b2.DefaultBodyDef()
 		bodyDef.Type = b2.DynamicBody
-		bodyDef.Position = b2.Vec2{X: b2.F(-40 + 2*i), Y: b2.F(0.5)}
+		bodyDef.Position = b2.ToPos(b2.Vec2{X: b2.F(-40 + 2*i), Y: b2.F(0.5)})
 		bodyId := b2.CreateBody(s.WorldId, &bodyDef)
 
 		shapeDef := b2.DefaultShapeDef()
@@ -2904,7 +2904,7 @@ func NewTheoJansen(ctx *SampleContext) Sample {
 
 		bodyDef := b2.DefaultBodyDef()
 		bodyDef.Type = b2.DynamicBody
-		bodyDef.Position = pivot.Add(s.offset)
+		bodyDef.Position = b2.ToPos(pivot.Add(s.offset))
 		s.chassisId = b2.CreateBody(s.WorldId, &bodyDef)
 
 		shapeDef := b2.DefaultShapeDef()
@@ -2919,7 +2919,7 @@ func NewTheoJansen(ctx *SampleContext) Sample {
 
 		bodyDef := b2.DefaultBodyDef()
 		bodyDef.Type = b2.DynamicBody
-		bodyDef.Position = pivot.Add(s.offset)
+		bodyDef.Position = b2.ToPos(pivot.Add(s.offset))
 		s.wheelId = b2.CreateBody(s.WorldId, &bodyDef)
 
 		shapeDef := b2.DefaultShapeDef()
@@ -2934,8 +2934,8 @@ func NewTheoJansen(ctx *SampleContext) Sample {
 		jointDef.Base.BodyIdB = s.chassisId
 
 		motorPivot := pivot.Add(s.offset)
-		jointDef.Base.LocalFrameA.P = jointDef.Base.BodyIdA.GetLocalPoint(motorPivot)
-		jointDef.Base.LocalFrameB.P = jointDef.Base.BodyIdB.GetLocalPoint(motorPivot)
+		jointDef.Base.LocalFrameA.P = jointDef.Base.BodyIdA.GetLocalPoint(b2.ToPos(motorPivot))
+		jointDef.Base.LocalFrameB.P = jointDef.Base.BodyIdB.GetLocalPoint(b2.ToPos(motorPivot))
 
 		jointDef.EnableMotor = s.enableMotor
 		jointDef.MotorSpeed = radiansToTurns(s.motorSpeed)
@@ -2977,13 +2977,13 @@ func (s *TheoJansen) createLeg(sign float64, wheelAnchor b2.Vec2) {
 
 	bodyDef1 := b2.DefaultBodyDef()
 	bodyDef1.Type = b2.DynamicBody
-	bodyDef1.Position = s.offset
+	bodyDef1.Position = b2.ToPos(s.offset)
 	bodyDef1.AngularDamping = b2.F(10)
 	body1 := b2.CreateBody(s.WorldId, &bodyDef1)
 
 	bodyDef2 := b2.DefaultBodyDef()
 	bodyDef2.Type = b2.DynamicBody
-	bodyDef2.Position = p4.Add(s.offset)
+	bodyDef2.Position = b2.ToPos(p4.Add(s.offset))
 	bodyDef2.AngularDamping = b2.F(10)
 	body2 := b2.CreateBody(s.WorldId, &bodyDef2)
 
@@ -3006,27 +3006,27 @@ func (s *TheoJansen) createLeg(sign float64, wheelAnchor b2.Vec2) {
 
 		anchorA := p2.Add(s.offset)
 		anchorB := p5.Add(s.offset)
-		jointDef.Base.LocalFrameA.P = body1.GetLocalPoint(anchorA)
-		jointDef.Base.LocalFrameB.P = body2.GetLocalPoint(anchorB)
+		jointDef.Base.LocalFrameA.P = body1.GetLocalPoint(b2.ToPos(anchorA))
+		jointDef.Base.LocalFrameB.P = body2.GetLocalPoint(b2.ToPos(anchorB))
 		jointDef.Length = anchorA.Sub(anchorB).Len()
 		b2.CreateDistanceJoint(s.WorldId, &jointDef)
 
 		anchorA = p3.Add(s.offset)
 		anchorB = p4.Add(s.offset)
-		jointDef.Base.LocalFrameA.P = body1.GetLocalPoint(anchorA)
-		jointDef.Base.LocalFrameB.P = body2.GetLocalPoint(anchorB)
+		jointDef.Base.LocalFrameA.P = body1.GetLocalPoint(b2.ToPos(anchorA))
+		jointDef.Base.LocalFrameB.P = body2.GetLocalPoint(b2.ToPos(anchorB))
 		jointDef.Length = anchorA.Sub(anchorB).Len()
 		b2.CreateDistanceJoint(s.WorldId, &jointDef)
 
 		jointDef.Base.BodyIdB = s.wheelId
 		anchorB = wheelAnchor.Add(s.offset)
-		jointDef.Base.LocalFrameB.P = s.wheelId.GetLocalPoint(anchorB)
+		jointDef.Base.LocalFrameB.P = s.wheelId.GetLocalPoint(b2.ToPos(anchorB))
 		jointDef.Length = anchorA.Sub(anchorB).Len()
 		b2.CreateDistanceJoint(s.WorldId, &jointDef)
 
 		jointDef.Base.BodyIdA = body2
 		anchorA = p6.Add(s.offset)
-		jointDef.Base.LocalFrameA.P = body2.GetLocalPoint(anchorA)
+		jointDef.Base.LocalFrameA.P = body2.GetLocalPoint(b2.ToPos(anchorA))
 		jointDef.Length = anchorA.Sub(anchorB).Len()
 		b2.CreateDistanceJoint(s.WorldId, &jointDef)
 	}
@@ -3037,8 +3037,8 @@ func (s *TheoJansen) createLeg(sign float64, wheelAnchor b2.Vec2) {
 		jointDef.Base.BodyIdB = s.chassisId
 
 		legPivot := p4.Add(s.offset)
-		jointDef.Base.LocalFrameA.P = body2.GetLocalPoint(legPivot)
-		jointDef.Base.LocalFrameB.P = s.chassisId.GetLocalPoint(legPivot)
+		jointDef.Base.LocalFrameA.P = body2.GetLocalPoint(b2.ToPos(legPivot))
+		jointDef.Base.LocalFrameB.P = s.chassisId.GetLocalPoint(b2.ToPos(legPivot))
 		b2.CreateRevoluteJoint(s.WorldId, &jointDef)
 	}
 }
@@ -3160,7 +3160,7 @@ func NewDeskLamp(ctx *SampleContext) Sample {
 	topAxis := b2.RotGetYAxis(topRotation)
 	silverWorld := b2.RotateVector(topRotation, silverSpan)
 
-	postPivot := b2.Pos{X: b2.QZero(), Y: pivotHeight}
+	postPivot := b2.ToPos(b2.Vec2{X: b2.QZero(), Y: pivotHeight})
 	upperPin := b2.OffsetPos(postPivot, topAxis.Mul(topLinkLength))
 	silverBase := b2.OffsetPos(postPivot, topAxis.Mul(silverFoot))
 	lowerFoot := b2.OffsetPos(silverBase, silverWorld)
@@ -3181,7 +3181,7 @@ func NewDeskLamp(ctx *SampleContext) Sample {
 	{
 		// The base is static so the linkage is all that moves.
 		bodyDef.Type = b2.StaticBody
-		bodyDef.Position = b2.Vec2{}
+		bodyDef.Position = b2.ToPos(b2.Vec2{})
 		bodyDef.Rotation = b2.RotIdentity()
 		baseId = b2.CreateBody(s.WorldId, &bodyDef)
 
@@ -3297,7 +3297,7 @@ func NewDeskLamp(ctx *SampleContext) Sample {
 	// arm balances over its whole range instead of at one angle.
 	springDef.Length = b2.F(0.01)
 
-	springBase := b2.Pos{X: b2.QZero(), Y: springAnchorHeight}
+	springBase := b2.ToPos(b2.Vec2{X: b2.QZero(), Y: springAnchorHeight})
 	leverIds := [deskLampSpringCount]b2.BodyId{s.topLinkId, lowerLinkId}
 	leverLengths := [deskLampSpringCount]b2.Q{topLeverLength, lowerLeverLength}
 

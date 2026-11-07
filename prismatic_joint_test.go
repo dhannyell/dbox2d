@@ -21,7 +21,7 @@ func slidingBox(t *testing.T, worldId WorldId, position Vec2, def *PrismaticJoin
 
 	boxDef := DefaultBodyDef()
 	boxDef.Type = DynamicBody
-	boxDef.Position = position
+	boxDef.Position = ToPos(position)
 	boxId := CreateBody(worldId, &boxDef)
 	shapeDef := DefaultShapeDef()
 	unit := MakeBox(QHalf(), QHalf())
@@ -444,7 +444,7 @@ func TestPrismaticJointGetTranslation(t *testing.T) {
 	groundId := CreateBody(worldId, &groundDef)
 	bodyDef := DefaultBodyDef()
 	bodyDef.Type = DynamicBody
-	bodyDef.Position = Vec2{X: QHalf()}
+	bodyDef.Position = ToPos(Vec2{X: QHalf()})
 	bodyId := CreateBody(worldId, &bodyDef)
 
 	def := DefaultPrismaticJointDef()

@@ -37,7 +37,7 @@ var (
 	// limit of a collision plane. It corresponds to B2_HUGE in
 	// include/box2d/math_functions.h. It bounds a length that an
 	// application supplies, so a wild input fails early.
-	Huge = QFromInt(100000)
+	Huge = QFromInt(hugeMeters)
 
 	// upstream 0.25f * B2_PI radians, which is 0.125 turns
 	maxRotation = QMustParse("0.125")

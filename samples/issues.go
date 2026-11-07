@@ -43,7 +43,7 @@ func NewUnstablePrismaticJoints(ctx *SampleContext) Sample {
 	{
 		bd := b2.DefaultBodyDef()
 		bd.Type = b2.DynamicBody
-		bd.Position = b2.V2(0, 3)
+		bd.Position = b2.ToPos(b2.V2(0, 3))
 		centerId = b2.CreateBody(s.WorldId, &bd)
 
 		sd := b2.DefaultShapeDef()
@@ -61,7 +61,7 @@ func NewUnstablePrismaticJoints(ctx *SampleContext) Sample {
 	side := func(x float64, target float64) {
 		bd := b2.DefaultBodyDef()
 		bd.Type = b2.DynamicBody
-		bd.Position = b2.V2(x, 3)
+		bd.Position = b2.ToPos(b2.V2(x, 3))
 		bodyId := b2.CreateBody(s.WorldId, &bd)
 
 		sd := b2.DefaultShapeDef()
@@ -113,7 +113,7 @@ func NewUnstableWindmill(ctx *SampleContext) Sample {
 	sdef.Material.Friction = b2.F(0.1)
 
 	// center
-	bdef.Position = b2.V2(10, 10)
+	bdef.Position = b2.ToPos(b2.V2(10, 10))
 	center := b2.CreateBody(s.WorldId, &bdef)
 	circle := b2.Circle{Radius: b2.F(5)}
 	b2.CreateCircleShape(center, &sdef, &circle)
@@ -126,7 +126,7 @@ func NewUnstableWindmill(ctx *SampleContext) Sample {
 	wjdef.Base.BodyIdA = center
 
 	rotor := func(position b2.Vec2, halfWidth, halfHeight float64, anchorA, anchorB b2.Vec2) {
-		bdef.Position = position
+		bdef.Position = b2.ToPos(position)
 		body := b2.CreateBody(s.WorldId, &bdef)
 		polygon := b2.MakeBox(b2.F(halfWidth), b2.F(halfHeight))
 		b2.CreatePolygonShape(body, &sdef, &polygon)

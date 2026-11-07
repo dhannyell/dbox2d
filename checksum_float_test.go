@@ -1,4 +1,4 @@
-//go:build !dbox2d_fixed
+//go:build !dbox2d_fixed && !dbox2d_double
 
 package b2
 

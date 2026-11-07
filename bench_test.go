@@ -281,7 +281,7 @@ func BenchmarkStep(b *testing.B) {
 	shapeDef := DefaultShapeDef()
 	box := MakeSquare(QOne())
 	for i := range benchBodyCount {
-		bodyDef.Position = Vec2{X: QFromInt(i * 3), Y: QFromInt(i % 16)}
+		bodyDef.Position = ToPos(Vec2{X: QFromInt(i * 3), Y: QFromInt(i % 16)})
 		bodyId := CreateBody(worldId, &bodyDef)
 		CreatePolygonShape(bodyId, &shapeDef, &box)
 	}
@@ -751,7 +751,7 @@ func pyramidCenters(rows int) [][2]int {
 func buildPyramid(worldId WorldId, rows int) BodyId {
 	half := QHalf()
 	groundDef := DefaultBodyDef()
-	groundDef.Position = Vec2{Y: half.Neg()}
+	groundDef.Position = ToPos(Vec2{Y: half.Neg()})
 	groundId := CreateBody(worldId, &groundDef)
 	shapeDef := DefaultShapeDef()
 	ground := MakeBox(QFromInt(rows), half)
@@ -762,7 +762,7 @@ func buildPyramid(worldId WorldId, rows int) BodyId {
 	box := MakeSquare(half)
 	var bodyId BodyId
 	for _, c := range pyramidCenters(rows) {
-		bodyDef.Position = Vec2{X: half.Mul(QFromInt(c[0])), Y: half.Mul(QFromInt(c[1]))}
+		bodyDef.Position = ToPos(Vec2{X: half.Mul(QFromInt(c[0])), Y: half.Mul(QFromInt(c[1]))})
 		bodyId = CreateBody(worldId, &bodyDef)
 		CreatePolygonShape(bodyId, &shapeDef, &box)
 	}
@@ -796,7 +796,7 @@ func BenchmarkStepPyramid(b *testing.B) {
 func buildPyramidWithSensors(worldId WorldId, rows, sensorCount int) {
 	half := QHalf()
 	groundDef := DefaultBodyDef()
-	groundDef.Position = Vec2{Y: half.Neg()}
+	groundDef.Position = ToPos(Vec2{Y: half.Neg()})
 	groundId := CreateBody(worldId, &groundDef)
 	shapeDef := DefaultShapeDef()
 	ground := MakeBox(QFromInt(rows), half)
@@ -818,7 +818,7 @@ func buildPyramidWithSensors(worldId WorldId, rows, sensorCount int) {
 	boxShapeDef.EnableSensorEvents = true
 	box := MakeSquare(half)
 	for _, c := range pyramidCenters(rows) {
-		bodyDef.Position = Vec2{X: half.Mul(QFromInt(c[0])), Y: half.Mul(QFromInt(c[1]))}
+		bodyDef.Position = ToPos(Vec2{X: half.Mul(QFromInt(c[0])), Y: half.Mul(QFromInt(c[1]))})
 		bodyId := CreateBody(worldId, &bodyDef)
 		CreatePolygonShape(bodyId, &boxShapeDef, &box)
 	}
@@ -2163,7 +2163,7 @@ func buildBulletRange(worldId WorldId) {
 	wallShape := DefaultShapeDef()
 	wall := MakeBox(QHalf(), QFromInt(bulletLaneCount))
 	for _, x := range [2]int{-30, 30} {
-		wallDef.Position = Vec2{X: QFromInt(x)}
+		wallDef.Position = ToPos(Vec2{X: QFromInt(x)})
 		CreatePolygonShape(CreateBody(worldId, &wallDef), &wallShape, &wall)
 	}
 
@@ -2176,7 +2176,7 @@ func buildBulletRange(worldId WorldId) {
 	boxShape.Material.Friction = QZero()
 	box := MakeSquare(QFromRatio(1, 10))
 	for i := range bulletLaneCount {
-		boxDef.Position = Vec2{Y: QFromInt(i - bulletLaneCount/2)}
+		boxDef.Position = ToPos(Vec2{Y: QFromInt(i - bulletLaneCount/2)})
 		boxDef.IsBullet = i%2 == 0
 		CreatePolygonShape(CreateBody(worldId, &boxDef), &boxShape, &box)
 	}
@@ -2266,7 +2266,7 @@ func buildRevoluteChain(worldId WorldId) {
 	jointDef.Base.LocalFrameA.P = Vec2{X: QHalf()}
 	jointDef.Base.LocalFrameB.P = Vec2{X: QHalf().Neg()}
 	for i := range 32 {
-		boxDef.Position = Vec2{X: QFromInt(i + 1)}
+		boxDef.Position = ToPos(Vec2{X: QFromInt(i + 1)})
 		bodyId := CreateBody(worldId, &boxDef)
 		CreatePolygonShape(bodyId, &shapeDef, &box)
 		jointDef.Base.BodyIdA = prevId

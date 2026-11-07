@@ -371,63 +371,45 @@ func ComputePolygonMass(shape *Polygon, density Q) MassData {
 	return massData
 }
 
-// ComputeCircleAABB returns the bounding box of a transformed circle.
-func ComputeCircleBounds(shape *Circle, xf Transform) AABB {
-	p := TransformPoint(xf, shape.Center)
-	r := shape.Radius
-
-	aabb := AABB{
-		LowerBound: Vec2{X: p.X.Sub(r), Y: p.Y.Sub(r)},
-		UpperBound: Vec2{X: p.X.Add(r), Y: p.Y.Add(r)},
-	}
-	return aabb
+// ComputeCircleBounds returns the bounding box of a transformed circle. It
+// corresponds to b2ComputeCircleBounds.
+func ComputeCircleBounds(shape *Circle, xf WorldTransform) AABB {
+	p := TransformWorldPoint(xf, shape.Center)
+	return posBox(p, p, shape.Radius, QZero())
 }
 
-// ComputeCapsuleAABB returns the bounding box of a transformed capsule.
-func ComputeCapsuleBounds(shape *Capsule, xf Transform) AABB {
-	v1 := TransformPoint(xf, shape.Center1)
-	v2 := TransformPoint(xf, shape.Center2)
-
-	r := Vec2{X: shape.Radius, Y: shape.Radius}
-	lower := Min(v1, v2).Sub(r)
-	upper := Max(v1, v2).Add(r)
-
-	aabb := AABB{LowerBound: lower, UpperBound: upper}
-	return aabb
+// ComputeCapsuleBounds returns the bounding box of a transformed capsule. It
+// corresponds to b2ComputeCapsuleBounds.
+func ComputeCapsuleBounds(shape *Capsule, xf WorldTransform) AABB {
+	v1 := TransformWorldPoint(xf, shape.Center1)
+	v2 := TransformWorldPoint(xf, shape.Center2)
+	return posBox(posMin(v1, v2), posMax(v1, v2), shape.Radius, QZero())
 }
 
-// ComputePolygonAABB returns the bounding box of a transformed polygon.
-func ComputePolygonBounds(shape *Polygon, xf Transform) AABB {
+// ComputePolygonBounds returns the bounding box of a transformed polygon. It
+// corresponds to b2ComputePolygonBounds.
+func ComputePolygonBounds(shape *Polygon, xf WorldTransform) AABB {
 	if shape.Count <= 0 {
-		panic("dbox2d: ComputePolygonAABB needs at least one vertex")
+		panic("dbox2d: ComputePolygonBounds needs at least one vertex")
 	}
-	lower := TransformPoint(xf, shape.Vertices[0])
+	lower := TransformWorldPoint(xf, shape.Vertices[0])
 	upper := lower
 
 	for i := 1; i < shape.Count; i++ {
-		v := TransformPoint(xf, shape.Vertices[i])
-		lower = Min(lower, v)
-		upper = Max(upper, v)
+		v := TransformWorldPoint(xf, shape.Vertices[i])
+		lower = posMin(lower, v)
+		upper = posMax(upper, v)
 	}
 
-	r := Vec2{X: shape.Radius, Y: shape.Radius}
-	lower = lower.Sub(r)
-	upper = upper.Add(r)
-
-	aabb := AABB{LowerBound: lower, UpperBound: upper}
-	return aabb
+	return posBox(lower, upper, shape.Radius, QZero())
 }
 
-// ComputeSegmentAABB returns the bounding box of a transformed segment.
-func ComputeSegmentBounds(shape *Segment, xf Transform) AABB {
-	v1 := TransformPoint(xf, shape.Point1)
-	v2 := TransformPoint(xf, shape.Point2)
-
-	lower := Min(v1, v2)
-	upper := Max(v1, v2)
-
-	aabb := AABB{LowerBound: lower, UpperBound: upper}
-	return aabb
+// ComputeSegmentBounds returns the bounding box of a transformed segment. It
+// corresponds to b2ComputeSegmentBounds.
+func ComputeSegmentBounds(shape *Segment, xf WorldTransform) AABB {
+	v1 := TransformWorldPoint(xf, shape.Point1)
+	v2 := TransformWorldPoint(xf, shape.Point2)
+	return posBox(posMin(v1, v2), posMax(v1, v2), QZero(), QZero())
 }
 
 // PointInCircle reports whether a point overlaps a circle in local space.

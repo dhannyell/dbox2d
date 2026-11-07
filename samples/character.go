@@ -48,8 +48,8 @@ func moverDrawPogo(draw *b2.DebugDraw, origin, translation b2.Vec2, fraction b2.
 	}
 	delta := translation.Mul(fraction)
 
-	draw.DrawLineFcn(origin, origin.Add(delta), b2.ColorGray)
-	draw.DrawPointFcn(origin.Add(delta), b2.F(10), color)
+	draw.DrawLineFcn(b2.ToPos(origin), b2.ToPos(origin.Add(delta)), b2.ColorGray)
+	draw.DrawPointFcn(b2.ToPos(origin.Add(delta)), b2.F(10), color)
 }
 
 // moverChain creates a looped chain from an SVG path on a new static body.
@@ -91,7 +91,7 @@ func moverBridge(worldId b2.WorldId, groundId1, groundId2 b2.BodyId) {
 	for i := range count {
 		bodyDef := b2.DefaultBodyDef()
 		bodyDef.Type = b2.DynamicBody
-		bodyDef.Position = b2.Vec2{X: xBase.Add(b2.QHalf()).Add(b2.F(i)), Y: yBase}
+		bodyDef.Position = b2.ToPos(b2.Vec2{X: xBase.Add(b2.QHalf()).Add(b2.F(i)), Y: yBase})
 		bodyDef.AngularDamping = b2.F(0.2)
 		bodyId := b2.CreateBody(worldId, &bodyDef)
 		b2.CreatePolygonShape(bodyId, &shapeDef, &box)
@@ -99,8 +99,8 @@ func moverBridge(worldId b2.WorldId, groundId1, groundId2 b2.BodyId) {
 		pivot := b2.Vec2{X: xBase.Add(b2.F(i)), Y: yBase}
 		jointDef.Base.BodyIdA = prevBodyId
 		jointDef.Base.BodyIdB = bodyId
-		jointDef.Base.LocalFrameA.P = jointDef.Base.BodyIdA.GetLocalPoint(pivot)
-		jointDef.Base.LocalFrameB.P = jointDef.Base.BodyIdB.GetLocalPoint(pivot)
+		jointDef.Base.LocalFrameA.P = jointDef.Base.BodyIdA.GetLocalPoint(b2.ToPos(pivot))
+		jointDef.Base.LocalFrameB.P = jointDef.Base.BodyIdB.GetLocalPoint(b2.ToPos(pivot))
 		b2.CreateRevoluteJoint(worldId, &jointDef)
 
 		prevBodyId = bodyId
@@ -109,8 +109,8 @@ func moverBridge(worldId b2.WorldId, groundId1, groundId2 b2.BodyId) {
 	pivot := b2.Vec2{X: xBase.Add(b2.F(count)), Y: yBase}
 	jointDef.Base.BodyIdA = prevBodyId
 	jointDef.Base.BodyIdB = groundId2
-	jointDef.Base.LocalFrameA.P = jointDef.Base.BodyIdA.GetLocalPoint(pivot)
-	jointDef.Base.LocalFrameB.P = jointDef.Base.BodyIdB.GetLocalPoint(pivot)
+	jointDef.Base.LocalFrameA.P = jointDef.Base.BodyIdA.GetLocalPoint(b2.ToPos(pivot))
+	jointDef.Base.LocalFrameB.P = jointDef.Base.BodyIdB.GetLocalPoint(b2.ToPos(pivot))
 	b2.CreateRevoluteJoint(worldId, &jointDef)
 }
 
@@ -119,7 +119,7 @@ func moverBalls(worldId b2.WorldId) {
 	for i := range 5 {
 		bodyDef := b2.DefaultBodyDef()
 		bodyDef.Type = b2.DynamicBody
-		bodyDef.Position = b2.V2(7, 7+0.5*float64(i))
+		bodyDef.Position = b2.ToPos(b2.V2(7, 7+0.5*float64(i)))
 		bodyId := b2.CreateBody(worldId, &bodyDef)
 
 		shapeDef := b2.DefaultShapeDef()
@@ -136,10 +136,10 @@ func moverBalls(worldId b2.WorldId) {
 func moverElevator(worldId b2.WorldId, userData *moverShapeUserData) b2.BodyId {
 	bodyDef := b2.DefaultBodyDef()
 	bodyDef.Type = b2.KinematicBody
-	bodyDef.Position = b2.Vec2{
+	bodyDef.Position = b2.ToPos(b2.Vec2{
 		X: moverElevatorBase.X,
 		Y: moverElevatorBase.Y.Sub(FromFloat64(moverElevatorAmplitude)),
-	}
+	})
 	elevatorId := b2.CreateBody(worldId, &bodyDef)
 
 	shapeDef := b2.DefaultShapeDef()
@@ -157,13 +157,13 @@ func moverElevator(worldId b2.WorldId, userData *moverShapeUserData) b2.BodyId {
 func moverStack(worldId b2.WorldId) {
 	bodyDef := b2.DefaultBodyDef()
 	bodyDef.Type = b2.DynamicBody
-	bodyDef.Position.X = b2.F(140)
+	setPosX(&bodyDef.Position, b2.F(140))
 	a := b2.QFromRatio(1, 4)
 	square := b2.MakeSquare(a)
 	shapeDef := b2.DefaultShapeDef()
 	shapeDef.Filter = b2.Filter{CategoryBits: moverDynamicBit, MaskBits: moverAllBits}
 	for i := range 10 {
-		bodyDef.Position.Y = b2.F(2 * i).Add(b2.QOne()).Mul(a).Add(b2.QOne())
+		setPosY(&bodyDef.Position, b2.F(2*i).Add(b2.QOne()).Mul(a).Add(b2.QOne()))
 		bodyId := b2.CreateBody(worldId, &bodyDef)
 		b2.CreatePolygonShape(bodyId, &shapeDef, &square)
 	}
@@ -172,7 +172,7 @@ func moverStack(worldId b2.WorldId) {
 // moverPole creates the motorized pole hinged on the second ground body.
 func moverPole(worldId b2.WorldId, groundId2 b2.BodyId, y float64) {
 	bodyDef := b2.DefaultBodyDef()
-	bodyDef.Position = b2.V2(160, y)
+	bodyDef.Position = b2.ToPos(b2.V2(160, y))
 	bodyDef.Type = b2.DynamicBody
 	body := b2.CreateBody(worldId, &bodyDef)
 
@@ -181,7 +181,7 @@ func moverPole(worldId b2.WorldId, groundId2 b2.BodyId, y float64) {
 	shapeDef.Density = b2.QOne()
 	b2.CreatePolygonShape(body, &shapeDef, &box)
 
-	pivot := bodyDef.Position.Add(b2.V2(0, 4))
+	pivot := b2.OffsetPos(bodyDef.Position, b2.V2(0, 4))
 	jointDef := b2.DefaultRevoluteJointDef()
 	jointDef.Base.BodyIdA = groundId2
 	jointDef.Base.BodyIdB = body
@@ -231,7 +231,7 @@ func moverMoveElevator(elevatorId b2.BodyId, time, timeStep float64) {
 		Y: FromFloat64(moverElevatorAmplitude * math.Cos(1.0*time+math.Pi)).Add(moverElevatorBase.Y),
 	}
 
-	elevatorId.SetTargetTransform(b2.Transform{P: point, Q: b2.RotIdentity()}, FromFloat64(timeStep), true)
+	elevatorId.SetTargetTransform(b2.MakeWorldTransform(b2.Transform{P: point, Q: b2.RotIdentity()}), FromFloat64(timeStep), true)
 }
 
 // GeometricMoverSample is the "Geometric Mover" sample of
@@ -270,7 +270,7 @@ func NewGeometricMoverSample(ctx *SampleContext) Sample {
 	{
 		bodyDef := b2.DefaultBodyDef()
 		bodyDef.Name = "svg"
-		bodyDef.Position = b2.V2(0, 0)
+		bodyDef.Position = b2.ToPos(b2.V2(0, 0))
 
 		path := "M -34.395834,201.08333 H 293.68751 v -47.625 h -2.64584 l -10.58333,7.9375 -13.22916,7.9375 -13.24648,5.29167 " +
 			"-31.73269,7.9375 -21.16667,2.64583 -23.8125,10.58333 -15.875,2e-5 v -3.96875 l -17.19792,2e-5 v 2.64582 l " +
@@ -286,13 +286,13 @@ func NewGeometricMoverSample(ctx *SampleContext) Sample {
 	var groundId2 b2.BodyId
 	{
 		bodyDef := b2.DefaultBodyDef()
-		bodyDef.Position = b2.V2(98, 0)
+		bodyDef.Position = b2.ToPos(b2.V2(98, 0))
 		groundId2 = moverChain(s.WorldId, &bodyDef, moverGroundPath2, b2.V2(0, -200))
 	}
 
 	{
 		bodyDef := b2.DefaultBodyDef()
-		bodyDef.Position = b2.V2(32.0, 4.5)
+		bodyDef.Position = b2.ToPos(b2.V2(32.0, 4.5))
 
 		shapeDef := b2.DefaultShapeDef()
 		s.friendlyShape.maxPush = b2.F(0.025)
@@ -382,8 +382,8 @@ func (s *GeometricMoverSample) Step() {
 
 	// The transform axes at the mover position, 0.25 long.
 	axis := b2.QFromRatio(1, 4)
-	draw.DrawLineFcn(m.position, m.position.Add(b2.Vec2{X: axis}), b2.ColorRed)
-	draw.DrawLineFcn(m.position, m.position.Add(b2.Vec2{Y: axis}), b2.ColorGreen)
+	draw.DrawLineFcn(b2.ToPos(m.position), b2.ToPos(m.position.Add(b2.Vec2{X: axis})), b2.ColorRed)
+	draw.DrawLineFcn(b2.ToPos(m.position), b2.ToPos(m.position.Add(b2.Vec2{Y: axis})), b2.ColorGreen)
 
 	capsule := m.capsule
 
@@ -391,8 +391,8 @@ func (s *GeometricMoverSample) Step() {
 		plane := m.planes[i].Plane
 		p1 := b2.MulAdd(m.position, plane.Offset.Sub(capsule.Radius), plane.Normal)
 		p2 := b2.MulAdd(p1, b2.QFromRatio(1, 10), plane.Normal)
-		draw.DrawPointFcn(p1, b2.F(5), b2.ColorYellow)
-		draw.DrawLineFcn(p1, p2, b2.ColorYellow)
+		draw.DrawPointFcn(b2.ToPos(p1), b2.F(5), b2.ColorYellow)
+		draw.DrawLineFcn(b2.ToPos(p1), b2.ToPos(p2), b2.ColorYellow)
 	}
 
 	p1 := m.position.Add(capsule.Center1)
@@ -402,8 +402,8 @@ func (s *GeometricMoverSample) Step() {
 	if m.onGround {
 		color = b2.ColorOrange
 	}
-	draw.DrawSolidCapsuleFcn(p1, p2, capsule.Radius, color)
-	draw.DrawLineFcn(m.position, m.position.Add(m.velocity), b2.ColorPurple)
+	draw.DrawSolidCapsuleFcn(b2.ToPos(p1), b2.ToPos(p2), capsule.Radius, color)
+	draw.DrawLineFcn(b2.ToPos(m.position), b2.ToPos(m.position.Add(m.velocity)), b2.ColorPurple)
 
 	p := m.position
 	s.DrawTextLine("position %.2f %.2f", ToFloat64(p.X), ToFloat64(p.Y))
@@ -453,7 +453,7 @@ func NewDynamicMoverSample(ctx *SampleContext) Sample {
 	{
 		bodyDef := b2.DefaultBodyDef()
 		bodyDef.Name = "svg"
-		bodyDef.Position = b2.V2(0, 0)
+		bodyDef.Position = b2.ToPos(b2.V2(0, 0))
 
 		path := "M -34.395834,201.08333 H 293.68751 v -47.625 h -2.64584 l -10.58333,7.9375 -13.22916,7.9375 -13.24648,5.29167 " +
 			"-31.73269,7.9375 -21.16667,2.64583 -23.8125,13.22919 -15.875,2e-5 0,-6.61461 -17.19792,2e-5 v 2.64582 h " +
@@ -469,7 +469,7 @@ func NewDynamicMoverSample(ctx *SampleContext) Sample {
 	var groundId2 b2.BodyId
 	{
 		bodyDef := b2.DefaultBodyDef()
-		bodyDef.Position = b2.V2(98, 0)
+		bodyDef.Position = b2.ToPos(b2.V2(98, 0))
 		groundId2 = moverChain(s.WorldId, &bodyDef, moverGroundPath2, b2.V2(0, -200))
 	}
 
@@ -506,7 +506,7 @@ func (s *DynamicMoverSample) preSolve(shapeIdA, shapeIdB b2.ShapeId, manifold *b
 }
 
 // preContinuous is the one-way platform rule for the continuous stage.
-func (s *DynamicMoverSample) preContinuous(shapeIdA, shapeIdB b2.ShapeId, point, normal b2.Vec2) bool {
+func (s *DynamicMoverSample) preContinuous(shapeIdA, shapeIdB b2.ShapeId, point b2.Pos, normal b2.Vec2) bool {
 	idA := shapeIdA.GetBody()
 	idB := shapeIdB.GetBody()
 
@@ -586,9 +586,9 @@ func (s *DynamicMoverSample) Step() {
 	if m.onGround {
 		color = b2.ColorOrange
 	}
-	s.Context.Draw.DrawLineFcn(position, position.Add(m.velocity), color)
+	s.Context.Draw.DrawLineFcn(position, b2.OffsetPos(position, m.velocity), color)
 
-	s.DrawTextLine("position %.2f %.2f", ToFloat64(position.X), ToFloat64(position.Y))
+	s.DrawTextLine("position %.2f %.2f", ToFloat64(b2.ToVec2(position).X), ToFloat64(b2.ToVec2(position).Y))
 	s.DrawTextLine("velocity %.2f %.2f", ToFloat64(m.velocity.X), ToFloat64(m.velocity.Y))
 	s.DrawTextLine("pogo: impulse %.3f, velocity %.3f", ToFloat64(m.pogoImpulse), ToFloat64(m.pogoVelocity))
 	s.DrawTextLine("pogo: length = %.2f/%.2f", ToFloat64(m.pogoLength), m.pogoRestLength)
@@ -601,7 +601,7 @@ func (s *DynamicMoverSample) Step() {
 	s.DrawTextLine("jumping/ticks: %d/%d", characterBoolInt(m.jumping), m.jumpTicks)
 
 	if s.lockCamera {
-		s.Context.Camera.Center.X = ToFloat64(position.X)
+		s.Context.Camera.Center.X = ToFloat64(b2.ToVec2(position).X)
 	}
 }
 
@@ -690,7 +690,7 @@ func (s *GhostCulling) launch() {
 
 		bodyDef := b2.DefaultBodyDef()
 		bodyDef.Type = b2.DynamicBody
-		bodyDef.Position = b2.V2(-9.0, surfaceHeights[i]+0.5)
+		bodyDef.Position = b2.ToPos(b2.V2(-9.0, surfaceHeights[i]+0.5))
 		bodyDef.LinearVelocity = b2.Vec2{X: FromFloat64(s.speed)}
 		bodyDef.MotionLocks.AngularZ = true
 
@@ -749,7 +749,7 @@ func (s *GhostCulling) preSolve(shapeIdA, shapeIdB b2.ShapeId, manifold *b2.Mani
 // CCD doesn't get the full manifold so the contact area cannot be used.
 // Instead the CCD event is disabled if the normal is horizontal and the other
 // shape is a horizontal tile, identified by material id.
-func (s *GhostCulling) preContinuous(shapeIdA, shapeIdB b2.ShapeId, point, normal b2.Vec2) bool {
+func (s *GhostCulling) preContinuous(shapeIdA, shapeIdB b2.ShapeId, point b2.Pos, normal b2.Vec2) bool {
 	// Only filter horizontal hits.
 	if normal.Y.Abs().Greater(b2.QFromRatio(1, 10)) {
 		return true
@@ -794,8 +794,8 @@ func (s *GhostCulling) Step() {
 	s.Base.Step()
 
 	draw := &s.Context.Draw
-	draw.DrawStringFcn(b2.V2(-9.8, 4.2), "unfiltered", b2.ColorWhite)
-	draw.DrawStringFcn(b2.V2(-9.8, 1.2), "shallow contacts rejected", b2.ColorWhite)
+	draw.DrawStringFcn(b2.ToPos(b2.V2(-9.8, 4.2)), "unfiltered", b2.ColorWhite)
+	draw.DrawStringFcn(b2.ToPos(b2.V2(-9.8, 1.2)), "shallow contacts rejected", b2.ColorWhite)
 	s.DrawTextLine("Rejected contacts: %d", s.rejectedCount.Load())
 
 	for i := range 2 {

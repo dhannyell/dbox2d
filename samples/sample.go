@@ -168,12 +168,12 @@ func (b *Base) MouseDown(p b2.Vec2, button MouseButton, mod Modifier) {
 	box := b2.AABB{LowerBound: b2.Vec2{X: d.X.Neg(), Y: d.Y.Neg()}, UpperBound: d}
 
 	qc := queryContext{point: p}
-	b.WorldId.OverlapAABB(p, box, b2.DefaultQueryFilter(), func(shapeId b2.ShapeId) bool {
+	b.WorldId.OverlapAABB(b2.ToPos(p), box, b2.DefaultQueryFilter(), func(shapeId b2.ShapeId) bool {
 		bodyId := shapeId.GetBody()
 		if bodyId.GetType() != b2.DynamicBody {
 			return true
 		}
-		if shapeId.TestPoint(qc.point) {
+		if shapeId.TestPoint(b2.ToPos(qc.point)) {
 			qc.bodyId = bodyId
 			return false
 		}
@@ -187,14 +187,14 @@ func (b *Base) MouseDown(p b2.Vec2, button MouseButton, mod Modifier) {
 	b.MousePoint = p
 	bodyDef := b2.DefaultBodyDef()
 	bodyDef.Type = b2.KinematicBody
-	bodyDef.Position = p
+	bodyDef.Position = b2.ToPos(p)
 	bodyDef.EnableSleep = false
 	b.MouseBodyId = b2.CreateBody(b.WorldId, &bodyDef)
 
 	jointDef := b2.DefaultMotorJointDef()
 	jointDef.Base.BodyIdA = b.MouseBodyId
 	jointDef.Base.BodyIdB = qc.bodyId
-	jointDef.Base.LocalFrameB.P = qc.bodyId.GetLocalPoint(p)
+	jointDef.Base.LocalFrameB.P = qc.bodyId.GetLocalPoint(b2.ToPos(p))
 	jointDef.LinearHertz = FromFloat64(7.5)
 	jointDef.LinearDampingRatio = b2.QOne()
 
@@ -232,24 +232,10 @@ func (b *Base) MouseMove(p b2.Vec2) {
 	b.MousePoint = p
 }
 
-// Step advances the world by one frame, then draws it and records the
-// profile. It corresponds to Sample::Step.
-func (b *Base) Step() {
+// applyDrawSettings copies the draw toggles of the settings into the debug
+// draw, as Step does before it draws the world.
+func (b *Base) applyDrawSettings() {
 	s := &b.Context.Settings
-	var timeStep b2.Q
-	if s.Hertz > 0 {
-		timeStep = b2.QOne().Div(b2.QFromInt(int(s.Hertz)))
-	}
-
-	if s.Pause {
-		if s.SingleStep {
-			s.SingleStep = false
-		} else {
-			timeStep = b2.QZero()
-		}
-		b.DrawTextLine("****PAUSED****")
-	}
-
 	draw := &b.Context.Draw
 	if s.UseCameraBounds {
 		draw.DrawingBounds = b.Context.Camera.GetViewBounds()
@@ -270,6 +256,28 @@ func (b *Base) Step() {
 	draw.DrawContactFeatures = s.DrawContactFeatures
 	draw.DrawFrictionForces = s.DrawFrictionForces
 	draw.DrawIslands = s.DrawIslands
+}
+
+// Step advances the world by one frame, then draws it and records the
+// profile. It corresponds to Sample::Step.
+func (b *Base) Step() {
+	s := &b.Context.Settings
+	var timeStep b2.Q
+	if s.Hertz > 0 {
+		timeStep = b2.QOne().Div(b2.QFromInt(int(s.Hertz)))
+	}
+
+	if s.Pause {
+		if s.SingleStep {
+			s.SingleStep = false
+		} else {
+			timeStep = b2.QZero()
+		}
+		b.DrawTextLine("****PAUSED****")
+	}
+
+	b.applyDrawSettings()
+	draw := &b.Context.Draw
 
 	b.WorldId.EnableSleeping(s.EnableSleep)
 	b.WorldId.EnableWarmStarting(s.EnableWarmStarting)
@@ -287,7 +295,7 @@ func (b *Base) Step() {
 	}
 
 	if !b.MouseBodyId.IsNull() && timeStep.Greater(b2.QZero()) {
-		b.MouseBodyId.SetTargetTransform(b2.Transform{P: b.MousePoint, Q: b2.RotIdentity()}, timeStep, true)
+		b.MouseBodyId.SetTargetTransform(b2.MakeWorldTransform(b2.Transform{P: b.MousePoint, Q: b2.RotIdentity()}), timeStep, true)
 	}
 
 	b.WorldId.Step(timeStep, s.SubStepCount)

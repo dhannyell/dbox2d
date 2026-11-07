@@ -87,15 +87,15 @@ func identityBodyState() bodyState {
 // serves collision and solver preparation.
 type bodySim struct {
 	// transform of the body origin
-	transform Transform
+	transform WorldTransform
 
 	// center of mass in world space
-	center Vec2
+	center Pos
 
 	// rotation0 and center0 are the previous rotation and center of mass,
 	// for time of impact.
 	rotation0 Rot
-	center0   Vec2
+	center0   Pos
 
 	// localCenter is the center of mass relative to the body origin.
 	localCenter Vec2
@@ -223,14 +223,14 @@ func getBodyFullId(w *world, bodyId BodyId) *body {
 }
 
 // getBodyTransformQuick returns the transform of a body already in hand.
-func getBodyTransformQuick(w *world, b *body) Transform {
+func getBodyTransformQuick(w *world, b *body) WorldTransform {
 	set := &w.solverSets[b.setIndex]
 	return set.bodySims[b.localIndex].transform
 }
 
 // getBodyTransform returns the transform of a body by raw id. It corresponds
 // to b2GetBodyTransform in src/body.c.
-func getBodyTransform(w *world, bodyId int) Transform {
+func getBodyTransform(w *world, bodyId int) WorldTransform {
 	b := &w.bodies[bodyId]
 	return getBodyTransformQuick(w, b)
 }
@@ -271,7 +271,7 @@ func limitVelocity(state *bodyState, maxLinearSpeed Q) {
 // from DefaultBodyDef and is not retained.
 func CreateBody(worldId WorldId, def *BodyDef) BodyId {
 	checkDef(def.internalValue)
-	if !IsValidVec2(def.Position) {
+	if !IsValidPos(def.Position) {
 		panic("dbox2d: BodyDef.Position is not valid")
 	}
 	if !IsValidRot(def.Rotation) {
@@ -354,7 +354,7 @@ func CreateBody(worldId WorldId, def *BodyDef) BodyId {
 
 	set := &w.solverSets[setId]
 	set.bodySims = append(set.bodySims, bodySim{
-		transform:      Transform{P: def.Position, Q: def.Rotation},
+		transform:      WorldTransform{P: def.Position, Q: def.Rotation},
 		center:         def.Position,
 		rotation0:      def.Rotation,
 		center0:        def.Position,
@@ -415,12 +415,19 @@ func CreateBody(worldId WorldId, def *BodyDef) BodyId {
 		createIslandForBody(w, setId, b)
 	}
 
-	return BodyId{index1: int32(bodyId) + 1, world0: w.worldId, generation: b.generation}
+	id := BodyId{index1: int32(bodyId) + 1, world0: w.worldId, generation: b.generation}
+	if w.recording != nil {
+		w.recording.recRet(opCreateBody, id, worldId, *def)
+	}
+	return id
 }
 
 // DestroyBody destroys a body. Every shape attached to it goes away too.
 func DestroyBody(bodyId BodyId) {
 	w := getWorldLocked(bodyId.world0)
+	if w.recording != nil {
+		w.recording.rec(opDestroyBody, bodyId)
+	}
 
 	b := getBodyFullId(w, bodyId)
 
@@ -607,13 +614,13 @@ func updateBodyMassData(w *world, b *body) {
 	// Move center of mass.
 	oldCenter := sim.center
 	sim.localCenter = localCenter
-	sim.center = TransformPoint(sim.transform, sim.localCenter)
+	sim.center = TransformWorldPoint(sim.transform, sim.localCenter)
 	sim.center0 = sim.center
 
 	// Update center of mass velocity.
 	state := getBodyState(w, b)
 	if state != nil {
-		deltaLinear := CrossSV(state.angularVelocity, sim.center.Sub(oldCenter))
+		deltaLinear := CrossSV(state.angularVelocity, SubPos(sim.center, oldCenter))
 		state.linearVelocity = state.linearVelocity.Add(deltaLinear)
 	}
 
@@ -661,6 +668,9 @@ func (bodyId BodyId) SetType(bodyType BodyType) {
 	w := getWorld(bodyId.world0)
 	if w.locked {
 		panic("dbox2d: the world is locked")
+	}
+	if w.recording != nil {
+		w.recording.rec(opBodySetType, bodyId, int(bodyType))
 	}
 	b := getBodyFullId(w, bodyId)
 
@@ -800,7 +810,7 @@ func (bodyId BodyId) SetType(bodyType BodyType) {
 
 // GetPosition returns the world position of the body origin. It corresponds
 // to b2Body_GetPosition.
-func (bodyId BodyId) GetPosition() Vec2 {
+func (bodyId BodyId) GetPosition() Pos {
 	w := getWorld(bodyId.world0)
 	b := getBodyFullId(w, bodyId)
 	return getBodyTransformQuick(w, b).P
@@ -816,7 +826,7 @@ func (bodyId BodyId) GetRotation() Rot {
 
 // GetTransform returns the world transform of the body. It corresponds to
 // b2Body_GetTransform.
-func (bodyId BodyId) GetTransform() Transform {
+func (bodyId BodyId) GetTransform() WorldTransform {
 	w := getWorld(bodyId.world0)
 	b := getBodyFullId(w, bodyId)
 	return getBodyTransformQuick(w, b)
@@ -824,8 +834,8 @@ func (bodyId BodyId) GetTransform() Transform {
 
 // SetTransform changes the body's world transform. It corresponds to
 // b2Body_SetTransform.
-func (bodyId BodyId) SetTransform(position Vec2, rotation Rot) {
-	if !IsValidVec2(position) {
+func (bodyId BodyId) SetTransform(position Pos, rotation Rot) {
+	if !IsValidPos(position) {
 		panic("dbox2d: SetTransform position is not valid")
 	}
 	if !IsValidRot(rotation) {
@@ -835,11 +845,14 @@ func (bodyId BodyId) SetTransform(position Vec2, rotation Rot) {
 	if w.locked {
 		panic("dbox2d: the world is locked")
 	}
+	if w.recording != nil {
+		w.recording.rec(opBodySetTransform, bodyId, wirePos{position}, rotation)
+	}
 	b := getBodyFullId(w, bodyId)
 	sim := getBodySim(w, b)
 
-	sim.transform = Transform{P: position, Q: rotation}
-	sim.center = TransformPoint(sim.transform, sim.localCenter)
+	sim.transform = WorldTransform{P: position, Q: rotation}
+	sim.center = TransformWorldPoint(sim.transform, sim.localCenter)
 	sim.rotation0 = sim.transform.Q
 	sim.center0 = sim.center
 
@@ -864,11 +877,14 @@ func (bodyId BodyId) SetTransform(position Vec2, rotation Rot) {
 // in timeStep. A sleeping body is left alone unless wake is true, and it
 // stays asleep when the motion would be below its sleep threshold. It
 // corresponds to b2Body_SetTargetTransform.
-func (bodyId BodyId) SetTargetTransform(target Transform, timeStep Q, wake bool) {
-	if !IsValidTransform(target) || !IsValidQ(timeStep) {
+func (bodyId BodyId) SetTargetTransform(target WorldTransform, timeStep Q, wake bool) {
+	if !IsValidWorldTransform(target) || !IsValidQ(timeStep) {
 		panic("dbox2d: SetTargetTransform needs a valid target and time step")
 	}
 	w := getWorld(bodyId.world0)
+	if w.recording != nil {
+		w.recording.rec(opBodySetTargetTransform, bodyId, wireWorldXf{target}, timeStep, wake)
+	}
 	b := getBodyFullId(w, bodyId)
 	if b.setIndex == disabledSet {
 		return
@@ -887,7 +903,7 @@ func (bodyId BodyId) SetTargetTransform(target Transform, timeStep Q, wake bool)
 
 	// D-006: the reciprocal is an exact fixed-point division.
 	invTimeStep := QOne().Div(timeStep)
-	delta := TransformPoint(target, sim.localCenter).Sub(sim.center)
+	delta := SubPos(TransformWorldPoint(target, sim.localCenter), sim.center)
 	linearVelocity := delta.Mul(invTimeStep)
 
 	// D-004: the state stores radians.
@@ -915,18 +931,18 @@ func (bodyId BodyId) SetTargetTransform(target Transform, timeStep Q, wake bool)
 
 // GetLocalPoint converts a world point to the body's local frame. It
 // corresponds to b2Body_GetLocalPoint.
-func (bodyId BodyId) GetLocalPoint(worldPoint Vec2) Vec2 {
+func (bodyId BodyId) GetLocalPoint(worldPoint Pos) Vec2 {
 	w := getWorld(bodyId.world0)
 	b := getBodyFullId(w, bodyId)
-	return InvTransformPoint(getBodyTransformQuick(w, b), worldPoint)
+	return InvTransformWorldPoint(getBodyTransformQuick(w, b), worldPoint)
 }
 
 // GetWorldPoint converts a local point to the world frame. It corresponds to
 // b2Body_GetWorldPoint.
-func (bodyId BodyId) GetWorldPoint(localPoint Vec2) Vec2 {
+func (bodyId BodyId) GetWorldPoint(localPoint Vec2) Pos {
 	w := getWorld(bodyId.world0)
 	b := getBodyFullId(w, bodyId)
-	return TransformPoint(getBodyTransformQuick(w, b), localPoint)
+	return TransformWorldPoint(getBodyTransformQuick(w, b), localPoint)
 }
 
 // GetLocalVector converts a world vector to the body's local frame. It
@@ -974,6 +990,9 @@ func (bodyId BodyId) GetAngularVelocity() Q {
 // b2Body_SetLinearVelocity.
 func (bodyId BodyId) SetLinearVelocity(linearVelocity Vec2) {
 	w := getWorld(bodyId.world0)
+	if w.recording != nil {
+		w.recording.rec(opBodySetLinearVelocity, bodyId, linearVelocity)
+	}
 	b := getBodyFullId(w, bodyId)
 	if b.bodyType == StaticBody {
 		return
@@ -991,7 +1010,18 @@ func (bodyId BodyId) SetLinearVelocity(linearVelocity Vec2) {
 // SetAngularVelocity changes the body's angular velocity in turns per
 // second. It corresponds to b2Body_SetAngularVelocity.
 func (bodyId BodyId) SetAngularVelocity(angularVelocity Q) {
+	// D-004: the API takes turns per second and the state stores radians.
+	bodyId.setAngularVelocityRadians(angularVelocity.Mul(tau))
+}
+
+// setAngularVelocityRadians is SetAngularVelocity in the unit of the body
+// state. The recording stores this value and the replay passes it back, so
+// neither direction converts (D-025).
+func (bodyId BodyId) setAngularVelocityRadians(angularVelocity Q) {
 	w := getWorld(bodyId.world0)
+	if w.recording != nil {
+		w.recording.rec(opBodySetAngularVelocity, bodyId, angularVelocity)
+	}
 	b := getBodyFullId(w, bodyId)
 	if b.bodyType == StaticBody || b.flags&bodyLockAngularZ != 0 {
 		return
@@ -1003,8 +1033,7 @@ func (bodyId BodyId) SetAngularVelocity(angularVelocity Q) {
 	if state == nil {
 		return
 	}
-	// D-004: the API takes turns per second and the state stores radians.
-	state.angularVelocity = angularVelocity.Mul(tau)
+	state.angularVelocity = angularVelocity
 }
 
 // GetLocalPointVelocity returns the velocity at a local point. It corresponds
@@ -1023,7 +1052,7 @@ func (bodyId BodyId) GetLocalPointVelocity(localPoint Vec2) Vec2 {
 
 // GetWorldPointVelocity returns the velocity at a world point. It corresponds
 // to b2Body_GetWorldPointVelocity.
-func (bodyId BodyId) GetWorldPointVelocity(worldPoint Vec2) Vec2 {
+func (bodyId BodyId) GetWorldPointVelocity(worldPoint Pos) Vec2 {
 	w := getWorld(bodyId.world0)
 	b := getBodyFullId(w, bodyId)
 	state := getBodyState(w, b)
@@ -1031,13 +1060,16 @@ func (bodyId BodyId) GetWorldPointVelocity(worldPoint Vec2) Vec2 {
 		return Vec2Zero()
 	}
 	sim := getBodySim(w, b)
-	return state.linearVelocity.Add(CrossSV(state.angularVelocity, worldPoint.Sub(sim.center)))
+	return state.linearVelocity.Add(CrossSV(state.angularVelocity, SubPos(worldPoint, sim.center)))
 }
 
 // ApplyForce applies a force at a world point. It corresponds to
 // b2Body_ApplyForce.
-func (bodyId BodyId) ApplyForce(force, point Vec2, wake bool) {
+func (bodyId BodyId) ApplyForce(force Vec2, point Pos, wake bool) {
 	w := getWorld(bodyId.world0)
+	if w.recording != nil {
+		w.recording.rec(opBodyApplyForce, bodyId, force, wirePos{point}, wake)
+	}
 	b := getBodyFullId(w, bodyId)
 	if wake && b.setIndex >= firstSleepingSet {
 		wakeBody(w, b)
@@ -1045,7 +1077,7 @@ func (bodyId BodyId) ApplyForce(force, point Vec2, wake bool) {
 	if b.setIndex == awakeSet {
 		sim := getBodySim(w, b)
 		sim.force = sim.force.Add(force)
-		sim.torque = sim.torque.Add(Cross(point.Sub(sim.center), force))
+		sim.torque = sim.torque.Add(Cross(SubPos(point, sim.center), force))
 	}
 }
 
@@ -1053,6 +1085,9 @@ func (bodyId BodyId) ApplyForce(force, point Vec2, wake bool) {
 // to b2Body_ApplyForceToCenter.
 func (bodyId BodyId) ApplyForceToCenter(force Vec2, wake bool) {
 	w := getWorld(bodyId.world0)
+	if w.recording != nil {
+		w.recording.rec(opBodyApplyForceToCenter, bodyId, force, wake)
+	}
 	b := getBodyFullId(w, bodyId)
 	if wake && b.setIndex >= firstSleepingSet {
 		wakeBody(w, b)
@@ -1066,6 +1101,9 @@ func (bodyId BodyId) ApplyForceToCenter(force Vec2, wake bool) {
 // ApplyTorque applies a torque. It corresponds to b2Body_ApplyTorque.
 func (bodyId BodyId) ApplyTorque(torque Q, wake bool) {
 	w := getWorld(bodyId.world0)
+	if w.recording != nil {
+		w.recording.rec(opBodyApplyTorque, bodyId, torque, wake)
+	}
 	b := getBodyFullId(w, bodyId)
 	if wake && b.setIndex >= firstSleepingSet {
 		wakeBody(w, b)
@@ -1077,8 +1115,11 @@ func (bodyId BodyId) ApplyTorque(torque Q, wake bool) {
 
 // ApplyLinearImpulse applies a linear impulse at a world point. It
 // corresponds to b2Body_ApplyLinearImpulse.
-func (bodyId BodyId) ApplyLinearImpulse(impulse, point Vec2, wake bool) {
+func (bodyId BodyId) ApplyLinearImpulse(impulse Vec2, point Pos, wake bool) {
 	w := getWorld(bodyId.world0)
+	if w.recording != nil {
+		w.recording.rec(opBodyApplyLinearImpulse, bodyId, impulse, wirePos{point}, wake)
+	}
 	b := getBodyFullId(w, bodyId)
 	if wake && b.setIndex >= firstSleepingSet {
 		wakeBody(w, b)
@@ -1087,7 +1128,7 @@ func (bodyId BodyId) ApplyLinearImpulse(impulse, point Vec2, wake bool) {
 		state := getBodyState(w, b)
 		sim := getBodySim(w, b)
 		state.linearVelocity = MulAdd(state.linearVelocity, sim.invMass, impulse)
-		state.angularVelocity = state.angularVelocity.Add(sim.invInertia.Mul(Cross(point.Sub(sim.center), impulse)))
+		state.angularVelocity = state.angularVelocity.Add(sim.invInertia.Mul(Cross(SubPos(point, sim.center), impulse)))
 		limitVelocity(state, w.maxLinearSpeed)
 	}
 }
@@ -1096,6 +1137,9 @@ func (bodyId BodyId) ApplyLinearImpulse(impulse, point Vec2, wake bool) {
 // It corresponds to b2Body_ApplyLinearImpulseToCenter.
 func (bodyId BodyId) ApplyLinearImpulseToCenter(impulse Vec2, wake bool) {
 	w := getWorld(bodyId.world0)
+	if w.recording != nil {
+		w.recording.rec(opBodyApplyLinearImpulseToCenter, bodyId, impulse, wake)
+	}
 	b := getBodyFullId(w, bodyId)
 	if wake && b.setIndex >= firstSleepingSet {
 		wakeBody(w, b)
@@ -1112,6 +1156,9 @@ func (bodyId BodyId) ApplyLinearImpulseToCenter(impulse Vec2, wake bool) {
 // the reference's angular units. It corresponds to b2Body_ApplyAngularImpulse.
 func (bodyId BodyId) ApplyAngularImpulse(impulse Q, wake bool) {
 	w := getWorld(bodyId.world0)
+	if w.recording != nil {
+		w.recording.rec(opBodyApplyAngularImpulse, bodyId, impulse, wake)
+	}
 	b := getBodyFullId(w, bodyId)
 	if wake && b.setIndex >= firstSleepingSet {
 		wakeBody(w, b)
@@ -1149,7 +1196,7 @@ func (bodyId BodyId) GetLocalCenter() Vec2 {
 
 // GetWorldCenter returns the center of mass in world coordinates. It
 // corresponds to b2Body_GetWorldCenter.
-func (bodyId BodyId) GetWorldCenter() Vec2 {
+func (bodyId BodyId) GetWorldCenter() Pos {
 	w := getWorld(bodyId.world0)
 	b := getBodyFullId(w, bodyId)
 	return getBodySim(w, b).center
@@ -1186,6 +1233,9 @@ func (bodyId BodyId) GetMaxExtentFromOrigin() Q {
 // before the next step. It corresponds to b2Body_ClearForces.
 func (bodyId BodyId) ClearForces() {
 	w := getWorld(bodyId.world0)
+	if w.recording != nil {
+		w.recording.rec(opBodyClearForces, bodyId)
+	}
 	b := getBodyFullId(w, bodyId)
 	sim := getBodySim(w, b)
 	sim.force = Vec2Zero()
@@ -1205,6 +1255,9 @@ func (bodyId BodyId) GetMassData() MassData {
 // corresponds to b2Body_SetMassData.
 func (bodyId BodyId) SetMassData(massData MassData) {
 	w := getWorldLocked(bodyId.world0)
+	if w.recording != nil {
+		w.recording.rec(opBodySetMassData, bodyId, massData)
+	}
 	zero := QZero()
 	if !IsValidQ(massData.Mass) || massData.Mass.Less(zero) {
 		panic("dbox2d: mass data has an invalid mass")
@@ -1221,7 +1274,7 @@ func (bodyId BodyId) SetMassData(massData MassData) {
 	b.mass = massData.Mass
 	b.inertia = massData.RotationalInertia
 	sim.localCenter = massData.Center
-	sim.center = TransformPoint(sim.transform, massData.Center)
+	sim.center = TransformWorldPoint(sim.transform, massData.Center)
 	sim.center0 = sim.center
 
 	if zero.Less(b.mass) {
@@ -1251,6 +1304,9 @@ func (bodyId BodyId) SetMassData(massData MassData) {
 // corresponds to b2Body_UpdateMassFromShapes.
 func (bodyId BodyId) UpdateMassFromShapes() {
 	w := getWorldLocked(bodyId.world0)
+	if w.recording != nil {
+		w.recording.rec(opBodyUpdateMassFromShapes, bodyId)
+	}
 	b := getBodyFullId(w, bodyId)
 	updateBodyMassData(w, b)
 }
@@ -1259,6 +1315,9 @@ func (bodyId BodyId) UpdateMassFromShapes() {
 // b2Body_SetLinearDamping.
 func (bodyId BodyId) SetLinearDamping(linearDamping Q) {
 	w := getWorldLocked(bodyId.world0)
+	if w.recording != nil {
+		w.recording.rec(opBodySetLinearDamping, bodyId, linearDamping)
+	}
 	b := getBodyFullId(w, bodyId)
 	getBodySim(w, b).linearDamping = linearDamping
 }
@@ -1275,6 +1334,9 @@ func (bodyId BodyId) GetLinearDamping() Q {
 // b2Body_SetAngularDamping.
 func (bodyId BodyId) SetAngularDamping(angularDamping Q) {
 	w := getWorldLocked(bodyId.world0)
+	if w.recording != nil {
+		w.recording.rec(opBodySetAngularDamping, bodyId, angularDamping)
+	}
 	b := getBodyFullId(w, bodyId)
 	getBodySim(w, b).angularDamping = angularDamping
 }
@@ -1291,6 +1353,9 @@ func (bodyId BodyId) GetAngularDamping() Q {
 // b2Body_SetGravityScale.
 func (bodyId BodyId) SetGravityScale(gravityScale Q) {
 	w := getWorldLocked(bodyId.world0)
+	if w.recording != nil {
+		w.recording.rec(opBodySetGravityScale, bodyId, gravityScale)
+	}
 	b := getBodyFullId(w, bodyId)
 	getBodySim(w, b).gravityScale = gravityScale
 }
@@ -1315,6 +1380,9 @@ func (bodyId BodyId) IsAwake() bool {
 // b2Body_SetAwake.
 func (bodyId BodyId) SetAwake(awake bool) {
 	w := getWorldLocked(bodyId.world0)
+	if w.recording != nil {
+		w.recording.rec(opBodySetAwake, bodyId, awake)
+	}
 	b := getBodyFullId(w, bodyId)
 	if awake && b.setIndex >= firstSleepingSet {
 		wakeBody(w, b)
@@ -1331,6 +1399,9 @@ func (bodyId BodyId) SetAwake(awake bool) {
 // b2Body_EnableSleeping.
 func (bodyId BodyId) EnableSleeping(enableSleep bool) {
 	w := getWorldLocked(bodyId.world0)
+	if w.recording != nil {
+		w.recording.rec(opBodyEnableSleeping, bodyId, enableSleep)
+	}
 	b := getBodyFullId(w, bodyId)
 	if enableSleep == (b.flags&bodyEnableSleep != 0) {
 		return
@@ -1352,6 +1423,9 @@ func (bodyId BodyId) EnableSleeping(enableSleep bool) {
 // corresponds to b2Body_EnableContactRecycling.
 func (bodyId BodyId) EnableContactRecycling(flag bool) {
 	w := getWorldLocked(bodyId.world0)
+	if w.recording != nil {
+		w.recording.rec(opBodyEnableContactRecycling, bodyId, flag)
+	}
 	b := getBodyFullId(w, bodyId)
 	if flag == (b.flags&bodyEnableContactRecycling != 0) {
 		return
@@ -1386,6 +1460,9 @@ func (bodyId BodyId) SetSafetyFactor(safetyFactor Q) {
 		panic("dbox2d: SetSafetyFactor safetyFactor is not valid")
 	}
 	w := getWorld(bodyId.world0)
+	if w.recording != nil {
+		w.recording.rec(opBodySetSafetyFactor, bodyId, safetyFactor)
+	}
 	getBodyFullId(w, bodyId).safetyFactor = safetyFactor
 }
 
@@ -1400,6 +1477,9 @@ func (bodyId BodyId) GetSafetyFactor() Q {
 // bodies. It corresponds to b2Body_WakeTouching.
 func (bodyId BodyId) WakeTouching() {
 	w := getWorldLocked(bodyId.world0)
+	if w.recording != nil {
+		w.recording.rec(opBodyWakeTouching, bodyId)
+	}
 	b := getBodyFullId(w, bodyId)
 
 	contactKey := b.headContactKey
@@ -1425,6 +1505,9 @@ func (bodyId BodyId) WakeTouching() {
 // b2Body_SetSleepThreshold.
 func (bodyId BodyId) SetSleepThreshold(sleepThreshold Q) {
 	w := getWorld(bodyId.world0)
+	if w.recording != nil {
+		w.recording.rec(opBodySetSleepThreshold, bodyId, sleepThreshold)
+	}
 	b := getBodyFullId(w, bodyId)
 	b.sleepThreshold = sleepThreshold
 }
@@ -1450,6 +1533,9 @@ func (bodyId BodyId) Disable() {
 	w := getWorld(bodyId.world0)
 	if w.locked {
 		panic("dbox2d: the world is locked")
+	}
+	if w.recording != nil {
+		w.recording.rec(opBodyDisable, bodyId)
 	}
 	b := getBodyFullId(w, bodyId)
 	if b.setIndex == disabledSet {
@@ -1497,6 +1583,9 @@ func (bodyId BodyId) Enable() {
 	w := getWorld(bodyId.world0)
 	if w.locked {
 		panic("dbox2d: the world is locked")
+	}
+	if w.recording != nil {
+		w.recording.rec(opBodyEnable, bodyId)
 	}
 	b := getBodyFullId(w, bodyId)
 	if b.setIndex != disabledSet {
@@ -1564,6 +1653,9 @@ func (bodyId BodyId) Enable() {
 // rotational inertia. It corresponds to b2Body_SetMotionLocks.
 func (bodyId BodyId) SetMotionLocks(locks MotionLocks) {
 	w := getWorldLocked(bodyId.world0)
+	if w.recording != nil {
+		w.recording.rec(opBodySetMotionLocks, bodyId, locks)
+	}
 	newFlags := motionLockFlags(locks)
 
 	b := getBodyFullId(w, bodyId)
@@ -1606,6 +1698,9 @@ func (bodyId BodyId) GetMotionLocks() MotionLocks {
 // to b2Body_SetBullet.
 func (bodyId BodyId) SetBullet(flag bool) {
 	w := getWorldLocked(bodyId.world0)
+	if w.recording != nil {
+		w.recording.rec(opBodySetBullet, bodyId, flag)
+	}
 	b := getBodyFullId(w, bodyId)
 	var newFlag uint32
 	if flag {
@@ -1631,6 +1726,9 @@ func (bodyId BodyId) IsBullet() bool {
 // corresponds to b2Body_EnableContactEvents.
 func (bodyId BodyId) EnableContactEvents(flag bool) {
 	w := getWorld(bodyId.world0)
+	if w.recording != nil {
+		w.recording.rec(opBodyEnableContactEvents, bodyId, flag)
+	}
 	b := getBodyFullId(w, bodyId)
 	for shapeId := b.headShapeId; shapeId != nullIndex; shapeId = w.shapes[shapeId].nextShapeId {
 		w.shapes[shapeId].enableContactEvents = flag
@@ -1641,6 +1739,9 @@ func (bodyId BodyId) EnableContactEvents(flag bool) {
 // b2Body_EnableHitEvents.
 func (bodyId BodyId) EnableHitEvents(flag bool) {
 	w := getWorld(bodyId.world0)
+	if w.recording != nil {
+		w.recording.rec(opBodyEnableHitEvents, bodyId, flag)
+	}
 	b := getBodyFullId(w, bodyId)
 	for shapeId := b.headShapeId; shapeId != nullIndex; shapeId = w.shapes[shapeId].nextShapeId {
 		w.shapes[shapeId].enableHitEvents = flag
@@ -1753,7 +1854,9 @@ func (bodyId BodyId) ComputeBounds() AABB {
 	b := getBodyFullId(w, bodyId)
 	if b.headShapeId == nullIndex {
 		transform := getBodyTransform(w, b.id)
-		return AABB{LowerBound: transform.P, UpperBound: transform.P}
+		// No shapes: bracket the body origin so the box still contains the
+		// true position far away.
+		return posBoxPoint(transform.P)
 	}
 	aabb := w.shapes[b.headShapeId].aabb
 	for shapeId := w.shapes[b.headShapeId].nextShapeId; shapeId != nullIndex; shapeId = w.shapes[shapeId].nextShapeId {
@@ -1780,6 +1883,9 @@ func (bodyId BodyId) GetUserData() any {
 // b2Body_SetName.
 func (bodyId BodyId) SetName(name string) {
 	w := getWorld(bodyId.world0)
+	if w.recording != nil {
+		w.recording.rec(opBodySetName, bodyId, name)
+	}
 	b := getBodyFullId(w, bodyId)
 	b.name = [nameLength + 1]byte{}
 	copy(b.name[:nameLength], name)
@@ -1914,11 +2020,11 @@ func shouldBodiesCollide(w *world, bodyA, bodyB *body) bool {
 // makeRelativeSweep builds the sweep of a body sim relative to a base
 // position, so the time of impact stays near the origin. It corresponds to
 // b2MakeRelativeSweep in src/body.h.
-func makeRelativeSweep(sim *bodySim, base Vec2) Sweep {
+func makeRelativeSweep(sim *bodySim, base Pos) Sweep {
 	return Sweep{
 		LocalCenter: sim.localCenter,
-		C1:          sim.center0.Sub(base),
-		C2:          sim.center.Sub(base),
+		C1:          SubPos(sim.center0, base),
+		C2:          SubPos(sim.center, base),
 		Q1:          sim.rotation0,
 		Q2:          sim.transform.Q,
 	}
@@ -1929,8 +2035,8 @@ func makeRelativeSweep(sim *bodySim, base Vec2) Sweep {
 func makeSweep(sim *bodySim) Sweep {
 	return Sweep{
 		LocalCenter: sim.localCenter,
-		C1:          sim.center0,
-		C2:          sim.center,
+		C1:          ToVec2(sim.center0),
+		C2:          ToVec2(sim.center),
 		Q1:          sim.rotation0,
 		Q2:          sim.transform.Q,
 	}

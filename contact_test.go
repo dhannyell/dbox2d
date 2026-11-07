@@ -9,7 +9,7 @@ func addDynamicCircle(t *testing.T, worldId WorldId, position Vec2) BodyId {
 	t.Helper()
 	bodyDef := DefaultBodyDef()
 	bodyDef.Type = DynamicBody
-	bodyDef.Position = position
+	bodyDef.Position = ToPos(position)
 	bodyId := CreateBody(worldId, &bodyDef)
 	shapeDef := DefaultShapeDef()
 	circle := Circle{Radius: QHalf()}
@@ -91,7 +91,7 @@ func TestCreateContactUsesDisabledSetForSleepingBodies(t *testing.T) {
 	addSleepingCircle := func(position Vec2) BodyId {
 		bodyDef := DefaultBodyDef()
 		bodyDef.Type = DynamicBody
-		bodyDef.Position = position
+		bodyDef.Position = ToPos(position)
 		bodyDef.IsAwake = false
 		bodyId := CreateBody(worldId, &bodyDef)
 		shapeDef := DefaultShapeDef()
@@ -128,7 +128,7 @@ func TestUpdateContactCarriesTheStoredImpulse(t *testing.T) {
 	cs := getContactSim(w, c)
 	xfA := getBodyTransformQuick(w, getBodyFullId(w, idA))
 	xfB := getBodyTransformQuick(w, getBodyFullId(w, idB))
-	if temporary := computeManifold(shapeA, xfA, shapeB, xfB); temporary.PointCount != 1 {
+	if temporary := computeManifold(shapeA, toTransform(xfA), shapeB, toTransform(xfB)); temporary.PointCount != 1 {
 		t.Fatalf("temporary manifold point count %d, want 1", temporary.PointCount)
 	}
 
@@ -235,7 +235,7 @@ func TestDestroyShapeDestroysItsContacts(t *testing.T) {
 	bodyDef := DefaultBodyDef()
 	bodyDef.Type = DynamicBody
 	bodyA := CreateBody(worldId, &bodyDef)
-	bodyDef.Position = v2(1, 0)
+	bodyDef.Position = ToPos(v2(1, 0))
 	bodyB := CreateBody(worldId, &bodyDef)
 	shapeDef := DefaultShapeDef()
 	circle := Circle{Radius: QHalf()}

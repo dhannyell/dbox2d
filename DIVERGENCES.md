@@ -346,3 +346,71 @@ Numbering is sequential from `D-001` and never reused.
   reads the speed only for restitution and hit events, so the simulation is
   unchanged.
 - Test: `TestPrepareOverflowContactsBuildsTheMasses` and the scene traces
+
+### D-022 Fixed mode writes an 8 byte Q
+
+- Files: `snapshot.go`, `recording.go`, `clayout.go`
+- Tier: T2
+- Reason: a Q32.32 scalar does not fit the 4 bytes that the upstream format
+  gives a float, and widening it keeps every bit of state.
+- Behaviour: under `dbox2d_fixed` every `Q` is 8 raw bytes, and the layout
+  hash mixes the scalar size, the snapshot flag 0x4 and a recording header
+  `reserved2` of 0x00584651. Upstream tools refuse these files by hash; float
+  and double builds read and write the upstream bytes unchanged.
+- Test: `TestRollback`, `TestRecordReplayRoundTrip` (all modes)
+
+### D-023 Layouts come from reflected plans
+
+- Files: `clayout.go`, `snapshot.go`
+- Tier: T2
+- Reason: Go struct layout is not the C layout the format copies.
+- Behaviour: each serialized struct is described by an ordered plan whose
+  offsets and sizes equal the C ones in float and double. The unions of the
+  geometry and the joint payload take the upstream sizes (144 and 160 bytes)
+  when `Q` is 4 bytes and the largest member otherwise. Padding at union tails
+  is written as zeros where upstream writes whatever the allocator left.
+- Test: `TestGoldenSnapshotMatchesUpstream`, `TestGoldenRecordingMatchesUpstream`
+
+### D-024 Restore and record drop Go-only state
+
+- Files: `snapshot.go`, `recording.go`
+- Tier: T2
+- Reason: pointers, callbacks and `UserData` cannot be serialized.
+- Behaviour: `RestoreFromSnapshot` clears the user data of bodies, shapes and
+  joints. Recording refuses to start while a pre-solve or custom filter
+  callback is set. A null name is read back as an empty string.
+- Test: `TestRollback`
+
+### D-025 Angles cross the wire in the unit of the sims
+
+- Files: `recording.go`, `replay_dispatch.go`, `body.go`, `joint_api.go`
+- Tier: T2
+- Reason: the port's API measures angles in turns (D-001), the format in
+  radians.
+- Behaviour: an angle op records the value the setter stores, after its one
+  conversion from turns, and the replay hands that value to the same setter
+  behind the conversion. Float and double builds write radians, as upstream
+  does, and replay upstream recordings without a round trip through turns.
+  Fixed builds store their joint angles in turns, so their files (already
+  their own format, D-022) carry turns for joint angles and radians for body
+  angular velocity.
+- Test: `TestRecordReplayAngleOps`, `TestRecordReplayRoundTrip`
+
+### D-026 Op records carry the world generation
+
+- Files: `recording_ops.go`
+- Tier: T2
+- Reason: the port keeps the generation in `WorldId`.
+- Behaviour: record bytes include the generation of the world slot, so a byte
+  comparison with upstream calls `ResetWorldGenerations` first. The replay
+  checks created ids by index and generation only.
+- Test: `TestGoldenRecordingMatchesUpstream`
+
+### D-027 The replay ignores the length scale
+
+- Files: `replay.go`
+- Tier: T2
+- Reason: the port has no length units (D-002).
+- Behaviour: `ReplayInfo.LengthScale` is reported and not applied. The
+  rollback sample does not call `FinishRecording`, since it has no record UI.
+- Test: `TestGoldenReplayOfUpstreamRecording`

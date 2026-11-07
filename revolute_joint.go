@@ -5,24 +5,24 @@ package b2
 // the mode, and angleRadians converts an angle where it enters an error C.
 
 // drawRevoluteJoint corresponds to b2DrawRevoluteJoint.
-func drawRevoluteJoint(draw *DebugDraw, base *jointSim, transformA, transformB Transform, drawScale Q) {
+func drawRevoluteJoint(draw *DebugDraw, base *jointSim, transformA, transformB WorldTransform, drawScale Q) {
 	joint := base.revolute()
-	frameA := MulTransforms(transformA, base.localFrameA)
-	frameB := MulTransforms(transformB, base.localFrameB)
+	frameA := MulWorldTransforms(transformA, base.localFrameA)
+	frameB := MulWorldTransforms(transformB, base.localFrameB)
 
 	radius := QMustParse("0.25").Mul(drawScale)
 	draw.DrawCircleFcn(frameB.P, radius, ColorGray)
 
 	rx := Vec2{X: radius, Y: QZero()}
 	r := RotateVector(frameA.Q, rx)
-	draw.DrawLineFcn(frameA.P, frameA.P.Add(r), ColorGray)
+	draw.DrawLineFcn(frameA.P, OffsetPos(frameA.P, r), ColorGray)
 
 	r = RotateVector(frameB.Q, rx)
-	draw.DrawLineFcn(frameB.P, frameB.P.Add(r), ColorBlue)
+	draw.DrawLineFcn(frameB.P, OffsetPos(frameB.P, r), ColorBlue)
 
 	if draw.DrawJointExtras {
 		degrees := RelativeAngle(frameA.Q, frameB.Q).Mul(QFromInt(360))
-		draw.DrawStringFcn(frameA.P.Add(r), " "+drawNumber(degrees, 1)+" deg", ColorWhite)
+		draw.DrawStringFcn(OffsetPos(frameA.P, r), " "+drawNumber(degrees, 1)+" deg", ColorWhite)
 	}
 
 	if joint.enableLimit {
@@ -30,14 +30,14 @@ func drawRevoluteJoint(draw *DebugDraw, base *jointSim, transformA, transformB T
 		rlo := RotateVector(rotLo, rx)
 		rotHi := MulRot(frameA.Q, MakeRot(angleToTurns(joint.upperAngle)))
 		rhi := RotateVector(rotHi, rx)
-		draw.DrawLineFcn(frameB.P, frameB.P.Add(rlo), ColorGreen)
-		draw.DrawLineFcn(frameB.P, frameB.P.Add(rhi), ColorRed)
+		draw.DrawLineFcn(frameB.P, OffsetPos(frameB.P, rlo), ColorGreen)
+		draw.DrawLineFcn(frameB.P, OffsetPos(frameB.P, rhi), ColorRed)
 	}
 
 	if joint.enableSpring {
 		q := MulRot(frameA.Q, MakeRot(angleToTurns(joint.targetAngle)))
 		v := RotateVector(q, rx)
-		draw.DrawLineFcn(frameB.P, frameB.P.Add(v), ColorViolet)
+		draw.DrawLineFcn(frameB.P, OffsetPos(frameB.P, v), ColorViolet)
 	}
 
 	draw.DrawLineFcn(frameA.P, frameB.P, ColorGold)
@@ -89,7 +89,7 @@ func prepareRevoluteJoint(base *jointSim, context *stepContext) {
 
 	// Compute the initial center delta. Incremental position updates are
 	// relative to this.
-	joint.deltaCenter = bodySimB.center.Sub(bodySimA.center)
+	joint.deltaCenter = SubPos(bodySimB.center, bodySimA.center)
 
 	zero := QZero()
 	k := base.invIA.Add(base.invIB)

@@ -14,6 +14,19 @@ cmake --build build/conf320
 
 The v3.1.1 corpus is in the history up to the commit that replaced it.
 
+## Large-world (double) scenes
+
+`testdata/conformance_double/scenes/` holds the scene traces of the `dbox2d_double` build. They come from the same generator and the same reference source, built with `BOX2D_DOUBLE_PRECISION=ON`, where the generator writes each position as 16 hex digits (the bits of the double) and folds the 64 bits of each position coordinate into the hash. Rotations and velocities stay 8 hex digits. The function traces do not involve world positions and are identical in double mode, so the double corpus has no `functions` directory and the Go tests read `testdata/conformance/functions` in both modes.
+
+```sh
+cmake -S tools/conformance -B build/conf320d -G Ninja -DCMAKE_BUILD_TYPE=Release -DBOX2D_SOURCE_DIR=D:/Workspace/dbox2d-ref-v320 -DBOX2D_DOUBLE_PRECISION=ON
+cmake --build build/conf320d
+./build/conf320d/conformance.exe --out _scratch/out_double
+cp -r _scratch/out_double/scenes testdata/conformance_double/
+```
+
+The Go side compares them with `go test -tags dbox2d_double -run Conformance ./`, with the same strictness as the float corpus.
+
 ## Function files
 
 | File | Cases |

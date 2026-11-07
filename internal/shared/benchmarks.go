@@ -75,7 +75,7 @@ func BuildJointGrid(worldId WorldId, opts Options) StepFn {
 			} else {
 				bodyDef.Type = DynamicBody
 			}
-			bodyDef.Position = Vec2{X: QFromInt(k), Y: QFromInt(i).Neg()}
+			bodyDef.Position = ToPos(Vec2{X: QFromInt(k), Y: QFromInt(i).Neg()})
 			bodyId := CreateBody(worldId, &bodyDef)
 			CreateCircleShape(bodyId, &shapeDef, &circle)
 			if i > 0 {
@@ -104,7 +104,7 @@ func BuildLargePyramid(worldId WorldId, opts Options) StepFn {
 	worldId.EnableSleeping(false)
 	const baseCount = 100
 	groundDef := DefaultBodyDef()
-	groundDef.Position = Vec2{Y: QFromInt(-1)}
+	groundDef.Position = ToPos(Vec2{Y: QFromInt(-1)})
 	groundId := CreateBody(worldId, &groundDef)
 	ground := MakeBox(QFromInt(100), QOne())
 	shapeDef := DefaultShapeDef()
@@ -122,7 +122,7 @@ func BuildLargePyramid(worldId WorldId, opts Options) StepFn {
 			x := QFromInt(i + 1).Mul(half).
 				Add(QFromInt(2).Mul(QFromInt(j - i)).Mul(half)).
 				Sub(half.Mul(QFromInt(baseCount)))
-			bodyDef.Position = Vec2{X: x, Y: y}
+			bodyDef.Position = ToPos(Vec2{X: x, Y: y})
 			bodyId := CreateBody(worldId, &bodyDef)
 			CreatePolygonShape(bodyId, &shapeDef, &box)
 		}
@@ -142,7 +142,7 @@ func buildSmallPyramid(worldId WorldId, baseCount int, extent, centerX, baseY Q)
 			x := QFromInt(i + 1).Mul(extent).
 				Add(QFromInt(2).Mul(QFromInt(j - i)).Mul(extent)).
 				Add(centerX).Sub(QHalf())
-			bodyDef.Position = Vec2{X: x, Y: y}
+			bodyDef.Position = ToPos(Vec2{X: x, Y: y})
 			bodyId := CreateBody(worldId, &bodyDef)
 			CreatePolygonShape(bodyId, &shapeDef, &box)
 		}
@@ -191,7 +191,7 @@ func BuildSmash(worldId WorldId, opts Options) StepFn {
 	impact := MakeBox(QFromInt(4), QFromInt(4))
 	bodyDef := DefaultBodyDef()
 	bodyDef.Type = DynamicBody
-	bodyDef.Position = Vec2{X: QFromInt(-20)}
+	bodyDef.Position = ToPos(Vec2{X: QFromInt(-20)})
 	bodyDef.LinearVelocity = Vec2{X: QFromInt(40)}
 	bodyId := CreateBody(worldId, &bodyDef)
 	shapeDef := DefaultShapeDef()
@@ -208,10 +208,10 @@ func BuildSmash(worldId WorldId, opts Options) StepFn {
 	const rows = 80
 	for i := range columns {
 		for j := range rows {
-			bodyDef.Position = Vec2{
+			bodyDef.Position = ToPos(Vec2{
 				X: QFromInt(i).Mul(d).Add(QFromInt(30)),
 				Y: QFromInt(j).Sub(QFromRatio(rows, 2)).Mul(d),
-			}
+			})
 			bodyId = CreateBody(worldId, &bodyDef)
 			CreatePolygonShape(bodyId, &shapeDef, &box)
 		}
@@ -240,7 +240,7 @@ func BuildSpinner(worldId WorldId, opts Options) StepFn {
 
 	bodyDef := DefaultBodyDef()
 	bodyDef.Type = DynamicBody
-	bodyDef.Position = Vec2{Y: QFromInt(12)}
+	bodyDef.Position = ToPos(Vec2{Y: QFromInt(12)})
 	bodyDef.EnableSleep = false
 	spinnerId := CreateBody(worldId, &bodyDef)
 	spinner := MakeRoundedBox(QMustParse("0.4"), QFromInt(20), QMustParse("0.2"))
@@ -269,7 +269,7 @@ func BuildSpinner(worldId WorldId, opts Options) StepFn {
 	shapeDef.Density = QMustParse("0.25")
 	x, y := QFromInt(-23), QFromInt(2)
 	for i := range 2 * 3038 {
-		bodyDef.Position = Vec2{X: x, Y: y}
+		bodyDef.Position = ToPos(Vec2{X: x, Y: y})
 		bodyId := CreateBody(worldId, &bodyDef)
 		switch i % 3 {
 		case 0:
@@ -295,7 +295,7 @@ func BuildTumbler(worldId WorldId, opts Options) StepFn {
 	groundId := CreateBody(worldId, &groundDef)
 	bodyDef := DefaultBodyDef()
 	bodyDef.Type = DynamicBody
-	bodyDef.Position = Vec2{Y: QFromInt(10)}
+	bodyDef.Position = ToPos(Vec2{Y: QFromInt(10)})
 	tumblerId := CreateBody(worldId, &bodyDef)
 	shapeDef := DefaultShapeDef()
 	shapeDef.Density = QFromInt(50)
@@ -333,7 +333,7 @@ func BuildTumbler(worldId WorldId, opts Options) StepFn {
 	for range gridCount {
 		x := QMustParse("-0.2").Mul(QFromInt(gridCount))
 		for range gridCount {
-			bodyDef.Position = Vec2{X: x, Y: y}
+			bodyDef.Position = ToPos(Vec2{X: x, Y: y})
 			bodyId := CreateBody(worldId, &bodyDef)
 			CreatePolygonShape(bodyId, &shapeDef, &box)
 			x = x.Add(QMustParse("0.4"))
@@ -365,13 +365,13 @@ func (data *rainData) createGroup(worldId WorldId, rowIndex, columnIndex int) {
 	groupIndex := rowIndex*rainColumnCount + columnIndex
 	span := QFromInt(data.gridCount).Mul(data.gridSize)
 	groupDistance := span.Div(QFromInt(rainColumnCount))
-	position := Vec2{
+	position := ToPos(Vec2{
 		X: QHalf().Neg().Mul(span).Add(groupDistance.Mul(QFromInt(columnIndex).Add(QHalf()))),
 		Y: QFromInt(40).Add(QFromInt(45).Mul(QFromInt(rowIndex))),
-	}
+	})
 	for i := range rainGroupSize {
 		data.groups[groupIndex].humans[i] = CreateHuman(worldId, position, QOne(), lit0p05, QFromInt(5), QHalf(), i+1, nil, false)
-		position.X = position.X.Add(QHalf())
+		position = OffsetPos(position, Vec2{X: QHalf()})
 	}
 }
 

@@ -375,7 +375,7 @@ func TestCreateAndDestroyOrdersProduceTheSameWorld(t *testing.T) {
 
 	addBody := func(worldId WorldId, position Vec2) BodyId {
 		def := bodyDef
-		def.Position = position
+		def.Position = ToPos(position)
 		bodyId := CreateBody(worldId, &def)
 		CreatePolygonShape(bodyId, &shapeDef, &box)
 		return bodyId
@@ -444,7 +444,7 @@ func TestBodyMassComesFromItsShapes(t *testing.T) {
 
 	bodyDef := DefaultBodyDef()
 	bodyDef.Type = DynamicBody
-	bodyDef.Position = v2(5, 0)
+	bodyDef.Position = ToPos(v2(5, 0))
 	bodyDef.AngularVelocity = omega
 	bodyId := CreateBody(worldId, &bodyDef)
 
@@ -488,7 +488,7 @@ func TestBodyMassComesFromItsShapes(t *testing.T) {
 	// the angular velocity, in radians per second, with the displacement.
 	sim := getBodySim(w, b)
 	state := getBodyState(w, b)
-	wantVelocity := velocityBefore.Add(CrossSV(tau.Mul(omega), sim.center.Sub(centerBefore)))
+	wantVelocity := velocityBefore.Add(CrossSV(tau.Mul(omega), SubPos(sim.center, centerBefore)))
 	if !state.linearVelocity.X.Eq(wantVelocity.X) || !state.linearVelocity.Y.Eq(wantVelocity.Y) {
 		t.Errorf("velocity after the mass update = %v, want %v", state.linearVelocity, wantVelocity)
 	}
@@ -574,7 +574,7 @@ func TestOverlapAABBReportsTheFatBounds(t *testing.T) {
 	addStaticCircle(t, worldId, v2(0, 0))
 	kinematicDef := DefaultBodyDef()
 	kinematicDef.Type = KinematicBody
-	kinematicDef.Position = v2(5, 0)
+	kinematicDef.Position = ToPos(v2(5, 0))
 	kinematic := CreateBody(worldId, &kinematicDef)
 	shapeDef := DefaultShapeDef()
 	circle := Circle{Radius: QHalf()}
@@ -595,7 +595,7 @@ func TestOverlapAABBReportsTheFatBounds(t *testing.T) {
 	}
 
 	got := map[ShapeId]bool{}
-	stats := worldId.OverlapAABB(Vec2{}, query, DefaultQueryFilter(), func(id ShapeId) bool {
+	stats := worldId.OverlapAABB(ToPos(Vec2{}), query, DefaultQueryFilter(), func(id ShapeId) bool {
 		got[id] = true
 		return true
 	})
@@ -611,7 +611,7 @@ func TestOverlapAABBReportsTheFatBounds(t *testing.T) {
 	// A false return ends the current tree; the next tree still runs, so
 	// the two dynamic boxes yield one call and the trees three in total.
 	calls := 0
-	worldId.OverlapAABB(Vec2{}, query, DefaultQueryFilter(), func(ShapeId) bool {
+	worldId.OverlapAABB(ToPos(Vec2{}), query, DefaultQueryFilter(), func(ShapeId) bool {
 		calls++
 		return false
 	})
@@ -621,13 +621,15 @@ func TestOverlapAABBReportsTheFatBounds(t *testing.T) {
 
 	filter := DefaultQueryFilter()
 	filter.MaskBits = 0
-	worldId.OverlapAABB(Vec2{}, query, filter, func(ShapeId) bool {
+	worldId.OverlapAABB(ToPos(Vec2{}), query, filter, func(ShapeId) bool {
 		t.Errorf("an empty mask reported a shape")
 		return true
 	})
 
 	w.locked = true
-	requirePanic(t, func() { worldId.OverlapAABB(Vec2{}, query, DefaultQueryFilter(), func(ShapeId) bool { return true }) })
+	requirePanic(t, func() {
+		worldId.OverlapAABB(ToPos(Vec2{}), query, DefaultQueryFilter(), func(ShapeId) bool { return true })
+	})
 	w.locked = false
 }
 
@@ -648,24 +650,24 @@ func TestCastRayClipsAcrossTheTrees(t *testing.T) {
 	filter := DefaultQueryFilter()
 
 	var hit ShapeId
-	var point Vec2
-	closest := func(id ShapeId, p, _ Vec2, fraction Q) Q {
+	var point Pos
+	closest := func(id ShapeId, p Pos, _ Vec2, fraction Q) Q {
 		hit, point = id, p
 		return fraction
 	}
-	stats := worldId.CastRay(origin, translation, filter, closest)
+	stats := worldId.CastRay(ToPos(origin), translation, filter, closest)
 	if hit != near || stats.LeafVisits < 2 {
 		t.Fatalf("the closest hit is not the near box (%d leaf visits)", stats.LeafVisits)
 	}
 	// The near box spans [-1, 1]; the hit sits on its left face.
 	eps := QOne().Div(QFromInt(1024))
-	diff := point.X.Add(QOne())
+	diff := posX(point).Add(QOne())
 	if diff.Less(eps.Neg()) || eps.Less(diff) {
-		t.Errorf("the hit point x is %v, want -1", point.X)
+		t.Errorf("the hit point x is %v, want -1", posX(point))
 	}
 
 	hit = ShapeId{}
-	worldId.CastRay(origin, translation, filter, func(id ShapeId, p, n Vec2, fraction Q) Q {
+	worldId.CastRay(ToPos(origin), translation, filter, func(id ShapeId, p Pos, n Vec2, fraction Q) Q {
 		if id == near {
 			return QOne().Neg()
 		}
@@ -677,13 +679,13 @@ func TestCastRayClipsAcrossTheTrees(t *testing.T) {
 
 	masked := DefaultQueryFilter()
 	masked.MaskBits = 0
-	worldId.CastRay(origin, translation, masked, func(ShapeId, Vec2, Vec2, Q) Q {
+	worldId.CastRay(ToPos(origin), translation, masked, func(ShapeId, Pos, Vec2, Q) Q {
 		t.Errorf("an empty mask reported a hit")
 		return QOne()
 	})
 
 	calls := 0
-	worldId.CastRay(v2(8, 0), translation, filter, func(id ShapeId, _, _ Vec2, fraction Q) Q {
+	worldId.CastRay(ToPos(v2(8, 0)), translation, filter, func(id ShapeId, _ Pos, _ Vec2, fraction Q) Q {
 		calls++
 		if id != static || !fraction.Eq(QZero()) {
 			t.Errorf("the inside origin did not report the static circle at fraction zero")
@@ -695,7 +697,7 @@ func TestCastRayClipsAcrossTheTrees(t *testing.T) {
 	}
 
 	w.locked = true
-	requirePanic(t, func() { worldId.CastRay(origin, translation, filter, closest) })
+	requirePanic(t, func() { worldId.CastRay(ToPos(origin), translation, filter, closest) })
 	w.locked = false
 }
 
@@ -707,7 +709,7 @@ func hundredShapeWorld(t *testing.T, rng *rand.Rand) WorldId {
 	for i := range 100 {
 		bodyDef := DefaultBodyDef()
 		bodyDef.Type = BodyType(i % 3)
-		bodyDef.Position = v2(rng.Intn(60), rng.Intn(60))
+		bodyDef.Position = ToPos(v2(rng.Intn(60), rng.Intn(60)))
 		bodyDef.Rotation = MakeRot(QFromRatio(rng.Intn(8), 8))
 		bodyId := CreateBody(worldId, &bodyDef)
 		shapeDef := DefaultShapeDef()
@@ -759,25 +761,25 @@ func TestShapeQueriesMatchBruteForce(t *testing.T) {
 			}
 			transform := getBodyTransformQuick(w, &w.bodies[s.bodyId])
 
-			input := DistanceInput{ProxyA: proxy, ProxyB: makeShapeDistanceProxy(s), Transform: transform, UseRadii: true}
+			input := DistanceInput{ProxyA: proxy, ProxyB: makeShapeDistanceProxy(s), Transform: toTransform(transform), UseRadii: true}
 			var cache SimplexCache
 			if out := ComputeShapeDistance(&input, &cache, nil); !tolerance.Less(out.Distance) {
 				wantOverlap[shapeIdOf(w, s)] = true
 			}
 
 			castInput := ShapeCastInput{Proxy: proxy, Translation: translation, MaxFraction: one}
-			if out := shapeCastShape(&castInput, s, transform); out.Hit && out.Fraction.Less(wantCastFraction) {
+			if out := shapeCastShape(&castInput, s, toTransform(transform)); out.Hit && out.Fraction.Less(wantCastFraction) {
 				wantCast, wantCastFraction = shapeIdOf(w, s), out.Fraction
 			}
 
 			rayInput := RayCastInput{Origin: origin, Translation: translation, MaxFraction: one}
-			if out := rayCastShape(&rayInput, s, transform); out.Hit && zero.Less(out.Fraction) && out.Fraction.Less(wantRayFraction) {
+			if out := rayCastShape(&rayInput, s, toTransform(transform)); out.Hit && zero.Less(out.Fraction) && out.Fraction.Less(wantRayFraction) {
 				wantRay, wantRayFraction = shapeIdOf(w, s), out.Fraction
 			}
 		}
 
 		gotOverlap := map[ShapeId]bool{}
-		worldId.OverlapShape(Vec2{}, &proxy, filter, func(id ShapeId) bool {
+		worldId.OverlapShape(ToPos(Vec2{}), &proxy, filter, func(id ShapeId) bool {
 			gotOverlap[id] = true
 			return true
 		})
@@ -792,7 +794,7 @@ func TestShapeQueriesMatchBruteForce(t *testing.T) {
 
 		gotCast := ShapeId{}
 		gotCastFraction := one
-		worldId.CastShape(Vec2{}, &proxy, translation, filter, func(id ShapeId, _, _ Vec2, fraction Q) Q {
+		worldId.CastShape(ToPos(Vec2{}), &proxy, translation, filter, func(id ShapeId, _ Pos, _ Vec2, fraction Q) Q {
 			if fraction.Less(gotCastFraction) {
 				gotCast, gotCastFraction = id, fraction
 			}
@@ -802,7 +804,7 @@ func TestShapeQueriesMatchBruteForce(t *testing.T) {
 			t.Fatalf("CastShape from %v by %v found %v at %v, brute force %v at %v", origin, translation, gotCast, gotCastFraction, wantCast, wantCastFraction)
 		}
 
-		ray := worldId.CastRayClosest(origin, translation, filter)
+		ray := worldId.CastRayClosest(ToPos(origin), translation, filter)
 		if ray.Hit != (wantRay != ShapeId{}) || (ray.Hit && (ray.ShapeId != wantRay || !ray.Fraction.Eq(wantRayFraction))) {
 			t.Fatalf("CastRayClosest from %v by %v found %+v, brute force %v at %v", origin, translation, ray, wantRay, wantRayFraction)
 		}
@@ -815,14 +817,14 @@ func TestShapeQueriesMatchBruteForce(t *testing.T) {
 func TestCastMoverStopsAtTheWall(t *testing.T) {
 	worldId := createTestWorld(t)
 	wallDef := DefaultBodyDef()
-	wallDef.Position = v2(10, 0)
+	wallDef.Position = ToPos(v2(10, 0))
 	wall := CreateBody(worldId, &wallDef)
 	shapeDef := DefaultShapeDef()
 	wallBox := MakeBox(QOne(), QFromInt(5))
 	CreatePolygonShape(wall, &shapeDef, &wallBox)
 
 	mover := Capsule{Center1: v2(0, -1), Center2: v2(0, 1), Radius: QHalf()}
-	fraction := worldId.CastMover(Vec2{}, &mover, v2(20, 0), DefaultQueryFilter())
+	fraction := worldId.CastMover(ToPos(Vec2{}), &mover, v2(20, 0), DefaultQueryFilter())
 
 	// The capsule surface reaches the face at x = 9 after 8.5 units of
 	// the 20; the sweep targets the radius less a slop.
@@ -833,13 +835,13 @@ func TestCastMoverStopsAtTheWall(t *testing.T) {
 
 	// A circle around the start overlaps the mover and does not stop it.
 	addStaticCircle(t, worldId, v2(0, 0))
-	if again := worldId.CastMover(Vec2{}, &mover, v2(20, 0), DefaultQueryFilter()); !again.Eq(fraction) {
+	if again := worldId.CastMover(ToPos(Vec2{}), &mover, v2(20, 0), DefaultQueryFilter()); !again.Eq(fraction) {
 		t.Fatalf("an overlapping shape changed the fraction to %v", again)
 	}
 
 	thin := mover
 	thin.Radius = linearSlop
-	requirePanic(t, func() { worldId.CastMover(Vec2{}, &thin, v2(20, 0), DefaultQueryFilter()) })
+	requirePanic(t, func() { worldId.CastMover(ToPos(Vec2{}), &thin, v2(20, 0), DefaultQueryFilter()) })
 }
 
 // addFilteredBox adds a dynamic unit box that opts in to custom filtering.
@@ -847,7 +849,7 @@ func addFilteredBox(t *testing.T, worldId WorldId, position Vec2) BodyId {
 	t.Helper()
 	bodyDef := DefaultBodyDef()
 	bodyDef.Type = DynamicBody
-	bodyDef.Position = position
+	bodyDef.Position = ToPos(position)
 	bodyId := CreateBody(worldId, &bodyDef)
 	shapeDef := DefaultShapeDef()
 	shapeDef.EnableCustomFiltering = true
@@ -942,7 +944,7 @@ func TestExplodeImpulseByDistance(t *testing.T) {
 	def := func() ExplosionDef {
 		return ExplosionDef{
 			MaskBits:         DefaultMaskBits,
-			Position:         v2(0, 0),
+			Position:         ToPos(v2(0, 0)),
 			Radius:           radius,
 			Falloff:          falloff,
 			ImpulsePerLength: impulsePerLength,

@@ -91,7 +91,7 @@ func TestChecksumSeesAStateChange(t *testing.T) {
 	sleeperDef := DefaultBodyDef()
 	sleeperDef.Type = DynamicBody
 	sleeperDef.IsAwake = false
-	sleeperDef.Position = v2(20, 0)
+	sleeperDef.Position = ToPos(v2(20, 0))
 	CreateBody(worldId, &sleeperDef)
 	if Checksum(worldId) == afterVelocity {
 		t.Errorf("a new sleeping body did not change the checksum")
@@ -195,7 +195,7 @@ func TestChecksumMatchesDeterministicWitness(t *testing.T) {
 func buildSplitStacks(worldId WorldId) BodyId {
 	half := QHalf()
 	groundDef := DefaultBodyDef()
-	groundDef.Position = Vec2{Y: half.Neg()}
+	groundDef.Position = ToPos(Vec2{Y: half.Neg()})
 	groundId := CreateBody(worldId, &groundDef)
 	shapeDef := DefaultShapeDef()
 	ground := MakeBox(QFromInt(4), half)
@@ -206,16 +206,16 @@ func buildSplitStacks(worldId WorldId) BodyId {
 	box := MakeSquare(half)
 	x := QFromRatio(3, 4)
 	for i := range 3 {
-		bodyDef.Position = Vec2{X: x.Neg(), Y: QFromInt(i).Add(half)}
+		bodyDef.Position = ToPos(Vec2{X: x.Neg(), Y: QFromInt(i).Add(half)})
 		bodyId := CreateBody(worldId, &bodyDef)
 		CreatePolygonShape(bodyId, &shapeDef, &box)
 
-		bodyDef.Position.X = x
+		bodyDef.Position = ToPos(Vec2{X: x, Y: posY(bodyDef.Position)})
 		bodyId = CreateBody(worldId, &bodyDef)
 		CreatePolygonShape(bodyId, &shapeDef, &box)
 	}
 
-	bodyDef.Position = Vec2{Y: QFromRatio(13, 4)}
+	bodyDef.Position = ToPos(Vec2{Y: QFromRatio(13, 4)})
 	connectorId := CreateBody(worldId, &bodyDef)
 	connector := MakeBox(QFromRatio(3, 2), QFromRatio(1, 4))
 	CreatePolygonShape(connectorId, &shapeDef, &connector)
