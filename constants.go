@@ -3,11 +3,15 @@ package b2
 // graphColorCount is the number of constraint graph colors, including the
 // overflow color at the end. It corresponds to B2_GRAPH_COLOR_COUNT in
 // src/constants.h.
-const graphColorCount = 12
+const graphColorCount = 24
 
 // nameLength is the longest body name in bytes. It corresponds to
 // B2_NAME_LENGTH in include/box2d/constants.h.
 const nameLength = 10
+
+// maxRestitutionIterations bounds the restitution passes. It corresponds to
+// B2_MAX_RESTITUTION_ITERATIONS in include/box2d/constants.h.
+const maxRestitutionIterations = 63
 
 // A length is a meter. The reference lets an application rescale its
 // tolerances; this package does not, because a world that rescales them
@@ -15,6 +19,16 @@ const nameLength = 10
 var (
 	// upstream 0.005f * b2_lengthUnitsPerMeter
 	linearSlop = QMustParse("0.005")
+
+	// contactRecycleDistance is the default farthest relative movement that
+	// keeps a contact manifold. It corresponds to B2_CONTACT_RECYCLE_DISTANCE
+	// in include/box2d/constants.h.
+	contactRecycleDistance = QFromInt(10).Mul(linearSlop)
+
+	// contactRecycleCosAngle is the smallest cosine of the rotation of a
+	// body that keeps a recycled manifold. It corresponds to
+	// B2_CONTACT_RECYCLE_COS_ANGLE in include/box2d/constants.h.
+	contactRecycleCosAngle = QMustParse("0.98")
 
 	// upstream 0.1f * B2_LINEAR_SLOP, the tolerance of the distance queries
 	linearSlopTenth = makeRecip(QFromInt(10)).scale(linearSlop)

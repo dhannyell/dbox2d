@@ -493,7 +493,9 @@ func prepareContacts32(*stepContext) {}
 
 func warmStartContacts32(int, int, *stepContext, int) {}
 
-func solveContacts32(int, int, *stepContext, int, bool) {}
+func pushContacts32(int, int, *stepContext, int) {}
+
+func solveContacts32(int, int, *stepContext, int) {}
 
 func applyRestitution32(int, int, *stepContext, int) {}
 

@@ -127,7 +127,6 @@ func checksumBody(w *world, b *body) uint64 {
 	h = checksumQ(h, b.safetyFactor)
 	h = checksumQ(h, b.sleepTime)
 	h = fnvFold(h, uint64(b.flags))
-	h = checksumBool(h, b.isMarked)
 
 	// A pending island split changes the next step: it blocks sleep and
 	// picks the island to split. Only the sign of the count matters.
@@ -405,8 +404,10 @@ func Checksum(worldId WorldId) uint64 {
 	h = checksumQ(h, w.hitEventThreshold)
 	h = checksumQ(h, w.restitutionThreshold)
 	h = checksumQ(h, w.maxLinearSpeed)
-	h = checksumQ(h, w.maxContactPushSpeed)
 	h = checksumQ(h, w.contactSpeed)
+	h = fnvFold(h, uint64(w.restitutionIterations))
+	h = checksumBool(h, w.enableRestitutionPropagation)
+	h = checksumQ(h, w.contactRecycleDistance)
 	h = checksumQ(h, w.contactHertz)
 	h = checksumQ(h, w.contactDampingRatio)
 	h = checksumQ(h, w.invH)

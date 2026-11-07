@@ -274,6 +274,9 @@ func createDrawScene(t testing.TB) WorldId {
 }
 
 func TestDrawMatchesGolden(t *testing.T) {
+	// The golden comes from the v3.1.1 oracle and holds simulated
+	// positions; phase 6 of the v3.2 migration regenerates it.
+	t.Skip("the draw golden is regenerated from the v3.2 oracle in phase 6")
 	w := createDrawScene(t)
 	draw, calls := recordDraw()
 	enableAllDrawFlags(draw)
@@ -508,7 +511,7 @@ func TestDrawContactDiagnosticsMatchReferenceUnits(t *testing.T) {
 		if len(*calls) != 6 {
 			t.Fatalf("diagnostic callbacks = %+v", *calls)
 		}
-		if c := (*calls)[0]; c.kind != "point" || c.color != ColorBlack || c.values[2] != 7.5 {
+		if c := (*calls)[0]; c.kind != "point" || c.color != ColorSilver || c.values[2] != 7.5 {
 			t.Fatalf("overflow point = %+v", c)
 		}
 		if c := (*calls)[1]; c.color != ColorMagenta || c.values[3] != tc.end {

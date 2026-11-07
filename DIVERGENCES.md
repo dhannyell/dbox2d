@@ -222,7 +222,7 @@ Numbering is sequential from `D-001` and never reused.
   protect that property.
 - Test: `TestTreeQueryReportsTheOverlaps`, `TestShapeQueriesMatchBruteForce`,
   `TestSetFrictionCallbackAffectsNextContact`, and
-  `TestPreSolveFalseLetsTheBoxThrough`
+  `TestPreSolveZeroPointsLetsTheBoxThrough`
 
 ### D-015 The memory dump writes to an io.Writer
 
@@ -251,15 +251,9 @@ Numbering is sequential from `D-001` and never reused.
   caller. Callbacks run on worker goroutines and `Counters.TaskCount` reports
   the last step's tasks.
 
-  Box2D v3.1.1 has a sleep-selection tie bug: the candidate chosen inside a
-  worker depends on the order in which islands are visited, while the final
-  reduction uses the island id. As a result, the upstream `rain` scene starts
-  diverging at step 450 when the worker count changes, despite the upstream
-  documentation promising identical results for every thread count. The port
-  keeps the single-worker choice and applies it in a fixed order, so its result
-  is independent of worker count. Upstream fixed the tie after v3.1.1 in commit
-  `436365a246` (PR #1065); moving to that release will change the witnesses and
-  traces.
+  Up to v1.0.0 the port also kept its own sleep-candidate tie break, because
+  Box2D v3.1.1 picked the candidate by island visit order. Box2D v3.2.0 breaks
+  the tie by island id (upstream PR #1065), and the port follows it.
 - Test: `TestStepIsWorkerCountIndependent`,
   `TestSensorEventsAreWorkerCountIndependent`, `TestCountersReportTasks`,
   and the executor tests
@@ -289,9 +283,11 @@ Numbering is sequential from `D-001` and never reused.
 - Behaviour: frozen traces cover 17 collision/function files and 8 scene files.
   The generator uses the pinned reference without SIMD or FMA. Float function
   traces are exact except for the documented `make_rot` budget; fixed traces
-  use absolute budgets. Up to v1.0.0 float scene traces matched bit for bit
-  under the retired `dbox2d_upstream_pairs` tag (D-013); the v3.2 scene traces
-  return in migration phase 5. Fixed scene traces use
+  use absolute budgets. Float scene traces match bit for bit through every
+  step, in the default build and under `dbox2d_simd`; up to v1.0.0 they
+  needed the retired `dbox2d_upstream_pairs` tag (D-013). The `spinner`
+  motor torque is `FLT_MAX` in the reference and half of `QMaxValue` in the
+  port, a bound that never binds in either (D-009). Fixed scene traces use
   fixed-mode budgets and saturation gates. The traces also caught two port
   bugs: colored contacts used `maxContactPushSpeed` instead of `contactSpeed`,
   and grouped the normal-impulse expression differently from the reference.
@@ -307,6 +303,9 @@ Numbering is sequential from `D-001` and never reused.
 - Reason: the reference selects SIMD lanes at compile time; colors rarely
   contain a multiple of the lane width, and the port needs one scalar oracle.
 - Behaviour: `dbox2d_simd` adds a padded lane path beside the scalar path.
+  It runs the push, relax and Poisson restitution stages of
+  `src/contact_solver_wide.inl`, one lane per constraint in the order of the
+  scalar colored stages, which skip work per group of four lanes.
   Native widths are 8 on amd64 AVX2 and 4 on arm64 NEON; WebAssembly and other
   targets use a generic path, with scalar fallback where required. Padding
   never writes back. Each lane uses separate rounded multiply/add operations,
@@ -329,3 +328,18 @@ Numbering is sequential from `D-001` and never reused.
 - Test: `TestHeavyBoxRestsOnTheGround`,
   `TestStepPartitionsContactsByTheLaneWindow`, `TestQ32ContactSolverIsFresh`,
   and the conformance saturation gate
+
+### D-021 The normal velocity is sampled per contact
+
+- Files: `contact_solver.go` and `contact_solver_simd.go` (upstream
+  `b2PrepareContacts_Wide`)
+- Tier: T2
+- Reason: the reference samples the approach speed for a whole lane group
+  when any lane of the group has restitution or hit events; the port decides
+  per contact, so the result does not depend on the lane layout.
+- Behaviour: a colored contact without restitution and without hit events
+  reports a zero `ManifoldPoint.NormalVelocity`, where the reference may
+  report the sampled speed because a neighbouring lane needed it. The solver
+  reads the speed only for restitution and hit events, so the simulation is
+  unchanged.
+- Test: `TestPrepareOverflowContactsBuildsTheMasses` and the scene traces

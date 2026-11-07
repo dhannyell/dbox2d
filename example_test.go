@@ -228,11 +228,11 @@ func ExampleWorldId_SetPreSolveCallback() {
 	worldId, _, boxId := exampleWorld()
 	defer b2.DestroyWorld(worldId)
 
-	// Returning false disables the contact for the step, so the box
+	// Clearing the points disables the contact for the step, so the box
 	// keeps falling through the ground instead of resting on it.
-	worldId.SetPreSolveCallback(func(b2.ShapeId, b2.ShapeId, *b2.Manifold) bool {
-		return false
-	})
+	worldId.SetPreSolveCallback(func(_, _ b2.ShapeId, manifold *b2.Manifold) {
+		manifold.PointCount = 0
+	}, nil)
 
 	startY := boxId.GetPosition().Y
 	dt := b2.QOne().Div(b2.QFromInt(60))

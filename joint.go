@@ -32,17 +32,15 @@ type joint struct {
 
 	edges [2]jointEdge
 
-	jointId    int
-	islandId   int
-	islandPrev int
-	islandNext int
+	jointId     int
+	islandId    int
+	islandIndex int
 
 	jointType JointType
 	drawScale Q
 
 	generation uint16
 
-	isMarked         bool
 	collideConnected bool
 }
 
@@ -945,12 +943,10 @@ func createJoint(worldId WorldId, def *JointDef, jointType JointType) (*world, j
 	j.colorIndex = nullIndex
 	j.localIndex = nullIndex
 	j.islandId = nullIndex
-	j.islandPrev = nullIndex
-	j.islandNext = nullIndex
+	j.islandIndex = nullIndex
 	j.drawScale = def.DrawScale
 	j.jointType = jointType
 	j.collideConnected = def.CollideConnected
-	j.isMarked = false
 
 	// Doubly linked list on bodyA
 	j.edges[0].bodyId = bodyIdA
@@ -1087,8 +1083,7 @@ func createJoint(worldId WorldId, def *JointDef, jointType JointType) (*world, j
 
 	if j.setIndex > disabledSet {
 		// Add edge to island graph
-		mergeIslands := true
-		linkJoint(w, j, mergeIslands)
+		linkJoint(w, j)
 	}
 
 	validateSolverSetsDebug(w)

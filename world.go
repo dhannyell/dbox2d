@@ -130,12 +130,20 @@ type world struct {
 	hitEventThreshold    Q
 	restitutionThreshold Q
 	maxLinearSpeed       Q
-	maxContactPushSpeed  Q
 
-	// contactSpeed is derived from the contact tuning on each step.
-	contactSpeed        Q
-	contactHertz        Q
-	contactDampingRatio Q
+	// contactSpeed caps the overlap resolution speed.
+	contactSpeed Q
+
+	// restitutionIterations is the number of restitution passes, and
+	// enableRestitutionPropagation lets them solve every contact.
+	restitutionIterations        int
+	enableRestitutionPropagation bool
+
+	// contactRecycleDistance is the farthest a body may move relative to
+	// the other body of a contact for the contact to keep its manifold.
+	contactRecycleDistance Q
+	contactHertz           Q
+	contactDampingRatio    Q
 
 	// generation advances on each destruction of this slot, so a stale
 	// WorldId fails validation.
@@ -153,8 +161,9 @@ type world struct {
 
 	// customFilterFcn and preSolveFcn are nil unless the caller sets them,
 	// matching the reference's NULL default (no context: D-014).
-	customFilterFcn CustomFilterFcn
-	preSolveFcn     PreSolveFcn
+	customFilterFcn  CustomFilterFcn
+	preSolveFcn      PreSolveFcn
+	preContinuousFcn PreContinuousFcn
 
 	worldId uint16
 
@@ -298,6 +307,7 @@ func CreateWorld(def *WorldDef) WorldId {
 		w.taskContexts[i].contactStateBitSet = createBitSet(1024)
 		w.taskContexts[i].awakeIslandBitSet = createBitSet(256)
 		w.taskContexts[i].jointStateBitSet = createBitSet(1024)
+		w.taskContexts[i].hitEventBitSet = createBitSet(1024)
 		w.taskContexts[i].splitIslandId = nullIndex
 	}
 	w.sensorTaskContexts = make([]sensorTaskContext, w.workerCount)
@@ -327,7 +337,10 @@ func CreateWorld(def *WorldDef) WorldId {
 	w.hitEventThreshold = def.HitEventThreshold
 	w.restitutionThreshold = def.RestitutionThreshold
 	w.maxLinearSpeed = def.MaximumLinearSpeed
-	w.maxContactPushSpeed = def.MaxContactPushSpeed
+	w.contactSpeed = def.MaxContactPushSpeed.Max(QZero()).Min(QMaxValue())
+	w.restitutionIterations = min(max(def.RestitutionIterations, 0), maxRestitutionIterations)
+	w.enableRestitutionPropagation = def.EnableRestitutionPropagation
+	w.contactRecycleDistance = contactRecycleDistance
 	w.contactHertz = def.ContactHertz
 	w.contactDampingRatio = def.ContactDampingRatio
 
@@ -586,6 +599,10 @@ func validateSolverSets(w *world) {
 						if j.setIndex != staticSet {
 							panic("dbox2d: a joint of two static bodies is not static")
 						}
+					case b.bodyType != DynamicBody && otherBody.bodyType != DynamicBody:
+						if j.setIndex != staticSet {
+							panic("dbox2d: a joint of two non-dynamic bodies is not static")
+						}
 					case setIndex == awakeSet:
 						if j.setIndex != awakeSet {
 							panic("dbox2d: a joint of an awake body is not awake")
@@ -687,10 +704,10 @@ func validateSolverSets(w *world) {
 			if colorIndex < overflowIndex {
 				bodyA := &w.bodies[bodyIdA]
 				bodyB := &w.bodies[bodyIdB]
-				if color.bodySet.getBit(bodyIdA) != (bodyA.bodyType != StaticBody) {
+				if color.bodySet.getBit(bodyIdA) != (bodyA.bodyType == DynamicBody) {
 					panic("dbox2d: the color bit of body A is wrong")
 				}
-				if color.bodySet.getBit(bodyIdB) != (bodyB.bodyType != StaticBody) {
+				if color.bodySet.getBit(bodyIdB) != (bodyB.bodyType == DynamicBody) {
 					panic("dbox2d: the color bit of body B is wrong")
 				}
 			}
@@ -710,10 +727,10 @@ func validateSolverSets(w *world) {
 			if colorIndex < overflowIndex {
 				bodyA := &w.bodies[bodyIdA]
 				bodyB := &w.bodies[bodyIdB]
-				if color.bodySet.getBit(bodyIdA) != (bodyA.bodyType != StaticBody) {
+				if color.bodySet.getBit(bodyIdA) != (bodyA.bodyType == DynamicBody) {
 					panic("dbox2d: the color bit of joint body A is wrong")
 				}
-				if color.bodySet.getBit(bodyIdB) != (bodyB.bodyType != StaticBody) {
+				if color.bodySet.getBit(bodyIdB) != (bodyB.bodyType == DynamicBody) {
 					panic("dbox2d: the color bit of joint body B is wrong")
 				}
 			}
@@ -817,7 +834,59 @@ func (worldId WorldId) SetContactTuning(hertz, dampingRatio, pushSpeed Q) {
 	zero, maxValue := QZero(), QMaxValue()
 	w.contactHertz = hertz.Max(zero).Min(maxValue)
 	w.contactDampingRatio = dampingRatio.Max(zero).Min(maxValue)
-	w.maxContactPushSpeed = pushSpeed.Max(zero).Min(maxValue)
+	w.contactSpeed = pushSpeed.Max(zero).Min(maxValue)
+}
+
+// SetRestitutionIterations changes the number of restitution passes,
+// clamped to [0, 63]. It corresponds to b2World_SetRestitutionIterations in
+// src/physics_world.c.
+func (worldId WorldId) SetRestitutionIterations(iterations int) {
+	w := getWorldFromId(worldId)
+	if w.locked {
+		panic("dbox2d: the world is locked")
+	}
+	w.restitutionIterations = min(max(iterations, 0), maxRestitutionIterations)
+}
+
+// GetRestitutionIterations returns the number of restitution passes. It
+// corresponds to b2World_GetRestitutionIterations in src/physics_world.c.
+func (worldId WorldId) GetRestitutionIterations() int {
+	return getWorldFromId(worldId).restitutionIterations
+}
+
+// EnableRestitutionPropagation lets the restitution passes solve every
+// contact. It corresponds to b2World_EnableRestitutionPropagation in
+// src/physics_world.c.
+func (worldId WorldId) EnableRestitutionPropagation(flag bool) {
+	w := getWorldFromId(worldId)
+	if w.locked {
+		panic("dbox2d: the world is locked")
+	}
+	w.enableRestitutionPropagation = flag
+}
+
+// IsRestitutionPropagationEnabled reports whether the restitution passes
+// solve every contact. It corresponds to
+// b2World_IsRestitutionPropagationEnabled in src/physics_world.c.
+func (worldId WorldId) IsRestitutionPropagationEnabled() bool {
+	return getWorldFromId(worldId).enableRestitutionPropagation
+}
+
+// SetContactRecycleDistance changes the farthest relative movement that
+// keeps a contact manifold. Zero turns contact recycling off. It
+// corresponds to b2World_SetContactRecycleDistance in src/physics_world.c.
+func (worldId WorldId) SetContactRecycleDistance(recycleDistance Q) {
+	w := getWorldFromId(worldId)
+	if w.locked {
+		panic("dbox2d: the world is locked")
+	}
+	w.contactRecycleDistance = recycleDistance.Max(QZero()).Min(QMaxValue())
+}
+
+// GetContactRecycleDistance returns the contact recycle distance. It
+// corresponds to b2World_GetContactRecycleDistance in src/physics_world.c.
+func (worldId WorldId) GetContactRecycleDistance() Q {
+	return getWorldFromId(worldId).contactRecycleDistance
 }
 
 // SetMaximumLinearSpeed changes the velocity cap.
@@ -993,10 +1062,13 @@ func (worldId WorldId) SetCustomFilterCallback(fcn CustomFilterFcn) {
 }
 
 // SetPreSolveCallback sets the callback run after a contact's manifold is
-// updated, before the solver sees it. It corresponds to
-// b2World_SetPreSolveCallback in src/world.c.
-func (worldId WorldId) SetPreSolveCallback(fcn PreSolveFcn) {
-	getWorldFromId(worldId).preSolveFcn = fcn
+// updated, before the solver sees it, and the callback run on a time of
+// impact event of the continuous stage. Either may be nil. It corresponds
+// to b2World_SetPreSolveCallback in src/physics_world.c.
+func (worldId WorldId) SetPreSolveCallback(preSolveFcn PreSolveFcn, preContinuousFcn PreContinuousFcn) {
+	w := getWorldFromId(worldId)
+	w.preSolveFcn = preSolveFcn
+	w.preContinuousFcn = preContinuousFcn
 }
 
 // RebuildStaticTree rebuilds the static broad-phase tree.
@@ -1040,6 +1112,11 @@ type taskContext struct {
 	// jointStateBitSet marks the joints whose reaction crossed a threshold,
 	// by joint id.
 	jointStateBitSet bitSet
+
+	// hitEventBitSet marks the contacts with a hit event candidate, by
+	// contact id; hasHitEvents is set with the first bit.
+	hitEventBitSet bitSet
+	hasHitEvents   bool
 
 	// bulletBodies is the slice of the step's bullet buffer that covers
 	// this worker's body range; the ranges never overlap.
@@ -1138,11 +1215,7 @@ func validateConnectivity(w *world) {
 			panic("dbox2d: the body id does not match its slot")
 		}
 
-		// Islands merge on the next step, so compare the roots.
-		bodyIslandId := nullIndex
-		if b.islandId != nullIndex {
-			_, bodyIslandId = findRootIsland(w, b.islandId)
-		}
+		bodyIslandId := b.islandId
 		bodySetIndex := b.setIndex
 
 		contactKey := b.headContactKey
@@ -1154,8 +1227,7 @@ func validateConnectivity(w *world) {
 			touching := c.flags&contactTouchingFlag != 0
 			if touching {
 				if bodySetIndex != staticSet {
-					_, contactIslandId := findRootIsland(w, c.islandId)
-					if contactIslandId != bodyIslandId {
+					if c.islandId != bodyIslandId {
 						panic("dbox2d: a touching contact and its body are in different islands")
 					}
 				}
@@ -1186,9 +1258,12 @@ func validateConnectivity(w *world) {
 				if otherBody.setIndex == staticSet && j.islandId != nullIndex {
 					panic("dbox2d: a joint of two static bodies has an island")
 				}
+			case b.bodyType != DynamicBody && otherBody.bodyType != DynamicBody:
+				if j.islandId != nullIndex {
+					panic("dbox2d: a joint of two non-dynamic bodies has an island")
+				}
 			default:
-				_, jointIslandId := findRootIsland(w, j.islandId)
-				if jointIslandId != bodyIslandId {
+				if j.islandId != bodyIslandId {
 					panic("dbox2d: a joint and its body are in different islands")
 				}
 			}
@@ -1865,8 +1940,11 @@ func drawWorldMass(draw *DebugDraw, w *world) {
 }
 
 var graphColors = [graphColorCount]HexColor{
-	ColorRed, ColorOrange, ColorYellow, ColorGreen, ColorCyan, ColorBlue,
-	ColorViolet, ColorPink, ColorChocolate, ColorGoldenRod, ColorCoral, ColorBlack,
+	ColorRed, ColorOrange, ColorYellow, ColorLimeGreen, ColorSpringGreen,
+	ColorAqua, ColorDodgerBlue, ColorBlueViolet, ColorMagenta, ColorDeepPink,
+	ColorCrimson, ColorCoral, ColorGold, ColorGreenYellow, ColorMediumSeaGreen,
+	ColorTurquoise, ColorDeepSkyBlue, ColorCornflowerBlue, ColorMediumSlateBlue, ColorMediumOrchid,
+	ColorHotPink, ColorTomato, ColorKhaki, ColorSilver,
 }
 
 // drawNumber keeps the reference's decimal labels without converting Q to float.
@@ -2048,7 +2126,7 @@ func drawIslands(draw *DebugDraw, w *world) {
 		}
 		var bounds AABB
 		shapeCount := 0
-		for bodyID := island.headBody; bodyID != nullIndex; bodyID = w.bodies[bodyID].islandNext {
+		for _, bodyID := range island.bodies {
 			for shapeID := w.bodies[bodyID].headShapeId; shapeID != nullIndex; shapeID = w.shapes[shapeID].nextShapeId {
 				if shapeCount == 0 {
 					bounds = w.fatAABBs[shapeID]

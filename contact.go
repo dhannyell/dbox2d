@@ -9,6 +9,10 @@ const (
 
 	// contactEnableContactEvents marks a contact that wants contact events.
 	contactEnableContactEvents uint32 = 0x0004
+
+	// contactRecycleFlag marks a contact whose bodies both enable contact
+	// recycling. The contact sim inherits it.
+	contactRecycleFlag uint32 = 0x0008
 )
 
 // Contact sim flags, shifted to be distinct from the contact flags. They
@@ -32,6 +36,10 @@ const (
 
 	// simEnablePreSolveEvents marks a contact that wants pre-solve events.
 	simEnablePreSolveEvents uint32 = 0x00200000
+
+	// simRelativeTransformValid is set when the contact cached the relative
+	// transform of its bodies for recycling.
+	simRelativeTransformValid uint32 = 0x00400000
 )
 
 // contactEdge connects a body to a contact inside the contact graph. Each
@@ -61,11 +69,9 @@ type contact struct {
 	shapeIdA int
 	shapeIdB int
 
-	// A contact belongs to an island only when touching. The island fields
-	// stay nullIndex until the island stage lands.
-	islandPrev int
-	islandNext int
-	islandId   int
+	// A contact belongs to an island only when touching.
+	islandId    int
+	islandIndex int
 
 	contactId int
 
@@ -74,8 +80,6 @@ type contact struct {
 	// generation advances each time a contact takes this slot. It lets a
 	// ContactId detect a destroyed contact.
 	generation uint32
-
-	isMarked bool
 }
 
 // contactIdOf builds the public id of a live contact.
@@ -173,6 +177,12 @@ type contactSim struct {
 	simFlags uint32
 
 	cache SimplexCache
+
+	// The body rotations and the relative transform at the last manifold
+	// update, for contact recycling.
+	cachedRotationA    Rot
+	cachedRotationB    Rot
+	cachedRelativePose Transform
 }
 
 // manifoldFcn computes the manifold of one ordered shape type pair. It
@@ -327,12 +337,15 @@ func createContact(w *world, shapeA, shapeB *shape) {
 	c.colorIndex = nullIndex
 	c.localIndex = len(set.contactSims)
 	c.islandId = nullIndex
-	c.islandPrev = nullIndex
-	c.islandNext = nullIndex
+	c.islandIndex = nullIndex
 	c.shapeIdA = shapeIdA
 	c.shapeIdB = shapeIdB
-	c.isMarked = false
 	c.flags = 0
+
+	// Both bodies must enable recycling
+	if bodyA.flags&bodyEnableContactRecycling != 0 && bodyB.flags&bodyEnableContactRecycling != 0 {
+		c.flags |= contactRecycleFlag
+	}
 
 	if shapeA.sensorIndex != nullIndex || shapeB.sensorIndex != nullIndex {
 		panic("dbox2d: a sensor shape cannot receive a contact")
@@ -391,6 +404,9 @@ func createContact(w *world, shapeA, shapeB *shape) {
 	// The narrowphase keeps these updated as well.
 	cs.friction = w.frictionCallback(shapeA.friction, shapeA.userMaterialId, shapeB.friction, shapeB.userMaterialId)
 	cs.restitution = w.restitutionCallback(shapeA.restitution, shapeA.userMaterialId, shapeB.restitution, shapeB.userMaterialId)
+
+	// The sim inherits the contact flags, the recycle flag among them.
+	cs.simFlags = c.flags
 
 	if shapeA.enablePreSolveEvents || shapeB.enablePreSolveEvents {
 		cs.simFlags |= simEnablePreSolveEvents
@@ -563,10 +579,15 @@ func updateContact(w *world, cs *contactSim, shapeA *shape, transformA Transform
 		idB := ShapeId{index1: int32(shapeB.id) + 1, world0: w.worldId, generation: shapeB.generation}
 
 		// This call assumes thread safety.
-		touching = w.preSolveFcn(idA, idB, &cs.manifold)
+		w.preSolveFcn(idA, idB, &cs.manifold)
+
+		// Keep these current.
+		pointCount = cs.manifold.PointCount
+		touching = pointCount > 0
+
+		// Mark recycling dirty.
 		if !touching {
-			pointCount = 0
-			cs.manifold.PointCount = 0
+			cs.simFlags &^= simRelativeTransformValid
 		}
 	}
 
@@ -615,10 +636,6 @@ func updateContact(w *world, cs *contactSim, shapeA *shape, transformA Transform
 				mp2.NormalImpulse = mp1.NormalImpulse
 				mp2.TangentImpulse = mp1.TangentImpulse
 				mp2.Persisted = true
-
-				// Clear the old impulse, so a duplicate id cannot reuse it.
-				mp1.NormalImpulse = zero
-				mp1.TangentImpulse = zero
 				break
 			}
 		}

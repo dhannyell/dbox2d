@@ -29,13 +29,13 @@ type conformanceToleranceConfig struct {
 }
 
 // conformanceScenesBitExact gates every scene to the exact hash in float
-// mode. The scene traces stay at v3.1.1 until phase 5 of the v3.2
-// migration, so the gate is off.
-const conformanceScenesBitExact = false
+// mode, through the whole trace.
+const conformanceScenesBitExact = true
 
 // conformanceTolerance defines the per-trace conformance budgets.
 // Function traces use ulps in float mode and abs in fixed mode.
-// Scene step 1 uses abs in fixed mode and absFloat in float mode.
+// Scene step 1 uses abs in fixed mode; float mode matches every scene bit
+// for bit (conformanceScenesBitExact).
 var conformanceTolerance = map[string]conformanceToleranceConfig{
 	"collide_capsules.txt":                  {ulps: 0, abs: 2e-6},               // precision
 	"collide_capsule_and_circle.txt":        {ulps: 0, abs: 1e-5},               // precision
@@ -54,14 +54,14 @@ var conformanceTolerance = map[string]conformanceToleranceConfig{
 	"compute_hull.txt":                      {ulps: 0, abs: 0},                  // exact after cyclic alignment
 	"make_rot.txt":                          {ulps: 1328, abs: 4e-3},            // ulps: D-004; abs: D-017 (CORDIC vs Bhaskara)
 	"atan2.txt":                             {ulps: 0, abs: 6e-5},               // abs: D-017 (CORDIC vs polynomial)
-	"falling_hinges.txt":                    {abs: 4e-3, absFloat: 1e-5},        // abs: D-017 (rotation from an angle); absFloat and no hash gate until phase 5: v3.2 relative-frame collision and the v3.2 revolute solve move step 1 against this v3.1.1 trace
-	"joint_grid.txt":                        {hashSteps: 500},                   // no step-1 dump; count and hash only; hash equal through step 500 in float mode
+	"falling_hinges.txt":                    {abs: 4e-3},                        // abs: D-017 (rotation from an angle)
+	"joint_grid.txt":                        {},                                 // no step-1 dump; count and hash only
 	"large_pyramid.txt":                     {},                                 // no step-1 dump; count and hash only
 	"many_pyramids.txt":                     {},                                 // no step-1 dump; count and hash only
-	"rain.txt":                              {abs: 1e-2, absFloat: 1e-2},        // until phase 5: the v3.2 revolute solve (spring, motor and limit feed-forward) moves the ragdolls from step 1 against this v3.1.1 trace
-	"smash.txt":                             {hashSteps: 69},                    // no step-1 dump; count and hash only; hash equal through step 69 in float mode
-	"spinner.txt":                           {abs: 1e-2, absFloat: 1e-2},        // v3.1.1 trace: the colored set of the bar contacts differs (D-013, retired)
-	"tumbler.txt":                           {abs: 2e-5, hashSteps: 6},          // precision; exact at step 1 and hash equal through step 6 in float mode
+	"rain.txt":                              {abs: 4e-5},                        // precision
+	"smash.txt":                             {},                                 // no step-1 dump; count and hash only
+	"spinner.txt":                           {},                                 // no step-1 dump; count and hash only
+	"tumbler.txt":                           {abs: 2e-5},                        // precision
 }
 
 type conformanceTraceFloat struct {
@@ -737,10 +737,7 @@ func TestConformance(t *testing.T) {
 	if _, err := os.Stat(root); err != nil {
 		t.Fatalf("conformance traces are expected in %s: %v", root, err)
 	}
-	// The function traces come from the v3.2.0 reference in format v2. The
-	// scene traces stay at v3.1.1 until the solver is ported.
-	functionRoot := filepath.Join("testdata", "conformance-v320")
-	functionPaths, err := filepath.Glob(filepath.Join(functionRoot, "functions", "*.txt"))
+	functionPaths, err := filepath.Glob(filepath.Join(root, "functions", "*.txt"))
 	if err != nil {
 		t.Fatalf("find function conformance traces: %v", err)
 	}
@@ -904,7 +901,9 @@ func runConformanceSceneTrace(t *testing.T, name, path string, floatMode bool) {
 				}
 			}
 		}
-		if name == "falling_hinges.txt" && portSleepStep == 0 && worldId.GetAwakeBodyCount() == 0 {
+		// The reference marks sleep on the first step without move events,
+		// one step after the island falls asleep.
+		if name == "falling_hinges.txt" && portSleepStep == 0 && len(worldId.GetBodyEvents().MoveEvents) == 0 {
 			portSleepStep = step
 		}
 	}

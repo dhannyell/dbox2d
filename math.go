@@ -1,5 +1,11 @@
 package b2
 
+// relativeCos returns the cosine of the angle between two rotations. It
+// corresponds to b2RelativeCos in src/physics_world.c.
+func relativeCos(a, b Rot) Q {
+	return a.Cos.Mul(b.Cos).Add(a.Sin.Mul(b.Sin))
+}
+
 // The scalar, the vector and the rotation come from the scalar layer
 // (scalar_fixed.go). This file adds the shapes and the operations that
 // layer lacks.

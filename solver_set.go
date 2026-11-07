@@ -193,8 +193,8 @@ func trySleepIsland(w *world, islandId int) {
 		panic("dbox2d: only an awake island sleeps")
 	}
 
-	// cannot put an island to sleep while it has a pending split
-	if isl.constraintRemoveCount > 0 {
+	// Cannot put an island to sleep while it has a pending split and more than one body.
+	if isl.constraintRemoveCount > 0 && len(isl.bodies) > 1 {
 		return
 	}
 
@@ -220,18 +220,17 @@ func trySleepIsland(w *world, islandId int) {
 	}
 
 	sleepSet.setIndex = sleepSetId
-	sleepSet.bodySims = takeSpare(&w.spareSet.bodySims, isl.bodyCount)
-	sleepSet.contactSims = takeSpare(&w.spareSet.contactSims, isl.contactCount)
-	sleepSet.jointSims = takeSpare(&w.spareSet.jointSims, isl.jointCount)
+	sleepSet.bodySims = takeSpare(&w.spareSet.bodySims, len(isl.bodies))
+	sleepSet.contactSims = takeSpare(&w.spareSet.contactSims, len(isl.contacts))
+	sleepSet.jointSims = takeSpare(&w.spareSet.jointSims, len(isl.joints))
 
 	// move awake bodies to sleeping set
 	// this shuffles around bodies in the awake set
 	{
 		disabled := &w.solverSets[disabledSet]
-		bodyId := isl.headBody
-		for bodyId != nullIndex {
+		for i, bodyId := range isl.bodies {
 			b := &w.bodies[bodyId]
-			if b.setIndex != awakeSet || b.islandId != islandId {
+			if b.setIndex != awakeSet || b.islandId != islandId || b.islandIndex != i {
 				panic("dbox2d: a body of the island is not awake in it")
 			}
 
@@ -336,17 +335,14 @@ func trySleepIsland(w *world, islandId int) {
 					movedContact.localIndex = localIndex
 				}
 			}
-
-			bodyId = b.islandNext
 		}
 	}
 
 	// move touching contacts
 	// this shuffles contacts in the awake set
 	{
-		contactId := isl.headContact
-		for contactId != nullIndex {
-			c := &w.contacts[contactId]
+		for i := range isl.contacts {
+			c := &w.contacts[isl.contacts[i].contactId]
 			if c.setIndex != awakeSet || c.islandId != islandId {
 				panic("dbox2d: a contact of the island is not awake in it")
 			}
@@ -385,17 +381,14 @@ func trySleepIsland(w *world, islandId int) {
 			c.setIndex = sleepSetId
 			c.colorIndex = nullIndex
 			c.localIndex = sleepContactIndex
-
-			contactId = c.islandNext
 		}
 	}
 
 	// move joints
 	// this shuffles joints in the awake set
 	{
-		jointId := isl.headJoint
-		for jointId != nullIndex {
-			j := &w.joints[jointId]
+		for i := range isl.joints {
+			j := &w.joints[isl.joints[i].jointId]
 			if j.setIndex != awakeSet || j.islandId != islandId {
 				panic("dbox2d: a joint of the island is not awake in it")
 			}
@@ -435,8 +428,6 @@ func trySleepIsland(w *world, islandId int) {
 			j.setIndex = sleepSetId
 			j.colorIndex = nullIndex
 			j.localIndex = sleepJointIndex
-
-			jointId = j.islandNext
 		}
 	}
 

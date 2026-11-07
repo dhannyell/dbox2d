@@ -51,7 +51,6 @@ func sleepPair(t *testing.T, w *world, worldId WorldId) (idA, idB BodyId, sleepI
 	idA = addDynamicCircle(t, worldId, v2(0, 0))
 	idB = addDynamicCircle(t, worldId, v2(1, 0))
 	startTouching(t, w, idA, idB)
-	mergeAwakeIslands(w)
 
 	bodyA := getBodyFullId(w, idA)
 	trySleepIsland(w, bodyA.islandId)

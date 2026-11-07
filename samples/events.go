@@ -930,7 +930,8 @@ func NewPlatformer(ctx *SampleContext) Sample {
 		ctx.Camera.Zoom = 25 * 0.4
 	}
 
-	s.WorldId.SetPreSolveCallback(s.preSolve)
+	// v3.2: the pre-solve disables a contact by clearing its points.
+	s.WorldId.SetPreSolveCallback(s.preSolve, nil)
 
 	// Ground
 	{
@@ -1003,7 +1004,7 @@ func NewPlatformer(ctx *SampleContext) Sample {
 // simultaneously. It reads only fields that stay fixed after construction
 // and does not try to access any values in the world that may be changing,
 // such as contact data.
-func (s *Platformer) preSolve(shapeIdA, shapeIdB b2.ShapeId, manifold *b2.Manifold) bool {
+func (s *Platformer) preSolve(shapeIdA, shapeIdB b2.ShapeId, manifold *b2.Manifold) {
 	sampleAssert(shapeIdA.IsValid(), "platformer pre-solve shape A is invalid")
 	sampleAssert(shapeIdB.IsValid(), "platformer pre-solve shape B is invalid")
 
@@ -1014,12 +1015,12 @@ func (s *Platformer) preSolve(shapeIdA, shapeIdB b2.ShapeId, manifold *b2.Manifo
 		sign = b2.QOne()
 	} else {
 		// not colliding with the player, enable contact
-		return true
+		return
 	}
 
 	normal := manifold.Normal
 	if sign.Mul(normal.Y).Greater(b2.F(0.95)) {
-		return true
+		return
 	}
 
 	separation := b2.QZero()
@@ -1032,11 +1033,11 @@ func (s *Platformer) preSolve(shapeIdA, shapeIdB b2.ShapeId, manifold *b2.Manifo
 
 	if separation.Greater(b2.F(0.1).Mul(s.radius)) {
 		// shallow overlap
-		return true
+		return
 	}
 
 	// normal points down, disable contact
-	return false
+	manifold.PointCount = 0
 }
 
 func (s *Platformer) UpdateGui() {

@@ -187,8 +187,12 @@ type ManifoldPoint struct {
 	TotalNormalImpulse Q
 
 	// NormalVelocity is the relative normal velocity before the solve. It
-	// feeds the hit events. A negative value means the shapes approach.
+	// feeds the hit events. A negative value means the shapes approach. It
+	// is only computed for contacts with hit events or restitution.
 	NormalVelocity Q
+
+	// BaseSeparation is the separation cached for contact recycling.
+	BaseSeparation Q
 
 	// Id identifies the contact point between the two shapes.
 	Id uint16

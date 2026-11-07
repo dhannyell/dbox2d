@@ -22,6 +22,10 @@ const (
 	stageStoreImpulses
 )
 
+// laneGroupWidth is the lane count of the reference build the traces come
+// from: four scalar lanes, under BOX2D_DISABLE_SIMD.
+const laneGroupWidth = 4
+
 type solverBlockType int
 
 const (
@@ -94,11 +98,6 @@ func integrateVelocitiesTask(startIndex, endIndex int, context *stepContext) {
 
 	gravity := context.world.gravity
 	h := context.h
-	maxLinearSpeed := context.maxLinearVelocity
-	// D-004: MaxRotation is in turns; one turn scales it to radians exactly.
-	maxAngularSpeed := maxRotation.Mul(tau).Mul(context.invDt)
-	maxLinearSpeedSquared := maxLinearSpeed.Mul(maxLinearSpeed)
-	maxAngularSpeedSquared := maxAngularSpeed.Mul(maxAngularSpeed)
 
 	zero := QZero()
 	one := QOne()
@@ -128,11 +127,46 @@ func integrateVelocitiesTask(startIndex, endIndex int, context *stepContext) {
 		linearVelocityDelta := sim.force.Mul(h.Mul(sim.invMass)).Add(gravity.Mul(h.Mul(gravityScale)))
 		angularVelocityDelta := h.Mul(sim.invInertia).Mul(sim.torque)
 
-		v = Vec2{
+		state.linearVelocity = Vec2{
 			X: linearVelocityDelta.X.Add(linearDamping.scale(v.X)),
 			Y: linearVelocityDelta.Y.Add(linearDamping.scale(v.Y)),
 		}
-		omega = angularVelocityDelta.Add(angularDamping.scale(omega))
+		state.angularVelocity = angularVelocityDelta.Add(angularDamping.scale(omega))
+	}
+}
+
+// integratePositionsTask applies the motion locks and the speed limits, then
+// advances the position deltas of the awake bodies by the sub-step time. It
+// corresponds to b2IntegratePositionsTask in src/solver.c.
+func integratePositionsTask(startIndex, endIndex int, context *stepContext) {
+	states := context.states
+	h := context.h
+	maxLinearSpeed := context.maxLinearVelocity
+	// D-004: MaxRotation is in turns; one turn scales it to radians exactly.
+	maxAngularSpeed := maxRotation.Mul(tau).Mul(context.invDt)
+	maxLinearSpeedSquared := maxLinearSpeed.Mul(maxLinearSpeed)
+	maxAngularSpeedSquared := maxAngularSpeed.Mul(maxAngularSpeed)
+
+	if endIndex < startIndex {
+		panic("dbox2d: the task range is inverted")
+	}
+
+	for i := startIndex; i < endIndex; i++ {
+		state := &states[i]
+
+		v := state.linearVelocity
+		omega := state.angularVelocity
+
+		// Motion locks - these can be viewed as a constraint that comes last
+		if state.flags&bodyLockLinearX != 0 {
+			v.X = QZero()
+		}
+		if state.flags&bodyLockLinearY != 0 {
+			v.Y = QZero()
+		}
+		if state.flags&bodyLockAngularZ != 0 {
+			omega = QZero()
+		}
 
 		// Clamp to max linear speed
 		if maxLinearSpeedSquared.Less(v.Dot(v)) {
@@ -142,7 +176,7 @@ func integrateVelocitiesTask(startIndex, endIndex int, context *stepContext) {
 		}
 
 		// Clamp to max angular speed
-		if maxAngularSpeedSquared.Less(omega.Mul(omega)) && sim.flags&bodyAllowFastRotation == 0 {
+		if maxAngularSpeedSquared.Less(omega.Mul(omega)) && state.flags&bodyAllowFastRotation == 0 {
 			ratio := maxAngularSpeed.Div(omega.Abs())
 			omega = omega.Mul(ratio)
 			state.flags |= bodyIsSpeedCapped
@@ -150,38 +184,8 @@ func integrateVelocitiesTask(startIndex, endIndex int, context *stepContext) {
 
 		state.linearVelocity = v
 		state.angularVelocity = omega
-	}
-}
-
-// integratePositionsTask advances the position deltas of the awake bodies by
-// the sub-step time. It corresponds to b2IntegratePositionsTask in
-// src/solver.c.
-func integratePositionsTask(startIndex, endIndex int, context *stepContext) {
-	states := context.states
-	h := context.h
-
-	if endIndex < startIndex {
-		panic("dbox2d: the task range is inverted")
-	}
-
-	for i := startIndex; i < endIndex; i++ {
-		state := &states[i]
-
-		// Motion locks - these can be viewed as a constraint that comes last
-		if state.flags&bodyAllLocks != 0 {
-			if state.flags&bodyLockLinearX != 0 {
-				state.linearVelocity.X = QZero()
-			}
-			if state.flags&bodyLockLinearY != 0 {
-				state.linearVelocity.Y = QZero()
-			}
-			if state.flags&bodyLockAngularZ != 0 {
-				state.angularVelocity = QZero()
-			}
-		}
-
-		state.deltaRotation = integrateRotation(state.deltaRotation, h.Mul(state.angularVelocity))
-		state.deltaPosition = MulAdd(state.deltaPosition, h, state.linearVelocity)
+		state.deltaPosition = MulAdd(state.deltaPosition, h, v)
+		state.deltaRotation = integrateRotation(state.deltaRotation, h.Mul(omega))
 	}
 }
 
@@ -194,7 +198,7 @@ func executeBlock(stage *solverStage, context *stepContext, block *solverBlock, 
 	case stagePrepareJoints:
 		prepareJointsTask(startIndex, endIndex, context)
 	case stagePrepareContacts:
-		runContactStageBlock(stage, context, startIndex, endIndex)
+		runContactStageBlock(stage, context, startIndex, endIndex, workerIndex)
 	case stageIntegrateVelocities:
 		integrateVelocitiesTask(startIndex, endIndex, context)
 	case stageWarmStart:
@@ -225,7 +229,7 @@ func executeBlock(stage *solverStage, context *stepContext, block *solverBlock, 
 			runGraphContactBlock(stage, context, startIndex, endIndex)
 		}
 	case stageStoreImpulses:
-		runContactStageBlock(stage, context, startIndex, endIndex)
+		runContactStageBlock(stage, context, startIndex, endIndex, workerIndex)
 	}
 }
 
@@ -337,6 +341,7 @@ func solverMainTask(context *stepContext) {
 	syncBits := uint32(jointSyncIndex)<<16 | uint32(stageIndex)
 	executeMainStage(&stages[stageIndex], context, syncBits)
 	stageIndex += 1
+	jointSyncIndex += 1
 
 	contactSyncIndex := 1
 	syncBits = uint32(contactSyncIndex)<<16 | uint32(stageIndex)
@@ -371,7 +376,7 @@ func solverMainTask(context *stepContext) {
 
 		useBias := true
 		solveOverflowJoints(context, useBias)
-		solveOverflowContacts(context, useBias)
+		pushOverflowContacts(context)
 		for range activeColorCount {
 			syncBits = uint32(graphSyncIndex)<<16 | uint32(iterStageIndex)
 			executeMainStage(&stages[iterStageIndex], context, syncBits)
@@ -388,7 +393,7 @@ func solverMainTask(context *stepContext) {
 
 		useBias = false
 		solveOverflowJoints(context, useBias)
-		solveOverflowContacts(context, useBias)
+		solveOverflowContacts(context)
 		for range activeColorCount {
 			syncBits = uint32(graphSyncIndex)<<16 | uint32(iterStageIndex)
 			executeMainStage(&stages[iterStageIndex], context, syncBits)
@@ -399,15 +404,22 @@ func solverMainTask(context *stepContext) {
 	}
 
 	stageIndex += 2 + 3*activeColorCount
-	applyOverflowRestitution(context)
-	iterStageIndex := stageIndex
-	for range activeColorCount {
-		syncBits = uint32(graphSyncIndex)<<16 | uint32(iterStageIndex)
-		executeMainStage(&stages[iterStageIndex], context, syncBits)
-		iterStageIndex += 1
+
+	restitutionIterations := context.world.restitutionIterations
+	if restitutionIterations > 0 && context.anyRestitution.Load() {
+		for range restitutionIterations {
+			applyOverflowRestitution(context)
+			iterStageIndex := stageIndex
+			for range activeColorCount {
+				syncBits = uint32(graphSyncIndex)<<16 | uint32(iterStageIndex)
+				executeMainStage(&stages[iterStageIndex], context, syncBits)
+				iterStageIndex += 1
+			}
+			graphSyncIndex += 1
+		}
+		context.world.profile.ApplyRestitution += millisecondsAndReset(&ticks)
 	}
 	stageIndex += activeColorCount
-	context.world.profile.ApplyRestitution += millisecondsAndReset(&ticks)
 
 	storeOverflowImpulses(context)
 	storeImpulses32(context)
@@ -460,6 +472,7 @@ type continuousContext struct {
 	centroid1       Vec2
 	centroid2       Vec2
 	sweep           Sweep
+	base            Vec2
 	fraction        Q
 	sensorHits      [maxContinuousSensorHits]sensorHit
 	sensorFractions [maxContinuousSensorHits]Q
@@ -538,9 +551,9 @@ func (ctx *continuousContext) queryCallback(_ int, userData uint64) bool {
 		}
 	}
 
-	// Prevent pausing on chain segment junctions
+	// Early out on fast parallel movement over a chain shape.
 	if s.shapeType == ChainSegmentShape {
-		transform := sim.transform
+		transform := Transform{P: sim.transform.P.Sub(ctx.base), Q: sim.transform.Q}
 		p1 := TransformPoint(transform, s.chainSegment().Segment.Point1)
 		p2 := TransformPoint(transform, s.chainSegment().Segment.Point2)
 		e := p2.Sub(p1)
@@ -548,13 +561,13 @@ func (ctx *continuousContext) queryCallback(_ int, userData uint64) bool {
 		length, e = GetLengthAndNormalize(e)
 		if linearSlop.Less(length) {
 			c1 := ctx.centroid1
-			offset1 := Cross(c1.Sub(p1), e)
+			separation1 := Cross(c1.Sub(p1), e)
 			c2 := ctx.centroid2
-			offset2 := Cross(c2.Sub(p1), e)
+			separation2 := Cross(c2.Sub(p1), e)
 
-			// todo this should use the min extent of the fast shape, not the body
-			allowedFraction := oneQuarter
-			if offset1.Less(zero) || offset1.Sub(offset2).Less(allowedFraction.Mul(fastBodySim.minExtent)) {
+			coreDistance := oneQuarter.Mul(fastBodySim.minExtent)
+
+			if separation1.Less(zero) || (separation1.Sub(separation2).Less(coreDistance) && coreDistance.Less(separation2)) {
 				// Minimal clipping
 				return true
 			}
@@ -564,7 +577,7 @@ func (ctx *continuousContext) queryCallback(_ int, userData uint64) bool {
 	var input TOIInput
 	input.ProxyA = makeShapeDistanceProxy(s)
 	input.ProxyB = makeShapeDistanceProxy(fastShape)
-	input.SweepA = makeSweep(sim)
+	input.SweepA = makeRelativeSweep(sim, ctx.base)
 	input.SweepB = ctx.sweep
 	input.MaxFraction = ctx.fraction
 
@@ -602,16 +615,13 @@ func (ctx *continuousContext) queryCallback(_ int, userData uint64) bool {
 		}
 	}
 
-	if didHit && (s.enablePreSolveEvents || fastShape.enablePreSolveEvents) && w.preSolveFcn != nil {
-		// Pre-solve is expensive: it needs a temporary manifold. The user
-		// may edit it, but only the real manifold of the discrete solver
-		// matters, so the edit here has no effect.
-		transformA := GetSweepTransform(&input.SweepA, hitFraction)
-		transformB := GetSweepTransform(&input.SweepB, hitFraction)
-		manifold := computeManifold(s, transformA, fastShape, transformB)
+	if didHit && (s.enablePreSolveEvents || fastShape.enablePreSolveEvents) && w.preContinuousFcn != nil {
 		idA := ShapeId{index1: int32(s.id) + 1, world0: w.worldId, generation: s.generation}
 		idB := ShapeId{index1: int32(fastShape.id) + 1, world0: w.worldId, generation: fastShape.generation}
-		didHit = w.preSolveFcn(idA, idB, &manifold)
+
+		// TOI runs in the base frame, lift the hit point back to world for the callback
+		worldPoint := ctx.base.Add(output.Point)
+		didHit = w.preContinuousFcn(idA, idB, worldPoint, output.Normal)
 	}
 
 	if didHit {
@@ -624,14 +634,16 @@ func (ctx *continuousContext) queryCallback(_ int, userData uint64) bool {
 // solveContinuous sweeps one fast body against the static tree, or
 // against every tree for a bullet, and moves the body back to its first
 // time of impact. It corresponds to b2SolveContinuous in src/solver.c.
-func solveContinuous(w *world, bodySimIndex int, taskContext *taskContext) {
+func solveContinuous(w *world, bodySimIndex int, taskContext *taskContext, dt Q) {
 	awake := &w.solverSets[awakeSet]
 	fastBodySim := &awake.bodySims[bodySimIndex]
 	if fastBodySim.flags&bodyIsFast == 0 {
 		panic("dbox2d: the continuous stage got a slow body")
 	}
 
-	sweep := makeSweep(fastBodySim)
+	// Re-center the sweep on the fast body so the TOI and the swept query stay in precision
+	base := fastBodySim.center0
+	sweep := makeRelativeSweep(fastBodySim, base)
 
 	var xf1 Transform
 	xf1.Q = sweep.Q1
@@ -649,6 +661,7 @@ func solveContinuous(w *world, bodySimIndex int, taskContext *taskContext) {
 	var ctx continuousContext
 	ctx.world = w
 	ctx.sweep = sweep
+	ctx.base = base
 	ctx.fastBodySim = fastBodySim
 	ctx.fraction = QOne()
 
@@ -664,8 +677,8 @@ func solveContinuous(w *world, bodySimIndex int, taskContext *taskContext) {
 		ctx.centroid2 = TransformPoint(xf2, fastShape.localCentroid)
 
 		box1 := fastShape.aabb
-		box2 := computeShapeAABB(fastShape, xf2)
-		box := AABBUnion(box1, box2)
+		// xf2 is in the base frame, compute the tight box near the origin then lift to world
+		box2 := offsetAABB(computeShapeAABB(fastShape, xf2), base)
 
 		// Store this to avoid double computation in the case there is no impact event
 		fastShape.aabb = box2
@@ -674,6 +687,8 @@ func solveContinuous(w *world, bodySimIndex int, taskContext *taskContext) {
 		if fastShape.sensorIndex != nullIndex {
 			continue
 		}
+
+		box := AABBUnion(box1, box2)
 
 		staticTree.overlapAABB(box, DefaultMaskBits, ctx.queryCallback)
 
@@ -689,12 +704,28 @@ func solveContinuous(w *world, bodySimIndex int, taskContext *taskContext) {
 		c := Lerp(sweep.C1, sweep.C2, ctx.fraction)
 		origin := c.Sub(RotateVector(q, sweep.LocalCenter))
 
-		// Advance body
-		transform := Transform{P: origin, Q: q}
+		// Advance body, lifting the base frame result back to world
+		transform := Transform{P: base.Add(origin), Q: q}
 		fastBodySim.transform = transform
-		fastBodySim.center = c
+		fastBodySim.center = base.Add(c)
 		fastBodySim.rotation0 = q
-		fastBodySim.center0 = c
+		fastBodySim.center0 = fastBodySim.center
+
+		// Warning: writing to the body sim flags means we should not read from other body sim flags in this function.
+		fastBodySim.flags |= bodyHadTimeOfImpact
+
+		// Timeloss means there is a lost gravity contribution. Other forces and torques are ignored for now.
+		fastBodyState := &awake.bodyStates[bodySimIndex]
+		v := fastBodyState.linearVelocity
+		timeLoss := QOne().Sub(ctx.fraction).Mul(dt)
+		dv := w.gravity.Mul(timeLoss.Neg().Mul(fastBodySim.gravityScale))
+		if fastBodyState.flags&bodyLockLinearX != 0 {
+			dv.X = QZero()
+		}
+		if fastBodyState.flags&bodyLockLinearY != 0 {
+			dv.Y = QZero()
+		}
+		fastBodyState.linearVelocity = v.Add(dv)
 
 		// Update body move event
 		w.bodyMoveEvents[bodySimIndex].Transform = transform
@@ -867,7 +898,7 @@ func finalizeBodiesTask(startIndex, endIndex, workerIndex int, context *stepCont
 					taskContext.bulletBodies[taskContext.bulletBodyCount] = simIndex
 					taskContext.bulletBodyCount++
 				} else {
-					solveContinuous(w, simIndex, taskContext)
+					solveContinuous(w, simIndex, taskContext, context.dt)
 				}
 			} else {
 				// Body is safe to advance
@@ -888,9 +919,11 @@ func finalizeBodiesTask(startIndex, endIndex, workerIndex int, context *stepCont
 			islandIndex := isl.localIndex
 			awakeIslandBitSet.setBit(islandIndex)
 		} else if isl.constraintRemoveCount > 0 {
-			// body wants to sleep but its island needs splitting first
-			if taskContext.splitSleepTime.Less(b.sleepTime) {
-				// pick the sleepiest candidate
+			// Body wants to sleep but its island needs splitting first. Track
+			// the sleepiest candidate. Break sleep time ties using the island
+			// id to ensure determinism. The cross worker reduction breaks ties
+			// the same way.
+			if taskContext.splitSleepTime.Less(b.sleepTime) || (b.sleepTime.Eq(taskContext.splitSleepTime) && b.islandId > taskContext.splitIslandId) {
 				taskContext.splitIslandId = b.islandId
 				taskContext.splitSleepTime = b.sleepTime
 			}
@@ -932,7 +965,7 @@ func bulletBodyTask(startIndex, endIndex, workerIndex int, context *stepContext)
 	w := context.world
 	taskContext := &w.taskContexts[workerIndex]
 	for i := startIndex; i < endIndex; i++ {
-		solveContinuous(w, context.bulletBodies[i], taskContext)
+		solveContinuous(w, context.bulletBodies[i], taskContext, context.dt)
 	}
 }
 
@@ -1183,11 +1216,6 @@ func buildSolverStages(w *world, context *stepContext, awakeBodyCount int) {
 func solve(w *world, context *stepContext) {
 	w.stepIndex += 1
 
-	// Merge islands
-	mergeIslandsStart := time.Now()
-	mergeAwakeIslands(w)
-	w.profile.MergeIslands = millisecondsSince(mergeIslandsStart)
-
 	// Are there any awake bodies? This scenario should not be important for profiling.
 	awake := &w.solverSets[awakeSet]
 	awakeBodyCount := len(awake.bodySims)
@@ -1259,10 +1287,16 @@ func solve(w *world, context *stepContext) {
 		w.taskCount++
 
 		// The joint solve flags the joints that cross a threshold by id.
+		// The contact store flags the contacts with a hit event candidate.
 		jointIdCapacity := w.jointIdPool.idCapacity()
+		contactIdCapacity := w.contactIdPool.idCapacity()
 		for i := range w.taskContexts {
-			setBitCountAndClear(&w.taskContexts[i].jointStateBitSet, jointIdCapacity)
+			taskContext := &w.taskContexts[i]
+			setBitCountAndClear(&taskContext.jointStateBitSet, jointIdCapacity)
+			setBitCountAndClear(&taskContext.hitEventBitSet, contactIdCapacity)
+			taskContext.hasHitEvents = false
 		}
+		context.anyRestitution.Store(false)
 
 		w.executor.runContextWithSide(solverTask, sideFn, context)
 		w.splitIslandId = nullIndex
@@ -1364,17 +1398,41 @@ func solve(w *world, context *stepContext) {
 			panic("dbox2d: the hit events are not clear")
 		}
 
+		// Skip unless a worker flagged a hit event candidate in the store.
+		anyHitEvents := false
+		for i := range w.taskContexts {
+			if w.taskContexts[i].hasHitEvents {
+				anyHitEvents = true
+				break
+			}
+		}
+
 		threshold := w.hitEventThreshold
 		colors := &w.constraintGraph.colors
 		zero := QZero()
-		for i := range graphColorCount {
-			color := &colors[i]
-			contactSims := color.contactSims
-			for j := range contactSims {
-				cs := &contactSims[j]
-				if cs.simFlags&simEnableHitEvent == 0 {
-					continue
+		hitEventBitSet := &w.taskContexts[0].hitEventBitSet
+		if anyHitEvents {
+			// Union the worker bits into the bits of worker 0.
+			for i := 1; i < len(w.taskContexts); i++ {
+				if w.taskContexts[i].hasHitEvents {
+					inPlaceUnion(hitEventBitSet, &w.taskContexts[i].hitEventBitSet)
 				}
+			}
+		}
+		for k, word := range hitEventBitSet.bits {
+			if !anyHitEvents {
+				break
+			}
+			for word != 0 {
+				ctz := bits.TrailingZeros64(word)
+				word &= word - 1
+				contactId := 64*k + ctz
+
+				contact := &w.contacts[contactId]
+				if contact.setIndex != awakeSet || contact.colorIndex == nullIndex {
+					panic("dbox2d: a hit event contact is not in the graph")
+				}
+				cs := &colors[contact.colorIndex].contactSims[contact.localIndex]
 
 				event := ContactHitEvent{}
 				event.ApproachSpeed = threshold
@@ -1511,13 +1569,15 @@ func solve(w *world, context *stepContext) {
 		if w.splitIslandId != nullIndex {
 			panic("dbox2d: the split candidate is not clear")
 		}
-		// The ranges are fixed and ascending, so the first worker wins a
-		// tie, as the first body wins inside a worker. The reference breaks
-		// ties by island id because of work stealing.
 		splitSleepTimer := QZero()
 		for i := range w.workerCount {
 			taskContext := &w.taskContexts[i]
-			if taskContext.splitIslandId != nullIndex && splitSleepTimer.Less(taskContext.splitSleepTime) {
+			if taskContext.splitIslandId != nullIndex && !taskContext.splitSleepTime.Less(splitSleepTimer) {
+				// Tie breaking for determinism. Largest island id wins.
+				if taskContext.splitSleepTime.Eq(splitSleepTimer) && taskContext.splitIslandId < w.splitIslandId {
+					continue
+				}
+
 				w.splitIslandId = taskContext.splitIslandId
 				splitSleepTimer = taskContext.splitSleepTime
 			}
@@ -1555,12 +1615,12 @@ func resizeMoveEvents(events []BodyMoveEvent, count int) []BodyMoveEvent {
 }
 
 // runContactStageBlockScalar keeps flat prepare/store work behind the family hook.
-func runContactStageBlockScalar(stage *solverStage, context *stepContext, startIndex, endIndex int) {
+func runContactStageBlockScalar(stage *solverStage, context *stepContext, startIndex, endIndex, workerIndex int) {
 	switch stage.stageType {
 	case stagePrepareContacts:
 		prepareContactsTask(startIndex, endIndex, context)
 	case stageStoreImpulses:
-		storeImpulsesTask(startIndex, endIndex, context)
+		storeImpulsesTask(startIndex, endIndex, context, workerIndex)
 	}
 }
 
@@ -1571,9 +1631,9 @@ func runGraphContactBlockScalar(stage *solverStage, context *stepContext, startI
 	case stageWarmStart:
 		warmStartContactsTask(startIndex, endIndex, context, stage.colorIndex)
 	case stageSolve:
-		solveContactsTask(startIndex, endIndex, context, stage.colorIndex, true)
+		pushContactsTask(startIndex, endIndex, context, stage.colorIndex)
 	case stageRelax:
-		solveContactsTask(startIndex, endIndex, context, stage.colorIndex, false)
+		solveContactsTask(startIndex, endIndex, context, stage.colorIndex)
 	case stageRestitution:
 		applyRestitutionTask(startIndex, endIndex, context, stage.colorIndex)
 	}
@@ -1602,9 +1662,9 @@ func runGraphContactBlock(stage *solverStage, context *stepContext, startIndex, 
 	case stageWarmStart:
 		warmStartContacts32(start32, end32, context, stage.colorIndex)
 	case stageSolve:
-		solveContacts32(start32, end32, context, stage.colorIndex, true)
+		pushContacts32(start32, end32, context, stage.colorIndex)
 	case stageRelax:
-		solveContacts32(start32, end32, context, stage.colorIndex, false)
+		solveContacts32(start32, end32, context, stage.colorIndex)
 	case stageRestitution:
 		applyRestitution32(start32, end32, context, stage.colorIndex)
 	}

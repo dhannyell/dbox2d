@@ -1,5 +1,12 @@
 package b2
 
+// offsetAABB moves a box by an origin. In the large world build of the
+// reference the sum rounds outward to float; here it is a plain sum. It
+// corresponds to b2OffsetAABB in src/aabb.h.
+func offsetAABB(box AABB, origin Vec2) AABB {
+	return AABB{LowerBound: origin.Add(box.LowerBound), UpperBound: origin.Add(box.UpperBound)}
+}
+
 // AABB is an axis-aligned bounding box.
 type AABB struct {
 	LowerBound Vec2

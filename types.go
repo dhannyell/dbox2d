@@ -35,6 +35,14 @@ type WorldDef struct {
 	// The hertz and the damping ratio set the speed itself.
 	MaxContactPushSpeed Q
 
+	// RestitutionIterations is the number of restitution passes after the
+	// sub-steps, in [0, 63]. More passes resolve stacked bounces better.
+	RestitutionIterations int
+
+	// EnableRestitutionPropagation lets the restitution passes also solve
+	// the contacts without restitution, so a bounce travels through a stack.
+	EnableRestitutionPropagation bool
+
 	// Maximum linear speed, usually in meters per second.
 	MaximumLinearSpeed Q
 
@@ -111,22 +119,31 @@ type RestitutionCallback func(restitutionA Q, userMaterialIdA uint64, restitutio
 // call concurrently.
 type CustomFilterFcn func(shapeIdA, shapeIdB ShapeId) bool
 
-// PreSolveFcn inspects a contact manifold before the solver runs. It
-// corresponds to b2PreSolveFcn; return false to disable the contact this step.
-// With several workers it runs on worker goroutines while the step mutates
-// the world: it must not call the world API or query it, must not panic, and
-// must be safe to call concurrently.
-type PreSolveFcn func(shapeIdA, shapeIdB ShapeId, manifold *Manifold) bool
+// PreSolveFcn inspects a contact manifold before the solver runs. It may
+// edit the manifold; a point count of zero disables the contact this step.
+// It corresponds to b2PreSolveCallbackFcn. With several workers it runs on
+// worker goroutines while the step mutates the world: it must not call the
+// world API or query it, must not panic, and must be safe to call
+// concurrently.
+type PreSolveFcn func(shapeIdA, shapeIdB ShapeId, manifold *Manifold)
+
+// PreContinuousFcn inspects a time of impact event of the continuous
+// stage, with the world hit point and normal; return false to skip the
+// event. It runs only for shapes with pre-solve events enabled. It
+// corresponds to b2PreContinuousCallbackFcn and has the threading rules of
+// PreSolveFcn.
+type PreContinuousFcn func(shapeIdA, shapeIdB ShapeId, point, normal Vec2) bool
 
 // DefaultWorldDef returns the default world definition.
 func DefaultWorldDef() WorldDef {
 	return WorldDef{
-		Gravity:              Vec2{Y: QFromInt(-10)},
-		RestitutionThreshold: QOne(),
-		HitEventThreshold:    QOne(),
-		ContactHertz:         QFromInt(30),
-		ContactDampingRatio:  QFromInt(10),
-		MaxContactPushSpeed:  QFromInt(3),
+		Gravity:               Vec2{Y: QFromInt(-10)},
+		RestitutionThreshold:  QOne(),
+		HitEventThreshold:     QOne(),
+		ContactHertz:          QFromInt(30),
+		ContactDampingRatio:   QFromInt(10),
+		MaxContactPushSpeed:   QFromInt(3),
+		RestitutionIterations: 2,
 		// 400 meters per second, faster than the speed of sound
 		MaximumLinearSpeed: QFromInt(400),
 		WorkerCount:        1,
@@ -241,6 +258,10 @@ type BodyDef struct {
 	// bodies, like wheels.
 	AllowFastRotation bool
 
+	// Let the contacts of the body keep their manifold while the bodies
+	// barely move. A contact recycles only when both bodies enable it.
+	EnableContactRecycling bool
+
 	// internalValue proves that DefaultBodyDef ran. upstream internalValue
 	internalValue int
 }
@@ -248,15 +269,16 @@ type BodyDef struct {
 // DefaultBodyDef returns the default body definition.
 func DefaultBodyDef() BodyDef {
 	return BodyDef{
-		Type:           StaticBody,
-		Rotation:       RotIdentity(),
-		SleepThreshold: defaultSleepThreshold,
-		SafetyFactor:   QHalf(),
-		GravityScale:   QOne(),
-		EnableSleep:    true,
-		IsAwake:        true,
-		IsEnabled:      true,
-		internalValue:  secretCookie,
+		Type:                   StaticBody,
+		Rotation:               RotIdentity(),
+		SleepThreshold:         defaultSleepThreshold,
+		SafetyFactor:           QHalf(),
+		GravityScale:           QOne(),
+		EnableSleep:            true,
+		IsAwake:                true,
+		EnableContactRecycling: true,
+		IsEnabled:              true,
+		internalValue:          secretCookie,
 	}
 }
 

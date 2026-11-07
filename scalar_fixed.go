@@ -194,6 +194,8 @@ func (a qc) Sub(b qc) qc        { return qc{a.v.Sub(b.v)} }
 func (a qc) Mul(b qc) qc        { return qc{a.v.MulRound(b.v)} }
 func (a qc) Neg() qc            { return qc{a.v.Neg()} }
 func (a qc) Max(b qc) qc        { return qc{a.v.Max(b.v)} }
+func (a qc) Min(b qc) qc        { return qc{a.v.Min(b.v)} }
+func (a qc) Div(b qc) qc        { return qc{a.v.Div(b.v)} }
 func (a qc) Clamp(lo, hi qc) qc { return qc{a.v.Clamp(lo.v, hi.v)} }
 func (a qc) Less(b qc) bool     { return a.v.Less(b.v) }
 func (a qc) Eq(b qc) bool       { return a.v.Eq(b.v) }
@@ -241,6 +243,8 @@ func (a qcw) Sub(b qcw) qcw        { return qcw{a.v.Sub(b.v)} }
 func (a qcw) Mul(b qcw) qcw        { return qcw{a.v.Mul(b.v)} }
 func (a qcw) Neg() qcw             { return qcw{a.v.Neg()} }
 func (a qcw) Max(b qcw) qcw        { return qcw{a.v.Max(b.v)} }
+func (a qcw) Min(b qcw) qcw        { return qcw{a.v.Min(b.v)} }
+func (a qcw) Div(b qcw) qcw        { return qcw{a.v.Div(b.v)} }
 func (a qcw) Clamp(lo, hi qcw) qcw { return qcw{a.v.Clamp(lo.v, hi.v)} }
 func (a qcw) Less(b qcw) bool      { return a.v.Less(b.v) }
 func (a qcw) Eq(b qcw) bool        { return a.v.Eq(b.v) }
@@ -317,42 +321,49 @@ func allocateContactConstraints32(w *world, context *stepContext, colors *[graph
 	}
 }
 
-// prepareContacts32 builds the Q32 constraints of every color.
+// prepareContacts32 builds the Q32 constraints of every color. A color
+// solves its Q32 contacts with the formulas of its family.
 func prepareContacts32(context *stepContext) {
 	for i := range graphColorCount {
 		color := &context.graph.colors[i]
-		prepareContactRange32(0, len(color.contacts32), context, color.contacts32, color.contactConstraints32)
+		prepareContactRange32(0, len(color.contacts32), context, color.contacts32, color.contactConstraints32, i != overflowIndex)
 	}
 }
 
 // warmStartContacts32 applies the stored impulses of a range of the Q32
 // contacts of one color.
 func warmStartContacts32(startIndex, endIndex int, context *stepContext, colorIndex int) {
-	warmStartContactRange32(startIndex, endIndex, context, context.graph.colors[colorIndex].contactConstraints32)
+	warmStartContactRange32(startIndex, endIndex, context, context.graph.colors[colorIndex].contactConstraints32, colorIndex != overflowIndex)
 }
 
-// solveContacts32 solves a range of the Q32 contacts of one color, with the
-// push-out speed and the normal impulse of its family.
-func solveContacts32(startIndex, endIndex int, context *stepContext, colorIndex int, useBias bool) {
-	pushout := context.world.contactSpeed
-	colored := colorIndex != overflowIndex
-	if !colored {
-		pushout = context.world.maxContactPushSpeed
+// pushContacts32 solves the non-penetration of a range of the Q32 contacts
+// of one color.
+func pushContacts32(startIndex, endIndex int, context *stepContext, colorIndex int) {
+	pushContactRange32(startIndex, endIndex, context, context.graph.colors[colorIndex].contactConstraints32, colorIndex != overflowIndex)
+}
+
+// solveContacts32 relaxes a range of the Q32 contacts of one color.
+func solveContacts32(startIndex, endIndex int, context *stepContext, colorIndex int) {
+	constraints := context.graph.colors[colorIndex].contactConstraints32
+	if colorIndex == overflowIndex {
+		solveContactRangeSerial32(startIndex, endIndex, context, constraints)
+		return
 	}
-	solveContactRange32(startIndex, endIndex, context, context.graph.colors[colorIndex].contactConstraints32, useBias, qcwFrom(pushout), colored)
+	solveContactRange32(startIndex, endIndex, context, constraints)
 }
 
 // applyRestitution32 applies restitution to a range of the Q32 contacts of
 // one color.
 func applyRestitution32(startIndex, endIndex int, context *stepContext, colorIndex int) {
-	applyRestitutionRange32(startIndex, endIndex, context, context.graph.colors[colorIndex].contactConstraints32)
+	applyRestitutionRange32(startIndex, endIndex, context, context.graph.colors[colorIndex].contactConstraints32, colorIndex != overflowIndex)
 }
 
 // storeImpulses32 stores the impulses of the Q32 contacts of every color.
+// It runs on the main worker.
 func storeImpulses32(context *stepContext) {
 	for i := range graphColorCount {
 		color := &context.graph.colors[i]
-		storeImpulseRange32(0, len(color.contacts32), color.contacts32, color.contactConstraints32)
+		storeImpulseRange32(0, len(color.contacts32), context, color.contacts32, color.contactConstraints32, 0)
 	}
 }
 

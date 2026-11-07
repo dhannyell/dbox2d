@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2022 Erin Catto
 // SPDX-License-Identifier: MIT
-// Ported from shared/benchmarks.c of Box2D v3.1.1. Debug-only sizes use the
+// Ported from shared/benchmarks.c of Box2D v3.2.0. Debug-only sizes use the
 // release values.
 
 // Package shared is the shared/ directory of the reference: the benchmark
@@ -165,8 +165,8 @@ func BuildManyPyramids(worldId WorldId, opts Options) StepFn {
 	groundY := QZero()
 	for range rowCount {
 		segment := Segment{
-			Point1: Vec2{X: groundWidth.Neg(), Y: groundY},
-			Point2: Vec2{X: groundWidth, Y: groundY},
+			Point1: Vec2{X: QHalf().Neg().Mul(groundWidth), Y: groundY},
+			Point2: Vec2{X: QHalf().Mul(groundWidth), Y: groundY},
 		}
 		CreateSegmentShape(groundId, &shapeDef, &segment)
 		groundY = groundY.Add(groundDeltaY)
@@ -177,7 +177,7 @@ func BuildManyPyramids(worldId WorldId, opts Options) StepFn {
 		for j := range columnCount {
 			centerX := QHalf().Neg().Mul(groundWidth).
 				Add(QFromInt(j).Mul(baseWidth.Add(QFromInt(2).Mul(extent)))).
-				Add(extent)
+				Add(QFromInt(2).Mul(extent))
 			buildSmallPyramid(worldId, baseCount, extent, centerX, baseY)
 		}
 		baseY = baseY.Add(groundDeltaY)
@@ -250,10 +250,12 @@ func BuildSpinner(worldId WorldId, opts Options) StepFn {
 	jointDef := DefaultRevoluteJointDef()
 	jointDef.Base.BodyIdA = groundId
 	jointDef.Base.BodyIdB = spinnerId
-	jointDef.Base.LocalFrameA.P = bodyDef.Position
+	jointDef.Base.LocalFrameA.P = groundId.GetLocalPoint(bodyDef.Position)
 	jointDef.EnableMotor = true
 	jointDef.MotorSpeed = QMustParse("0.7957747155")
-	jointDef.MaxMotorTorque = QFromInt(40000)
+	// The reference uses FLT_MAX; any bound that never binds gives the same
+	// impulses, and half the largest value stays valid in fixed mode.
+	jointDef.MaxMotorTorque = QMaxValue().Div(QFromInt(2))
 	spinnerJoint := CreateRevoluteJoint(worldId, &jointDef)
 
 	capsule := Capsule{Center1: Vec2{X: QMustParse("-0.25")}, Center2: Vec2{X: QMustParse("0.25")}, Radius: QMustParse("0.25")}
@@ -265,8 +267,8 @@ func BuildSpinner(worldId WorldId, opts Options) StepFn {
 	shapeDef.Material.Friction = QMustParse("0.1")
 	shapeDef.Material.Restitution = QMustParse("0.1")
 	shapeDef.Density = QMustParse("0.25")
-	x, y := QFromInt(-24), QFromInt(2)
-	for i := range 3038 {
+	x, y := QFromInt(-23), QFromInt(2)
+	for i := range 2 * 3038 {
 		bodyDef.Position = Vec2{X: x, Y: y}
 		bodyId := CreateBody(worldId, &bodyDef)
 		switch i % 3 {
@@ -277,10 +279,10 @@ func BuildSpinner(worldId WorldId, opts Options) StepFn {
 		case 2:
 			CreatePolygonShape(bodyId, &shapeDef, &square)
 		}
-		x = x.Add(QOne())
-		if x.Greater(QFromInt(24)) {
-			x = QFromInt(-24)
-			y = y.Add(QOne())
+		x = x.Add(QHalf())
+		if !x.Less(QFromInt(23)) {
+			x = QFromInt(-23)
+			y = y.Add(QHalf())
 		}
 	}
 	return func(int) { _ = spinnerJoint.GetCurrentAngle() }

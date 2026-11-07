@@ -401,6 +401,8 @@ func TestWorkerPanicReachesTheCaller(t *testing.T) {
 	defer DestroyWorld(worldId)
 	buildPyramid(worldId, 20)
 
+	// A recycled contact skips the narrowphase and its pre-solve callback.
+	worldId.SetContactRecycleDistance(QZero())
 	w := getWorldFromId(worldId)
 	for i := range w.shapes {
 		w.shapes[i].enablePreSolveEvents = true
@@ -409,10 +411,10 @@ func TestWorkerPanicReachesTheCaller(t *testing.T) {
 	worldId.Step(dt, 4)
 
 	var panicked atomic.Int32
-	worldId.SetPreSolveCallback(func(shapeIdA, shapeIdB ShapeId, manifold *Manifold) bool {
+	worldId.SetPreSolveCallback(func(shapeIdA, shapeIdB ShapeId, manifold *Manifold) {
 		panicked.Add(1)
 		panic("boom in PreSolve")
-	})
+	}, nil)
 
 	caught := func() (value any) {
 		defer func() { value = recover() }()

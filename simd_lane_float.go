@@ -48,3 +48,13 @@ func (a accW) SubBounded(b accW) accW { return a.Sub(b) }
 
 // rollingBoundW returns the rolling resistance bound rr·total per lane.
 func rollingBoundW(rr laneW, total accW) laneW { return rr.Mul(total) }
+
+// laneDivPositive returns a/k in the lanes where k is positive and zero in
+// the others.
+func laneDivPositive(a, k laneW) laneW {
+	zero := laneZero()
+	return laneBlend(k.Greater(zero), a.Div(k), zero)
+}
+
+// blendAccW selects a where the mask is set and b otherwise.
+func blendAccW(m maskW, a, b accW) accW { return laneBlend(m, a, b) }

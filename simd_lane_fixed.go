@@ -247,3 +247,34 @@ func scatterBodyW(states []bodyState, indices *[wideWidth]int, b *bodyStateW) {
 	storeBodyW(b, &scratch)
 	scatterBodies(states, indices, &scratch)
 }
+
+// laneDivPositive returns a/k in the lanes where k is positive and zero in
+// the others, through the scalar division: the lanes have no division.
+func laneDivPositive(a, k laneW) laneW {
+	var as, ks, out [wideWidth]laneScalar
+	a.store(&as)
+	k.store(&ks)
+	zero := qc{}
+	for j := range wideWidth {
+		if zero.Less(qc{ks[j]}) {
+			out[j] = qc{as[j]}.Div(qc{ks[j]}).v
+		}
+	}
+	return laneLoad(&out)
+}
+
+// blendAccW selects a where the mask is set and b otherwise.
+func blendAccW(m maskW, a, b accW) accW {
+	var flags [wideWidth]laneScalar
+	laneBlend(m, laneSplat(QOne()), laneZero()).store(&flags)
+	var as, bs [wideWidth]accScalar
+	a.store(&as)
+	b.store(&bs)
+	var zero laneScalar
+	for j := range wideWidth {
+		if flags[j] == zero {
+			as[j] = bs[j]
+		}
+	}
+	return accLoad(&as)
+}

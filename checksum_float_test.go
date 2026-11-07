@@ -8,4 +8,6 @@ package b2
 // v3.2 phase 3: the shape folds its AABB margin and its custom filtering
 // flag, the body its safety factor, and the fat AABB moved to the world; the
 // simulation of the witness scene is unchanged.
-const checksumWitness uint64 = 9684624931612710896
+// v3.2 phase 5: the solver, contacts and islands switch to v3.2; the body
+// no longer folds the retired visit mark.
+const checksumWitness uint64 = 4868602092532673147

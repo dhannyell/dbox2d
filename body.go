@@ -27,9 +27,10 @@ type body struct {
 	jointCount   int
 
 	// Every enabled dynamic and kinematic body is in an island.
-	islandId   int
-	islandPrev int
-	islandNext int
+	islandId int
+
+	// islandIndex is the position of the body in its island.
+	islandIndex int
 
 	mass Q
 
@@ -55,8 +56,6 @@ type body struct {
 	// flags holds the bodyFlags. The body copy is the master; the sim and
 	// the state copies follow through syncBodyFlags.
 	flags uint32
-
-	isMarked bool
 }
 
 // bodyState is the solver view of a body. Only awake dynamic and kinematic
@@ -143,6 +142,10 @@ const (
 	// bodyIsSpeedCapped marks a body speed capped in the current step.
 	bodyIsSpeedCapped uint32 = 0x00000020
 
+	// bodyHadTimeOfImpact marks a body the continuous stage moved back to
+	// its time of impact in the current step.
+	bodyHadTimeOfImpact uint32 = 0x00000040
+
 	// bodyAllowFastRotation lifts the limit on angular velocity.
 	bodyAllowFastRotation uint32 = 0x00000080
 
@@ -156,6 +159,10 @@ const (
 	// bodyEnableSleep lets the body sleep.
 	bodyEnableSleep uint32 = 0x00000800
 
+	// bodyEnableContactRecycling lets the contacts of the body keep their
+	// manifold while the bodies barely move.
+	bodyEnableContactRecycling uint32 = 0x00001000
+
 	bodyAllLocks = bodyLockAngularZ | bodyLockLinearX | bodyLockLinearY
 
 	// bodyFixedRotation is set when the body has fixed rotation.
@@ -163,7 +170,7 @@ const (
 
 	// bodyTransientFlags are transient per time step. They may differ
 	// across the body, the sim and the state.
-	bodyTransientFlags = bodyIsSpeedCapped
+	bodyTransientFlags = bodyIsSpeedCapped | bodyHadTimeOfImpact
 )
 
 // syncBodyFlags copies the body flags to the sim and the state when
@@ -341,6 +348,9 @@ func CreateBody(worldId WorldId, def *BodyDef) BodyId {
 	if def.EnableSleep {
 		flags |= bodyEnableSleep
 	}
+	if def.EnableContactRecycling {
+		flags |= bodyEnableContactRecycling
+	}
 
 	set := &w.solverSets[setId]
 	set.bodySims = append(set.bodySims, bodySim{
@@ -389,8 +399,7 @@ func CreateBody(worldId WorldId, def *BodyDef) BodyId {
 	b.headJointKey = nullIndex
 	b.jointCount = 0
 	b.islandId = nullIndex
-	b.islandPrev = nullIndex
-	b.islandNext = nullIndex
+	b.islandIndex = nullIndex
 	b.bodyMoveIndex = nullIndex
 	b.id = bodyId
 	b.mass = QZero()
@@ -400,7 +409,6 @@ func CreateBody(worldId WorldId, def *BodyDef) BodyId {
 	b.sleepTime = QZero()
 	b.bodyType = def.Type
 	b.flags = flags
-	b.isMarked = false
 
 	// dynamic and kinematic bodies that are enabled need a island
 	if setId >= awakeSet {
@@ -620,6 +628,25 @@ func updateBodyMassData(w *world, b *body) {
 
 		shapeId = s.nextShapeId
 	}
+
+	// When the center of mass changes, any cached contact manifold becomes invalid.
+	invalidateContactRecycling(w, b)
+}
+
+// invalidateContactRecycling clears the cached relative transform of every
+// contact of a body, so the next collide recomputes the manifolds.
+func invalidateContactRecycling(w *world, b *body) {
+	edgeKey := b.headContactKey
+	for edgeKey != nullIndex {
+		contactId := edgeKey >> 1
+		edgeIndex := edgeKey & 1
+
+		c := &w.contacts[contactId]
+		cs := getContactSim(w, c)
+		cs.simFlags &^= simRelativeTransformValid
+
+		edgeKey = c.edges[edgeIndex].nextKey
+	}
 }
 
 // GetType returns the body type. It corresponds to b2Body_GetType.
@@ -763,9 +790,8 @@ func (bodyId BodyId) SetType(bodyType BodyType) {
 		if b.bodyType != DynamicBody && otherBody.bodyType != DynamicBody {
 			continue
 		}
-		linkJoint(w, j, false)
+		linkJoint(w, j)
 	}
-	mergeAwakeIslands(w)
 
 	syncBodyFlags(w, b)
 
@@ -1211,6 +1237,9 @@ func (bodyId BodyId) SetMassData(massData MassData) {
 		sim.invInertia = zero
 	}
 
+	// When the center of mass changes, any cached contact manifold becomes invalid.
+	invalidateContactRecycling(w, b)
+
 	// Motion locks take priority over mass data.
 	if b.flags&bodyFixedRotation != 0 {
 		b.inertia = zero
@@ -1315,6 +1344,31 @@ func (bodyId BodyId) EnableSleeping(enableSleep bool) {
 	if !enableSleep {
 		wakeBody(w, b)
 	}
+}
+
+// EnableContactRecycling lets the contacts of the body keep their manifold
+// while the bodies barely move. A contact recycles only when both bodies
+// enable it, and only contacts created after this call see the change. It
+// corresponds to b2Body_EnableContactRecycling.
+func (bodyId BodyId) EnableContactRecycling(flag bool) {
+	w := getWorldLocked(bodyId.world0)
+	b := getBodyFullId(w, bodyId)
+	if flag == (b.flags&bodyEnableContactRecycling != 0) {
+		return
+	}
+	b.flags &^= bodyEnableContactRecycling
+	if flag {
+		b.flags |= bodyEnableContactRecycling
+	}
+	syncBodyFlags(w, b)
+}
+
+// IsContactRecyclingEnabled reports whether the contacts of the body may
+// recycle. It corresponds to b2Body_IsContactRecyclingEnabled.
+func (bodyId BodyId) IsContactRecyclingEnabled() bool {
+	w := getWorld(bodyId.world0)
+	b := getBodyFullId(w, bodyId)
+	return b.flags&bodyEnableContactRecycling != 0
 }
 
 // IsSleepingEnabled reports whether the body may sleep. It corresponds to
@@ -1470,7 +1524,6 @@ func (bodyId BodyId) Enable() {
 		createIslandForBody(w, setId, b)
 	}
 
-	mergeIslands := false
 	for jointKey := b.headJointKey; jointKey != nullIndex; {
 		jointId := jointKey >> 1
 		edgeIndex := jointKey & 1
@@ -1490,7 +1543,7 @@ func (bodyId BodyId) Enable() {
 		}
 
 		var jointSetId int
-		if bodyA.setIndex == staticSet && bodyB.setIndex == staticSet {
+		if bodyA.bodyType != DynamicBody && bodyB.bodyType != DynamicBody {
 			jointSetId = staticSet
 		} else if bodyA.setIndex == staticSet {
 			jointSetId = bodyB.setIndex
@@ -1501,11 +1554,9 @@ func (bodyId BodyId) Enable() {
 		jointSet := &w.solverSets[jointSetId]
 		transferJoint(w, jointSet, disabledSolverSet, j)
 		if jointSetId != staticSet {
-			linkJoint(w, j, mergeIslands)
+			linkJoint(w, j)
 		}
 	}
-
-	mergeAwakeIslands(w)
 }
 
 // SetMotionLocks restricts the body movement. A lock zeroes the matching
@@ -1775,7 +1826,7 @@ func destroyBodyContacts(w *world, b *body, wakeBodies bool) {
 // createIslandForBody gives an enabled body its own island. It corresponds
 // to b2CreateIslandForBody in src/body.c.
 func createIslandForBody(w *world, setIndex int, b *body) {
-	if b.islandId != nullIndex || b.islandPrev != nullIndex || b.islandNext != nullIndex {
+	if b.islandId != nullIndex {
 		panic("dbox2d: the body is already in an island")
 	}
 	if setIndex == disabledSet {
@@ -1783,65 +1834,48 @@ func createIslandForBody(w *world, setIndex int, b *body) {
 	}
 
 	isl := createIsland(w, setIndex)
-
+	isl.bodies = append(isl.bodies, b.id)
 	b.islandId = isl.islandId
-	isl.headBody = b.id
-	isl.tailBody = b.id
-	isl.bodyCount = 1
+	b.islandIndex = 0
 }
 
-// removeBodyFromIsland unlinks a body from its island and destroys the
+// removeBodyFromIsland removes a body from its island and destroys the
 // island when it becomes empty. It corresponds to b2RemoveBodyFromIsland in
 // src/body.c.
 func removeBodyFromIsland(w *world, b *body) {
 	if b.islandId == nullIndex {
-		if b.islandPrev != nullIndex || b.islandNext != nullIndex {
-			panic("dbox2d: a body without an island has island links")
+		if b.islandIndex != nullIndex {
+			panic("dbox2d: a body without an island has an island index")
 		}
 		return
 	}
 
 	islandId := b.islandId
 	isl := &w.islands[islandId]
-
-	// Fix the island's linked list of sims
-	if b.islandPrev != nullIndex {
-		prevBody := &w.bodies[b.islandPrev]
-		prevBody.islandNext = b.islandNext
-	}
-
-	if b.islandNext != nullIndex {
-		nextBody := &w.bodies[b.islandNext]
-		nextBody.islandPrev = b.islandPrev
-	}
-
-	if isl.bodyCount <= 0 {
-		panic("dbox2d: the island body count underflows")
-	}
-	isl.bodyCount -= 1
-
-	if isl.headBody == b.id {
-		isl.headBody = b.islandNext
-
-		if isl.headBody == nullIndex {
-			// Destroy empty island
-			if isl.tailBody != b.id || isl.bodyCount != 0 {
-				panic("dbox2d: the emptied island still lists bodies")
-			}
-			if isl.contactCount != 0 {
-				panic("dbox2d: the emptied island still lists contacts")
-			}
-
-			// Free the island
-			destroyIsland(w, isl.islandId)
+	{
+		localIndex := b.islandIndex
+		last := len(isl.bodies) - 1
+		movedBodyId := isl.bodies[last]
+		isl.bodies[localIndex] = movedBodyId
+		if w.bodies[movedBodyId].islandIndex != last {
+			panic("dbox2d: the moved body island index does not match")
 		}
-	} else if isl.tailBody == b.id {
-		isl.tailBody = b.islandPrev
+		w.bodies[movedBodyId].islandIndex = localIndex
+		isl.bodies = isl.bodies[:last]
+	}
+
+	if len(isl.bodies) == 0 {
+		// Destroy empty island
+		if len(isl.contacts) != 0 || len(isl.joints) != 0 {
+			panic("dbox2d: the emptied island still lists constraints")
+		}
+
+		// Free the island
+		destroyIsland(w, isl.islandId)
 	}
 
 	b.islandId = nullIndex
-	b.islandPrev = nullIndex
-	b.islandNext = nullIndex
+	b.islandIndex = nullIndex
 }
 
 // shouldBodiesCollide rejects a pair of non-dynamic bodies. It corresponds
@@ -1875,6 +1909,19 @@ func shouldBodiesCollide(w *world, bodyA, bodyB *body) bool {
 	}
 
 	return true
+}
+
+// makeRelativeSweep builds the sweep of a body sim relative to a base
+// position, so the time of impact stays near the origin. It corresponds to
+// b2MakeRelativeSweep in src/body.h.
+func makeRelativeSweep(sim *bodySim, base Vec2) Sweep {
+	return Sweep{
+		LocalCenter: sim.localCenter,
+		C1:          sim.center0.Sub(base),
+		C2:          sim.center.Sub(base),
+		Q1:          sim.rotation0,
+		Q2:          sim.transform.Q,
+	}
 }
 
 // makeSweep builds the sweep of a body sim from its previous and current

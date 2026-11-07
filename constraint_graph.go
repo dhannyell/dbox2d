@@ -5,6 +5,12 @@ package b2
 // src/constraint_graph.h.
 const overflowIndex = graphColorCount - 1
 
+// dynamicColorCount keeps the constraints between two dynamic bodies at a
+// lower solver priority than the constraints with a static or kinematic
+// body, which reduces push through. It corresponds to
+// B2_DYNAMIC_COLOR_COUNT in src/constraint_graph.h.
+const dynamicColorCount = graphColorCount - 4
+
 // forceOverflow sends every constraint to the overflow color. It is a
 // debug switch of the reference; it corresponds to B2_FORCE_OVERFLOW in
 // src/constraint_graph.c.
@@ -76,8 +82,8 @@ func destroyGraph(graph *constraintGraph) {
 	}
 }
 
-// addContactToGraph clones a touching contact sim into the first color
-// that has neither body. A contact with a static body skips color 0. It
+// addContactToGraph clones a touching contact sim into its color (see
+// assignConstraintColor). A contact with one dynamic body skips color 0. It
 // corresponds to b2AddContactToGraph in src/constraint_graph.c.
 func addContactToGraph(w *world, cs *contactSim, c *contact) {
 	if cs.manifold.PointCount <= 0 {
@@ -94,51 +100,14 @@ func addContactToGraph(w *world, cs *contactSim, c *contact) {
 	bodyIdB := c.edges[1].bodyId
 	bodyA := &w.bodies[bodyIdA]
 	bodyB := &w.bodies[bodyIdB]
-	staticA := bodyA.setIndex == staticSet
-	staticB := bodyB.setIndex == staticSet
-	if staticA && staticB {
-		panic("dbox2d: two static bodies cannot touch")
+	typeA := bodyA.bodyType
+	typeB := bodyB.bodyType
+	if typeA != DynamicBody && typeB != DynamicBody {
+		panic("dbox2d: a graph contact needs a dynamic body")
 	}
 
 	if !forceOverflow {
-		switch {
-		case !staticA && !staticB:
-			for i := range overflowIndex {
-				color := &graph.colors[i]
-				if color.bodySet.getBit(bodyIdA) || color.bodySet.getBit(bodyIdB) {
-					continue
-				}
-
-				color.bodySet.setBitGrow(bodyIdA)
-				color.bodySet.setBitGrow(bodyIdB)
-				colorIndex = i
-				break
-			}
-		case !staticA:
-			// No static contacts in color 0
-			for i := 1; i < overflowIndex; i++ {
-				color := &graph.colors[i]
-				if color.bodySet.getBit(bodyIdA) {
-					continue
-				}
-
-				color.bodySet.setBitGrow(bodyIdA)
-				colorIndex = i
-				break
-			}
-		case !staticB:
-			// No static contacts in color 0
-			for i := 1; i < overflowIndex; i++ {
-				color := &graph.colors[i]
-				if color.bodySet.getBit(bodyIdB) {
-					continue
-				}
-
-				color.bodySet.setBitGrow(bodyIdB)
-				colorIndex = i
-				break
-			}
-		}
+		colorIndex = assignConstraintColor(graph, bodyIdA, bodyIdB, typeA, typeB, 1)
 	}
 
 	color := &graph.colors[colorIndex]
@@ -148,7 +117,7 @@ func addContactToGraph(w *world, cs *contactSim, c *contact) {
 	color.contactSims = append(color.contactSims, *cs)
 	newContact := &color.contactSims[c.localIndex]
 
-	if staticA {
+	if typeA == StaticBody {
 		newContact.bodySimIndexA = nullIndex
 		newContact.invMassA = Q{}
 		newContact.invIA = Q{}
@@ -166,7 +135,7 @@ func addContactToGraph(w *world, cs *contactSim, c *contact) {
 		newContact.invIA = bodySimA.invInertia
 	}
 
-	if staticB {
+	if typeB == StaticBody {
 		newContact.bodySimIndexB = nullIndex
 		newContact.invMassB = Q{}
 		newContact.invIB = Q{}
@@ -217,52 +186,67 @@ func removeContactFromGraph(w *world, bodyIdA, bodyIdB, colorIndex, localIndex i
 	}
 }
 
-// assignJointColor picks the first color where neither dynamic body has
-// a constraint. Unlike a contact, a joint with a static body may take
-// color zero. It corresponds to b2AssignJointColor in
+// assignConstraintColor picks the color of a constraint. A constraint
+// between two dynamic bodies takes the first dynamic color where neither
+// body has a constraint. A constraint with one dynamic body takes the last
+// color, down to firstStaticColor, where that body has none: the static
+// colors build from the end, so they solve after the dynamic ones and keep
+// the higher priority. Kinematic and static bodies get no color bit. It
+// returns overflowIndex when no color fits. It corresponds to the color
+// loops of b2AddContactToGraph and b2AssignJointColor in
 // src/constraint_graph.c.
-func assignJointColor(graph *constraintGraph, bodyIdA, bodyIdB int, staticA, staticB bool) int {
-	if staticA && staticB {
-		panic("dbox2d: two static bodies cannot share a joint color")
-	}
-
-	if !forceOverflow {
-		switch {
-		case !staticA && !staticB:
-			for i := range overflowIndex {
-				color := &graph.colors[i]
-				if color.bodySet.getBit(bodyIdA) || color.bodySet.getBit(bodyIdB) {
-					continue
-				}
-
-				color.bodySet.setBitGrow(bodyIdA)
-				color.bodySet.setBitGrow(bodyIdB)
-				return i
+func assignConstraintColor(graph *constraintGraph, bodyIdA, bodyIdB int, typeA, typeB BodyType, firstStaticColor int) int {
+	switch {
+	case typeA == DynamicBody && typeB == DynamicBody:
+		// Dynamic constraint colors cannot encroach on colors reserved for static constraints
+		for i := range dynamicColorCount {
+			color := &graph.colors[i]
+			if color.bodySet.getBit(bodyIdA) || color.bodySet.getBit(bodyIdB) {
+				continue
 			}
-		case !staticA:
-			for i := range overflowIndex {
-				color := &graph.colors[i]
-				if color.bodySet.getBit(bodyIdA) {
-					continue
-				}
 
-				color.bodySet.setBitGrow(bodyIdA)
-				return i
+			color.bodySet.setBitGrow(bodyIdA)
+			color.bodySet.setBitGrow(bodyIdB)
+			return i
+		}
+	case typeA == DynamicBody:
+		// Static constraint colors build from the end to get higher priority than dyn-dyn constraints
+		for i := overflowIndex - 1; i >= firstStaticColor; i-- {
+			color := &graph.colors[i]
+			if color.bodySet.getBit(bodyIdA) {
+				continue
 			}
-		case !staticB:
-			for i := range overflowIndex {
-				color := &graph.colors[i]
-				if color.bodySet.getBit(bodyIdB) {
-					continue
-				}
 
-				color.bodySet.setBitGrow(bodyIdB)
-				return i
+			color.bodySet.setBitGrow(bodyIdA)
+			return i
+		}
+	case typeB == DynamicBody:
+		// Static constraint colors build from the end to get higher priority than dyn-dyn constraints
+		for i := overflowIndex - 1; i >= firstStaticColor; i-- {
+			color := &graph.colors[i]
+			if color.bodySet.getBit(bodyIdB) {
+				continue
 			}
+
+			color.bodySet.setBitGrow(bodyIdB)
+			return i
 		}
 	}
 
 	return overflowIndex
+}
+
+// assignJointColor picks the color of a joint. It corresponds to
+// b2AssignJointColor in src/constraint_graph.c.
+func assignJointColor(graph *constraintGraph, bodyIdA, bodyIdB int, typeA, typeB BodyType) int {
+	if typeA != DynamicBody && typeB != DynamicBody {
+		panic("dbox2d: a graph joint needs a dynamic body")
+	}
+
+	if forceOverflow {
+		return overflowIndex
+	}
+	return assignConstraintColor(graph, bodyIdA, bodyIdB, typeA, typeB, 1)
 }
 
 // createJointInGraph appends a zeroed joint sim to a color and points the
@@ -275,10 +259,7 @@ func createJointInGraph(w *world, j *joint) *jointSim {
 	bodyIdB := j.edges[1].bodyId
 	bodyA := &w.bodies[bodyIdA]
 	bodyB := &w.bodies[bodyIdB]
-	staticA := bodyA.setIndex == staticSet
-	staticB := bodyB.setIndex == staticSet
-
-	colorIndex := assignJointColor(graph, bodyIdA, bodyIdB, staticA, staticB)
+	colorIndex := assignJointColor(graph, bodyIdA, bodyIdB, bodyA.bodyType, bodyB.bodyType)
 
 	color := &graph.colors[colorIndex]
 	color.jointSims = append(color.jointSims, jointSim{})

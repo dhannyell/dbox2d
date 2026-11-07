@@ -142,7 +142,6 @@ func TestChecksumSeesAPendingSplit(t *testing.T) {
 		startTouching(t, w, idA, idB)
 		if chain {
 			c := startTouching(t, w, idB, idC)
-			mergeAwakeIslands(w)
 			destroyContact(w, c, false)
 		}
 		return worldId, idA

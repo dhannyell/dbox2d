@@ -271,7 +271,7 @@ func TestStepAllocatesNothing(t *testing.T) {
 
 	dt := stepDt()
 	worldId.Step(dt, 4)
-	if len(w.constraintGraph.colors[1].contactSims) != 1 {
+	if len(w.constraintGraph.colors[overflowIndex-1].contactSims) != 1 {
 		t.Fatalf("the warm-up step did not activate the contact")
 	}
 
@@ -360,7 +360,6 @@ func TestStepSplitsTheIslandBeforeItSleeps(t *testing.T) {
 
 	// Join the islands, then remove the link so the split is pending.
 	c := startTouching(t, w, idA, idB)
-	mergeAwakeIslands(w)
 	c.flags &^= contactTouchingFlag
 	destroyContact(w, c, false)
 
@@ -486,7 +485,7 @@ func wideGround(worldId WorldId) {
 	CreatePolygonShape(groundId, &shapeDef, &ground)
 }
 
-// buildFastLanding drops a 50 kg unit box onto the ground at 800 m/s, above
+// buildFastLanding drops a 100 kg unit box onto the ground at 800 m/s, above
 // the default speed cap. The box stays inside the lane window.
 func buildFastLanding(t *testing.T, worldId WorldId) {
 	t.Helper()
@@ -498,7 +497,7 @@ func buildFastLanding(t *testing.T, worldId WorldId) {
 	boxDef.LinearVelocity = Vec2{Y: QFromInt(-800)}
 	boxId := CreateBody(worldId, &boxDef)
 	shapeDef := DefaultShapeDef()
-	shapeDef.Density = QFromInt(50)
+	shapeDef.Density = QFromInt(100)
 	unit := MakeBox(QHalf(), QHalf())
 	CreatePolygonShape(boxId, &shapeDef, &unit)
 }
@@ -765,20 +764,23 @@ func TestStepReportsMoveEvents(t *testing.T) {
 	}
 }
 
-// TestStepKeepsAZeroContactFrequencyFinite pins the D-006 guard: a zero
-// contact frequency gives a rigid constraint and a zero contact speed,
-// where the reference would divide by zero.
+// TestStepKeepsAZeroContactFrequencyFinite pins the zero frequency guard of
+// makeSoft: a zero contact frequency gives a zero softness, the contact
+// speed stays the world setting, and the step stays finite.
 func TestStepKeepsAZeroContactFrequencyFinite(t *testing.T) {
 	def := DefaultWorldDef()
 	def.ContactHertz = QZero()
 	worldId := CreateWorld(&def)
 	t.Cleanup(func() { DestroyWorld(worldId) })
 	w := getWorldFromId(worldId)
-	boxOnGround(t, worldId, QZero())
+	boxId := boxOnGround(t, worldId, QZero())
 
 	worldId.Step(stepDt(), 4)
-	if !w.contactSpeed.Eq(QZero()) {
-		t.Errorf("the contact speed is %v, want zero", w.contactSpeed)
+	if !w.contactSpeed.Eq(def.MaxContactPushSpeed) {
+		t.Errorf("the contact speed is %v, want %v", w.contactSpeed, def.MaxContactPushSpeed)
+	}
+	if p := boxId.GetPosition(); !IsValidVec2(p) {
+		t.Errorf("the box position is %v", p)
 	}
 }
 
@@ -1518,12 +1520,12 @@ func preSolveScene(t *testing.T, worldId WorldId) BodyId {
 	return boxId
 }
 
-// TestPreSolveFalseLetsTheBoxThrough locks down that a pre-solve callback
-// returning false suppresses the contact: the box falls through the plate
-// instead of resting on it.
-func TestPreSolveFalseLetsTheBoxThrough(t *testing.T) {
+// TestPreSolveZeroPointsLetsTheBoxThrough locks down that a pre-solve
+// callback that clears the point count suppresses the contact: the box
+// falls through the plate instead of resting on it.
+func TestPreSolveZeroPointsLetsTheBoxThrough(t *testing.T) {
 	worldId := createTestWorld(t)
-	worldId.SetPreSolveCallback(func(ShapeId, ShapeId, *Manifold) bool { return false })
+	worldId.SetPreSolveCallback(func(_, _ ShapeId, manifold *Manifold) { manifold.PointCount = 0 }, nil)
 	boxId := preSolveScene(t, worldId)
 
 	dt := stepDt()
@@ -1536,10 +1538,10 @@ func TestPreSolveFalseLetsTheBoxThrough(t *testing.T) {
 	}
 }
 
-// TestPreSolveTrueKeepsChecksum locks down that an always-true pre-solve
-// callback does not perturb the simulation: the checksum matches a run
-// with no callback registered.
-func TestPreSolveTrueKeepsChecksum(t *testing.T) {
+// TestPreSolveNoEditKeepsChecksum locks down that a pre-solve callback
+// that edits nothing does not perturb the simulation: the checksum matches
+// a run with no callback registered.
+func TestPreSolveNoEditKeepsChecksum(t *testing.T) {
 	dt := stepDt()
 
 	plainId := createTestWorld(t)
@@ -1550,7 +1552,7 @@ func TestPreSolveTrueKeepsChecksum(t *testing.T) {
 	want := Checksum(plainId)
 
 	filteredId := createTestWorld(t)
-	filteredId.SetPreSolveCallback(func(ShapeId, ShapeId, *Manifold) bool { return true })
+	filteredId.SetPreSolveCallback(func(ShapeId, ShapeId, *Manifold) {}, nil)
 	preSolveScene(t, filteredId)
 	for range 90 {
 		filteredId.Step(dt, 4)
