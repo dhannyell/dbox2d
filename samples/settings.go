@@ -35,6 +35,9 @@ type Settings struct {
 	DrawCounters        bool
 	DrawProfile         bool
 
+	RestitutionIterations        int
+	EnableRestitutionPropagation bool
+
 	EnableWarmStarting bool
 	EnableContinuous   bool
 	EnableSleep        bool
@@ -47,13 +50,14 @@ type Settings struct {
 // DefaultSettings returns the settings the reference app starts with.
 func DefaultSettings() Settings {
 	return Settings{
-		Hertz:              60,
-		SubStepCount:       4,
-		WorkerCount:        1,
-		EnableWarmStarting: true,
-		EnableContinuous:   true,
-		EnableSleep:        true,
-		DrawShapes:         true,
-		DrawJoints:         true,
+		Hertz:                 60,
+		SubStepCount:          4,
+		RestitutionIterations: 2,
+		WorkerCount:           1,
+		EnableWarmStarting:    true,
+		EnableContinuous:      true,
+		EnableSleep:           true,
+		DrawShapes:            true,
+		DrawJoints:            true,
 	}
 }

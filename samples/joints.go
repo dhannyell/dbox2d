@@ -16,6 +16,7 @@ import (
 func init() {
 	RegisterSample("Joints", "Distance Joint", NewDistanceJoint)
 	RegisterSample("Joints", "Motor Joint", NewMotorJoint)
+	RegisterSample("Joints", "Top Down Friction", NewTopDownFriction)
 	RegisterSample("Joints", "Filter Joint", NewFilterJoint)
 	RegisterSample("Joints", "Revolute", NewRevoluteJoint)
 	RegisterSample("Joints", "Prismatic", NewPrismaticJoint)
@@ -23,7 +24,7 @@ func init() {
 	RegisterSample("Joints", "Bridge", NewBridge)
 	RegisterSample("Joints", "Ball & Chain", NewBallAndChain)
 	RegisterSample("Joints", "Cantilever", NewCantilever)
-	RegisterSample("Joints", "Fixed Rotation", NewFixedRotation)
+	RegisterSample("Joints", "Motion Locks", NewMotionLocks)
 	RegisterSample("Joints", "Breakable", NewBreakableJoint)
 	RegisterSample("Joints", "Separation", NewJointSeparation)
 	RegisterSample("Joints", "User Constraint", NewUserConstraint)
@@ -35,23 +36,28 @@ func init() {
 	RegisterSample("Joints", "Gear Lift", NewGearLift)
 	RegisterSample("Joints", "Door", NewDoor)
 	RegisterSample("Joints", "Scale Ragdoll", NewScaleRagdoll)
+	RegisterSample("Joints", "Theo Jansen", NewTheoJansen)
+	RegisterSample("Joints", "Desk Lamp", NewDeskLamp)
 }
 
 // DistanceJoint demonstrates a configurable chain of bodies connected by distance joints.
 type DistanceJoint struct {
 	Base
 
-	groundId  b2.BodyId
-	bodyIds   [10]b2.BodyId
-	jointIds  [10]b2.JointId
-	count     int
-	hertz     float64
-	damping   float64
-	length    float64
-	minLength float64
-	maxLength float64
-	spring    bool
-	limit     bool
+	groundId b2.BodyId
+	bodyIds  [10]b2.BodyId
+	jointIds [10]b2.JointId
+	count    int
+	hertz    float64
+	damping  float64
+	length   float64
+	// tensionForce and compressionForce bound the spring force.
+	tensionForce     float64
+	compressionForce float64
+	minLength        float64
+	maxLength        float64
+	spring           bool
+	limit            bool
 }
 
 // NewDistanceJoint builds the distance-joint chain scene.
@@ -67,8 +73,10 @@ func NewDistanceJoint(ctx *SampleContext) Sample {
 	s.groundId = b2.CreateBody(s.WorldId, &bodyDef)
 
 	s.count = 0
-	s.hertz = 2.0
+	s.hertz = 5.0
 	s.damping = 0.5
+	s.tensionForce = 2000.0
+	s.compressionForce = 100.0
 	s.length = 1.0
 	s.minLength = s.length
 	s.maxLength = s.length
@@ -110,13 +118,15 @@ func (s *DistanceJoint) createScene(newCount int) {
 	jointDef.MinLength = FromFloat64(s.minLength)
 	jointDef.MaxLength = FromFloat64(s.maxLength)
 	jointDef.EnableSpring = s.spring
+	jointDef.LowerSpringForce = FromFloat64(-s.tensionForce)
+	jointDef.UpperSpringForce = FromFloat64(s.compressionForce)
 	jointDef.EnableLimit = s.limit
 
 	prevBodyId := s.groundId
 	for i := 0; i < s.count; i++ {
 		bodyDef := b2.DefaultBodyDef()
 		bodyDef.Type = b2.DynamicBody
-		bodyDef.AngularDamping = b2.F(0.1)
+		bodyDef.AngularDamping = b2.F(1)
 		bodyDef.Position = b2.Vec2{
 			X: FromFloat64(s.length * float64(i+1)),
 			Y: yOffset,
@@ -167,6 +177,20 @@ func (s *DistanceJoint) UpdateGui() {
 		if gui.SliderFloat("Damping", &s.damping, 0.0, 4.0) {
 			for i := 0; i < s.count; i++ {
 				s.jointIds[i].SetSpringDampingRatio(FromFloat64(s.damping))
+				s.jointIds[i].WakeBodies()
+			}
+		}
+
+		if gui.SliderFloat("Tension", &s.tensionForce, 0.0, 4000.0) {
+			for i := 0; i < s.count; i++ {
+				s.jointIds[i].SetSpringForceRange(FromFloat64(-s.tensionForce), FromFloat64(s.compressionForce))
+				s.jointIds[i].WakeBodies()
+			}
+		}
+
+		if gui.SliderFloat("Compression", &s.compressionForce, 0.0, 200.0) {
+			for i := 0; i < s.count; i++ {
+				s.jointIds[i].SetSpringForceRange(FromFloat64(-s.tensionForce), FromFloat64(s.compressionForce))
 				s.jointIds[i].WakeBodies()
 			}
 		}
@@ -427,7 +451,7 @@ func NewRevoluteJoint(ctx *SampleContext) Sample {
 	}
 
 	s.enableSpring = false
-	s.enableLimit = true
+	s.enableLimit = false
 	s.enableMotor = false
 	s.hertz = 2
 	s.dampingRatio = 0.5
@@ -466,11 +490,15 @@ func NewRevoluteJoint(ctx *SampleContext) Sample {
 		jointDef.EnableMotor = s.enableMotor
 		// 0.5*PI radians is 1/4 turn.
 		jointDef.Base.LocalFrameA.Q = b2.MakeRot(b2.QFromRatio(1, 4))
+		// -0.5*PI radians is -1/4 turn.
 		jointDef.LowerAngle = b2.QFromRatio(-1, 4)
-		jointDef.UpperAngle = b2.QFromRatio(3, 8)
+		// 0.05*PI radians is 1/40 turn.
+		jointDef.UpperAngle = b2.QFromRatio(1, 40)
 		jointDef.EnableLimit = s.enableLimit
 
 		s.jointId1 = b2.CreateRevoluteJoint(s.WorldId, &jointDef)
+
+		s.jointId1.SetConstraintTuning(b2.F(60), b2.F(20))
 	}
 
 	{
@@ -505,8 +533,9 @@ func NewRevoluteJoint(ctx *SampleContext) Sample {
 		jointDef.Base.BodyIdB = bodyID
 		jointDef.Base.LocalFrameA.P = groundID.GetLocalPoint(pivot)
 		jointDef.Base.LocalFrameB.P = bodyID.GetLocalPoint(pivot)
+		// -0.25*PI radians is -1/8 turn; the upper limit is zero.
 		jointDef.LowerAngle = b2.QFromRatio(-1, 8)
-		jointDef.UpperAngle = b2.QFromRatio(1, 20)
+		jointDef.UpperAngle = b2.QZero()
 		jointDef.EnableLimit = true
 		jointDef.EnableMotor = true
 		jointDef.MotorSpeed = b2.QZero()
@@ -645,6 +674,7 @@ func NewPrismaticJoint(ctx *SampleContext) Sample {
 		jointDef.Base.LocalFrameB.Q = jointDef.Base.LocalFrameA.Q
 		jointDef.Base.LocalFrameA.P = groundID.GetLocalPoint(pivot)
 		jointDef.Base.LocalFrameB.P = bodyID.GetLocalPoint(pivot)
+		jointDef.Base.DrawScale = b2.F(2)
 		jointDef.MotorSpeed = FromFloat64(s.motorSpeed)
 		jointDef.MaxMotorForce = FromFloat64(s.motorForce)
 		jointDef.EnableMotor = s.enableMotor
@@ -705,7 +735,7 @@ func (s *PrismaticJoint) UpdateGui() {
 			s.jointId.WakeBodies()
 		}
 
-		if gui.SliderFloat("Translation", &s.translation, -5, 5) {
+		if gui.SliderFloat("Translation", &s.translation, -15, 15) {
 			s.jointId.SetTargetTranslation(FromFloat64(s.translation))
 			s.jointId.WakeBodies()
 		}
@@ -1166,6 +1196,9 @@ func NewCantilever(ctx *SampleContext) Sample {
 		jointDef.Base.CollideConnected = s.collideConnected
 		s.jointIDs[i] = b2.CreateWeldJoint(s.WorldId, &jointDef)
 
+		// Experimental tuning
+		s.jointIDs[i].SetConstraintTuning(b2.F(120), b2.F(10))
+
 		previousID = s.bodyIDs[i]
 	}
 	s.tipID = previousID
@@ -1220,24 +1253,21 @@ func (s *Cantilever) Step() {
 	s.DrawTextLine("tip-y = %.2f", ToFloat64(position.Y))
 }
 
-const fixedRotationCount = 6
+const motionLocksCount = 6
 
-// FixedRotation demonstrates six joint types with a shared fixed-rotation setting.
-type FixedRotation struct {
+// MotionLocks mirrors the Motion Locks sample of sample_joints.cpp. It
+// ensures joints work correctly with bodies that have motion locks, and lets
+// the locks be toggled live.
+type MotionLocks struct {
 	Base
 
-	groundID      b2.BodyId
-	bodyIDs       [fixedRotationCount]b2.BodyId
-	jointIDs      [fixedRotationCount]b2.JointId
-	fixedRotation bool
+	bodyIDs     [motionLocksCount]b2.BodyId
+	motionLocks b2.MotionLocks
 }
 
-// NewFixedRotation builds the fixed-rotation joint comparison scene.
-func NewFixedRotation(ctx *SampleContext) Sample {
-	s := &FixedRotation{
-		Base:          NewBase(ctx),
-		fixedRotation: true,
-	}
+// NewMotionLocks builds the motion-lock joint comparison scene.
+func NewMotionLocks(ctx *SampleContext) Sample {
+	s := &MotionLocks{Base: NewBase(ctx)}
 
 	if !ctx.Settings.Restart {
 		ctx.Camera.Center = Vec2f{Y: 8}
@@ -1245,29 +1275,14 @@ func NewFixedRotation(ctx *SampleContext) Sample {
 	}
 
 	groundDef := b2.DefaultBodyDef()
-	s.groundID = b2.CreateBody(s.WorldId, &groundDef)
-	s.CreateScene()
+	groundID := b2.CreateBody(s.WorldId, &groundDef)
 
-	return s
-}
-
-// CreateScene rebuilds all six bodies and joints using the current setting.
-func (s *FixedRotation) CreateScene() {
-	for i := range fixedRotationCount {
-		if !s.jointIDs[i].IsNull() {
-			b2.DestroyJoint(s.jointIDs[i])
-			s.jointIDs[i] = b2.JointId{}
-		}
-		if !s.bodyIDs[i].IsNull() {
-			b2.DestroyBody(s.bodyIDs[i])
-			s.bodyIDs[i] = b2.BodyId{}
-		}
-	}
+	s.motionLocks = b2.MotionLocks{AngularZ: true}
 
 	position := b2.Vec2{X: b2.QFromRatio(-25, 2), Y: b2.F(10)}
 	bodyDef := b2.DefaultBodyDef()
 	bodyDef.Type = b2.DynamicBody
-	bodyDef.MotionLocks.AngularZ = s.fixedRotation
+	bodyDef.MotionLocks = s.motionLocks
 	box := b2.MakeBox(b2.QOne(), b2.QOne())
 
 	index := 0
@@ -1281,12 +1296,12 @@ func (s *FixedRotation) CreateScene() {
 	pivot1 := b2.Vec2{X: position.X, Y: position.Y.Add(b2.QOne()).Add(length)}
 	pivot2 := b2.Vec2{X: position.X, Y: position.Y.Add(b2.QOne())}
 	distanceDef := b2.DefaultDistanceJointDef()
-	distanceDef.Base.BodyIdA = s.groundID
+	distanceDef.Base.BodyIdA = groundID
 	distanceDef.Base.BodyIdB = s.bodyIDs[index]
-	distanceDef.Base.LocalFrameA.P = s.groundID.GetLocalPoint(pivot1)
+	distanceDef.Base.LocalFrameA.P = groundID.GetLocalPoint(pivot1)
 	distanceDef.Base.LocalFrameB.P = s.bodyIDs[index].GetLocalPoint(pivot2)
 	distanceDef.Length = length
-	s.jointIDs[index] = b2.CreateDistanceJoint(s.WorldId, &distanceDef)
+	b2.CreateDistanceJoint(s.WorldId, &distanceDef)
 
 	position.X = position.X.Add(b2.F(5))
 	index++
@@ -1297,12 +1312,12 @@ func (s *FixedRotation) CreateScene() {
 	shapeDef = b2.DefaultShapeDef()
 	b2.CreatePolygonShape(s.bodyIDs[index], &shapeDef, &box)
 	motorDef := b2.DefaultMotorJointDef()
-	motorDef.Base.BodyIdA = s.groundID
+	motorDef.Base.BodyIdA = groundID
 	motorDef.Base.BodyIdB = s.bodyIDs[index]
 	motorDef.Base.LocalFrameA.P = position
 	motorDef.MaxVelocityForce = b2.F(200)
 	motorDef.MaxVelocityTorque = b2.F(200)
-	s.jointIDs[index] = b2.CreateMotorJoint(s.WorldId, &motorDef)
+	b2.CreateMotorJoint(s.WorldId, &motorDef)
 
 	position.X = position.X.Add(b2.F(5))
 	index++
@@ -1314,13 +1329,11 @@ func (s *FixedRotation) CreateScene() {
 	b2.CreatePolygonShape(s.bodyIDs[index], &shapeDef, &box)
 	pivot := b2.Vec2{X: position.X.Sub(b2.QOne()), Y: position.Y}
 	prismaticDef := b2.DefaultPrismaticJointDef()
-	prismaticDef.Base.BodyIdA = s.groundID
+	prismaticDef.Base.BodyIdA = groundID
 	prismaticDef.Base.BodyIdB = s.bodyIDs[index]
-	prismaticDef.Base.LocalFrameA.P = s.groundID.GetLocalPoint(pivot)
+	prismaticDef.Base.LocalFrameA.P = groundID.GetLocalPoint(pivot)
 	prismaticDef.Base.LocalFrameB.P = s.bodyIDs[index].GetLocalPoint(pivot)
-	prismaticDef.Base.LocalFrameA.Q = b2.MakeRotFromUnitVector(s.groundID.GetLocalVector(b2.Vec2{X: b2.QOne()}))
-	prismaticDef.Base.LocalFrameB.Q = prismaticDef.Base.LocalFrameA.Q
-	s.jointIDs[index] = b2.CreatePrismaticJoint(s.WorldId, &prismaticDef)
+	b2.CreatePrismaticJoint(s.WorldId, &prismaticDef)
 
 	position.X = position.X.Add(b2.F(5))
 	index++
@@ -1332,11 +1345,11 @@ func (s *FixedRotation) CreateScene() {
 	b2.CreatePolygonShape(s.bodyIDs[index], &shapeDef, &box)
 	pivot = b2.Vec2{X: position.X.Sub(b2.QOne()), Y: position.Y}
 	revoluteDef := b2.DefaultRevoluteJointDef()
-	revoluteDef.Base.BodyIdA = s.groundID
+	revoluteDef.Base.BodyIdA = groundID
 	revoluteDef.Base.BodyIdB = s.bodyIDs[index]
-	revoluteDef.Base.LocalFrameA.P = s.groundID.GetLocalPoint(pivot)
+	revoluteDef.Base.LocalFrameA.P = groundID.GetLocalPoint(pivot)
 	revoluteDef.Base.LocalFrameB.P = s.bodyIDs[index].GetLocalPoint(pivot)
-	s.jointIDs[index] = b2.CreateRevoluteJoint(s.WorldId, &revoluteDef)
+	b2.CreateRevoluteJoint(s.WorldId, &revoluteDef)
 
 	position.X = position.X.Add(b2.F(5))
 	index++
@@ -1348,15 +1361,15 @@ func (s *FixedRotation) CreateScene() {
 	b2.CreatePolygonShape(s.bodyIDs[index], &shapeDef, &box)
 	pivot = b2.Vec2{X: position.X.Sub(b2.QOne()), Y: position.Y}
 	weldDef := b2.DefaultWeldJointDef()
-	weldDef.Base.BodyIdA = s.groundID
+	weldDef.Base.BodyIdA = groundID
 	weldDef.Base.BodyIdB = s.bodyIDs[index]
-	weldDef.Base.LocalFrameA.P = s.groundID.GetLocalPoint(pivot)
+	weldDef.Base.LocalFrameA.P = groundID.GetLocalPoint(pivot)
 	weldDef.Base.LocalFrameB.P = s.bodyIDs[index].GetLocalPoint(pivot)
 	weldDef.AngularHertz = b2.QOne()
 	weldDef.AngularDampingRatio = b2.QHalf()
 	weldDef.LinearHertz = b2.QOne()
 	weldDef.LinearDampingRatio = b2.QHalf()
-	s.jointIDs[index] = b2.CreateWeldJoint(s.WorldId, &weldDef)
+	b2.CreateWeldJoint(s.WorldId, &weldDef)
 
 	position.X = position.X.Add(b2.F(5))
 	index++
@@ -1368,11 +1381,10 @@ func (s *FixedRotation) CreateScene() {
 	b2.CreatePolygonShape(s.bodyIDs[index], &shapeDef, &box)
 	pivot = b2.Vec2{X: position.X.Sub(b2.QOne()), Y: position.Y}
 	wheelDef := b2.DefaultWheelJointDef()
-	wheelDef.Base.BodyIdA = s.groundID
+	wheelDef.Base.BodyIdA = groundID
 	wheelDef.Base.BodyIdB = s.bodyIDs[index]
-	wheelDef.Base.LocalFrameA.P = s.groundID.GetLocalPoint(pivot)
+	wheelDef.Base.LocalFrameA.P = groundID.GetLocalPoint(pivot)
 	wheelDef.Base.LocalFrameB.P = s.bodyIDs[index].GetLocalPoint(pivot)
-	wheelDef.Base.LocalFrameA.Q = b2.MakeRotFromUnitVector(s.groundID.GetLocalVector(b2.Vec2{X: b2.QOne()}))
 	wheelDef.Hertz = b2.QOne()
 	wheelDef.DampingRatio = b2.QFromRatio(7, 10)
 	wheelDef.LowerTranslation = b2.F(-1)
@@ -1381,20 +1393,29 @@ func (s *FixedRotation) CreateScene() {
 	wheelDef.EnableMotor = true
 	wheelDef.MaxMotorTorque = b2.F(10)
 	wheelDef.MotorSpeed = radiansToTurns(1)
-	s.jointIDs[index] = b2.CreateWheelJoint(s.WorldId, &wheelDef)
+	b2.CreateWheelJoint(s.WorldId, &wheelDef)
+
+	return s
 }
 
-// UpdateGui toggles fixed rotation on all existing bodies without rebuilding.
-func (s *FixedRotation) UpdateGui() {
-	const height = 60
-	if s.Context.Gui.Begin("Fixed Rotation", 10, s.Context.Camera.Height-height-50, 180, height) {
-		if s.Context.Gui.Checkbox("Fixed Rotation", &s.fixedRotation) {
-			for i := range fixedRotationCount {
-				s.bodyIDs[i].SetMotionLocks(b2.MotionLocks{AngularZ: s.fixedRotation})
-			}
+// UpdateGui toggles the motion locks on all bodies and applies an impulse
+// to the first body while L is held.
+func (s *MotionLocks) UpdateGui() {
+	gui := s.Context.Gui
+	apply := false
+	apply = gui.Checkbox("Lock Linear X", &s.motionLocks.LinearX) || apply
+	apply = gui.Checkbox("Lock Linear Y", &s.motionLocks.LinearY) || apply
+	apply = gui.Checkbox("Lock Angular Z", &s.motionLocks.AngularZ) || apply
+	if apply {
+		for i := range motionLocksCount {
+			s.bodyIDs[i].SetMotionLocks(s.motionLocks)
+			s.bodyIDs[i].SetAwake(true)
 		}
 	}
-	s.Context.Gui.End()
+
+	if s.keyDown(KeyL) {
+		s.bodyIDs[0].ApplyLinearImpulseToCenter(b2.Vec2{X: b2.F(100)}, true)
+	}
 }
 
 const breakableJointCount = 6
@@ -1479,8 +1500,6 @@ func NewBreakableJoint(ctx *SampleContext) Sample {
 			def := b2.DefaultWeldJointDef()
 			def.Base.BodyIdA, def.Base.BodyIdB = groundID, bodyID
 			def.Base.LocalFrameA.P, def.Base.LocalFrameB.P = groundID.GetLocalPoint(pivot), bodyID.GetLocalPoint(pivot)
-			def.AngularHertz, def.AngularDampingRatio = b2.F(2), b2.QHalf()
-			def.LinearHertz, def.LinearDampingRatio = b2.F(2), b2.QHalf()
 			def.Base.CollideConnected = true
 			s.jointIDs[index] = b2.CreateWeldJoint(s.WorldId, &def)
 		case 3:
@@ -2024,7 +2043,7 @@ func (s *ScaleRagdoll) Spawn() {
 		nil,
 		false,
 	)
-	s.human.ApplyRandomAngularImpulse(b2.F(10))
+	s.human.ApplyRandomAngularImpulse(b2.QFromRatio(1, 10))
 }
 
 // UpdateGui exposes the ragdoll scale control.
@@ -2344,6 +2363,9 @@ func NewScissorLift(ctx *SampleContext) Sample {
 	// Need 8 sub-steps for smoother operation.
 	ctx.Settings.SubStepCount = 8
 
+	constraintDampingRatio := b2.F(20)
+	constraintHertz := b2.F(240)
+
 	groundDef := b2.DefaultBodyDef()
 	groundID := b2.CreateBody(s.WorldId, &groundDef)
 	shapeDef := b2.DefaultShapeDef()
@@ -2390,6 +2412,8 @@ func NewScissorLift(ctx *SampleContext) Sample {
 		revoluteDef.Base.LocalFrameA.P = baseAnchor1
 		revoluteDef.Base.LocalFrameB.P = b2.V2(-2.5, 0.0)
 		revoluteDef.Base.CollideConnected = i == 0
+		revoluteDef.Base.ConstraintDampingRatio = constraintDampingRatio
+		revoluteDef.Base.ConstraintHertz = constraintHertz
 		b2.CreateRevoluteJoint(s.WorldId, &revoluteDef)
 
 		if i == 0 {
@@ -2401,6 +2425,8 @@ func NewScissorLift(ctx *SampleContext) Sample {
 			wheelDef.Base.LocalFrameB.P = b2.V2(2.5, 0.0)
 			wheelDef.EnableSpring = false
 			wheelDef.Base.CollideConnected = true
+			wheelDef.Base.ConstraintDampingRatio = constraintDampingRatio
+			wheelDef.Base.ConstraintHertz = constraintHertz
 			b2.CreateWheelJoint(s.WorldId, &wheelDef)
 		} else {
 			revoluteDef.Base.BodyIdA = baseID2
@@ -2408,6 +2434,8 @@ func NewScissorLift(ctx *SampleContext) Sample {
 			revoluteDef.Base.LocalFrameA.P = baseAnchor2
 			revoluteDef.Base.LocalFrameB.P = b2.V2(2.5, 0.0)
 			revoluteDef.Base.CollideConnected = false
+			revoluteDef.Base.ConstraintDampingRatio = constraintDampingRatio
+			revoluteDef.Base.ConstraintHertz = constraintHertz
 			b2.CreateRevoluteJoint(s.WorldId, &revoluteDef)
 		}
 
@@ -2416,6 +2444,8 @@ func NewScissorLift(ctx *SampleContext) Sample {
 		revoluteDef.Base.LocalFrameA.P = b2.Vec2{}
 		revoluteDef.Base.LocalFrameB.P = b2.Vec2{}
 		revoluteDef.Base.CollideConnected = false
+		revoluteDef.Base.ConstraintDampingRatio = constraintDampingRatio
+		revoluteDef.Base.ConstraintHertz = constraintHertz
 		b2.CreateRevoluteJoint(s.WorldId, &revoluteDef)
 
 		baseID1 = bodyID2
@@ -2437,6 +2467,8 @@ func NewScissorLift(ctx *SampleContext) Sample {
 	revoluteDef.Base.LocalFrameA.P = b2.V2(-2.5, -0.4)
 	revoluteDef.Base.LocalFrameB.P = baseAnchor1
 	revoluteDef.Base.CollideConnected = true
+	revoluteDef.Base.ConstraintDampingRatio = constraintDampingRatio
+	revoluteDef.Base.ConstraintHertz = constraintHertz
 	b2.CreateRevoluteJoint(s.WorldId, &revoluteDef)
 
 	wheelDef := b2.DefaultWheelJointDef()
@@ -2447,6 +2479,8 @@ func NewScissorLift(ctx *SampleContext) Sample {
 	wheelDef.Base.LocalFrameB.P = baseAnchor2
 	wheelDef.EnableSpring = false
 	wheelDef.Base.CollideConnected = true
+	wheelDef.Base.ConstraintDampingRatio = constraintDampingRatio
+	wheelDef.Base.ConstraintHertz = constraintHertz
 	b2.CreateWheelJoint(s.WorldId, &wheelDef)
 
 	s.enableMotor = false
@@ -2509,6 +2543,7 @@ func NewGearLift(ctx *SampleContext) Sample {
 	if !ctx.Settings.Restart {
 		ctx.Camera.Center = Vec2f{X: 0, Y: 6}
 		ctx.Camera.Zoom = 7
+		ctx.Settings.DrawJoints = false
 	}
 
 	groundDef := b2.DefaultBodyDef()
@@ -2618,6 +2653,7 @@ func NewGearLift(ctx *SampleContext) Sample {
 		jointDef.Base.BodyIdB = bodyId
 		jointDef.Base.LocalFrameA.P = prevBodyId.GetLocalPoint(pivot)
 		jointDef.Base.LocalFrameB.P = bodyId.GetLocalPoint(pivot)
+		jointDef.Base.DrawScale = b2.F(0.2)
 		b2.CreateRevoluteJoint(g.WorldId, &jointDef)
 		position.Y = position.Y.Sub(linkHalfLength.Mul(b2.F(2)))
 		prevBodyId = bodyId
@@ -2710,4 +2746,662 @@ func (g *GearLift) Step() {
 		g.driverId.WakeBodies()
 	}
 	g.Base.Step()
+}
+
+// TopDownFriction drives bodies in a top-down world with motor joints that
+// act as friction against the ground.
+type TopDownFriction struct {
+	Base
+}
+
+// NewTopDownFriction builds the top-down friction scene.
+func NewTopDownFriction(ctx *SampleContext) Sample {
+	s := &TopDownFriction{Base: NewBase(ctx)}
+
+	if !ctx.Settings.Restart {
+		ctx.Camera.Center = Vec2f{X: 0, Y: 10}
+		ctx.Camera.Zoom = 12
+	}
+
+	groundDef := b2.DefaultBodyDef()
+	groundId := b2.CreateBody(s.WorldId, &groundDef)
+	groundShapeDef := b2.DefaultShapeDef()
+	for _, segment := range []b2.Segment{
+		{Point1: b2.V2(-10, 0), Point2: b2.V2(10, 0)},
+		{Point1: b2.V2(-10, 0), Point2: b2.V2(-10, 20)},
+		{Point1: b2.V2(10, 0), Point2: b2.V2(10, 20)},
+		{Point1: b2.V2(-10, 20), Point2: b2.V2(10, 20)},
+	} {
+		b2.CreateSegmentShape(groundId, &groundShapeDef, &segment)
+	}
+
+	jointDef := b2.DefaultMotorJointDef()
+	jointDef.Base.BodyIdA = groundId
+	jointDef.Base.CollideConnected = true
+	jointDef.MaxVelocityForce = b2.F(10)
+	jointDef.MaxVelocityTorque = b2.F(10)
+
+	capsule := b2.Capsule{Center1: b2.V2(-0.25, 0), Center2: b2.V2(0.25, 0), Radius: b2.F(0.25)}
+	circle := b2.Circle{Center: b2.Vec2{}, Radius: b2.F(0.35)}
+	square := b2.MakeSquare(b2.F(0.35))
+
+	bodyDef := b2.DefaultBodyDef()
+	bodyDef.Type = b2.DynamicBody
+	bodyDef.GravityScale = b2.QZero()
+	shapeDef := b2.DefaultShapeDef()
+	shapeDef.Material.Restitution = b2.F(0.8)
+
+	const n = 10
+	x, y := b2.F(-5), b2.F(15)
+	for i := range n {
+		for j := range n {
+			bodyDef.Position = b2.Vec2{X: x, Y: y}
+			bodyId := b2.CreateBody(s.WorldId, &bodyDef)
+
+			switch (n*i + j) % 4 {
+			case 0:
+				b2.CreateCapsuleShape(bodyId, &shapeDef, &capsule)
+			case 1:
+				b2.CreateCircleShape(bodyId, &shapeDef, &circle)
+			case 2:
+				b2.CreatePolygonShape(bodyId, &shapeDef, &square)
+			default:
+				poly := shared.RandomPolygon(b2.F(0.75))
+				poly.Radius = b2.F(0.1)
+				b2.CreatePolygonShape(bodyId, &shapeDef, &poly)
+			}
+
+			jointDef.Base.BodyIdB = bodyId
+			b2.CreateMotorJoint(s.WorldId, &jointDef)
+
+			x = x.Add(b2.QOne())
+		}
+
+		x = b2.F(-5)
+		y = y.Sub(b2.QOne())
+	}
+
+	return s
+}
+
+// UpdateGui provides the explosion button.
+func (s *TopDownFriction) UpdateGui() {
+	const height = 60
+	gui := s.Context.Gui
+	gui.Begin("Top Down Friction", 10, s.Context.Camera.Height-height-25, 200, height)
+	if gui.Button("Explode") {
+		def := b2.DefaultExplosionDef()
+		def.Position = b2.V2(0, 10)
+		def.Radius = b2.F(10)
+		def.Falloff = b2.F(5)
+		def.ImpulsePerLength = b2.F(10)
+		s.WorldId.Explode(&def)
+
+		s.Context.Draw.DrawCircleFcn(def.Position, b2.F(10), b2.ColorWhite)
+	}
+	gui.End()
+}
+
+// TheoJansen is Theo Jansen's walking machine, inspired by a contribution
+// from roman_m. Dimensions scooped from APE (http://www.cove.org/ape/index.htm).
+type TheoJansen struct {
+	Base
+
+	offset       b2.Vec2
+	chassisId    b2.BodyId
+	wheelId      b2.BodyId
+	motorJointId b2.JointId
+	motorSpeed   float64
+	enableMotor  bool
+}
+
+// NewTheoJansen builds the walking machine.
+func NewTheoJansen(ctx *SampleContext) Sample {
+	s := &TheoJansen{Base: NewBase(ctx)}
+
+	if !ctx.Settings.Restart {
+		ctx.Camera.Center = Vec2f{X: 0, Y: 6}
+		ctx.Camera.Zoom = 25 * 0.5
+	}
+
+	s.offset = b2.V2(0, 8)
+	s.motorSpeed = 2
+	s.enableMotor = true
+	pivot := b2.V2(0.0, 0.8)
+
+	// Ground
+	{
+		bodyDef := b2.DefaultBodyDef()
+		groundId := b2.CreateBody(s.WorldId, &bodyDef)
+		shapeDef := b2.DefaultShapeDef()
+
+		for _, segment := range []b2.Segment{
+			{Point1: b2.V2(-50, 0), Point2: b2.V2(50, 0)},
+			{Point1: b2.V2(-50, 0), Point2: b2.V2(-50, 10)},
+			{Point1: b2.V2(50, 0), Point2: b2.V2(50, 10)},
+		} {
+			b2.CreateSegmentShape(groundId, &shapeDef, &segment)
+		}
+	}
+
+	// Balls
+	for i := range 40 {
+		circle := b2.Circle{Center: b2.Vec2{}, Radius: b2.F(0.25)}
+
+		bodyDef := b2.DefaultBodyDef()
+		bodyDef.Type = b2.DynamicBody
+		bodyDef.Position = b2.Vec2{X: b2.F(-40 + 2*i), Y: b2.F(0.5)}
+		bodyId := b2.CreateBody(s.WorldId, &bodyDef)
+
+		shapeDef := b2.DefaultShapeDef()
+		shapeDef.Density = b2.QOne()
+		b2.CreateCircleShape(bodyId, &shapeDef, &circle)
+	}
+
+	// Chassis
+	{
+		box := b2.MakeBox(b2.F(2.5), b2.QOne())
+
+		bodyDef := b2.DefaultBodyDef()
+		bodyDef.Type = b2.DynamicBody
+		bodyDef.Position = pivot.Add(s.offset)
+		s.chassisId = b2.CreateBody(s.WorldId, &bodyDef)
+
+		shapeDef := b2.DefaultShapeDef()
+		shapeDef.Density = b2.QOne()
+		shapeDef.Filter.GroupIndex = -1
+		b2.CreatePolygonShape(s.chassisId, &shapeDef, &box)
+	}
+
+	// Wheel
+	{
+		circle := b2.Circle{Center: b2.Vec2{}, Radius: b2.F(1.6)}
+
+		bodyDef := b2.DefaultBodyDef()
+		bodyDef.Type = b2.DynamicBody
+		bodyDef.Position = pivot.Add(s.offset)
+		s.wheelId = b2.CreateBody(s.WorldId, &bodyDef)
+
+		shapeDef := b2.DefaultShapeDef()
+		shapeDef.Density = b2.QOne()
+		shapeDef.Filter.GroupIndex = -1
+		b2.CreateCircleShape(s.wheelId, &shapeDef, &circle)
+	}
+
+	{
+		jointDef := b2.DefaultRevoluteJointDef()
+		jointDef.Base.BodyIdA = s.wheelId
+		jointDef.Base.BodyIdB = s.chassisId
+
+		motorPivot := pivot.Add(s.offset)
+		jointDef.Base.LocalFrameA.P = jointDef.Base.BodyIdA.GetLocalPoint(motorPivot)
+		jointDef.Base.LocalFrameB.P = jointDef.Base.BodyIdB.GetLocalPoint(motorPivot)
+
+		jointDef.EnableMotor = s.enableMotor
+		jointDef.MotorSpeed = radiansToTurns(s.motorSpeed)
+		jointDef.MaxMotorTorque = b2.F(400)
+		s.motorJointId = b2.CreateRevoluteJoint(s.WorldId, &jointDef)
+	}
+
+	wheelAnchor := pivot.Add(b2.V2(0, -0.8))
+
+	s.createLeg(-1, wheelAnchor)
+	s.createLeg(1, wheelAnchor)
+
+	// Stagger three leg pairs around the wheel so some feet always touch the ground.
+	// 120 degrees is a third of a turn.
+	s.wheelId.SetTransform(s.wheelId.GetPosition(), b2.MakeRot(b2.QFromRatio(1, 3)))
+	s.createLeg(-1, wheelAnchor)
+	s.createLeg(1, wheelAnchor)
+
+	s.wheelId.SetTransform(s.wheelId.GetPosition(), b2.MakeRot(b2.QFromRatio(-1, 3)))
+	s.createLeg(-1, wheelAnchor)
+	s.createLeg(1, wheelAnchor)
+
+	return s
+}
+
+func (s *TheoJansen) createLeg(sign float64, wheelAnchor b2.Vec2) {
+	p1 := b2.V2(5.4*sign, -6.1)
+	p2 := b2.V2(7.2*sign, -1.2)
+	p3 := b2.V2(4.3*sign, -1.9)
+	p4 := b2.V2(3.1*sign, 0.8)
+	p5 := b2.V2(6.0*sign, 1.5)
+	p6 := b2.V2(2.5*sign, 3.7)
+
+	// The hull computation handles the mirrored winding for sign < 0.
+	hull1 := b2.ComputeHull([]b2.Vec2{p1, p2, p3})
+	hull2 := b2.ComputeHull([]b2.Vec2{{}, p5.Sub(p4), p6.Sub(p4)})
+	poly1 := b2.MakePolygon(&hull1, b2.QZero())
+	poly2 := b2.MakePolygon(&hull2, b2.QZero())
+
+	bodyDef1 := b2.DefaultBodyDef()
+	bodyDef1.Type = b2.DynamicBody
+	bodyDef1.Position = s.offset
+	bodyDef1.AngularDamping = b2.F(10)
+	body1 := b2.CreateBody(s.WorldId, &bodyDef1)
+
+	bodyDef2 := b2.DefaultBodyDef()
+	bodyDef2.Type = b2.DynamicBody
+	bodyDef2.Position = p4.Add(s.offset)
+	bodyDef2.AngularDamping = b2.F(10)
+	body2 := b2.CreateBody(s.WorldId, &bodyDef2)
+
+	// Negative group index keeps the legs from colliding with the chassis and wheel.
+	shapeDef := b2.DefaultShapeDef()
+	shapeDef.Density = b2.QOne()
+	shapeDef.Filter.GroupIndex = -1
+	b2.CreatePolygonShape(body1, &shapeDef, &poly1)
+	b2.CreatePolygonShape(body2, &shapeDef, &poly2)
+
+	{
+		// Soft distance constraints reduce jitter and act like a suspension system.
+		jointDef := b2.DefaultDistanceJointDef()
+		jointDef.EnableSpring = true
+		jointDef.Hertz = b2.F(10)
+		jointDef.DampingRatio = b2.F(0.5)
+
+		jointDef.Base.BodyIdA = body1
+		jointDef.Base.BodyIdB = body2
+
+		anchorA := p2.Add(s.offset)
+		anchorB := p5.Add(s.offset)
+		jointDef.Base.LocalFrameA.P = body1.GetLocalPoint(anchorA)
+		jointDef.Base.LocalFrameB.P = body2.GetLocalPoint(anchorB)
+		jointDef.Length = anchorA.Sub(anchorB).Len()
+		b2.CreateDistanceJoint(s.WorldId, &jointDef)
+
+		anchorA = p3.Add(s.offset)
+		anchorB = p4.Add(s.offset)
+		jointDef.Base.LocalFrameA.P = body1.GetLocalPoint(anchorA)
+		jointDef.Base.LocalFrameB.P = body2.GetLocalPoint(anchorB)
+		jointDef.Length = anchorA.Sub(anchorB).Len()
+		b2.CreateDistanceJoint(s.WorldId, &jointDef)
+
+		jointDef.Base.BodyIdB = s.wheelId
+		anchorB = wheelAnchor.Add(s.offset)
+		jointDef.Base.LocalFrameB.P = s.wheelId.GetLocalPoint(anchorB)
+		jointDef.Length = anchorA.Sub(anchorB).Len()
+		b2.CreateDistanceJoint(s.WorldId, &jointDef)
+
+		jointDef.Base.BodyIdA = body2
+		anchorA = p6.Add(s.offset)
+		jointDef.Base.LocalFrameA.P = body2.GetLocalPoint(anchorA)
+		jointDef.Length = anchorA.Sub(anchorB).Len()
+		b2.CreateDistanceJoint(s.WorldId, &jointDef)
+	}
+
+	{
+		jointDef := b2.DefaultRevoluteJointDef()
+		jointDef.Base.BodyIdA = body2
+		jointDef.Base.BodyIdB = s.chassisId
+
+		legPivot := p4.Add(s.offset)
+		jointDef.Base.LocalFrameA.P = body2.GetLocalPoint(legPivot)
+		jointDef.Base.LocalFrameB.P = s.chassisId.GetLocalPoint(legPivot)
+		b2.CreateRevoluteJoint(s.WorldId, &jointDef)
+	}
+}
+
+// UpdateGui exposes the motor controls.
+func (s *TheoJansen) UpdateGui() {
+	const height = 80
+	gui := s.Context.Gui
+	gui.Begin("Theo Jansen", 10, s.Context.Camera.Height-height-25, 200, height)
+	if gui.Checkbox("Motor", &s.enableMotor) {
+		s.motorJointId.EnableMotor(s.enableMotor)
+	}
+	if gui.SliderFloat("Speed", &s.motorSpeed, -5, 5) {
+		s.motorJointId.SetTargetMotorSpeed(radiansToTurns(s.motorSpeed))
+	}
+	gui.End()
+}
+
+func (s *TheoJansen) Step() {
+	s.DrawTextLine("Keys: left = a, brake = s, right = d, toggle motor = f")
+	s.Base.Step()
+}
+
+func (s *TheoJansen) Keyboard(key Key) {
+	switch key {
+	case KeyA:
+		s.motorJointId.SetTargetMotorSpeed(radiansToTurns(-s.motorSpeed))
+	case KeyS:
+		s.motorJointId.SetTargetMotorSpeed(b2.QZero())
+	case KeyD:
+		s.motorJointId.SetTargetMotorSpeed(radiansToTurns(s.motorSpeed))
+	case KeyF:
+		s.enableMotor = !s.motorJointId.IsMotorEnabled()
+		s.motorJointId.EnableMotor(s.enableMotor)
+	default:
+		s.Base.Keyboard(key)
+	}
+}
+
+const deskLampSpringCount = 2
+
+// DeskLamp is the Anglepoise Original 1227 desk lamp.
+// https://www.anglepoise.com/usa/product-category/original-1227/
+type DeskLamp struct {
+	Base
+
+	springJointIds [deskLampSpringCount]b2.JointId
+	postJointId    b2.JointId
+	elbowJointId   b2.JointId
+	headJointId    b2.JointId
+	topLinkId      b2.BodyId
+	springHertz    [deskLampSpringCount]float64
+	springDamping  float64
+	lowerFriction  float64
+	elbowFriction  float64
+	headAngle      float64
+}
+
+// NewDeskLamp builds the desk lamp.
+func NewDeskLamp(ctx *SampleContext) Sample {
+	s := &DeskLamp{Base: NewBase(ctx)}
+
+	if !ctx.Settings.Restart {
+		ctx.Camera.Center = Vec2f{X: 0.2, Y: 1.42}
+		ctx.Camera.Zoom = 1.6
+	}
+
+	// The parallelogram is narrow, so it wants the extra resolution.
+	ctx.Settings.SubStepCount = 8
+
+	{
+		bodyDef := b2.DefaultBodyDef()
+		groundId := b2.CreateBody(s.WorldId, &bodyDef)
+		shapeDef := b2.DefaultShapeDef()
+		segment := b2.Segment{Point1: b2.V2(-20, 0), Point2: b2.V2(20, 0)}
+		b2.CreateSegmentShape(groundId, &shapeDef, &segment)
+	}
+
+	// Dimensions taken off an Original 1227 in meters, then scaled up. At life size the silver
+	// link is two centimeters, which is far too close to the linear slop.
+	scale := b2.F(5)
+	sc := func(v string) b2.Q { return b2.QMustParse(v).Mul(scale) }
+
+	baseHalfWidth := sc("0.070")
+	baseHalfHeight := sc("0.018")
+	postHalfWidth := sc("0.008")
+	pivotHeight := sc("0.185")
+	springAnchorHeight := sc("0.095")
+	topLinkLength := sc("0.296")
+	silverFoot := sc("0.024")
+	topLeverLength := sc("0.019")
+	lowerLeverLength := sc("0.028")
+	upperArmLength := sc("0.324")
+	tubeRadius := sc("0.0036")
+	shadeLength := sc("0.161")
+	shadeNeckRadius := sc("0.020")
+	shadeMouthRadius := sc("0.061")
+
+	// The silver link measured in the top link frame. The same span separates the two pins on the
+	// upper arm, which is what closes the parallelogram.
+	silverSpan := b2.Vec2{X: sc("0.0212"), Y: sc("0.0109")}
+	silverLength := silverSpan.Len()
+
+	topLinkAngle := -0.878
+	upperArmAngle := 1.192
+	shadeTilt := -0.41
+
+	// The arm spring balances the elevation, the head spring balances the upper arm through the
+	// parallelogram. That is what the real lamp uses two springs for.
+	s.springHertz[0] = 5
+	s.springHertz[1] = 5
+	s.springDamping = 4
+	s.lowerFriction = 100
+	s.elbowFriction = 100
+	s.headAngle = 0
+	topRotation := rotFromRadians(topLinkAngle)
+	upperRotation := rotFromRadians(upperArmAngle)
+
+	topAxis := b2.RotGetYAxis(topRotation)
+	silverWorld := b2.RotateVector(topRotation, silverSpan)
+
+	postPivot := b2.Pos{X: b2.QZero(), Y: pivotHeight}
+	upperPin := b2.OffsetPos(postPivot, topAxis.Mul(topLinkLength))
+	silverBase := b2.OffsetPos(postPivot, topAxis.Mul(silverFoot))
+	lowerFoot := b2.OffsetPos(silverBase, silverWorld)
+	lowerPin := b2.OffsetPos(upperPin, silverWorld)
+
+	// The lower link is parallel to the top link and shorter by the silver link foot.
+	lowerLinkLength := topLinkLength.Sub(silverFoot)
+	silverRotation := b2.MakeRotFromUnitVector(b2.RightPerp(silverWorld.Normalize()))
+
+	headPivot := b2.OffsetPos(upperPin, b2.RotGetYAxis(upperRotation).Mul(upperArmLength))
+
+	bodyDef := b2.DefaultBodyDef()
+	bodyDef.Type = b2.DynamicBody
+
+	shapeDef := b2.DefaultShapeDef()
+
+	var baseId b2.BodyId
+	{
+		// The base is static so the linkage is all that moves.
+		bodyDef.Type = b2.StaticBody
+		bodyDef.Position = b2.Vec2{}
+		bodyDef.Rotation = b2.RotIdentity()
+		baseId = b2.CreateBody(s.WorldId, &bodyDef)
+
+		plinth := b2.MakeOffsetBox(baseHalfWidth, baseHalfHeight, b2.Vec2{Y: baseHalfHeight}, b2.RotIdentity())
+		postHalfHeight := b2.QHalf().Mul(pivotHeight.Sub(baseHalfHeight.Mul(b2.F(2))))
+		post := b2.MakeOffsetBox(postHalfWidth, postHalfHeight, b2.Vec2{Y: pivotHeight.Sub(postHalfHeight)}, b2.RotIdentity())
+
+		b2.CreatePolygonShape(baseId, &shapeDef, &plinth)
+		b2.CreatePolygonShape(baseId, &shapeDef, &post)
+	}
+
+	bodyDef.Type = b2.DynamicBody
+	shapeDef.Density = b2.F(20)
+
+	// Both long links run past their feet into the levers the springs pull on.
+	{
+		bodyDef.Position = postPivot
+		bodyDef.Rotation = topRotation
+		s.topLinkId = b2.CreateBody(s.WorldId, &bodyDef)
+
+		capsule := b2.Capsule{Center1: b2.Vec2{Y: topLeverLength.Neg()}, Center2: b2.Vec2{Y: topLinkLength}, Radius: tubeRadius}
+		b2.CreateCapsuleShape(s.topLinkId, &shapeDef, &capsule)
+	}
+
+	var lowerLinkId b2.BodyId
+	{
+		bodyDef.Position = lowerFoot
+		bodyDef.Rotation = topRotation
+		lowerLinkId = b2.CreateBody(s.WorldId, &bodyDef)
+
+		capsule := b2.Capsule{Center1: b2.Vec2{Y: lowerLeverLength.Neg()}, Center2: b2.Vec2{Y: lowerLinkLength}, Radius: tubeRadius}
+		b2.CreateCapsuleShape(lowerLinkId, &shapeDef, &capsule)
+	}
+
+	var silverId b2.BodyId
+	{
+		bodyDef.Position = silverBase
+		bodyDef.Rotation = silverRotation
+		silverId = b2.CreateBody(s.WorldId, &bodyDef)
+
+		capsule := b2.Capsule{Center1: b2.Vec2{}, Center2: b2.Vec2{Y: silverLength}, Radius: b2.F(1.4).Mul(tubeRadius)}
+		shapeDef.Material.CustomColor = uint32(b2.ColorSilver)
+		b2.CreateCapsuleShape(silverId, &shapeDef, &capsule)
+		shapeDef.Material.CustomColor = 0
+	}
+
+	var upperArmId b2.BodyId
+	{
+		bodyDef.Position = upperPin
+		bodyDef.Rotation = upperRotation
+		upperArmId = b2.CreateBody(s.WorldId, &bodyDef)
+
+		capsule := b2.Capsule{Center1: b2.Vec2{}, Center2: b2.Vec2{Y: upperArmLength}, Radius: b2.F(0.8).Mul(tubeRadius)}
+		b2.CreateCapsuleShape(upperArmId, &shapeDef, &capsule)
+
+		// The coupler span reaches back to the lower link pin.
+		bracket := b2.Capsule{Center1: b2.Vec2{}, Center2: upperArmId.GetLocalPoint(lowerPin), Radius: tubeRadius}
+		b2.CreateCapsuleShape(upperArmId, &shapeDef, &bracket)
+	}
+
+	pinDef := b2.DefaultRevoluteJointDef()
+	pinDef.Base.DrawScale = b2.F(0.03).Mul(scale)
+	pinDef.Base.ConstraintHertz = b2.F(240)
+	pinDef.Base.ConstraintDampingRatio = b2.F(2)
+
+	// Only the top link reaches the post. The springs carry it, so it needs little friction.
+	pinDef.Base.BodyIdA = baseId
+	pinDef.Base.BodyIdB = s.topLinkId
+	pinDef.Base.LocalFrameA.P = baseId.GetLocalPoint(postPivot)
+	pinDef.Base.LocalFrameB.P = b2.Vec2{}
+	pinDef.EnableMotor = true
+	pinDef.MaxMotorTorque = FromFloat64(s.lowerFriction)
+	s.postJointId = b2.CreateRevoluteJoint(s.WorldId, &pinDef)
+
+	pinDef.EnableMotor = false
+
+	// The silver link hangs off the top link and carries the foot of the lower link.
+	pinDef.Base.BodyIdA = s.topLinkId
+	pinDef.Base.BodyIdB = silverId
+	pinDef.Base.LocalFrameA.P = b2.Vec2{Y: silverFoot}
+	pinDef.Base.LocalFrameB.P = b2.Vec2{}
+	b2.CreateRevoluteJoint(s.WorldId, &pinDef)
+
+	pinDef.Base.BodyIdA = silverId
+	pinDef.Base.BodyIdB = lowerLinkId
+	pinDef.Base.LocalFrameA.P = b2.Vec2{Y: silverLength}
+	pinDef.Base.LocalFrameB.P = b2.Vec2{}
+	b2.CreateRevoluteJoint(s.WorldId, &pinDef)
+
+	// Both long links reach the upper arm, at points a silver link apart.
+	pinDef.Base.BodyIdA = lowerLinkId
+	pinDef.Base.BodyIdB = upperArmId
+	pinDef.Base.LocalFrameA.P = b2.Vec2{Y: lowerLinkLength}
+	pinDef.Base.LocalFrameB.P = upperArmId.GetLocalPoint(lowerPin)
+	b2.CreateRevoluteJoint(s.WorldId, &pinDef)
+
+	// No spring reaches the elbow, so it is a friction pivot like the real one.
+	pinDef.Base.BodyIdA = s.topLinkId
+	pinDef.Base.BodyIdB = upperArmId
+	pinDef.Base.LocalFrameA.P = b2.Vec2{Y: topLinkLength}
+	pinDef.Base.LocalFrameB.P = b2.Vec2{}
+	pinDef.EnableMotor = true
+	pinDef.MaxMotorTorque = FromFloat64(s.elbowFriction)
+	s.elbowJointId = b2.CreateRevoluteJoint(s.WorldId, &pinDef)
+
+	springDef := b2.DefaultDistanceJointDef()
+	springDef.Base.DrawScale = b2.F(0.03).Mul(scale)
+	springDef.EnableSpring = true
+	springDef.DampingRatio = FromFloat64(s.springDamping)
+
+	// Carwardine's trick. With almost no free length the spring torque about the pivot is
+	// k times cross(lever, anchor), which tracks the gravity torque as the arm swings, so the
+	// arm balances over its whole range instead of at one angle.
+	springDef.Length = b2.F(0.01)
+
+	springBase := b2.Pos{X: b2.QZero(), Y: springAnchorHeight}
+	leverIds := [deskLampSpringCount]b2.BodyId{s.topLinkId, lowerLinkId}
+	leverLengths := [deskLampSpringCount]b2.Q{topLeverLength, lowerLeverLength}
+
+	for k := range deskLampSpringCount {
+		springDef.Base.BodyIdA = baseId
+		springDef.Base.BodyIdB = leverIds[k]
+		springDef.Base.LocalFrameA.P = baseId.GetLocalPoint(springBase)
+		springDef.Base.LocalFrameB.P = b2.Vec2{Y: leverLengths[k].Neg()}
+		springDef.Hertz = FromFloat64(s.springHertz[k])
+		s.springJointIds[k] = b2.CreateDistanceJoint(s.WorldId, &springDef)
+	}
+
+	{
+		bodyDef.Position = headPivot
+		bodyDef.Rotation = rotFromRadians(shadeTilt)
+		headId := b2.CreateBody(s.WorldId, &bodyDef)
+
+		// The pivot is on the shade center line, where the arm capsule ends. The shade opens along
+		// the local negative y.
+		neck := b2.F(0.45).Mul(shadeLength)
+		mouth := neck.Sub(shadeLength)
+		points := []b2.Vec2{
+			{X: shadeNeckRadius.Neg(), Y: neck},
+			{X: shadeNeckRadius, Y: neck},
+			{X: shadeMouthRadius, Y: mouth},
+			{X: shadeMouthRadius.Neg(), Y: mouth},
+		}
+		hull := b2.ComputeHull(points)
+		shade := b2.MakePolygon(&hull, b2.F(0.01).Mul(scale))
+
+		// The shade is a thin shell.
+		shapeDef.Density = b2.QOne()
+		b2.CreatePolygonShape(headId, &shapeDef, &shade)
+
+		// Offset the reference frame so the head slider reads zero at the pose above.
+		pinDef.Base.BodyIdA = upperArmId
+		pinDef.Base.BodyIdB = headId
+		pinDef.Base.LocalFrameA.P = b2.Vec2{Y: upperArmLength}
+		pinDef.Base.LocalFrameA.Q = b2.InvMulRot(upperRotation, rotFromRadians(shadeTilt))
+		pinDef.Base.LocalFrameB.P = b2.Vec2{}
+		pinDef.EnableMotor = false
+		pinDef.MaxMotorTorque = b2.F(10)
+		pinDef.EnableSpring = true
+		pinDef.Hertz = b2.F(8)
+		pinDef.DampingRatio = b2.F(2)
+		pinDef.TargetAngle = radiansToTurns(s.headAngle)
+		pinDef.EnableLimit = true
+		pinDef.LowerAngle = radiansToTurns(-1.2)
+		pinDef.UpperAngle = radiansToTurns(1.2)
+		s.headJointId = b2.CreateRevoluteJoint(s.WorldId, &pinDef)
+	}
+
+	return s
+}
+
+// UpdateGui exposes the spring and friction controls.
+func (s *DeskLamp) UpdateGui() {
+	const height = 200
+	gui := s.Context.Gui
+	gui.Begin("Desk Lamp", 10, s.Context.Camera.Height-height-25, 240, height)
+
+	if gui.SliderFloat("Arm Spring", &s.springHertz[0], 0, 20) {
+		s.springJointIds[0].SetSpringHertz(FromFloat64(s.springHertz[0]))
+		s.springJointIds[0].WakeBodies()
+	}
+
+	if gui.SliderFloat("Head Spring", &s.springHertz[1], 0, 20) {
+		s.springJointIds[1].SetSpringHertz(FromFloat64(s.springHertz[1]))
+		s.springJointIds[1].WakeBodies()
+	}
+
+	if gui.SliderFloat("Spring Damping", &s.springDamping, 0, 5) {
+		for k := range deskLampSpringCount {
+			s.springJointIds[k].SetSpringDampingRatio(FromFloat64(s.springDamping))
+			s.springJointIds[k].WakeBodies()
+		}
+	}
+
+	if gui.SliderFloat("Post Friction", &s.lowerFriction, 0, 20) {
+		s.postJointId.SetMaxMotorTorque(FromFloat64(s.lowerFriction))
+		s.postJointId.WakeBodies()
+	}
+
+	if gui.SliderFloat("Elbow Friction", &s.elbowFriction, 0, 60) {
+		s.elbowJointId.SetMaxMotorTorque(FromFloat64(s.elbowFriction))
+		s.elbowJointId.WakeBodies()
+	}
+
+	if gui.SliderFloat("Head", &s.headAngle, -1.2, 1.2) {
+		s.headJointId.SetTargetAngle(radiansToTurns(s.headAngle))
+		s.headJointId.WakeBodies()
+	}
+
+	gui.End()
+}
+
+func (s *DeskLamp) Step() {
+	s.Base.Step()
+
+	postTorque := ToFloat64(s.postJointId.GetCurrentMotorTorque())
+	elbowTorque := ToFloat64(s.elbowJointId.GetCurrentMotorTorque())
+	s.DrawTextLine("friction carrying: post %.2f, elbow %.2f N m", postTorque, elbowTorque)
+
+	spring1 := ToFloat64(s.springJointIds[0].GetSpringForce())
+	spring2 := ToFloat64(s.springJointIds[1].GetSpringForce())
+	s.DrawTextLine("spring forces: %.2f, %.2f N", spring1, spring2)
 }

@@ -1,4 +1,4 @@
-// Ported from samples/doohickey.cpp of Box2D v3.1.1
+// Ported from samples/doohickey.cpp of Box2D v3.2.0
 
 package samples
 

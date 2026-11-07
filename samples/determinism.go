@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2022 Erin Catto
 // SPDX-License-Identifier: MIT
-// Ported from samples/sample_determinism.cpp of Box2D v3.1.1. The scene itself
+// Ported from samples/sample_determinism.cpp of Box2D v3.2.0. The scene itself
 // is shared/determinism.c, in internal/shared.
 
 package samples
@@ -98,6 +98,25 @@ func (s *FallingHinges) Step() {
 
 	if !s.Context.Settings.Pause && !s.done {
 		s.done = s.updateFallingHinges()
+
+		// Exercise the queries, as the reference does, so they take part in
+		// the determinism check.
+		filter := b2.DefaultQueryFilter()
+		scanBox := b2.AABB{LowerBound: b2.V2(5, 1), UpperBound: b2.V2(7, 2.5)}
+		s.WorldId.OverlapAABB(b2.Vec2{}, scanBox, filter, func(b2.ShapeId) bool { return true })
+
+		origin := b2.V2(0, 12)
+		translation := b2.V2(0, -14)
+
+		if s.Base.StepCount == 30 {
+			s.WorldId.CastRayClosest(origin, translation, filter)
+		}
+
+		if s.Base.StepCount < 5 || 100 < s.Base.StepCount {
+			origin = b2.V2(-10, 2)
+			translation = b2.V2(20, 0)
+			s.WorldId.CastRay(origin, translation, filter, func(b2.ShapeId, b2.Vec2, b2.Vec2, b2.Q) b2.Q { return b2.QOne() })
+		}
 	} else {
 		s.DrawTextLine("sleep step = %d, hash = 0x%08x", s.sleepStep, s.hash)
 	}

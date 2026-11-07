@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2022 Erin Catto
 // SPDX-License-Identifier: MIT
-// Ported from samples/sample_shapes.cpp of Box2D v3.1.1
+// Ported from samples/sample_shapes.cpp of Box2D v3.2.0
 
 package samples
 
@@ -14,10 +14,10 @@ import (
 
 func init() {
 	RegisterSample("Shapes", "Chain Shape", NewChainShape)
+	RegisterSample("Shapes", "Chain Segment", NewChainSegmentShape)
 	RegisterSample("Shapes", "Compound Shapes", NewCompoundShapes)
 	RegisterSample("Shapes", "Filter", NewShapeFilter)
 	RegisterSample("Shapes", "Custom Filter", NewCustomFilter)
-	RegisterSample("Shapes", "Restitution", NewRestitution)
 	RegisterSample("Shapes", "Friction", NewFriction)
 	RegisterSample("Shapes", "Rolling Resistance", NewRollingResistance)
 	RegisterSample("Shapes", "Conveyor Belt", NewConveyorBelt)
@@ -29,6 +29,7 @@ func init() {
 	RegisterSample("Shapes", "Offset", NewOffsetShapes)
 	RegisterSample("Shapes", "Explosion", NewExplosion)
 	RegisterSample("Shapes", "Recreate Static", NewRecreateStatic)
+	RegisterSample("Shapes", "Wind", NewWind)
 }
 
 // qvs builds a point list from coordinate pairs.
@@ -44,13 +45,12 @@ func qvs(coords ...float64) []b2.Vec2 {
 type ChainShape struct {
 	Base
 
-	groundId    b2.BodyId
-	bodyId      b2.BodyId
-	chainId     b2.ChainId
-	shapeType   int
-	shapeId     b2.ShapeId
-	restitution float64
-	friction    float64
+	groundId  b2.BodyId
+	bodyId    b2.BodyId
+	chainId   b2.ChainId
+	shapeType int
+	shapeId   b2.ShapeId
+	material  b2.SurfaceMaterial
 }
 
 const (
@@ -67,8 +67,10 @@ func NewChainShape(ctx *SampleContext) Sample {
 	}
 
 	s.shapeType = chainCircleShape
-	s.restitution = 0
-	s.friction = 0.2
+	s.material = b2.DefaultSurfaceMaterial()
+	s.material.Friction = b2.F(0.2)
+	s.material.CustomColor = uint32(b2.ColorSteelBlue)
+	s.material.UserMaterialId = 42
 
 	s.createScene()
 	s.launch()
@@ -89,14 +91,9 @@ func (s *ChainShape) createScene() {
 		-38.3644981, 6.2840004, -42.3334999, 9.59125137, -47.625, 11.5755005, -56.885498, 12.8985004,
 	)
 
-	material := b2.SurfaceMaterial{}
-	material.Friction = b2.F(0.2)
-	material.CustomColor = uint32(b2.ColorSteelBlue)
-	material.UserMaterialId = 42
-
 	chainDef := b2.DefaultChainDef()
 	chainDef.Points = points
-	chainDef.Materials = []b2.SurfaceMaterial{material}
+	chainDef.Materials = []b2.SurfaceMaterial{s.material}
 	chainDef.IsLoop = true
 
 	bodyDef := b2.DefaultBodyDef()
@@ -117,8 +114,7 @@ func (s *ChainShape) launch() {
 
 	shapeDef := b2.DefaultShapeDef()
 	shapeDef.Density = b2.QOne()
-	shapeDef.Material.Friction = FromFloat64(s.friction)
-	shapeDef.Material.Restitution = FromFloat64(s.restitution)
+	shapeDef.Material = s.material
 
 	switch s.shapeType {
 	case chainCircleShape:
@@ -148,15 +144,17 @@ func (s *ChainShape) UpdateGui() {
 		s.launch()
 	}
 
-	if gui.SliderFloat("Friction", &s.friction, 0, 1) {
-		s.shapeId.SetFriction(FromFloat64(s.friction))
-		material := s.chainId.GetSurfaceMaterial(0)
-		material.Friction = FromFloat64(s.friction)
-		s.chainId.SetAllSurfaceMaterials(material)
+	friction := ToFloat64(s.material.Friction)
+	if gui.SliderFloat("Friction", &friction, 0, 1) {
+		s.material.Friction = FromFloat64(friction)
+		s.shapeId.SetSurfaceMaterial(s.material)
+		s.chainId.SetAllSurfaceMaterials(s.material)
 	}
 
-	if gui.SliderFloat("Restitution", &s.restitution, 0, 2) {
-		s.shapeId.SetRestitution(FromFloat64(s.restitution))
+	restitution := ToFloat64(s.material.Restitution)
+	if gui.SliderFloat("Restitution", &restitution, 0, 2) {
+		s.material.Restitution = FromFloat64(restitution)
+		s.shapeId.SetSurfaceMaterial(s.material)
 	}
 
 	if gui.Button("Launch") {
@@ -581,103 +579,6 @@ func (s *CustomFilter) shouldCollide(shapeIdA, shapeIdB b2.ShapeId) bool {
 	indexB := userDataB.(int)
 
 	return (indexA&1)+(indexB&1) != 1
-}
-
-const restitutionCount = 40
-
-// Restitution is approximate since Box2D uses speculative collision.
-type Restitution struct {
-	Base
-
-	bodyIds   [restitutionCount]b2.BodyId
-	shapeType int
-}
-
-const (
-	restitutionCircleShape = iota
-	restitutionBoxShape
-)
-
-func NewRestitution(ctx *SampleContext) Sample {
-	s := &Restitution{Base: NewBase(ctx)}
-	if !ctx.Settings.Restart {
-		ctx.Camera.Center = Vec2f{X: 4, Y: 17}
-		ctx.Camera.Zoom = 27.5
-	}
-
-	{
-		bodyDef := b2.DefaultBodyDef()
-		groundId := b2.CreateBody(s.WorldId, &bodyDef)
-
-		h := b2.F(restitutionCount)
-		segment := b2.Segment{Point1: b2.Vec2{X: h.Neg()}, Point2: b2.Vec2{X: h}}
-		shapeDef := b2.DefaultShapeDef()
-		b2.CreateSegmentShape(groundId, &shapeDef, &segment)
-	}
-
-	s.shapeType = restitutionCircleShape
-
-	s.createBodies()
-	return s
-}
-
-func (s *Restitution) createBodies() {
-	for i := range restitutionCount {
-		if !s.bodyIds[i].IsNull() {
-			b2.DestroyBody(s.bodyIds[i])
-			s.bodyIds[i] = b2.BodyId{}
-		}
-	}
-
-	circle := b2.Circle{Radius: b2.QHalf()}
-
-	box := b2.MakeBox(b2.QHalf(), b2.QHalf())
-
-	shapeDef := b2.DefaultShapeDef()
-	shapeDef.Density = b2.QOne()
-	shapeDef.Material.Restitution = b2.QZero()
-
-	bodyDef := b2.DefaultBodyDef()
-	bodyDef.Type = b2.DynamicBody
-
-	dr := b2.QFromRatio(1, max(restitutionCount-1, 1))
-	x := b2.QFromInt(-(restitutionCount - 1))
-	dx := b2.F(2)
-
-	for i := range restitutionCount {
-		bodyDef.Position = b2.Vec2{X: x, Y: b2.F(40)}
-		bodyId := b2.CreateBody(s.WorldId, &bodyDef)
-
-		s.bodyIds[i] = bodyId
-
-		if s.shapeType == restitutionCircleShape {
-			b2.CreateCircleShape(bodyId, &shapeDef, &circle)
-		} else {
-			b2.CreatePolygonShape(bodyId, &shapeDef, &box)
-		}
-
-		shapeDef.Material.Restitution = shapeDef.Material.Restitution.Add(dr)
-		x = x.Add(dx)
-	}
-}
-
-func (s *Restitution) UpdateGui() {
-	height := 100
-	gui := s.Context.Gui
-	gui.Begin("Restitution", 10, s.Context.Camera.Height-height-50, 240, height)
-
-	changed := false
-	shapeTypes := []string{"Circle", "Box"}
-
-	changed = changed || gui.Combo("Shape", &s.shapeType, shapeTypes)
-
-	changed = changed || gui.Button("Reset")
-
-	if changed {
-		s.createBodies()
-	}
-
-	gui.End()
 }
 
 // Friction slides boxes of decreasing friction down a set of ramps.
@@ -1487,6 +1388,275 @@ func (s *RecreateStatic) Step() {
 
 	segment := b2.Segment{Point1: b2.V2(-10, 0), Point2: b2.V2(10, 0)}
 	b2.CreateSegmentShape(s.groundId, &shapeDef, &segment)
+
+	s.Base.Step()
+}
+
+const (
+	chainSegmentSegmentCount = 32
+	chainSegmentPointCount   = chainSegmentSegmentCount + 3
+)
+
+// ChainSegmentShape rolls a shape over loose chain segments and mutates the
+// segments. It mirrors the ChainSegmentShape sample.
+type ChainSegmentShape struct {
+	Base
+
+	bodyId        b2.BodyId
+	shapeType     int
+	segmentShapes [chainSegmentSegmentCount]b2.ShapeId
+	points        [chainSegmentPointCount]b2.Vec2
+	mutateIndex   int
+}
+
+// NewChainSegmentShape builds the loose chain segment scene.
+func NewChainSegmentShape(ctx *SampleContext) Sample {
+	s := &ChainSegmentShape{Base: NewBase(ctx)}
+	if !ctx.Settings.Restart {
+		ctx.Camera.Center = Vec2f{X: 0, Y: 0}
+		ctx.Camera.Zoom = 25
+	}
+
+	s.shapeType = chainCircleShape
+
+	bodyDef := b2.DefaultBodyDef()
+	groundId := b2.CreateBody(s.WorldId, &bodyDef)
+
+	// Walk right-to-left so the right-perpendicular normal of (point2 - point1) points up.
+	for i := range s.points {
+		x := 25.0 - 50.0*float64(i)/float64(chainSegmentPointCount-1)
+		y := 1.5 * math.Sin(0.18*x)
+		s.points[i] = b2.V2(x, y)
+	}
+
+	shapeDef := b2.DefaultShapeDef()
+	for i := range chainSegmentSegmentCount {
+		chainSegment := s.chainSegmentAt(i + 1)
+		s.segmentShapes[i] = b2.CreateChainSegmentShape(groundId, &shapeDef, &chainSegment)
+	}
+
+	s.launch()
+	return s
+}
+
+// chainSegmentAt returns the segment from point index to index+1 with its
+// ghost vertices.
+func (s *ChainSegmentShape) chainSegmentAt(index int) b2.ChainSegment {
+	return b2.ChainSegment{
+		Ghost1:  s.points[index-1],
+		Segment: b2.Segment{Point1: s.points[index], Point2: s.points[index+1]},
+		Ghost2:  s.points[index+2],
+		ChainId: -1,
+	}
+}
+
+func (s *ChainSegmentShape) launch() {
+	if !s.bodyId.IsNull() {
+		b2.DestroyBody(s.bodyId)
+	}
+
+	bodyDef := b2.DefaultBodyDef()
+	bodyDef.Type = b2.DynamicBody
+	bodyDef.Position = b2.V2(-18, 5)
+	s.bodyId = b2.CreateBody(s.WorldId, &bodyDef)
+
+	shapeDef := b2.DefaultShapeDef()
+	switch s.shapeType {
+	case chainCircleShape:
+		circle := b2.Circle{Radius: b2.QFromRatio(1, 4)}
+		b2.CreateCircleShape(s.bodyId, &shapeDef, &circle)
+	case chainCapsuleShape:
+		capsule := b2.Capsule{Center1: b2.V2(-0.5, 0), Center2: b2.V2(0.5, 0), Radius: b2.QFromRatio(1, 4)}
+		b2.CreateCapsuleShape(s.bodyId, &shapeDef, &capsule)
+	default:
+		box := b2.MakeSquare(b2.QHalf())
+		b2.CreatePolygonShape(s.bodyId, &shapeDef, &box)
+	}
+}
+
+// mutate lifts one point and updates the segments that use it.
+func (s *ChainSegmentShape) mutate() {
+	// Index in [1, pointCount - 2]; the first and last points are ghosts only.
+	index := s.mutateIndex + 1
+
+	s.mutateIndex++
+	if s.mutateIndex == chainSegmentSegmentCount {
+		s.mutateIndex = 0
+	}
+
+	s.points[index].Y = s.points[index].Y.Add(b2.QFromRatio(1, 4))
+
+	cs := s.chainSegmentAt(index)
+	s.segmentShapes[index-1].SetChainSegment(&cs)
+
+	if index-1 > 0 {
+		cs2 := s.chainSegmentAt(index - 1)
+		s.segmentShapes[index-2].SetChainSegment(&cs2)
+	}
+
+	if index+1 < chainSegmentPointCount-2 {
+		cs3 := s.chainSegmentAt(index + 1)
+		s.segmentShapes[index].SetChainSegment(&cs3)
+	}
+}
+
+func (s *ChainSegmentShape) UpdateGui() {
+	gui := s.Context.Gui
+	height := 100
+	gui.Begin("Chain Segment", 10, s.Context.Camera.Height-height-50, 240, height)
+
+	shapeTypes := []string{"Circle", "Capsule", "Box"}
+	if gui.Combo("Shape", &s.shapeType, shapeTypes) {
+		s.launch()
+	}
+
+	if gui.Button("Launch") {
+		s.launch()
+	}
+
+	if gui.Button("Mutate") {
+		s.mutate()
+	}
+
+	gui.End()
+}
+
+const windMaxCount = 60
+
+// Wind hangs chains of small shapes from a spring and blows wind on them. It
+// mirrors the Wind sample.
+type Wind struct {
+	Base
+
+	shapeType int
+	wind      b2.Vec2
+	drag      float64
+	lift      float64
+	noise     b2.Vec2
+	groundId  b2.BodyId
+	bodyIds   [windMaxCount]b2.BodyId
+	count     int
+}
+
+// NewWind builds the wind scene.
+func NewWind(ctx *SampleContext) Sample {
+	s := &Wind{Base: NewBase(ctx)}
+	if !ctx.Settings.Restart {
+		ctx.Camera.Center = Vec2f{X: 0, Y: 1}
+		ctx.Camera.Zoom = 2
+	}
+
+	bodyDef := b2.DefaultBodyDef()
+	s.groundId = b2.CreateBody(s.WorldId, &bodyDef)
+
+	s.shapeType = chainCapsuleShape
+	s.wind = b2.V2(6, 0)
+	s.drag = 1
+	s.lift = 0.75
+	s.count = 10
+	s.noise = b2.Vec2{}
+
+	s.createScene()
+	return s
+}
+
+func (s *Wind) createScene() {
+	for i := range windMaxCount {
+		if !s.bodyIds[i].IsNull() {
+			b2.DestroyBody(s.bodyIds[i])
+			s.bodyIds[i] = b2.BodyId{}
+		}
+	}
+
+	radius := b2.QFromRatio(1, 10)
+	circle := b2.Circle{Radius: radius}
+	capsule := b2.Capsule{Center1: b2.Vec2{Y: radius.Neg()}, Center2: b2.Vec2{Y: radius}, Radius: radius.Mul(b2.QFromRatio(1, 4))}
+	box := b2.MakeBox(radius.Mul(b2.QFromRatio(1, 4)), radius.Mul(b2.QFromRatio(5, 4)))
+
+	two := b2.F(2)
+	jointDef := b2.DefaultRevoluteJointDef()
+	jointDef.Base.BodyIdA = s.groundId
+	jointDef.Base.LocalFrameA.P = b2.Vec2{Y: two.Add(radius)}
+	jointDef.Base.DrawScale = b2.QFromRatio(1, 10)
+	jointDef.Hertz = b2.QFromRatio(1, 10)
+	jointDef.DampingRatio = b2.QZero()
+	jointDef.EnableSpring = true
+
+	shapeDef := b2.DefaultShapeDef()
+	shapeDef.Density = b2.F(20)
+
+	bodyDef := b2.DefaultBodyDef()
+	bodyDef.Type = b2.DynamicBody
+	bodyDef.GravityScale = b2.QHalf()
+	bodyDef.EnableSleep = false
+
+	for i := range s.count {
+		bodyDef.Position = b2.Vec2{Y: two.Sub(two.Mul(radius).Mul(b2.QFromInt(i)))}
+		s.bodyIds[i] = b2.CreateBody(s.WorldId, &bodyDef)
+
+		switch s.shapeType {
+		case chainCircleShape:
+			b2.CreateCircleShape(s.bodyIds[i], &shapeDef, &circle)
+		case chainCapsuleShape:
+			b2.CreateCapsuleShape(s.bodyIds[i], &shapeDef, &capsule)
+		default:
+			b2.CreatePolygonShape(s.bodyIds[i], &shapeDef, &box)
+		}
+
+		jointDef.Base.BodyIdB = s.bodyIds[i]
+		jointDef.Base.LocalFrameB.P = b2.Vec2{Y: radius}
+		b2.CreateRevoluteJoint(s.WorldId, &jointDef)
+
+		jointDef.Base.BodyIdA = s.bodyIds[i]
+		jointDef.Base.LocalFrameA.P = b2.Vec2{Y: radius.Neg()}
+	}
+}
+
+func (s *Wind) UpdateGui() {
+	gui := s.Context.Gui
+	height := 180
+	gui.Begin("Wind", 10, s.Context.Camera.Height-height-50, 240, height)
+
+	shapeTypes := []string{"Circle", "Capsule", "Box"}
+	if gui.Combo("Shape", &s.shapeType, shapeTypes) {
+		s.createScene()
+	}
+
+	windX, windY := ToFloat64(s.wind.X), ToFloat64(s.wind.Y)
+	if gui.SliderFloat("Wind X", &windX, -20, 20) {
+		s.wind.X = FromFloat64(windX)
+	}
+	if gui.SliderFloat("Wind Y", &windY, -20, 20) {
+		s.wind.Y = FromFloat64(windY)
+	}
+	gui.SliderFloat("Drag", &s.drag, 0, 1)
+	gui.SliderFloat("Lift", &s.lift, 0, 4)
+	if gui.SliderInt("Count", &s.count, 1, windMaxCount) {
+		s.createScene()
+	}
+
+	gui.End()
+}
+
+func (s *Wind) Step() {
+	settings := s.Context.Settings
+	if !settings.Pause || settings.SingleStep {
+		speed, direction := b2.GetLengthAndNormalize(s.wind)
+		wind := direction.Add(s.noise).Mul(speed)
+
+		var shapeIds [1]b2.ShapeId
+		for i := range s.count {
+			count := s.bodyIds[i].GetShapes(shapeIds[:])
+			for j := range count {
+				shapeIds[j].ApplyWind(wind, FromFloat64(s.drag), FromFloat64(s.lift), true)
+			}
+		}
+
+		random := shared.RandomVec2(b2.F(-0.3), b2.F(0.3))
+		s.noise = b2.Lerp(s.noise, random, b2.F(0.05))
+
+		s.Context.Draw.DrawLineFcn(b2.Vec2{}, wind.Mul(b2.F(0.2)), b2.ColorFuchsia)
+	}
 
 	s.Base.Step()
 }

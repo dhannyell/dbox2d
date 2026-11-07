@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2023 Erin Catto
 // SPDX-License-Identifier: MIT
-// Ported from samples/sample_geometry.cpp of Box2D v3.1.1
+// Ported from samples/sample_geometry.cpp of Box2D v3.2.0
 
 package samples
 

@@ -1,4 +1,4 @@
-// Ported from samples/donut.cpp of Box2D v3.1.1
+// Ported from samples/donut.cpp of Box2D v3.2.0
 
 package samples
 
@@ -57,6 +57,7 @@ func (d *donut) create(worldId b2.WorldId, position b2.Vec2, scale b2.Q, groupIn
 	weldDef.AngularDampingRatio = b2.QZero()
 	weldDef.Base.LocalFrameA.P = b2.Vec2{Y: length.Mul(b2.QHalf())}
 	weldDef.Base.LocalFrameB.P = b2.Vec2{Y: length.Mul(b2.QHalf()).Neg()}
+	weldDef.Base.DrawScale = b2.QHalf().Mul(scale)
 	prevBodyId := d.bodyIds[donutSideCount-1]
 	for i := range donutSideCount {
 		weldDef.Base.BodyIdA = prevBodyId

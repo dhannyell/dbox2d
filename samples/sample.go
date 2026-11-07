@@ -164,13 +164,11 @@ func (b *Base) MouseDown(p b2.Vec2, button MouseButton, mod Modifier) {
 	}
 
 	d := b2.Vec2{X: b2.QFromRatio(1, 1000), Y: b2.QFromRatio(1, 1000)}
-	box := b2.AABB{
-		LowerBound: b2.Vec2{X: p.X.Sub(d.X), Y: p.Y.Sub(d.Y)},
-		UpperBound: b2.Vec2{X: p.X.Add(d.X), Y: p.Y.Add(d.Y)},
-	}
+	// A tiny box around the click point, exact at any distance with the click as the origin.
+	box := b2.AABB{LowerBound: b2.Vec2{X: d.X.Neg(), Y: d.Y.Neg()}, UpperBound: d}
 
 	qc := queryContext{point: p}
-	b.WorldId.OverlapAABB(b2.Vec2{}, box, b2.DefaultQueryFilter(), func(shapeId b2.ShapeId) bool {
+	b.WorldId.OverlapAABB(p, box, b2.DefaultQueryFilter(), func(shapeId b2.ShapeId) bool {
 		bodyId := shapeId.GetBody()
 		if bodyId.GetType() != b2.DynamicBody {
 			return true
@@ -276,6 +274,8 @@ func (b *Base) Step() {
 	b.WorldId.EnableSleeping(s.EnableSleep)
 	b.WorldId.EnableWarmStarting(s.EnableWarmStarting)
 	b.WorldId.EnableContinuous(s.EnableContinuous)
+	b.WorldId.SetRestitutionIterations(s.RestitutionIterations)
+	b.WorldId.EnableRestitutionPropagation(s.EnableRestitutionPropagation)
 
 	if !b.MouseJointId.IsNull() && !b.MouseJointId.IsValid() {
 		// The world or attached body was destroyed.

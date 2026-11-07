@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2022 Erin Catto
 // SPDX-License-Identifier: MIT
-// Ported from samples/sample_continuous.cpp of Box2D v3.1.1
+// Ported from samples/sample_continuous.cpp of Box2D v3.2.0
 
 package samples
 
@@ -27,6 +27,7 @@ func init() {
 	RegisterSample("Continuous", "Drop", NewDrop)
 	RegisterSample("Continuous", "Pinball", NewPinball)
 	RegisterSample("Continuous", "Wedge", NewWedge)
+	RegisterSample("Continuous", "Safety Factor", NewSafetyFactor)
 }
 
 // radiansQToTurns converts a scalar angle of the reference to turns.
@@ -82,7 +83,7 @@ func NewBounceHouse(ctx *SampleContext) Sample {
 	shapeDef := b2.DefaultShapeDef()
 	createBoxWalls(groundId, &shapeDef)
 
-	s.shapeType = launchBox
+	s.shapeType = launchCircle
 	s.bodyId = b2.BodyId{}
 	s.enableHitEvents = true
 
@@ -100,6 +101,7 @@ func (s *BounceHouse) launch() {
 	bodyDef.LinearVelocity = b2.V2(10, 20)
 	bodyDef.Position = b2.V2(0, 0)
 	bodyDef.GravityScale = b2.QZero()
+	bodyDef.IsBullet = true
 
 	// Circle shapes centered on the body can spin fast without risk of tunnelling.
 	bodyDef.AllowFastRotation = s.shapeType == launchCircle
@@ -108,8 +110,8 @@ func (s *BounceHouse) launch() {
 
 	shapeDef := b2.DefaultShapeDef()
 	shapeDef.Density = b2.QOne()
-	shapeDef.Material.Restitution = b2.F(1.2)
-	shapeDef.Material.Friction = b2.F(0.3)
+	shapeDef.Material.Restitution = b2.QOne()
+	shapeDef.Material.Friction = b2.QZero()
 	shapeDef.EnableHitEvents = s.enableHitEvents
 
 	if s.shapeType == launchCircle {
@@ -956,13 +958,12 @@ func (s *RestitutionThreshold) Step() {
 type Drop struct {
 	Base
 
-	groundIds   []b2.BodyId
-	bodyIds     []b2.BodyId
-	human       shared.Human
-	frameSkip   int
-	frameCount  int
-	continuous  bool
-	speculative bool
+	groundIds  []b2.BodyId
+	bodyIds    []b2.BodyId
+	human      shared.Human
+	frameSkip  int
+	frameCount int
+	continuous bool
 }
 
 func NewDrop(ctx *SampleContext) Sample {
@@ -978,7 +979,6 @@ func NewDrop(ctx *SampleContext) Sample {
 	s.frameSkip = 0
 	s.frameCount = 0
 	s.continuous = true
-	s.speculative = true
 
 	s.scene1()
 	return s
@@ -1347,10 +1347,17 @@ func NewPinball(ctx *SampleContext) Sample {
 	return s
 }
 
+func (s *Pinball) UpdateGui() {
+	gui := s.Context.Gui
+	gui.Begin("Pinball", 10, s.Context.Camera.Height-100, 180, 50)
+	gui.Text("Flipper: press A")
+	gui.End()
+}
+
 func (s *Pinball) Step() {
 	s.Base.Step()
 
-	if s.keyDown(KeySpace) {
+	if s.keyDown(KeyA) {
 		s.leftJointId.SetTargetMotorSpeed(radiansToTurns(20))
 		s.rightJointId.SetTargetMotorSpeed(radiansToTurns(-20))
 	} else {
@@ -1397,4 +1404,105 @@ func NewWedge(ctx *SampleContext) Sample {
 		b2.CreateCircleShape(bodyId, &shapeDef, &circle)
 	}
 	return s
+}
+
+// SafetyFactor shows how adjusting the CCD safety factor can engage
+// continuous collision at lower speeds to avoid the slight overlap that
+// happens with discrete collision detection. Mirrors the SafetyFactor sample
+// of sample_continuous.cpp. Pause, restart or press Drop, then single step.
+type SafetyFactor struct {
+	Base
+
+	bodyId       b2.BodyId
+	extent       b2.Q
+	height       float64
+	safetyFactor float64
+	overlap      b2.Q
+	lastStep     int
+}
+
+// NewSafetyFactor builds the safety factor scene.
+func NewSafetyFactor(ctx *SampleContext) Sample {
+	s := &SafetyFactor{Base: NewBase(ctx)}
+	if !ctx.Settings.Restart {
+		ctx.Camera.Center = Vec2f{X: 0, Y: 3}
+		ctx.Camera.Zoom = 6
+	}
+
+	{
+		bodyDef := b2.DefaultBodyDef()
+		bodyDef.Position = b2.V2(0, -1)
+		groundId := b2.CreateBody(s.WorldId, &bodyDef)
+
+		shapeDef := b2.DefaultShapeDef()
+		box := b2.MakeBox(b2.F(20), b2.QOne())
+		b2.CreatePolygonShape(groundId, &shapeDef, &box)
+	}
+
+	s.extent = b2.QHalf()
+	s.height = 0.3
+	s.safetyFactor = 0.1
+
+	s.launch()
+	return s
+}
+
+func (s *SafetyFactor) launch() {
+	if !s.bodyId.IsNull() {
+		b2.DestroyBody(s.bodyId)
+	}
+
+	bodyDef := b2.DefaultBodyDef()
+	bodyDef.Type = b2.DynamicBody
+	bodyDef.Position = b2.Vec2{X: b2.QZero(), Y: FromFloat64(s.height).Add(s.extent)}
+	bodyDef.SafetyFactor = FromFloat64(s.safetyFactor)
+	s.bodyId = b2.CreateBody(s.WorldId, &bodyDef)
+
+	shapeDef := b2.DefaultShapeDef()
+	box := b2.MakeSquare(s.extent)
+	b2.CreatePolygonShape(s.bodyId, &shapeDef, &box)
+
+	s.overlap = b2.QZero()
+}
+
+func (s *SafetyFactor) UpdateGui() {
+	gui := s.Context.Gui
+	gui.Begin("Safety Factor", 10, s.Context.Camera.Height-150, 240, 100)
+
+	changed := gui.SliderFloat("Height", &s.height, 0, 2)
+	changed = gui.SliderFloat("Safety", &s.safetyFactor, 0, 1) || changed
+	if gui.Button("Drop") || changed {
+		s.launch()
+	}
+
+	gui.End()
+}
+
+func (s *SafetyFactor) Step() {
+	s.Base.Step()
+
+	if s.StepCount != s.lastStep {
+		// Contacts are computed at the beginning of the step, so the manifold
+		// holds the initial separation.
+		var data [1]b2.ContactData
+		if s.bodyId.GetContactData(data[:]) == 1 {
+			m := &data[0].Manifold
+			for j := 0; j < m.PointCount; j++ {
+				s.overlap = s.overlap.Max(m.Points[j].Separation.Neg())
+			}
+		}
+	}
+	s.lastStep = s.StepCount
+
+	s.Context.Draw.DrawLineFcn(b2.Vec2{X: b2.F(-3), Y: s.overlap.Neg()}, b2.Vec2{X: b2.F(3), Y: s.overlap.Neg()}, b2.ColorRed)
+
+	var timeStep b2.Q
+	if s.Context.Settings.Hertz > 0 {
+		timeStep = b2.QOne().Div(FromFloat64(s.Context.Settings.Hertz))
+	}
+	motion := timeStep.Mul(s.bodyId.GetLinearVelocity().Len())
+
+	s.DrawTextLine("actual movement = %.3f m", ToFloat64(motion))
+	s.DrawTextLine("fast movement = %.3f m", s.safetyFactor*ToFloat64(s.extent))
+	s.DrawTextLine("overlap = %.4f m", ToFloat64(s.overlap))
 }

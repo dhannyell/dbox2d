@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2022 Erin Catto
 // SPDX-License-Identifier: MIT
-// Ported from samples/sample_robustness.cpp of Box2D v3.1.1
+// Ported from samples/sample_robustness.cpp of Box2D v3.2.0
 
 package samples
 
@@ -15,6 +15,7 @@ func init() {
 	RegisterSample("Robustness", "Overlap Recovery", NewOverlapRecovery)
 	RegisterSample("Robustness", "Tiny Pyramid", NewTinyPyramid)
 	RegisterSample("Robustness", "Cart", NewCart)
+	RegisterSample("Robustness", "Multiple Prismatic", NewMultiplePrismatic)
 }
 
 // createRobustnessGround is the wide ground box shared by the high mass
@@ -206,11 +207,9 @@ func NewOverlapRecovery(ctx *SampleContext) Sample {
 	bodyDef := b2.DefaultBodyDef()
 	groundId := b2.CreateBody(s.WorldId, &bodyDef)
 
-	groundWidth := b2.F(40)
 	shapeDef := b2.DefaultShapeDef()
-	shapeDef.Density = b2.QOne()
 
-	segment := b2.Segment{Point1: b2.Vec2{X: groundWidth.Neg()}, Point2: b2.Vec2{X: groundWidth}}
+	segment := b2.Segment{Point1: b2.V2(-40, 0), Point2: b2.V2(40, 0)}
 	b2.CreateSegmentShape(groundId, &shapeDef, &segment)
 
 	s.createScene()
@@ -345,11 +344,11 @@ type Cart struct {
 	jointId1  b2.JointId
 	jointId2  b2.JointId
 
-	contactHertz        float64
-	contactDampingRatio float64
-	contactSpeed        float64
-	jointHertz          float64
-	jointDampingRatio   float64
+	contactHertz           float64
+	contactDampingRatio    float64
+	contactSpeed           float64
+	constraintHertz        float64
+	constraintDampingRatio float64
 }
 
 func NewCart(ctx *SampleContext) Sample {
@@ -357,6 +356,7 @@ func NewCart(ctx *SampleContext) Sample {
 	if !ctx.Settings.Restart {
 		ctx.Camera.Center = Vec2f{X: 0, Y: 1}
 		ctx.Camera.Zoom = 1.5
+		ctx.Settings.SubStepCount = 12
 	}
 
 	{
@@ -371,13 +371,13 @@ func NewCart(ctx *SampleContext) Sample {
 
 	s.WorldId.SetGravity(b2.V2(0, -22))
 
-	s.contactHertz = 30
+	s.contactHertz = 240
 	s.contactDampingRatio = 10
-	s.contactSpeed = 3
+	s.contactSpeed = 0.5
 	s.setContactTuning()
 
-	s.jointHertz = 60
-	s.jointDampingRatio = 1
+	s.constraintHertz = 240
+	s.constraintDampingRatio = 0
 
 	s.createScene()
 	return s
@@ -408,31 +408,33 @@ func (s *Cart) createScene() {
 	s.chassisId = b2.CreateBody(s.WorldId, &bodyDef)
 
 	shapeDef := b2.DefaultShapeDef()
-	shapeDef.Density = b2.F(100)
+	shapeDef.Density = b2.F(1000)
 
-	box := b2.MakeOffsetBox(b2.QHalf(), b2.F(0.25), b2.V2(0.0, 0.25), b2.RotIdentity())
+	box := b2.MakeOffsetBox(b2.QOne(), b2.F(0.25), b2.V2(0.0, 0.25), b2.RotIdentity())
 	b2.CreatePolygonShape(s.chassisId, &shapeDef, &box)
 
 	shapeDef = b2.DefaultShapeDef()
 	shapeDef.Material.RollingResistance = b2.F(0.02)
-	shapeDef.Density = b2.F(10)
+	shapeDef.Density = b2.F(50)
 
 	circle := b2.Circle{Radius: b2.F(0.1)}
-	bodyDef.Position = b2.Vec2{X: b2.F(-0.4), Y: yBase.Sub(b2.F(0.15))}
+	bodyDef.Position = b2.Vec2{X: b2.F(-0.9), Y: yBase.Sub(b2.F(0.15))}
 	s.wheelId1 = b2.CreateBody(s.WorldId, &bodyDef)
 	b2.CreateCircleShape(s.wheelId1, &shapeDef, &circle)
 
-	bodyDef.Position = b2.Vec2{X: b2.F(0.4), Y: yBase.Sub(b2.F(0.15))}
+	bodyDef.Position = b2.Vec2{X: b2.F(0.9), Y: yBase.Sub(b2.F(0.15))}
 	s.wheelId2 = b2.CreateBody(s.WorldId, &bodyDef)
 	b2.CreateCircleShape(s.wheelId2, &shapeDef, &circle)
 
-	jointHertz := FromFloat64(s.jointHertz)
-	jointDampingRatio := FromFloat64(s.jointDampingRatio)
+	jointHertz := FromFloat64(s.constraintHertz)
+	jointDampingRatio := FromFloat64(s.constraintDampingRatio)
 
 	jointDef := b2.DefaultRevoluteJointDef()
+	jointDef.Base.ConstraintHertz = b2.F(120)
+	jointDef.Base.ConstraintDampingRatio = b2.QZero()
 	jointDef.Base.BodyIdA = s.chassisId
 	jointDef.Base.BodyIdB = s.wheelId1
-	jointDef.Base.LocalFrameA.P = b2.V2(-0.4, -0.15)
+	jointDef.Base.LocalFrameA.P = b2.V2(-0.9, -0.15)
 	jointDef.Base.LocalFrameB.P = b2.Vec2{}
 
 	s.jointId1 = b2.CreateRevoluteJoint(s.WorldId, &jointDef)
@@ -440,7 +442,7 @@ func (s *Cart) createScene() {
 
 	jointDef.Base.BodyIdA = s.chassisId
 	jointDef.Base.BodyIdB = s.wheelId2
-	jointDef.Base.LocalFrameA.P = b2.V2(0.4, -0.15)
+	jointDef.Base.LocalFrameA.P = b2.V2(0.9, -0.15)
 	jointDef.Base.LocalFrameB.P = b2.Vec2{}
 
 	s.jointId2 = b2.CreateRevoluteJoint(s.WorldId, &jointDef)
@@ -455,7 +457,7 @@ func (s *Cart) UpdateGui() {
 	changed := false
 	gui.Text("Contact")
 	changed = changed || gui.SliderFloat("Hertz", &s.contactHertz, 0, 240)
-	changed = changed || gui.SliderFloat("Damping Ratio", &s.contactDampingRatio, 0, 1000)
+	changed = changed || gui.SliderFloat("Damping Ratio", &s.contactDampingRatio, 0, 100)
 	changed = changed || gui.SliderFloat("Speed", &s.contactSpeed, 0, 5)
 
 	if changed {
@@ -465,15 +467,93 @@ func (s *Cart) UpdateGui() {
 
 	changed = false
 	gui.Text("Joint")
-	changed = changed || gui.SliderFloat("Hertz", &s.jointHertz, 0, 240)
-	changed = changed || gui.SliderFloat("Damping Ratio", &s.jointDampingRatio, 0, 1000)
+	changed = changed || gui.SliderFloat("Hertz", &s.constraintHertz, 0, 240)
+	changed = changed || gui.SliderFloat("Damping Ratio", &s.constraintDampingRatio, 0, 20)
 
 	changed = changed || gui.Button("Reset Scene")
 
 	if changed {
-		s.jointId1.SetConstraintTuning(FromFloat64(s.jointHertz), FromFloat64(s.jointDampingRatio))
-		s.jointId2.SetConstraintTuning(FromFloat64(s.jointHertz), FromFloat64(s.jointDampingRatio))
+		s.jointId1.SetConstraintTuning(FromFloat64(s.constraintHertz), FromFloat64(s.constraintDampingRatio))
+		s.jointId2.SetConstraintTuning(FromFloat64(s.constraintHertz), FromFloat64(s.constraintDampingRatio))
 		s.createScene()
+	}
+
+	gui.End()
+}
+
+// multiplePrismaticCount is the number of stacked prismatic joints.
+const multiplePrismaticCount = 6
+
+// MultiplePrismatic checks prismatic joint stability when highly distorted.
+// It mirrors the MultiplePrismatic sample of sample_robustness.cpp.
+type MultiplePrismatic struct {
+	Base
+
+	jointIds     [multiplePrismaticCount]b2.JointId
+	hertz        float64
+	dampingRatio float64
+}
+
+// NewMultiplePrismatic builds a chain of boxes tied by prismatic joints.
+func NewMultiplePrismatic(ctx *SampleContext) Sample {
+	s := &MultiplePrismatic{Base: NewBase(ctx)}
+	if !ctx.Settings.Restart {
+		ctx.Camera.Center = Vec2f{X: 0, Y: 8}
+		ctx.Camera.Zoom = 25 * 0.5
+	}
+
+	bodyDef := b2.DefaultBodyDef()
+	groundId := b2.CreateBody(s.WorldId, &bodyDef)
+
+	shapeDef := b2.DefaultShapeDef()
+	box := b2.MakeBox(b2.QHalf(), b2.QHalf())
+	jointDef := b2.DefaultPrismaticJointDef()
+
+	s.hertz = ToFloat64(jointDef.Base.ConstraintHertz)
+	s.dampingRatio = ToFloat64(jointDef.Base.ConstraintDampingRatio)
+
+	jointDef.Base.BodyIdA = groundId
+	jointDef.Base.LocalFrameA.P = b2.Vec2{}
+	jointDef.Base.LocalFrameB.P = b2.V2(0, -0.6)
+	jointDef.Base.DrawScale = b2.QOne()
+	jointDef.LowerTranslation = b2.F(-6)
+	jointDef.UpperTranslation = b2.F(6)
+	jointDef.EnableLimit = true
+
+	for i := range multiplePrismaticCount {
+		bodyDef := b2.DefaultBodyDef()
+		bodyDef.Position = b2.Vec2{Y: b2.F(0.6).Add(b2.F(1.2).Mul(b2.F(i)))}
+		bodyDef.Type = b2.DynamicBody
+		bodyId := b2.CreateBody(s.WorldId, &bodyDef)
+
+		b2.CreatePolygonShape(bodyId, &shapeDef, &box)
+
+		jointDef.Base.BodyIdB = bodyId
+		s.jointIds[i] = b2.CreatePrismaticJoint(s.WorldId, &jointDef)
+
+		jointDef.Base.BodyIdA = bodyId
+		jointDef.Base.LocalFrameA.P = b2.V2(0, 0.6)
+	}
+
+	// Increase the mouse force.
+	s.MouseForceScale = b2.F(100000)
+	return s
+}
+
+// UpdateGui exposes the constraint tuning of the joints.
+func (s *MultiplePrismatic) UpdateGui() {
+	gui := s.Context.Gui
+	gui.Begin("Multiple Prismatic", 10, s.Context.Camera.Height-120, 280, 90)
+
+	changed := false
+	gui.Text("Multiple Prismatic")
+	changed = gui.SliderFloat("Hertz", &s.hertz, 0, 480) || changed
+	changed = gui.SliderFloat("Damping Ratio", &s.dampingRatio, 0, 100) || changed
+
+	if changed {
+		for _, jointId := range s.jointIds {
+			jointId.SetConstraintTuning(FromFloat64(s.hertz), FromFloat64(s.dampingRatio))
+		}
 	}
 
 	gui.End()

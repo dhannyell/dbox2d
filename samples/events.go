@@ -1,10 +1,11 @@
 // SPDX-FileCopyrightText: 2022 Erin Catto
 // SPDX-License-Identifier: MIT
-// Ported from samples/sample_events.cpp of Box2D v3.1.1
+// Ported from samples/sample_events.cpp of Box2D v3.2.0
 
 package samples
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/dhannyell/dbox2d"
@@ -16,9 +17,13 @@ func init() {
 	RegisterSample("Events", "Sensor Bookend", NewSensorBookend)
 	RegisterSample("Events", "Foot Sensor", NewFootSensor)
 	RegisterSample("Events", "Contact", NewContactEvent)
-	RegisterSample("Events", "Platformer", NewPlatformer)
 	RegisterSample("Events", "Body Move", NewBodyMove)
 	RegisterSample("Events", "Sensor Types", NewSensorTypes)
+	RegisterSample("Events", "Joint", NewJointEvent)
+	RegisterSample("Events", "Persistent Contact", NewPersistentContact)
+	RegisterSample("Events", "Sensor Hits", NewSensorHits)
+	RegisterSample("Events", "Projectile Event", NewProjectileEvent)
+	RegisterSample("Events", "Circle Impulse", NewCircleImpulse)
 }
 
 // sampleAssert stands in for the assert of the reference samples.
@@ -907,217 +912,6 @@ func (s *ContactEvent) Step() {
 	}
 }
 
-// Platformer shows how to make a rigid body character mover and use the
-// pre-solve callback. In this case the platform should get the pre-solve
-// event, not the player.
-type Platformer struct {
-	Base
-
-	jumping          bool
-	radius           b2.Q
-	force            float64
-	impulse          float64
-	jumpDelay        b2.Q
-	playerId         b2.BodyId
-	playerShapeId    b2.ShapeId
-	movingPlatformId b2.BodyId
-}
-
-func NewPlatformer(ctx *SampleContext) Sample {
-	s := &Platformer{Base: NewBase(ctx)}
-	if !ctx.Settings.Restart {
-		ctx.Camera.Center = Vec2f{X: 0.5, Y: 7.5}
-		ctx.Camera.Zoom = 25 * 0.4
-	}
-
-	// v3.2: the pre-solve disables a contact by clearing its points.
-	s.WorldId.SetPreSolveCallback(s.preSolve, nil)
-
-	// Ground
-	{
-		bodyDef := b2.DefaultBodyDef()
-		groundId := b2.CreateBody(s.WorldId, &bodyDef)
-		shapeDef := b2.DefaultShapeDef()
-		segment := b2.Segment{Point1: b2.V2(-20, 0), Point2: b2.V2(20, 0)}
-		b2.CreateSegmentShape(groundId, &shapeDef, &segment)
-	}
-
-	// Static Platform
-	// This tests pre-solve with continuous collision
-	{
-		bodyDef := b2.DefaultBodyDef()
-		bodyDef.Type = b2.StaticBody
-		bodyDef.Position = b2.V2(-6, 6)
-		bodyId := b2.CreateBody(s.WorldId, &bodyDef)
-
-		shapeDef := b2.DefaultShapeDef()
-
-		// Need to turn this on to get the callback
-		shapeDef.EnablePreSolveEvents = true
-
-		box := b2.MakeBox(b2.F(2), b2.QHalf())
-		b2.CreatePolygonShape(bodyId, &shapeDef, &box)
-	}
-
-	// Moving Platform
-	{
-		bodyDef := b2.DefaultBodyDef()
-		bodyDef.Type = b2.KinematicBody
-		bodyDef.Position = b2.V2(0, 6)
-		bodyDef.LinearVelocity = b2.V2(2, 0)
-		s.movingPlatformId = b2.CreateBody(s.WorldId, &bodyDef)
-
-		shapeDef := b2.DefaultShapeDef()
-
-		// Need to turn this on to get the callback
-		shapeDef.EnablePreSolveEvents = true
-
-		box := b2.MakeBox(b2.F(3), b2.QHalf())
-		b2.CreatePolygonShape(s.movingPlatformId, &shapeDef, &box)
-	}
-
-	// Player
-	{
-		bodyDef := b2.DefaultBodyDef()
-		bodyDef.Type = b2.DynamicBody
-		bodyDef.MotionLocks.AngularZ = true
-		bodyDef.LinearDamping = b2.QHalf()
-		bodyDef.Position = b2.V2(0, 1)
-		s.playerId = b2.CreateBody(s.WorldId, &bodyDef)
-
-		s.radius = b2.QHalf()
-		capsule := b2.Capsule{Center1: b2.V2(0, 0), Center2: b2.V2(0, 1), Radius: s.radius}
-		shapeDef := b2.DefaultShapeDef()
-		shapeDef.Material.Friction = b2.F(0.1)
-
-		s.playerShapeId = b2.CreateCapsuleShape(s.playerId, &shapeDef, &capsule)
-	}
-
-	s.force = 25
-	s.impulse = 25
-	s.jumpDelay = b2.F(0.25)
-	s.jumping = false
-	return s
-}
-
-// preSolve must be thread-safe. It may be called multiple times
-// simultaneously. It reads only fields that stay fixed after construction
-// and does not try to access any values in the world that may be changing,
-// such as contact data.
-func (s *Platformer) preSolve(shapeIdA, shapeIdB b2.ShapeId, manifold *b2.Manifold) {
-	sampleAssert(shapeIdA.IsValid(), "platformer pre-solve shape A is invalid")
-	sampleAssert(shapeIdB.IsValid(), "platformer pre-solve shape B is invalid")
-
-	var sign b2.Q
-	if shapeIdA == s.playerShapeId {
-		sign = b2.QOne().Neg()
-	} else if shapeIdB == s.playerShapeId {
-		sign = b2.QOne()
-	} else {
-		// not colliding with the player, enable contact
-		return
-	}
-
-	normal := manifold.Normal
-	if sign.Mul(normal.Y).Greater(b2.F(0.95)) {
-		return
-	}
-
-	separation := b2.QZero()
-	for i := range manifold.PointCount {
-		sep := manifold.Points[i].Separation
-		if sep.Less(separation) {
-			separation = sep
-		}
-	}
-
-	if separation.Greater(b2.F(0.1).Mul(s.radius)) {
-		// shallow overlap
-		return
-	}
-
-	// normal points down, disable contact
-	manifold.PointCount = 0
-}
-
-func (s *Platformer) UpdateGui() {
-	height := 100
-	gui := s.Context.Gui
-	gui.Begin("One-Sided Platform", 10, s.Context.Camera.Height-height-50, 240, height)
-
-	gui.SliderFloat("force", &s.force, 0, 50)
-	gui.SliderFloat("impulse", &s.impulse, 0, 50)
-
-	gui.End()
-}
-
-func (s *Platformer) Step() {
-	canJump := false
-	velocity := s.playerId.GetLinearVelocity()
-	if s.jumpDelay.Eq(b2.QZero()) && !s.jumping && velocity.Y.Less(b2.F(0.01)) {
-		capacity := min(s.playerId.GetContactCapacity(), 4)
-		var contactData [4]b2.ContactData
-		count := s.playerId.GetContactData(contactData[:capacity])
-		for i := range count {
-			bodyIdA := contactData[i].ShapeIdA.GetBody()
-			var sign b2.Q
-			if bodyIdA == s.playerId {
-				// normal points from A to B
-				sign = b2.QOne().Neg()
-			} else {
-				sign = b2.QOne()
-			}
-
-			if sign.Mul(contactData[i].Manifold.Normal.Y).Greater(b2.F(0.9)) {
-				canJump = true
-				break
-			}
-		}
-	}
-
-	// A kinematic body is moved by setting its velocity. This
-	// ensure friction works correctly.
-	platformPosition := s.movingPlatformId.GetPosition()
-	if platformPosition.X.Less(b2.F(-15)) {
-		s.movingPlatformId.SetLinearVelocity(b2.V2(2, 0))
-	} else if platformPosition.X.Greater(b2.F(15)) {
-		s.movingPlatformId.SetLinearVelocity(b2.V2(-2, 0))
-	}
-
-	if s.keyDown(KeyA) {
-		s.playerId.ApplyForceToCenter(b2.Vec2{X: FromFloat64(-s.force)}, true)
-	}
-
-	if s.keyDown(KeyD) {
-		s.playerId.ApplyForceToCenter(b2.Vec2{X: FromFloat64(s.force)}, true)
-	}
-
-	if s.keyDown(KeySpace) {
-		if canJump {
-			s.playerId.ApplyLinearImpulseToCenter(b2.Vec2{Y: FromFloat64(s.impulse)}, true)
-			s.jumpDelay = b2.QHalf()
-			s.jumping = true
-		}
-	} else {
-		s.jumping = false
-	}
-
-	s.Base.Step()
-
-	var contactData [1]b2.ContactData
-	contactCount := s.movingPlatformId.GetContactData(contactData[:])
-	s.DrawTextLine("Platform contact count = %d, point count = %d", contactCount, contactData[0].Manifold.PointCount)
-	s.DrawTextLine("Movement: A/D/Space")
-	s.DrawTextLine("Can jump = %t", canJump)
-
-	if s.Context.Settings.Hertz > 0 {
-		s.jumpDelay = s.jumpDelay.Sub(stepTime(&s.Context.Settings))
-		if s.jumpDelay.Less(b2.QZero()) {
-			s.jumpDelay = b2.QZero()
-		}
-	}
-}
-
 const bodyMoveCount = 50
 
 // BodyMove shows how to process body events.
@@ -1243,6 +1037,11 @@ func (s *BodyMove) Step() {
 	for i := range events.MoveEvents {
 		// draw the transform of every body that moved (not sleeping)
 		event := &events.MoveEvents[i]
+		if event.UserData == nil {
+			// The mouse body has no user data
+			continue
+		}
+
 		s.Context.Draw.DrawTransformFcn(event.Transform)
 
 		transform := event.BodyId.GetTransform()
@@ -1435,5 +1234,703 @@ func (s *SensorTypes) Step() {
 
 	if result.Hit {
 		s.Context.Draw.DrawPointFcn(result.Point, b2.F(10), b2.ColorCyan)
+	}
+}
+
+const jointEventCount = 6
+
+// JointEvent mirrors the Joint sample of sample_events.cpp. It breaks joints
+// when the internal reaction force becomes large, using joint events instead
+// of polling.
+type JointEvent struct {
+	Base
+
+	jointIds [jointEventCount]b2.JointId
+}
+
+// NewJointEvent builds the joint event scene.
+func NewJointEvent(ctx *SampleContext) Sample {
+	s := &JointEvent{Base: NewBase(ctx)}
+	if !ctx.Settings.Restart {
+		ctx.Camera.Center = Vec2f{X: 0, Y: 8}
+		ctx.Camera.Zoom = 25 * 0.7
+	}
+
+	bodyDef := b2.DefaultBodyDef()
+	groundId := b2.CreateBody(s.WorldId, &bodyDef)
+
+	shapeDef := b2.DefaultShapeDef()
+	segment := b2.Segment{Point1: b2.V2(-40, 0), Point2: b2.V2(40, 0)}
+	b2.CreateSegmentShape(groundId, &shapeDef, &segment)
+
+	position := b2.V2(-12.5, 10)
+	bodyDef.Type = b2.DynamicBody
+	bodyDef.EnableSleep = false
+
+	box := b2.MakeBox(b2.QOne(), b2.QOne())
+
+	index := 0
+	forceThreshold := b2.F(20000)
+	torqueThreshold := b2.F(10000)
+
+	// Each joint gets a fresh body and the shared thresholds.
+	newBody := func() b2.BodyId {
+		bodyDef.Position = position
+		bodyId := b2.CreateBody(s.WorldId, &bodyDef)
+		b2.CreatePolygonShape(bodyId, &shapeDef, &box)
+		return bodyId
+	}
+	setup := func(base *b2.JointDef, bodyId b2.BodyId) {
+		base.BodyIdA = groundId
+		base.BodyIdB = bodyId
+		base.ForceThreshold = forceThreshold
+		base.TorqueThreshold = torqueThreshold
+		base.CollideConnected = true
+		base.UserData = index
+	}
+	pivotFrames := func(base *b2.JointDef, bodyId b2.BodyId) {
+		pivot := b2.Vec2{X: position.X.Sub(b2.QOne()), Y: position.Y}
+		base.LocalFrameA.P = groundId.GetLocalPoint(pivot)
+		base.LocalFrameB.P = bodyId.GetLocalPoint(pivot)
+	}
+
+	// distance joint
+	{
+		bodyId := newBody()
+		length := b2.F(2)
+		pivot1 := b2.Vec2{X: position.X, Y: position.Y.Add(b2.QOne()).Add(length)}
+		pivot2 := b2.Vec2{X: position.X, Y: position.Y.Add(b2.QOne())}
+		jointDef := b2.DefaultDistanceJointDef()
+		setup(&jointDef.Base, bodyId)
+		jointDef.Base.LocalFrameA.P = groundId.GetLocalPoint(pivot1)
+		jointDef.Base.LocalFrameB.P = bodyId.GetLocalPoint(pivot2)
+		jointDef.Length = length
+		s.jointIds[index] = b2.CreateDistanceJoint(s.WorldId, &jointDef)
+	}
+	position.X = position.X.Add(b2.F(5))
+	index++
+
+	// motor joint
+	{
+		bodyId := newBody()
+		jointDef := b2.DefaultMotorJointDef()
+		setup(&jointDef.Base, bodyId)
+		jointDef.Base.LocalFrameA.P = position
+		jointDef.MaxVelocityForce = b2.F(1000)
+		jointDef.MaxVelocityTorque = b2.F(20)
+		s.jointIds[index] = b2.CreateMotorJoint(s.WorldId, &jointDef)
+	}
+	position.X = position.X.Add(b2.F(5))
+	index++
+
+	// prismatic joint
+	{
+		bodyId := newBody()
+		jointDef := b2.DefaultPrismaticJointDef()
+		setup(&jointDef.Base, bodyId)
+		pivotFrames(&jointDef.Base, bodyId)
+		s.jointIds[index] = b2.CreatePrismaticJoint(s.WorldId, &jointDef)
+	}
+	position.X = position.X.Add(b2.F(5))
+	index++
+
+	// revolute joint
+	{
+		bodyId := newBody()
+		jointDef := b2.DefaultRevoluteJointDef()
+		setup(&jointDef.Base, bodyId)
+		pivotFrames(&jointDef.Base, bodyId)
+		s.jointIds[index] = b2.CreateRevoluteJoint(s.WorldId, &jointDef)
+	}
+	position.X = position.X.Add(b2.F(5))
+	index++
+
+	// weld joint
+	{
+		bodyId := newBody()
+		jointDef := b2.DefaultWeldJointDef()
+		setup(&jointDef.Base, bodyId)
+		pivotFrames(&jointDef.Base, bodyId)
+		jointDef.AngularHertz = b2.F(2)
+		jointDef.AngularDampingRatio = b2.F(0.5)
+		s.jointIds[index] = b2.CreateWeldJoint(s.WorldId, &jointDef)
+	}
+	position.X = position.X.Add(b2.F(5))
+	index++
+
+	// wheel joint
+	{
+		bodyId := newBody()
+		jointDef := b2.DefaultWheelJointDef()
+		setup(&jointDef.Base, bodyId)
+		pivotFrames(&jointDef.Base, bodyId)
+		jointDef.Hertz = b2.QOne()
+		jointDef.DampingRatio = b2.F(0.7)
+		jointDef.LowerTranslation = b2.F(-1)
+		jointDef.UpperTranslation = b2.QOne()
+		jointDef.EnableLimit = true
+		jointDef.EnableMotor = true
+		jointDef.MaxMotorTorque = b2.F(10)
+		jointDef.MotorSpeed = b2.QOne()
+		s.jointIds[index] = b2.CreateWheelJoint(s.WorldId, &jointDef)
+	}
+	return s
+}
+
+func (s *JointEvent) Step() {
+	s.Base.Step()
+
+	// Process joint events
+	events := s.WorldId.GetJointEvents()
+	for i := range events {
+		// Destroy the joint if it is still valid
+		event := &events[i]
+		if event.JointId.IsValid() {
+			index := event.UserData.(int)
+			sampleAssert(0 <= index && index < jointEventCount, "joint event index")
+			b2.DestroyJoint(event.JointId)
+			s.jointIds[index] = b2.JointId{}
+		}
+	}
+}
+
+// PersistentContact mirrors the Persistent Contact sample of
+// sample_events.cpp. It tracks a contact across time steps, as one would for
+// rolling or sliding sounds.
+type PersistentContact struct {
+	Base
+
+	contactId b2.ContactId
+}
+
+// NewPersistentContact builds the persistent contact scene.
+func NewPersistentContact(ctx *SampleContext) Sample {
+	s := &PersistentContact{Base: NewBase(ctx)}
+	if !ctx.Settings.Restart {
+		ctx.Camera.Center = Vec2f{X: 0, Y: 6}
+		ctx.Camera.Zoom = 7.5
+	}
+
+	{
+		bodyDef := b2.DefaultBodyDef()
+		groundId := b2.CreateBody(s.WorldId, &bodyDef)
+
+		points := make([]b2.Vec2, 22)
+		x := b2.F(10)
+		for i := range 20 {
+			points[i] = b2.Vec2{X: x}
+			x = x.Sub(b2.QOne())
+		}
+		points[20] = b2.V2(-9, 10)
+		points[21] = b2.V2(10, 10)
+
+		chainDef := b2.DefaultChainDef()
+		chainDef.Points = points
+		chainDef.IsLoop = true
+		b2.CreateChain(groundId, &chainDef)
+	}
+
+	{
+		bodyDef := b2.DefaultBodyDef()
+		bodyDef.Type = b2.DynamicBody
+		bodyDef.Position = b2.V2(-8, 1)
+		bodyDef.LinearVelocity = b2.V2(2, 0)
+		bodyId := b2.CreateBody(s.WorldId, &bodyDef)
+
+		shapeDef := b2.DefaultShapeDef()
+		shapeDef.EnableContactEvents = true
+		circle := b2.Circle{Radius: b2.QHalf()}
+		b2.CreateCircleShape(bodyId, &shapeDef, &circle)
+	}
+	return s
+}
+
+func (s *PersistentContact) Step() {
+	s.Base.Step()
+
+	events := s.WorldId.GetContactEvents()
+	if len(events.BeginEvents) > 0 {
+		s.contactId = events.BeginEvents[0].ContactId
+	}
+
+	for i := range events.EndEvents {
+		if s.contactId == events.EndEvents[i].ContactId {
+			s.contactId = b2.ContactId{}
+			break
+		}
+	}
+
+	// Contacts are created and destroyed by Box2D, so it is important to make
+	// sure a contact id is valid before accessing contact data.
+	if !s.contactId.IsNull() && s.contactId.IsValid() {
+		data := s.contactId.GetData()
+		draw := &s.Context.Draw
+
+		for i := range data.Manifold.PointCount {
+			manifoldPoint := &data.Manifold.Points[i]
+			bodyIdA := data.ShapeIdA.GetBody()
+			p1 := bodyIdA.GetWorldCenter().Add(manifoldPoint.AnchorA)
+			p2 := b2.MulAdd(p1, manifoldPoint.TotalNormalImpulse, data.Manifold.Normal)
+			draw.DrawLineFcn(p1, p2, b2.ColorCrimson)
+			draw.DrawPointFcn(p1, b2.F(6), b2.ColorCrimson)
+			draw.DrawStringFcn(p1, fmt.Sprintf("%.2f", ToFloat64(manifoldPoint.TotalNormalImpulse)), b2.ColorWhite)
+		}
+	} else {
+		s.contactId = b2.ContactId{}
+	}
+}
+
+const sensorHitsTransformCapacity = 20
+
+// SensorHits mirrors the Sensor Hits sample of sample_events.cpp. A fast
+// projectile crosses static, kinematic and dynamic sensors.
+type SensorHits struct {
+	Base
+
+	staticSensorId    b2.ShapeId
+	kinematicSensorId b2.ShapeId
+	dynamicSensorId   b2.ShapeId
+
+	kinematicBodyId b2.BodyId
+	dynamicBodyId   b2.BodyId
+	jointId         b2.JointId
+
+	bodyId  b2.BodyId
+	shapeId b2.ShapeId
+
+	transformCount int
+	transforms     [sensorHitsTransformCapacity]b2.Transform
+
+	isBullet   bool
+	beginCount int
+	endCount   int
+}
+
+// NewSensorHits builds the sensor hits scene.
+func NewSensorHits(ctx *SampleContext) Sample {
+	s := &SensorHits{Base: NewBase(ctx)}
+	if !ctx.Settings.Restart {
+		ctx.Camera.Center = Vec2f{X: 0, Y: 5}
+		ctx.Camera.Zoom = 7.5
+	}
+
+	var groundId b2.BodyId
+	{
+		bodyDef := b2.DefaultBodyDef()
+		bodyDef.Name = "ground"
+		groundId = b2.CreateBody(s.WorldId, &bodyDef)
+		shapeDef := b2.DefaultShapeDef()
+
+		groundSegment := b2.Segment{Point1: b2.V2(-10, 0), Point2: b2.V2(10, 0)}
+		b2.CreateSegmentShape(groundId, &shapeDef, &groundSegment)
+
+		groundSegment = b2.Segment{Point1: b2.V2(10, 0), Point2: b2.V2(10, 10)}
+		b2.CreateSegmentShape(groundId, &shapeDef, &groundSegment)
+	}
+
+	// Static sensor
+	{
+		bodyDef := b2.DefaultBodyDef()
+		bodyDef.Name = "static sensor"
+		bodyDef.Position = b2.V2(-4, 1)
+		bodyId := b2.CreateBody(s.WorldId, &bodyDef)
+		shapeDef := b2.DefaultShapeDef()
+		shapeDef.IsSensor = true
+		shapeDef.EnableSensorEvents = true
+
+		segment := b2.Segment{Point2: b2.V2(0, 10)}
+		s.staticSensorId = b2.CreateSegmentShape(bodyId, &shapeDef, &segment)
+	}
+
+	// Kinematic sensor
+	{
+		bodyDef := b2.DefaultBodyDef()
+		bodyDef.Name = "kinematic sensor"
+		bodyDef.Type = b2.KinematicBody
+		bodyDef.Position = b2.V2(0, 1)
+		bodyDef.LinearVelocity = b2.V2(0.5, 0)
+		s.kinematicBodyId = b2.CreateBody(s.WorldId, &bodyDef)
+		shapeDef := b2.DefaultShapeDef()
+		shapeDef.IsSensor = true
+		shapeDef.EnableSensorEvents = true
+
+		segment := b2.Segment{Point2: b2.V2(0, 10)}
+		s.kinematicSensorId = b2.CreateSegmentShape(s.kinematicBodyId, &shapeDef, &segment)
+	}
+
+	// Dynamic sensor
+	{
+		bodyDef := b2.DefaultBodyDef()
+		bodyDef.Name = "dynamic sensor"
+		bodyDef.Type = b2.DynamicBody
+		bodyDef.Position = b2.V2(4, 1)
+		s.dynamicBodyId = b2.CreateBody(s.WorldId, &bodyDef)
+		shapeDef := b2.DefaultShapeDef()
+		shapeDef.IsSensor = true
+		shapeDef.EnableSensorEvents = true
+
+		capsule := b2.Capsule{Center1: b2.V2(0, 1), Center2: b2.V2(0, 9), Radius: b2.F(0.1)}
+		s.dynamicSensorId = b2.CreateCapsuleShape(s.dynamicBodyId, &shapeDef, &capsule)
+
+		pivot := bodyDef.Position.Add(b2.V2(0, 6))
+		axis := b2.MakeRotFromUnitVector(b2.V2(1, 0))
+		jointDef := b2.DefaultPrismaticJointDef()
+		jointDef.Base.BodyIdA = groundId
+		jointDef.Base.BodyIdB = s.dynamicBodyId
+		jointDef.Base.LocalFrameA.Q = axis
+		jointDef.Base.LocalFrameA.P = groundId.GetLocalPoint(pivot)
+		jointDef.Base.LocalFrameB.Q = axis
+		jointDef.Base.LocalFrameB.P = s.dynamicBodyId.GetLocalPoint(pivot)
+		jointDef.EnableMotor = true
+		jointDef.MaxMotorForce = b2.F(1000)
+		jointDef.MotorSpeed = b2.QHalf()
+		s.jointId = b2.CreatePrismaticJoint(s.WorldId, &jointDef)
+	}
+
+	s.isBullet = true
+	s.launch()
+	return s
+}
+
+func (s *SensorHits) launch() {
+	if !s.bodyId.IsNull() {
+		b2.DestroyBody(s.bodyId)
+	}
+
+	s.transformCount = 0
+	s.beginCount = 0
+	s.endCount = 0
+
+	bodyDef := b2.DefaultBodyDef()
+	bodyDef.Type = b2.DynamicBody
+	bodyDef.Position = b2.V2(-26.7, 6)
+	speed := shared.RandomFloatRange(b2.F(200), b2.F(300))
+	bodyDef.LinearVelocity = b2.Vec2{X: speed}
+	bodyDef.IsBullet = s.isBullet
+	s.bodyId = b2.CreateBody(s.WorldId, &bodyDef)
+
+	shapeDef := b2.DefaultShapeDef()
+	shapeDef.EnableSensorEvents = true
+	shapeDef.Material.Friction = b2.F(0.8)
+	shapeDef.Material.RollingResistance = b2.F(0.01)
+	circle := b2.Circle{Radius: b2.F(0.25)}
+	s.shapeId = b2.CreateCircleShape(s.bodyId, &shapeDef, &circle)
+}
+
+func (s *SensorHits) UpdateGui() {
+	gui := s.Context.Gui
+	gui.Begin("Sensor Hits", 10, s.Context.Camera.Height-100-50, 200, 100)
+
+	gui.Checkbox("Bullet", &s.isBullet)
+	if gui.Button("Launch") || s.keyDown(KeyB) {
+		s.launch()
+	}
+
+	gui.End()
+}
+
+func (s *SensorHits) collectTransforms(sensorShapeId b2.ShapeId) {
+	const capacity = 5
+	var visitorIds [capacity]b2.ShapeId
+	count := sensorShapeId.GetSensorData(visitorIds[:])
+
+	for i := 0; i < count && s.transformCount < sensorHitsTransformCapacity; i++ {
+		sensorBodyId := sensorShapeId.GetBody()
+		s.transforms[s.transformCount] = sensorBodyId.GetTransform()
+		s.transformCount++
+	}
+}
+
+func (s *SensorHits) Step() {
+	p := s.kinematicBodyId.GetPosition()
+	if p.X.Greater(b2.QOne()) {
+		s.kinematicBodyId.SetLinearVelocity(b2.V2(-0.5, 0))
+	} else if p.X.Less(b2.F(-1)) {
+		s.kinematicBodyId.SetLinearVelocity(b2.V2(0.5, 0))
+	}
+
+	x := s.jointId.GetCurrentTranslation()
+	if x.Greater(b2.QOne()) {
+		s.jointId.SetTargetMotorSpeed(b2.F(-0.5))
+	} else if x.Less(b2.F(-1)) {
+		s.jointId.SetTargetMotorSpeed(b2.QHalf())
+	}
+
+	s.Base.Step()
+
+	for i := range s.transformCount {
+		s.Context.Draw.DrawTransformFcn(s.transforms[i])
+	}
+
+	sensorEvents := s.WorldId.GetSensorEvents()
+	s.beginCount += len(sensorEvents.BeginEvents)
+	s.endCount += len(sensorEvents.EndEvents)
+
+	for i := range sensorEvents.BeginEvents {
+		event := &sensorEvents.BeginEvents[i]
+		if event.SensorShapeId.IsValid() {
+			s.collectTransforms(event.SensorShapeId)
+		}
+	}
+
+	s.DrawTextLine("begin touch count = %d", s.beginCount)
+	s.DrawTextLine("end touch count = %d", s.endCount)
+}
+
+// ProjectileEvent mirrors the Projectile Event sample of sample_events.cpp.
+// It shows how to create a projectile that explodes on impact.
+type ProjectileEvent struct {
+	Base
+
+	projectileId      b2.BodyId
+	projectileShapeId b2.ShapeId
+	point1            b2.Vec2
+	point2            b2.Vec2
+	dragging          bool
+}
+
+// NewProjectileEvent builds the projectile event scene.
+func NewProjectileEvent(ctx *SampleContext) Sample {
+	s := &ProjectileEvent{Base: NewBase(ctx)}
+	if !ctx.Settings.Restart {
+		ctx.Camera.Center = Vec2f{X: -7, Y: 9}
+		ctx.Camera.Zoom = 14
+	}
+
+	{
+		bodyDef := b2.DefaultBodyDef()
+		groundId := b2.CreateBody(s.WorldId, &bodyDef)
+
+		shapeDef := b2.DefaultShapeDef()
+		shapeDef.EnableSensorEvents = true
+
+		segment := b2.Segment{Point1: b2.V2(10, 0), Point2: b2.V2(10, 20)}
+		b2.CreateSegmentShape(groundId, &shapeDef, &segment)
+
+		segment = b2.Segment{Point1: b2.V2(-30, 0), Point2: b2.V2(30, 0)}
+		b2.CreateSegmentShape(groundId, &shapeDef, &segment)
+	}
+
+	box := b2.MakeRoundedBox(b2.F(0.45), b2.F(0.45), b2.F(0.05))
+
+	shapeDef := b2.DefaultShapeDef()
+	shapeDef.EnableSensorEvents = true
+
+	offset := b2.F(0.01)
+	x := b2.F(8)
+	bodyDef := b2.DefaultBodyDef()
+	bodyDef.Type = b2.DynamicBody
+
+	for i := range 8 {
+		shift := offset
+		if i%2 == 0 {
+			shift = offset.Neg()
+		}
+		bodyDef.Position = b2.Vec2{X: x.Add(shift), Y: b2.F(0.5).Add(b2.QFromInt(i))}
+		bodyId := b2.CreateBody(s.WorldId, &bodyDef)
+		b2.CreatePolygonShape(bodyId, &shapeDef, &box)
+	}
+	return s
+}
+
+func (s *ProjectileEvent) fireProjectile() {
+	if !s.projectileId.IsNull() {
+		b2.DestroyBody(s.projectileId)
+	}
+
+	bodyDef := b2.DefaultBodyDef()
+	bodyDef.Type = b2.DynamicBody
+	bodyDef.Position = s.point1
+	bodyDef.LinearVelocity = s.point2.Sub(s.point1).Mul(b2.F(4))
+	bodyDef.IsBullet = true
+	s.projectileId = b2.CreateBody(s.WorldId, &bodyDef)
+
+	circle := b2.Circle{Radius: b2.F(0.25)}
+	shapeDef := b2.DefaultShapeDef()
+	shapeDef.EnableContactEvents = true
+	s.projectileShapeId = b2.CreateCircleShape(s.projectileId, &shapeDef, &circle)
+}
+
+func (s *ProjectileEvent) MouseDown(p b2.Vec2, button MouseButton, mod Modifier) {
+	if button == MouseButtonLeft && mod == ModControl {
+		s.dragging = true
+		s.point1 = p
+	}
+}
+
+func (s *ProjectileEvent) MouseUp(_ b2.Vec2, button MouseButton) {
+	if button == MouseButtonLeft && s.dragging {
+		s.dragging = false
+		s.fireProjectile()
+	}
+}
+
+func (s *ProjectileEvent) MouseMove(p b2.Vec2) {
+	if s.dragging {
+		s.point2 = p
+	}
+}
+
+func (s *ProjectileEvent) Step() {
+	s.DrawTextLine("Use Ctrl + Left Mouse to drag and shoot a projectile")
+
+	s.Base.Step()
+
+	draw := &s.Context.Draw
+	if s.dragging {
+		draw.DrawLineFcn(s.point1, s.point2, b2.ColorWhite)
+		draw.DrawPointFcn(s.point1, b2.F(5), b2.ColorGreen)
+		draw.DrawPointFcn(s.point2, b2.F(5), b2.ColorRed)
+	}
+
+	contactEvents := s.WorldId.GetContactEvents()
+	for i := range contactEvents.BeginEvents {
+		event := &contactEvents.BeginEvents[i]
+
+		if event.ShapeIdA == s.projectileShapeId || event.ShapeIdB == s.projectileShapeId {
+			if event.ContactId.IsValid() {
+				data := event.ContactId.GetData()
+
+				if data.Manifold.PointCount > 0 {
+					explosionDef := b2.DefaultExplosionDef()
+					explosionDef.Position = data.ShapeIdA.GetBody().GetWorldCenter().Add(data.Manifold.Points[0].AnchorA)
+					explosionDef.Radius = b2.QOne()
+					explosionDef.ImpulsePerLength = b2.F(20)
+					s.WorldId.Explode(&explosionDef)
+
+					b2.DestroyBody(s.projectileId)
+					s.projectileId = b2.BodyId{}
+				}
+			}
+
+			break
+		}
+	}
+}
+
+type circleImpulseEvent struct {
+	impulse      b2.Q
+	totalImpulse b2.Q
+	speed        b2.Q
+}
+
+// CircleImpulse mirrors the Circle Impulse sample of sample_events.cpp. It
+// reports the hit speed and the impulses of a circle that hits the ground.
+type CircleImpulse struct {
+	Base
+
+	mass           b2.Q
+	events         []circleImpulseEvent
+	bodyId         b2.BodyId
+	restitution    b2.Q
+	useGravity     bool
+	useRestitution bool
+}
+
+// NewCircleImpulse builds the circle impulse scene.
+func NewCircleImpulse(ctx *SampleContext) Sample {
+	s := &CircleImpulse{Base: NewBase(ctx)}
+	if !ctx.Settings.Restart {
+		ctx.Camera.Center = Vec2f{X: 0, Y: 2.7}
+		ctx.Camera.Zoom = 3.4
+	}
+
+	{
+		bodyDef := b2.DefaultBodyDef()
+		groundId := b2.CreateBody(s.WorldId, &bodyDef)
+
+		shapeDef := b2.DefaultShapeDef()
+		segment := b2.Segment{Point1: b2.V2(-10, 0), Point2: b2.V2(10, 0)}
+		b2.CreateSegmentShape(groundId, &shapeDef, &segment)
+	}
+
+	s.restitution = b2.F(0.25)
+	s.mass = b2.QOne()
+	s.spawn()
+	return s
+}
+
+func (s *CircleImpulse) spawn() {
+	if !s.bodyId.IsNull() {
+		b2.DestroyBody(s.bodyId)
+		s.bodyId = b2.BodyId{}
+	}
+
+	s.events = s.events[:0]
+
+	bodyDef := b2.DefaultBodyDef()
+	bodyDef.Type = b2.DynamicBody
+	if !s.useGravity {
+		bodyDef.GravityScale = b2.QZero()
+	}
+	bodyDef.LinearVelocity.Y = b2.F(-25)
+	bodyDef.Position.Y = b2.F(5.5)
+
+	circle := b2.Circle{Radius: b2.F(0.25)}
+
+	shapeDef := b2.DefaultShapeDef()
+	shapeDef.EnableHitEvents = true
+	shapeDef.Material.Friction = b2.QZero()
+	if s.useRestitution {
+		shapeDef.Material.Restitution = s.restitution
+	}
+
+	s.bodyId = b2.CreateBody(s.WorldId, &bodyDef)
+	b2.CreateCircleShape(s.bodyId, &shapeDef, &circle)
+
+	// Override mass
+	massData := s.bodyId.GetMassData()
+	ratio := s.mass.Div(massData.Mass)
+	massData.Mass = s.mass
+	massData.RotationalInertia = massData.RotationalInertia.Mul(ratio)
+	s.bodyId.SetMassData(massData)
+}
+
+func (s *CircleImpulse) UpdateGui() {
+	gui := s.Context.Gui
+	gui.Begin("Circle Impulse", 10, s.Context.Camera.Height-100-50, 200, 100)
+
+	if gui.Checkbox("gravity", &s.useGravity) {
+		s.spawn()
+	}
+	if gui.Checkbox("restitution", &s.useRestitution) {
+		s.spawn()
+	}
+
+	gui.End()
+}
+
+func (s *CircleImpulse) Step() {
+	s.Base.Step()
+
+	events := s.WorldId.GetContactEvents()
+	for i := range events.HitEvents {
+		event := &events.HitEvents[i]
+
+		s.Context.Draw.DrawPointFcn(event.Point, b2.F(10), b2.ColorWhite)
+
+		data := event.ContactId.GetData()
+
+		e := circleImpulseEvent{speed: event.ApproachSpeed}
+		if data.Manifold.PointCount > 0 {
+			e.impulse = data.Manifold.Points[0].NormalImpulse
+			e.totalImpulse = data.Manifold.Points[0].TotalNormalImpulse
+		}
+		s.events = append(s.events, e)
+	}
+
+	gravity := 0.0
+	if s.useGravity {
+		gravity = 10
+	}
+	restitution := 0.0
+	if s.useRestitution {
+		restitution = ToFloat64(s.restitution)
+	}
+	s.DrawTextLine("mass = %g, gravity = %g, restitution = %g", ToFloat64(s.mass), gravity, restitution)
+
+	for _, e := range s.events {
+		s.DrawTextLine("hit speed = %g, hit momentum = %g, final impulse = %g, total impulse = %g",
+			ToFloat64(e.speed), ToFloat64(s.mass.Mul(e.speed)), ToFloat64(e.impulse), ToFloat64(e.totalImpulse))
 	}
 }

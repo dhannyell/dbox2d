@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2022 Erin Catto
 // SPDX-License-Identifier: MIT
-// Ported from samples/sample_stacking.cpp of Box2D v3.1.1
+// Ported from samples/sample_stacking.cpp of Box2D v3.2.0
 
 package samples
 
@@ -137,7 +137,7 @@ func NewTiltedStack(ctx *SampleContext) Sample {
 
 const (
 	verticalStackMaxColumns = 10
-	verticalStackMaxRows    = 15
+	verticalStackMaxRows    = 160
 	verticalStackMaxBullets = 8
 )
 
@@ -176,13 +176,13 @@ func NewVerticalStack(ctx *SampleContext) Sample {
 
 		segment := b2.Segment{
 			Point1: b2.V2(10, 0),
-			Point2: b2.V2(10, 20),
+			Point2: b2.V2(10, 80),
 		}
 		b2.CreateSegmentShape(groundID, &shapeDef, &segment)
 
 		segment = b2.Segment{
-			Point1: b2.V2(-30, 0),
-			Point2: b2.V2(30, 0),
+			Point1: b2.V2(-100, 0),
+			Point2: b2.V2(100, 0),
 		}
 		b2.CreateSegmentShape(groundID, &shapeDef, &segment)
 	}
@@ -304,6 +304,16 @@ func (s *VerticalStack) fireBullets() {
 	}
 }
 
+// Keyboard fires the bullets on B, as the reference does.
+func (s *VerticalStack) Keyboard(key Key) {
+	if key == KeyB {
+		s.destroyBullets()
+		s.fireBullets()
+		return
+	}
+	s.Base.Keyboard(key)
+}
+
 // UpdateGui exposes the stack and bullet controls in reference order.
 func (s *VerticalStack) UpdateGui() {
 	height := 230
@@ -318,7 +328,7 @@ func (s *VerticalStack) UpdateGui() {
 	gui.SliderInt("Bullets", &s.bulletCount, 1, verticalStackMaxBullets)
 	gui.Combo("Bullet Shape", &s.bulletType, shapeTypes)
 
-	if gui.Button("Fire Bullets") || s.keyDown(KeyB) {
+	if gui.Button("Fire Bullets") {
 		s.destroyBullets()
 		s.fireBullets()
 	}
@@ -380,9 +390,10 @@ func NewCircleStack(ctx *SampleContext) Sample {
 	shapeDef := b2.DefaultShapeDef()
 	shapeDef.EnableHitEvents = true
 	shapeDef.Material.Friction = b2.QZero()
+	shapeDef.Material.Restitution = b2.F(0.8)
 
 	y := b2.QFromRatio(3, 4)
-	for i := range 10 {
+	for i := range 4 {
 		bodyDef.Position.Y = y
 		bodyID := b2.CreateBody(s.WorldId, &bodyDef)
 		shapeDef.UserData = shapeIndex

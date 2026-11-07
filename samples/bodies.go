@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2022 Erin Catto
 // SPDX-License-Identifier: MIT
-// Ported from samples/sample_bodies.cpp of Box2D v3.1.1
+// Ported from samples/sample_bodies.cpp of Box2D v3.2.0
 
 package samples
 
@@ -17,6 +17,9 @@ func init() {
 	RegisterSample("Bodies", "Bad", NewBadBody)
 	RegisterSample("Bodies", "Pivot", NewPivot)
 	RegisterSample("Bodies", "Kinematic", NewKinematicBody)
+	RegisterSample("Bodies", "Mixed Locks", NewMixedLocks)
+	RegisterSample("Bodies", "Set Velocity", NewSetVelocity)
+	RegisterSample("Bodies", "Wake Touching", NewWakeTouching)
 }
 
 // groundSegment creates a static body with one segment from (-halfWidth, 0)
@@ -57,17 +60,19 @@ func NewBodyType(ctx *SampleContext) Sample {
 		ctx.Camera.Zoom = 25.0 * 0.4
 	}
 
-	s.bodyType = b2.DynamicBody
+	s.bodyType = b2.StaticBody
 	s.isEnabled = true
 
 	groundShapeDef := b2.DefaultShapeDef()
 	groundId, _ := groundSegment(s.WorldId, &groundShapeDef, 20)
+	groundId.SetName("ground")
 
 	// Define attachment
 	{
 		bodyDef := b2.DefaultBodyDef()
 		bodyDef.Type = b2.DynamicBody
 		bodyDef.Position = b2.V2(-2, 3)
+		bodyDef.Name = "attach1"
 		s.attachmentId = b2.CreateBody(s.WorldId, &bodyDef)
 
 		box := b2.MakeBox(b2.QHalf(), b2.F(2))
@@ -82,6 +87,7 @@ func NewBodyType(ctx *SampleContext) Sample {
 		bodyDef.Type = s.bodyType
 		bodyDef.IsEnabled = s.isEnabled
 		bodyDef.Position = b2.V2(3, 3)
+		bodyDef.Name = "attach2"
 		s.secondAttachmentId = b2.CreateBody(s.WorldId, &bodyDef)
 
 		box := b2.MakeBox(b2.QHalf(), b2.F(2))
@@ -96,6 +102,7 @@ func NewBodyType(ctx *SampleContext) Sample {
 		bodyDef.Type = s.bodyType
 		bodyDef.IsEnabled = s.isEnabled
 		bodyDef.Position = b2.V2(-4, 5)
+		bodyDef.Name = "platform"
 		s.platformId = b2.CreateBody(s.WorldId, &bodyDef)
 
 		// A quarter turn is the reference's 0.5 * pi.
@@ -148,6 +155,7 @@ func NewBodyType(ctx *SampleContext) Sample {
 		bodyDef := b2.DefaultBodyDef()
 		bodyDef.Type = b2.DynamicBody
 		bodyDef.Position = b2.V2(-3, 8)
+		bodyDef.Name = "crate1"
 		bodyId := b2.CreateBody(s.WorldId, &bodyDef)
 
 		box := b2.MakeBox(b2.QFromRatio(3, 4), b2.QFromRatio(3, 4))
@@ -162,6 +170,7 @@ func NewBodyType(ctx *SampleContext) Sample {
 		bodyDef.Type = s.bodyType
 		bodyDef.IsEnabled = s.isEnabled
 		bodyDef.Position = b2.V2(2, 8)
+		bodyDef.Name = "crate2"
 		s.secondPayloadId = b2.CreateBody(s.WorldId, &bodyDef)
 
 		box := b2.MakeBox(b2.QFromRatio(3, 4), b2.QFromRatio(3, 4))
@@ -176,6 +185,7 @@ func NewBodyType(ctx *SampleContext) Sample {
 		bodyDef.Type = s.bodyType
 		bodyDef.IsEnabled = s.isEnabled
 		bodyDef.Position = b2.V2(8.0, 0.2)
+		bodyDef.Name = "debris"
 		s.touchingBodyId = b2.CreateBody(s.WorldId, &bodyDef)
 
 		capsule := b2.Capsule{
@@ -187,12 +197,30 @@ func NewBodyType(ctx *SampleContext) Sample {
 		b2.CreateCapsuleShape(s.touchingBodyId, &shapeDef, &capsule)
 	}
 
+	// Create a separate static body on the ground
+	{
+		bodyDef := b2.DefaultBodyDef()
+		bodyDef.Type = b2.StaticBody
+		bodyDef.IsEnabled = s.isEnabled
+		bodyDef.Position = b2.V2(8.5, 0.2)
+		bodyDef.Name = "debris"
+		bodyId := b2.CreateBody(s.WorldId, &bodyDef)
+
+		capsule := b2.Capsule{
+			Center2: b2.Vec2{X: b2.QOne()},
+			Radius:  b2.QHalf(),
+		}
+		shapeDef := b2.DefaultShapeDef()
+		b2.CreateCapsuleShape(bodyId, &shapeDef, &capsule)
+	}
+
 	// Create a separate floating body
 	{
 		bodyDef := b2.DefaultBodyDef()
 		bodyDef.Type = s.bodyType
 		bodyDef.IsEnabled = s.isEnabled
 		bodyDef.Position = b2.V2(-8, 12)
+		bodyDef.Name = "floater"
 		bodyDef.GravityScale = b2.QZero()
 		s.floatingBodyId = b2.CreateBody(s.WorldId, &bodyDef)
 
@@ -213,6 +241,10 @@ func (s *BodyType) setType(bodyType b2.BodyType) {
 		s.platformId.SetAngularVelocity(b2.QZero())
 	}
 	s.secondAttachmentId.SetType(bodyType)
+	if bodyType == b2.KinematicBody {
+		s.secondAttachmentId.SetLinearVelocity(b2.Vec2{})
+		s.secondAttachmentId.SetAngularVelocity(b2.QZero())
+	}
 	s.secondPayloadId.SetType(bodyType)
 	s.touchingBodyId.SetType(bodyType)
 	s.floatingBodyId.SetType(bodyType)
@@ -238,21 +270,12 @@ func (s *BodyType) UpdateGui() {
 
 	if gui.Checkbox("Enable", &s.isEnabled) {
 		if s.isEnabled {
-			s.platformId.Enable()
-			s.secondAttachmentId.Enable()
+			s.attachmentId.Enable()
 			s.secondPayloadId.Enable()
-			s.touchingBodyId.Enable()
 			s.floatingBodyId.Enable()
-
-			if s.bodyType == b2.KinematicBody {
-				s.platformId.SetLinearVelocity(b2.Vec2{X: s.speed.Neg()})
-				s.platformId.SetAngularVelocity(b2.QZero())
-			}
 		} else {
-			s.platformId.Disable()
-			s.secondAttachmentId.Disable()
+			s.attachmentId.Disable()
 			s.secondPayloadId.Disable()
-			s.touchingBodyId.Disable()
 			s.floatingBodyId.Disable()
 		}
 	}
@@ -795,4 +818,159 @@ func (s *KinematicBody) Step() {
 	s.Base.Step()
 
 	s.time += timeStep
+}
+
+// MixedLocks places bodies with different motion locks side by side. Motion
+// locking can be a bit squishy. It mirrors the MixedLocks sample of
+// sample_bodies.cpp.
+type MixedLocks struct {
+	Base
+}
+
+// NewMixedLocks builds the mixed motion locks scene.
+func NewMixedLocks(ctx *SampleContext) Sample {
+	s := &MixedLocks{Base: NewBase(ctx)}
+
+	if !ctx.Settings.Restart {
+		ctx.Camera.Center = Vec2f{X: 0, Y: 2.5}
+		ctx.Camera.Zoom = 3.5
+	}
+
+	{
+		bodyDef := b2.DefaultBodyDef()
+		groundId := b2.CreateBody(s.WorldId, &bodyDef)
+
+		shapeDef := b2.DefaultShapeDef()
+		segment := b2.Segment{Point1: b2.V2(-40, 0), Point2: b2.V2(40, 0)}
+		b2.CreateSegmentShape(groundId, &shapeDef, &segment)
+	}
+
+	box := b2.MakeSquare(b2.QHalf())
+	shapeDef := b2.DefaultShapeDef()
+
+	create := func(bodyType b2.BodyType, position b2.Vec2, name string, locks b2.MotionLocks) {
+		bodyDef := b2.DefaultBodyDef()
+		bodyDef.Type = bodyType
+		bodyDef.Position = position
+		bodyDef.MotionLocks = locks
+		bodyDef.Name = name
+		bodyId := b2.CreateBody(s.WorldId, &bodyDef)
+		b2.CreatePolygonShape(bodyId, &shapeDef, &box)
+	}
+
+	create(b2.StaticBody, b2.V2(2, 1), "static", b2.MotionLocks{})
+	create(b2.DynamicBody, b2.V2(1, 1), "free", b2.MotionLocks{})
+	create(b2.DynamicBody, b2.V2(1, 3), "free", b2.MotionLocks{})
+	create(b2.DynamicBody, b2.V2(-1, 1), "angular z", b2.MotionLocks{AngularZ: true})
+	create(b2.DynamicBody, b2.V2(-2, 2), "linear x", b2.MotionLocks{LinearX: true})
+	create(b2.DynamicBody, b2.V2(-1, 2.5), "lin y ang z", b2.MotionLocks{LinearY: true, AngularZ: true})
+	create(b2.DynamicBody, b2.V2(0, 1), "full", b2.MotionLocks{LinearX: true, LinearY: true, AngularZ: true})
+
+	return s
+}
+
+// SetVelocity overwrites the velocity of a box on every step. It mirrors the
+// SetVelocity sample of sample_bodies.cpp.
+type SetVelocity struct {
+	Base
+	bodyId b2.BodyId
+}
+
+// NewSetVelocity builds the set velocity scene.
+func NewSetVelocity(ctx *SampleContext) Sample {
+	s := &SetVelocity{Base: NewBase(ctx)}
+
+	if !ctx.Settings.Restart {
+		ctx.Camera.Center = Vec2f{X: 0, Y: 2.5}
+		ctx.Camera.Zoom = 3.5
+	}
+
+	{
+		bodyDef := b2.DefaultBodyDef()
+		bodyDef.Position = b2.Vec2{Y: b2.F(-0.25)}
+		groundId := b2.CreateBody(s.WorldId, &bodyDef)
+
+		shapeDef := b2.DefaultShapeDef()
+		box := b2.MakeBox(b2.F(20), b2.F(0.25))
+		b2.CreatePolygonShape(groundId, &shapeDef, &box)
+	}
+
+	{
+		bodyDef := b2.DefaultBodyDef()
+		bodyDef.Type = b2.DynamicBody
+		bodyDef.Position = b2.V2(0, 0.5)
+
+		shapeDef := b2.DefaultShapeDef()
+		box := b2.MakeSquare(b2.QHalf())
+		s.bodyId = b2.CreateBody(s.WorldId, &bodyDef)
+		b2.CreatePolygonShape(s.bodyId, &shapeDef, &box)
+	}
+
+	return s
+}
+
+// Step forces the velocity, then advances the scene.
+func (s *SetVelocity) Step() {
+	s.Base.Step()
+
+	s.bodyId.SetLinearVelocity(b2.V2(0, -20))
+
+	position := s.bodyId.GetPosition()
+	s.DrawTextLine("(x, y) = (%.2g, %.2g)", ToFloat64(position.X), ToFloat64(position.Y))
+}
+
+// WakeTouching drops boxes on the ground and wakes them from a button. It
+// mirrors the WakeTouching sample of sample_bodies.cpp.
+type WakeTouching struct {
+	Base
+	groundId b2.BodyId
+}
+
+const wakeTouchingCount = 10
+
+// NewWakeTouching builds the wake touching scene.
+func NewWakeTouching(ctx *SampleContext) Sample {
+	s := &WakeTouching{Base: NewBase(ctx)}
+
+	if !ctx.Settings.Restart {
+		ctx.Camera.Center = Vec2f{X: 0, Y: 4}
+		ctx.Camera.Zoom = 8
+	}
+
+	{
+		bodyDef := b2.DefaultBodyDef()
+		s.groundId = b2.CreateBody(s.WorldId, &bodyDef)
+
+		segment := b2.Segment{Point1: b2.V2(-20, 0), Point2: b2.V2(20, 0)}
+		shapeDef := b2.DefaultShapeDef()
+		b2.CreateSegmentShape(s.groundId, &shapeDef, &segment)
+	}
+
+	box := b2.MakeBox(b2.QHalf(), b2.QHalf())
+
+	shapeDef := b2.DefaultShapeDef()
+	shapeDef.Density = b2.QOne()
+
+	bodyDef := b2.DefaultBodyDef()
+	bodyDef.Type = b2.DynamicBody
+
+	x := -(wakeTouchingCount - 1)
+	for range wakeTouchingCount {
+		bodyDef.Position = b2.V2(x, 4)
+		bodyId := b2.CreateBody(s.WorldId, &bodyDef)
+		b2.CreatePolygonShape(bodyId, &shapeDef, &box)
+		x += 2
+	}
+
+	return s
+}
+
+// UpdateGui offers the wake button.
+func (s *WakeTouching) UpdateGui() {
+	gui := s.Context.Gui
+	gui.Begin("Wake Touching", 10, s.Context.Camera.Height-100, 180, 60)
+	if gui.Button("Wake Touching") {
+		s.groundId.WakeTouching()
+	}
+	gui.End()
 }

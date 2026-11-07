@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2023 Erin Catto
 // SPDX-License-Identifier: MIT
-// Ported from samples/sample_collision.cpp of Box2D v3.1.1
+// Ported from samples/sample_collision.cpp of Box2D v3.2.0
 
 package samples
 
@@ -211,7 +211,7 @@ func (s *CollisionShapeDistance) UpdateGui() {
 		s.simplexIndex = 0
 	}
 
-	if s.drawSimplex {
+	if s.drawSimplex && s.simplexCount > 0 {
 		gui.SliderInt("index", &s.simplexIndex, 0, s.simplexCount-1)
 		s.simplexIndex = b2.ClampInt(s.simplexIndex, 0, s.simplexCount-1)
 	}
@@ -283,7 +283,7 @@ func (s *CollisionShapeDistance) Step() {
 		ProxyA:    s.proxyA,
 		ProxyB:    s.proxyB,
 		Transform: s.transform,
-		UseRadii:  true,
+		UseRadii:  s.radiusA > 0 || s.radiusB > 0,
 	}
 
 	if !s.useCache {
@@ -1090,6 +1090,24 @@ func castWorldPolygons(roundSecond bool) [4]b2.Polygon {
 	return polygons
 }
 
+// castWorldCastPolygons returns the two polygons of Cast World: a rounded
+// thin triangle and an octagon.
+func castWorldCastPolygons() [2]b2.Polygon {
+	var polygons [2]b2.Polygon
+
+	{
+		hull := b2.ComputeHull([]b2.Vec2{b2.V2(-0.1, 0.0), b2.V2(0.1, 0.0), b2.V2(0.0, 1.5)})
+		polygons[0] = b2.MakePolygon(&hull, b2.QZero())
+		polygons[0].Radius = b2.QHalf()
+	}
+
+	{
+		all := castWorldPolygons(false)
+		polygons[1] = all[2]
+	}
+	return polygons
+}
+
 // CastWorld shows how to use the ray and shape cast functions on a world.
 // This sample is configured to ignore initial overlap.
 type CastWorld struct {
@@ -1098,7 +1116,8 @@ type CastWorld struct {
 	bodyIndex int
 	bodyIds   [castWorldMaxCount]b2.BodyId
 	userData  [castWorldMaxCount]castShapeUserData
-	polygons  [4]b2.Polygon
+	polygons  [2]b2.Polygon
+	box       b2.Polygon
 	capsule   b2.Capsule
 	circle    b2.Circle
 	segment   b2.Segment
@@ -1138,7 +1157,8 @@ func NewCastWorld(ctx *SampleContext) Sample {
 		b2.CreateSegmentShape(groundId, &shapeDef, &segment)
 	}
 
-	s.polygons = castWorldPolygons(true)
+	s.polygons = castWorldCastPolygons()
+	s.box = b2.MakeBox(b2.QHalf(), b2.QHalf())
 	s.capsule = b2.Capsule{Center1: b2.V2(-0.5, 0.0), Center2: b2.V2(0.5, 0.0), Radius: b2.F(0.25)}
 	s.circle = b2.Circle{Radius: b2.QHalf()}
 	s.segment = b2.Segment{Point1: b2.V2(-1, 0), Point2: b2.V2(1, 0)}
@@ -1186,14 +1206,23 @@ func (s *CastWorld) create(index int) {
 		s.userData[s.bodyIndex].ignore = true
 	}
 
-	if index < 4 {
-		b2.CreatePolygonShape(s.bodyIds[s.bodyIndex], &shapeDef, &s.polygons[index])
-	} else if index == 4 {
+	if index == 0 {
+		polygonIndex := s.bodyIndex & 1
+		b2.CreatePolygonShape(s.bodyIds[s.bodyIndex], &shapeDef, &s.polygons[polygonIndex])
+	} else if index == 1 {
+		b2.CreatePolygonShape(s.bodyIds[s.bodyIndex], &shapeDef, &s.box)
+	} else if index == 2 {
 		b2.CreateCircleShape(s.bodyIds[s.bodyIndex], &shapeDef, &s.circle)
-	} else if index == 5 {
+	} else if index == 3 {
 		b2.CreateCapsuleShape(s.bodyIds[s.bodyIndex], &shapeDef, &s.capsule)
-	} else {
+	} else if index == 4 {
 		b2.CreateSegmentShape(s.bodyIds[s.bodyIndex], &shapeDef, &s.segment)
+	} else {
+		chainDef := b2.DefaultChainDef()
+		chainDef.UserData = shapeDef.UserData
+		chainDef.Points = []b2.Vec2{b2.V2(1, 0), b2.V2(-1, 0), b2.V2(-1, -1), b2.V2(1, -1)}
+		chainDef.IsLoop = true
+		b2.CreateChain(s.bodyIds[s.bodyIndex], &chainDef)
 	}
 
 	s.bodyIndex = (s.bodyIndex + 1) % castWorldMaxCount
@@ -1276,7 +1305,15 @@ func (s *CastWorld) UpdateGui() {
 		gui.Combo("Mode", &s.mode, []string{"Any", "Closest", "Multiple", "Sorted"})
 	}
 
-	dropButtons(gui, s.create, s.createN)
+	names := [...]string{"Polygon", "Box", "Circle", "Capsule", "Segment", "Chain"}
+	for i, name := range names {
+		if gui.Button(name) {
+			s.create(i)
+		}
+		if gui.Button("10x " + name) {
+			s.createN(i, 10)
+		}
+	}
 
 	if gui.Button("Destroy Shape") {
 		s.destroyBody()
@@ -1343,14 +1380,15 @@ func (s *CastWorld) Step() {
 		modeFcn := functions[s.mode]
 
 		castRadius := FromFloat64(s.castRadius)
-		transform := b2.Transform{P: s.rayStart, Q: rotFromRadians(s.angle)}
-		circle := b2.Circle{Center: s.rayStart, Radius: castRadius}
+		// The swept shapes are built near the origin and placed by the query origin.
+		rotation := rotFromRadians(s.angle)
+		circle := b2.Circle{Radius: castRadius}
 		capsule := b2.Capsule{
-			Center1: b2.TransformPoint(transform, b2.V2(-0.25, 0.0)),
-			Center2: b2.TransformPoint(transform, b2.V2(0.25, 0.0)),
+			Center1: b2.RotateVector(rotation, b2.V2(-0.25, 0.0)),
+			Center2: b2.RotateVector(rotation, b2.V2(0.25, 0.0)),
 			Radius:  castRadius,
 		}
-		box := b2.MakeOffsetRoundedBox(b2.F(0.25), b2.QHalf(), transform.P, transform.Q, castRadius)
+		box := b2.MakeOffsetRoundedBox(b2.F(0.125), b2.F(0.25), b2.Vec2{}, rotation, castRadius)
 		var proxy b2.ShapeProxy
 
 		if s.castType == castTypeRay {
@@ -1364,7 +1402,7 @@ func (s *CastWorld) Step() {
 				proxy = b2.MakeProxy(box.Vertices[:box.Count], box.Radius)
 			}
 
-			s.WorldId.CastShape(b2.Vec2{}, &proxy, rayTranslation, b2.DefaultQueryFilter(), modeFcn)
+			s.WorldId.CastShape(s.rayStart, &proxy, rayTranslation, b2.DefaultQueryFilter(), modeFcn)
 		}
 
 		if context.count > 0 {
@@ -1378,28 +1416,29 @@ func (s *CastWorld) Step() {
 				head := b2.MulAdd(p, b2.QOne(), n)
 				draw.DrawLineFcn(p, head, color3)
 
-				t := rayTranslation.Mul(context.fractions[i])
-				shiftedTransform := b2.Transform{P: t, Q: b2.RotIdentity()}
+				// The swept shape rests at the contact position c
+				shiftedTransform := b2.Transform{P: c, Q: b2.RotIdentity()}
 
 				if s.castType == castTypeCircle {
-					drawSolidCircleAt(draw, shiftedTransform, circle.Center, castRadius, b2.ColorYellow)
+					drawSolidCircleAt(draw, shiftedTransform, b2.Vec2{}, castRadius, b2.ColorYellow)
 				} else if s.castType == castTypeCapsule {
-					p1 := capsule.Center1.Add(t)
-					p2 := capsule.Center2.Add(t)
+					p1 := capsule.Center1.Add(c)
+					p2 := capsule.Center2.Add(c)
 					draw.DrawSolidCapsuleFcn(p1, p2, castRadius, b2.ColorYellow)
 				} else if s.castType == castTypePolygon {
 					draw.DrawSolidPolygonFcn(shiftedTransform, box.Vertices[:box.Count], box.Radius, b2.ColorYellow)
 				}
 			}
 		} else {
-			shiftedTransform := b2.Transform{P: transform.P.Add(rayTranslation), Q: transform.Q}
+			// No hit, so the swept shape rests at the end of the ray
+			shiftedTransform := b2.Transform{P: s.rayEnd, Q: b2.RotIdentity()}
 			draw.DrawLineFcn(s.rayStart, s.rayEnd, color2)
 
 			if s.castType == castTypeCircle {
 				drawSolidCircleAt(draw, shiftedTransform, b2.Vec2{}, castRadius, b2.ColorGray)
 			} else if s.castType == castTypeCapsule {
-				p1 := b2.TransformPoint(transform, capsule.Center1).Add(rayTranslation)
-				p2 := b2.TransformPoint(transform, capsule.Center2).Add(rayTranslation)
+				p1 := capsule.Center1.Add(s.rayEnd)
+				p2 := capsule.Center2.Add(s.rayEnd)
 				draw.DrawSolidCapsuleFcn(p1, p2, castRadius, b2.ColorYellow)
 			} else if s.castType == castTypePolygon {
 				draw.DrawSolidPolygonFcn(shiftedTransform, box.Vertices[:box.Count], box.Radius, b2.ColorYellow)
@@ -1591,28 +1630,31 @@ func (s *OverlapWorld) Step() {
 
 	s.doomCount = 0
 
-	transform := b2.Transform{P: s.position, Q: rotFromRadians(s.angle)}
+	// Build the query shape near the origin and place it with the query
+	// origin, as the reference does for large worlds.
+	rotation := rotFromRadians(s.angle)
+	placed := b2.Transform{P: s.position, Q: b2.RotIdentity()}
 	var proxy b2.ShapeProxy
 
 	if s.shapeType == overlapCircle {
-		circle := b2.Circle{Center: transform.P, Radius: b2.QOne()}
+		circle := b2.Circle{Radius: b2.QOne()}
 		proxy = b2.MakeProxy([]b2.Vec2{circle.Center}, circle.Radius)
-		drawSolidCircleAt(draw, b2.TransformIdentity(), circle.Center, circle.Radius, b2.ColorWhite)
+		drawSolidCircleAt(draw, placed, circle.Center, circle.Radius, b2.ColorWhite)
 	} else if s.shapeType == overlapCapsule {
 		capsule := b2.Capsule{
-			Center1: b2.TransformPoint(transform, b2.V2(-1, 0)),
-			Center2: b2.TransformPoint(transform, b2.V2(1, 0)),
+			Center1: b2.RotateVector(rotation, b2.V2(-1, 0)),
+			Center2: b2.RotateVector(rotation, b2.V2(1, 0)),
 			Radius:  b2.QHalf(),
 		}
 		proxy = b2.MakeProxy([]b2.Vec2{capsule.Center1, capsule.Center2}, capsule.Radius)
-		draw.DrawSolidCapsuleFcn(capsule.Center1, capsule.Center2, capsule.Radius, b2.ColorWhite)
+		draw.DrawSolidCapsuleFcn(capsule.Center1.Add(s.position), capsule.Center2.Add(s.position), capsule.Radius, b2.ColorWhite)
 	} else if s.shapeType == overlapBox {
-		box := b2.MakeOffsetBox(b2.F(2), b2.QHalf(), transform.P, transform.Q)
+		box := b2.MakeOffsetBox(b2.F(2), b2.QHalf(), b2.Vec2{}, rotation)
 		proxy = b2.MakeProxy(box.Vertices[:box.Count], box.Radius)
-		draw.DrawPolygonFcn(b2.TransformIdentity(), box.Vertices[:box.Count], b2.ColorWhite)
+		draw.DrawPolygonFcn(placed, box.Vertices[:box.Count], b2.ColorWhite)
 	}
 
-	s.WorldId.OverlapShape(b2.Vec2{}, &proxy, b2.DefaultQueryFilter(), func(shapeId b2.ShapeId) bool {
+	s.WorldId.OverlapShape(s.position, &proxy, b2.DefaultQueryFilter(), func(shapeId b2.ShapeId) bool {
 		userData, _ := shapeId.GetUserData().(*castShapeUserData)
 		if userData != nil && userData.ignore {
 			// continue the query
@@ -1719,23 +1761,27 @@ func (s *Manifold) UpdateGui() {
 		s.angle = 0
 	}
 
-	gui.Text("mouse button 1: drag")
-	gui.Text("mouse button 1 + shift: rotate")
-
 	gui.End()
 }
 
 func (s *Manifold) MouseDown(p b2.Vec2, button MouseButton, mod Modifier) {
+	handled := false
 	if button == MouseButtonLeft {
 		if mod == 0 && !s.rotating {
 			s.dragging = true
 			s.startPoint = p
 			s.basePosition = s.transform.P
+			handled = true
 		} else if mod == ModShift && !s.dragging {
 			s.rotating = true
 			s.startPoint = p
 			s.baseAngle = s.angle
+			handled = true
 		}
+	}
+
+	if !handled {
+		s.Base.MouseDown(p, button, mod)
 	}
 }
 
@@ -1753,6 +1799,8 @@ func (s *Manifold) MouseMove(p b2.Vec2) {
 		dx := ToFloat64(p.X.Sub(s.startPoint.X))
 		s.angle = clampFloat(s.baseAngle+1.0*dx, -math.Pi, math.Pi)
 		s.transform.Q = rotFromRadians(s.angle)
+	} else {
+		s.Base.MouseMove(p)
 	}
 }
 
@@ -2211,6 +2259,9 @@ func (s *Manifold) Step() {
 
 		offset.X = offset.X.Add(two.Mul(increment.X))
 	}
+
+	s.DrawTextLine("mouse button 1: drag")
+	s.DrawTextLine("mouse button 1 + shift: rotate")
 }
 
 // The shapes of the Smooth Manifold sample.
@@ -2491,7 +2542,7 @@ func NewShapeCast(ctx *SampleContext) Sample {
 		s.shapes.triangle = b2.MakePolygon(&hull, b2.QZero())
 	}
 
-	s.shapes.box = b2.MakeOffsetBox(b2.QHalf(), b2.QHalf(), b2.Vec2{}, b2.RotIdentity())
+	s.shapes.box = b2.MakeBox(b2.F(8.984375), b2.QHalf())
 
 	s.transform = b2.Transform{P: b2.V2(-0.6, 0.0), Q: b2.RotIdentity()}
 	s.translation = b2.V2(2, 0)
@@ -2599,8 +2650,12 @@ func (s *ShapeCast) Step() {
 
 	output := b2.CastShape(&input)
 
+	t := b2.QOne()
+	if output.Hit {
+		t = output.Fraction
+	}
 	transform := b2.Transform{
-		P: b2.MulAdd(s.transform.P, output.Fraction, input.TranslationB),
+		P: b2.MulAdd(s.transform.P, t, input.TranslationB),
 		Q: s.transform.Q,
 	}
 

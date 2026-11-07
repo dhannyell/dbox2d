@@ -1,6 +1,6 @@
 # samples
 
-The `dbox2d` sample gallery: the Box2D v3.1.1 scenes running in a native
+The `dbox2d` sample gallery: the Box2D v3.2.0 scenes running in a native
 window or in the browser through WebGPU.
 
 [![Open the live demo](web/tumbler.png)](https://dhannyell.github.io/dbox2d/)
@@ -151,7 +151,9 @@ turn, not a radian: `π/2` is `1/4`; a motor speed in rad/s goes through
 
 ## Scenes
 
-Every scene of the reference is ported, under the same category and name.
+Every scene of the reference is ported, under the same category and name,
+except two that need the recording and snapshot API, which the library does
+not have yet: Determinism / Rollback and the Replay viewer.
 Barrel adds a Gopher shape that is not in the reference; it is the default
 shape, and Barrel is the scene the app opens on.
 
