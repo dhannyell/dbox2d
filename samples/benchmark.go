@@ -326,6 +326,19 @@ func (s *Barrel) createScene() {
 	}
 }
 
+// Step steps and draws the world, then draws the gopher faces on top.
+func (s *Barrel) Step() {
+	s.Base.Step()
+	if !s.Context.Settings.DrawShapes {
+		return
+	}
+	for i := range s.gophers {
+		if s.gophers[i].isSpawned {
+			s.gophers[i].drawPaints(&s.Context.Draw)
+		}
+	}
+}
+
 // UpdateGui exposes the barrel shape and reset controls.
 func (s *Barrel) UpdateGui() {
 	height := 80

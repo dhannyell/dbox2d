@@ -1,5 +1,5 @@
 // The Go gopher was designed by Renée French and is licensed under CC BY 4.0.
-// This rendition from physics shapes is not in Box2D v3.1.1;
+// This rendition from physics shapes and painted polygons is not in Box2D v3.1.1;
 
 package samples
 
@@ -15,8 +15,17 @@ const (
 	gopherNose  = 0x5A4636
 )
 
+// gopherPaint is a face part. It is not a shape: the world draws shapes in
+// tree order, so overlapping fills would swap between frames.
+type gopherPaint struct {
+	body  b2.BodyId
+	poly  b2.Polygon
+	color b2.HexColor
+}
+
 type gopher struct {
 	bodies    [5]b2.BodyId
+	paints    []gopherPaint
 	isSpawned bool
 }
 
@@ -30,10 +39,7 @@ func createGopher(worldId b2.WorldId, position b2.Vec2, scale float64, groupInde
 	shapeDef := b2.DefaultShapeDef()
 	shapeDef.Filter.GroupIndex = -groupIndex
 
-	paintDef := b2.DefaultShapeDef()
-	paintDef.Density = b2.QZero()
-	paintDef.Filter.CategoryBits = 0
-	paintDef.Filter.MaskBits = 0
+	g := gopher{isSpawned: true}
 
 	type part struct {
 		id     b2.BodyId
@@ -43,36 +49,44 @@ func createGopher(worldId b2.WorldId, position b2.Vec2, scale float64, groupInde
 		bodyDef.Position = b2.ToPos(position.Add(b2.Vec2{X: q(ox), Y: q(oy)}))
 		return part{id: b2.CreateBody(worldId, &bodyDef), ox: ox, oy: oy}
 	}
-	box := func(p part, def *b2.ShapeDef, color uint32, x, y, hw, hh, r float64) {
+	makeBox := func(p part, x, y, hw, hh, r float64) b2.Polygon {
 		center := b2.Vec2{X: q(x - p.ox), Y: q(y - p.oy)}
-		poly := b2.MakeOffsetRoundedBox(q(hw), q(hh), center, b2.RotIdentity(), q(r))
-		def.Material.CustomColor = color
-		b2.CreatePolygonShape(p.id, def, &poly)
+		return b2.MakeOffsetRoundedBox(q(hw), q(hh), center, b2.RotIdentity(), q(r))
 	}
-	dot := func(p part, def *b2.ShapeDef, color uint32, x, y, r float64) {
-		box(p, def, color, x, y, 0.005, 0.005, r)
+	box := func(p part, color uint32, x, y, hw, hh, r float64) {
+		poly := makeBox(p, x, y, hw, hh, r)
+		shapeDef.Material.CustomColor = color
+		b2.CreatePolygonShape(p.id, &shapeDef, &poly)
+	}
+	paintBox := func(p part, color uint32, x, y, hw, hh, r float64) {
+		g.paints = append(g.paints, gopherPaint{body: p.id, poly: makeBox(p, x, y, hw, hh, r), color: b2.HexColor(color)})
+	}
+	const dotHalfWidth = 0.005
+	paintDot := func(p part, color uint32, x, y, r float64) {
+		paintBox(p, color, x, y, dotHalfWidth, dotHalfWidth, r)
 	}
 
 	body := newPart(0, -0.45)
-	dot(body, &paintDef, gopherPupil, -0.19, 0.52, 0.11)
-	dot(body, &paintDef, gopherPupil, 0.35, 0.52, 0.11)
-	box(body, &paintDef, gopherNose, 0, 0.25, 0.05, 0.02, 0.04)
-	box(body, &paintDef, gopherBeige, 0, 0.17, 0.1, 0.03, 0.1)
-	box(body, &paintDef, gopherWhite, -0.04, -0.02, 0.03, 0.05, 0.01)
-	box(body, &paintDef, gopherWhite, 0.04, -0.02, 0.03, 0.05, 0.01)
-	dot(body, &paintDef, gopherWhite, -0.27, 0.55, 0.25)
-	dot(body, &paintDef, gopherWhite, 0.27, 0.55, 0.25)
-	box(body, &shapeDef, gopherBlue, 0, 0, 0.02, 0.5, 0.5)
-	dot(body, &shapeDef, gopherBlue, -0.42, 0.9, 0.1)
-	dot(body, &shapeDef, gopherBlue, 0.42, 0.9, 0.1)
+	box(body, gopherBlue, 0, 0, 0.02, 0.5, 0.5)
+	box(body, gopherBlue, -0.42, 0.9, dotHalfWidth, dotHalfWidth, 0.1)
+	box(body, gopherBlue, 0.42, 0.9, dotHalfWidth, dotHalfWidth, 0.1)
 
-	g := gopher{isSpawned: true}
+	// The paints are drawn in this order, so later parts cover earlier ones.
+	paintDot(body, gopherWhite, -0.27, 0.55, 0.25)
+	paintDot(body, gopherWhite, 0.27, 0.55, 0.25)
+	paintBox(body, gopherWhite, -0.04, -0.02, 0.03, 0.05, 0.01)
+	paintBox(body, gopherWhite, 0.04, -0.02, 0.03, 0.05, 0.01)
+	paintBox(body, gopherBeige, 0, 0.17, 0.1, 0.03, 0.1)
+	paintBox(body, gopherNose, 0, 0.25, 0.05, 0.02, 0.04)
+	paintDot(body, gopherPupil, -0.19, 0.52, 0.11)
+	paintDot(body, gopherPupil, 0.35, 0.52, 0.11)
+
 	g.bodies[0] = body.id
 	for i, side := range []float64{-1, 1} {
 		arm := newPart(side*0.55, 0.05)
-		box(arm, &shapeDef, gopherBeige, side*0.55, -0.05, 0.03, 0.1, 0.05)
+		box(arm, gopherBeige, side*0.55, -0.05, 0.03, 0.1, 0.05)
 		foot := newPart(side*0.22, -0.93)
-		box(foot, &shapeDef, gopherBeige, side*0.25, -0.98, 0.12, 0.02, 0.05)
+		box(foot, gopherBeige, side*0.25, -0.98, 0.12, 0.02, 0.05)
 
 		for _, limb := range []struct {
 			p     part
@@ -104,5 +118,13 @@ func (g *gopher) destroy() {
 		b2.DestroyBody(id)
 		g.bodies[i] = b2.BodyId{}
 	}
+	g.paints = nil
 	g.isSpawned = false
+}
+
+// drawPaints draws the face over the body. Call it after the world draw.
+func (g *gopher) drawPaints(draw *b2.DebugDraw) {
+	for _, p := range g.paints {
+		draw.DrawSolidPolygonFcn(p.body.GetTransform(), p.poly.Vertices[:p.poly.Count], p.poly.Radius, p.color)
+	}
 }
