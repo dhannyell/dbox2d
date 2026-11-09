@@ -157,6 +157,13 @@ func gatherMovedSiblings(tree *dynamicTree, pairIndices []int) []int {
 	return pairIndices
 }
 
+// pairStacks holds the search stacks of one worker. A local array would be
+// zeroed on every call.
+type pairStacks struct {
+	proxy [treeStackSize]int
+	pair  [treeStackSize]indexPair
+}
+
 // pairContext collects the candidate pairs of one worker. It corresponds
 // to b2PairContext in src/broad_phase.c.
 type pairContext struct {
@@ -164,6 +171,7 @@ type pairContext struct {
 	pairKeys   *[]uint64
 	batch      [candidateBatch]candidatePair
 	batchCount int
+	stacks     *pairStacks
 }
 
 // flushCandidatePairs culls the batched candidates that already have a
@@ -261,7 +269,7 @@ func (ctx *pairContext) collideProxyAndSubtree(proxy *treeNode, nodes []treeNode
 	box := proxy.aabb
 	shapeId := int(proxy.aux)
 
-	var stack [treeStackSize]int
+	stack := &ctx.stacks.proxy
 	stackCount := 0
 	stack[stackCount] = pair
 	stackCount++
@@ -322,12 +330,12 @@ func (ctx *pairContext) expandPair(arrayA, arrayB []treeNode, nodeA, nodeB *tree
 // moved proxy. It corresponds to b2CollideCrossPairs in
 // src/broad_phase.c.
 func (ctx *pairContext) collideCrossPairs(arrayA, arrayB []treeNode, subtreeA, subtreeB *treeNode) {
-	var stack [treeStackSize]indexPair
+	stack := &ctx.stacks.pair
 	stackCount := 0
 
 	// Seed the stack.
 	if testPair(subtreeA, subtreeB) {
-		ctx.expandPair(arrayA, arrayB, subtreeA, subtreeB, &stack, &stackCount)
+		ctx.expandPair(arrayA, arrayB, subtreeA, subtreeB, stack, &stackCount)
 	}
 
 	for stackCount > 0 {
@@ -360,7 +368,7 @@ func (ctx *pairContext) collideCrossPairs(arrayA, arrayB []treeNode, subtreeA, s
 			nodeA := &pairA[lane>>1]
 			nodeB := &pairB[lane&1]
 			if AABBOverlaps(nodeA.aabb, nodeB.aabb) {
-				ctx.expandPair(arrayA, arrayB, nodeA, nodeB, &stack, &stackCount)
+				ctx.expandPair(arrayA, arrayB, nodeA, nodeB, stack, &stackCount)
 			}
 		}
 	}
@@ -374,7 +382,7 @@ func selfPairsTask(startIndex, endIndex, workerIndex int, context *stepContext) 
 	nodes := bp.trees[DynamicBody].nodes
 	siblingIndices := bp.movedSiblings
 
-	ctx := pairContext{w: w, pairKeys: &w.taskContexts[workerIndex].pairKeys}
+	ctx := pairContext{w: w, pairKeys: &w.taskContexts[workerIndex].pairKeys, stacks: &w.taskContexts[workerIndex].pairStacks}
 
 	for i := startIndex; i < endIndex; i++ {
 		nodeIndex := siblingIndices[i]
@@ -450,7 +458,7 @@ func crossPairsTask(startIndex, endIndex, workerIndex int, context *stepContext)
 	kinematicNodes := bp.trees[KinematicBody].nodes
 	dynamicNodes := bp.trees[DynamicBody].nodes
 
-	ctx := pairContext{w: w, pairKeys: &w.taskContexts[workerIndex].pairKeys}
+	ctx := pairContext{w: w, pairKeys: &w.taskContexts[workerIndex].pairKeys, stacks: &w.taskContexts[workerIndex].pairStacks}
 
 	for i := startIndex; i < endIndex; i++ {
 		nodesB := kinematicNodes

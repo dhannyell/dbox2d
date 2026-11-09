@@ -1245,6 +1245,12 @@ type taskContext struct {
 	// its capacity between steps.
 	pairKeys []uint64
 
+	// pairStacks holds the search stacks of this worker's pair update.
+	pairStacks pairStacks
+
+	// queryStack is the tree query stack of this worker's continuous sweeps.
+	queryStack [treeStackSize]int
+
 	// sensorHits holds the sensor crossings this worker's continuous sweeps
 	// found. It keeps its capacity between steps.
 	sensorHits []sensorHit

@@ -689,11 +689,11 @@ func solveContinuous(w *world, bodySimIndex int, taskContext *taskContext, dt Q)
 
 		box := AABBUnion(box1, box2)
 
-		staticTree.overlapAABB(box, DefaultMaskBits, ctx.queryCallback)
+		staticTree.overlapAABBStack(&taskContext.queryStack, box, DefaultMaskBits, false, ctx.queryCallback)
 
 		if isBullet {
-			kinematicTree.overlapAABB(box, DefaultMaskBits, ctx.queryCallback)
-			dynamicTree.overlapAABB(box, DefaultMaskBits, ctx.queryCallback)
+			kinematicTree.overlapAABBStack(&taskContext.queryStack, box, DefaultMaskBits, false, ctx.queryCallback)
+			dynamicTree.overlapAABBStack(&taskContext.queryStack, box, DefaultMaskBits, false, ctx.queryCallback)
 		}
 	}
 

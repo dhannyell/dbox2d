@@ -1561,7 +1561,7 @@ func bumpPair(tree *dynamicTree, parent int) int {
 // copySubtree copies a retained subtree from the old array into the
 // rebuilt DFS array with the bump allocator. It corresponds to
 // b2CopySubtree in src/dynamic_tree.c.
-func copySubtree(tree *dynamicTree, node treeNode, newIndex int) {
+func copySubtree(tree *dynamicTree, node treeNode, newIndex int, stack *[treeStackSize]copyItem) {
 	oldNodes := tree.nodes
 	newNodes := tree.swapNodes
 	proxies := tree.proxies
@@ -1572,7 +1572,6 @@ func copySubtree(tree *dynamicTree, node treeNode, newIndex int) {
 		return
 	}
 
-	var stack [treeStackSize]copyItem
 	stackCount := 0
 
 	oldPair := node.leftChild()
@@ -1629,18 +1628,21 @@ func copySubtree(tree *dynamicTree, node treeNode, newIndex int) {
 
 // placeLeaf writes a build leaf, a proxy or a retained subtree. It
 // corresponds to b2PlaceLeaf in src/dynamic_tree.c.
-func placeLeaf(tree *dynamicTree, leaf treeNode, newIndex int) {
+func placeLeaf(tree *dynamicTree, leaf treeNode, newIndex int, stack *[treeStackSize]copyItem) {
 	if leaf.isLeaf() {
 		tree.swapNodes[newIndex] = leaf
 		tree.proxies[leaf.proxyId()].node = int32(newIndex)
 	} else {
-		copySubtree(tree, leaf, newIndex)
+		copySubtree(tree, leaf, newIndex, stack)
 	}
 }
 
 // buildTree builds the swap nodes top down over the gathered build
 // leaves. It corresponds to b2BuildTree in src/dynamic_tree.c.
 func buildTree(tree *dynamicTree, leafCount int) {
+	// One stack for all subtree copies. A local array in copySubtree is zeroed per call.
+	var copyStack [treeStackSize]copyItem
+
 	nodes := tree.swapNodes
 	leaves := tree.leafNodes
 	leafIndices := tree.leafIndices
@@ -1652,7 +1654,7 @@ func buildTree(tree *dynamicTree, leafCount int) {
 	tree.parents[rootNode+1] = nullIndex
 
 	if leafCount == 1 {
-		placeLeaf(tree, leaves[leafIndices[0]], rootNode)
+		placeLeaf(tree, leaves[leafIndices[0]], rootNode, &copyStack)
 		return
 	}
 
@@ -1695,7 +1697,7 @@ func buildTree(tree *dynamicTree, leafCount int) {
 
 		nodeIndex := item.pair + slot
 		if count == 1 {
-			placeLeaf(tree, leaves[leafIndices[startIndex]], nodeIndex)
+			placeLeaf(tree, leaves[leafIndices[startIndex]], nodeIndex, &copyStack)
 			continue
 		}
 
