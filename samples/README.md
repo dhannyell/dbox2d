@@ -35,7 +35,8 @@ cd samples && go test -tags dbox2d_fixed ./...
 
 The browser host needs a browser with WebGPU. Build the wasm binary into
 `web/` and serve that directory. `cmd/serve` is a static file server that
-sends `.wasm` with the right content type; any other static server works.
+sends `.wasm` with the right content type and the headers for shared memory.
+Any other static server works for the one-worker build.
 
 ```bash
 cd samples && CGO_ENABLED=0 GOOS=js GOARCH=wasm go build -o web/app.wasm ./cmd/web
@@ -43,6 +44,16 @@ cd samples && CGO_ENABLED=0 GOOS=js GOARCH=wasm go build -tags dbox2d_fixed -o w
 ```
 
 The page loads `app.wasm` by default and `app-fixed.wasm` with `?mode=fixed`.
+
+The Workers slider needs threads. Build with the `wasm-threads` target of the
+[TinyGo fork](https://github.com/dhannyell/tinygo) (branch `fork/v0.44`):
+
+```bash
+cd samples && tinygo build -target=wasm-threads -opt=2 -no-debug -gc=boehm -o web/app-mt.wasm ./cmd/web
+cd samples && tinygo build -target=wasm-threads -opt=2 -no-debug -gc=boehm -tags dbox2d_fixed -o web/app-fixed-mt.wasm ./cmd/web
+```
+
+A page with the COOP and COEP headers loads these files if they exist.
 
 ```bash
 cd samples && go run ./cmd/serve

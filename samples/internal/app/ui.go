@@ -5,9 +5,9 @@
 package app
 
 import (
-	"runtime"
 	"strings"
 
+	"github.com/dhannyell/dbox2d"
 	"github.com/dhannyell/dbox2d/samples"
 	"github.com/dhannyell/dbox2d/samples/internal/draw"
 	"github.com/dhannyell/dbox2d/samples/internal/microui"
@@ -89,16 +89,16 @@ func (a *App) buildControls() {
 	a.mu.SliderEx(&bounce, 0, 8, 1, "%.0f", microui.MU_OPT_ALIGNCENTER)
 	s.RestitutionIterations = int(bounce + 0.5)
 
-	if runtime.GOARCH == "wasm" {
+	if limit := b2.MaxWorkers(); limit == 1 {
 		s.WorkerCount = 1
 		a.mu.LayoutRow(1, []int{-1}, 0)
-		a.mu.Label("Workers: 1 (wasm)")
+		a.mu.Label("Workers: 1")
 	} else {
-		workers := float32(s.WorkerCount)
+		a.workers = float32(s.WorkerCount)
 		a.mu.LayoutRow(2, []int{labelWidth, -1}, 0)
 		a.mu.Label("Workers")
-		if a.mu.SliderEx(&workers, 1, float32(runtime.GOMAXPROCS(0)), 1, "%.0f", microui.MU_OPT_ALIGNCENTER) != 0 {
-			s.WorkerCount = int(workers)
+		if a.mu.SliderEx(&a.workers, 1, float32(limit), 1, "%.0f", microui.MU_OPT_ALIGNCENTER) != 0 {
+			s.WorkerCount = int(a.workers)
 			s.Restart = true
 		}
 	}

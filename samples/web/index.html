@@ -38,16 +38,39 @@ if (!navigator.gpu) {
   // ?mode=fixed loads the fixed build; the default is the float build.
   const mode = new URLSearchParams(location.search).get("mode") === "fixed" ? "fixed" : "float";
   const binary = mode === "fixed" ? "app-fixed.wasm" : "app.wasm";
+  const threadedBinary = mode === "fixed" ? "app-fixed-mt.wasm" : "app-mt.wasm";
   document.title = "dbox2d samples (" + mode + ")";
-  loadScript("wasm_exec.js").then(() => {
-    const go = new Go();
-    return WebAssembly.instantiateStreaming(fetch(binary), go.importObject).then((result) => {
-      // The js backend of the webgpu module reads linear memory through
-      // this global when it writes buffers and textures.
-      window.wasm = result;
-      go.run(result.instance);
+
+  function startSingle() {
+    return loadScript("wasm_exec.js").then(() => {
+      const go = new Go();
+      return WebAssembly.instantiateStreaming(fetch(binary), go.importObject).then((result) => {
+        // The js backend of the webgpu module reads linear memory through
+        // this global when it writes buffers and textures.
+        window.wasm = result;
+        go.run(result.instance);
+      });
     });
-  }).catch((err) => {
+  }
+
+  function startThreaded() {
+    return loadScript("wasm_exec-mt.js").then(() => loadScript("threads-host.js")).then(async () => {
+      const module = await WebAssembly.compileStreaming(fetch(threadedBinary));
+      const go = new Go();
+      threadsHost(go, module);
+      const instance = await WebAssembly.instantiate(module, go.importObject);
+      // TinyGo exports the memory as "memory"; the webgpu module reads "mem".
+      window.wasm = { instance: { exports: { mem: instance.exports.memory } } };
+      go.run(instance);
+    });
+  }
+
+  // A page with the COOP and COEP headers has shared memory. It loads the
+  // threaded build if that file exists; every other page steps on one worker.
+  const threaded = !crossOriginIsolated ? Promise.resolve(false) :
+    fetch(threadedBinary, { method: "HEAD" }).then((r) => r.ok, () => false);
+
+  threaded.then((useThreads) => useThreads ? startThreaded() : startSingle()).catch((err) => {
     document.getElementById("canvas").style.display = "none";
     const fallback = document.getElementById("fallback");
     fallback.textContent = err.message;

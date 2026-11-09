@@ -6,7 +6,6 @@ package app
 
 import (
 	"fmt"
-	"runtime"
 
 	"github.com/dhannyell/dbox2d"
 	"github.com/dhannyell/dbox2d/samples"
@@ -33,6 +32,10 @@ type App struct {
 	drawer   *draw.Draw
 	mu       *microui.Context
 	held     map[samples.Key]bool
+
+	// workers backs the Workers slider. microui derives the slider id from
+	// its address, and a drag ends if the address changes.
+	workers float32
 
 	sample    samples.Sample
 	selection int
@@ -68,8 +71,7 @@ func New(measurer TextMeasurer) *App {
 	}
 	ctx.Settings.SampleIndex = start
 
-	numCPU := min(runtime.NumCPU(), 8)
-	ctx.Settings.WorkerCount = numCPU
+	ctx.Settings.WorkerCount = min(b2.MaxWorkers(), 8)
 
 	mu := microui.NewContext()
 	mu.TextWidth = func(_ microui.Font, s string) int { return measurer.TextWidth(s) }

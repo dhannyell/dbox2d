@@ -7,7 +7,7 @@ require github.com/dhannyell/dbox2d v0.4.0
 require github.com/dhannyell/fixed v1.0.0 // indirect
 
 require (
-	github.com/dhannyell/webgpu v1.35.2
+	github.com/dhannyell/webgpu v1.37.1
 	github.com/dhannyell/webgpu/libs-android v0.0.0-20260905020343-c4069cac051c // indirect
 	github.com/dhannyell/webgpu/libs-darwin v0.0.0-20260905020352-092624e3a385 // indirect
 	github.com/dhannyell/webgpu/libs-ios v0.0.0-20260905020358-fb13dc722108 // indirect

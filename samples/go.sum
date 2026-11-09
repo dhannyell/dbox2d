@@ -2,8 +2,8 @@ github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/dhannyell/fixed v1.0.0 h1:7M/E4jR7zePG2EOibMZHS20Kh2bYyc2psYpsgLxbtto=
 github.com/dhannyell/fixed v1.0.0/go.mod h1:Z9rHDf6OmyqFf3EZLp3+VvXzn8a1hyCfAdiAi7zXQ+Y=
-github.com/dhannyell/webgpu v1.35.2 h1:byjVg6STPUtVetuLtslakZgYLsrbYPwBwaK1th7Ejio=
-github.com/dhannyell/webgpu v1.35.2/go.mod h1:zYTVxa7F/vfuZeay/YhLyBJt5qjHQzPhu6WlQ8xpmH8=
+github.com/dhannyell/webgpu v1.37.1 h1:UqbCQmVRn7kXEDiZs61S5uGUpJ6lgBZ/mqD+dqwUpx0=
+github.com/dhannyell/webgpu v1.37.1/go.mod h1:zYTVxa7F/vfuZeay/YhLyBJt5qjHQzPhu6WlQ8xpmH8=
 github.com/dhannyell/webgpu/libs-android v0.0.0-20260905020343-c4069cac051c h1:yhPBR+j0CIh74k9UsN+xkmCbI+sKysZLfPGPoDSIwwo=
 github.com/dhannyell/webgpu/libs-android v0.0.0-20260905020343-c4069cac051c/go.mod h1:ieewCHGEzpRrXMBX2h81X1SaHIgRuJzqZdiUOZzEh2E=
 github.com/dhannyell/webgpu/libs-darwin v0.0.0-20260905020352-092624e3a385 h1:GkVUxaj+ABft2kpYJsh6oUK2VdTlLfjOUlZveWJA6Vs=

@@ -1,2 +1,4 @@
 app.wasm
 app-fixed.wasm
+app-mt.wasm
+app-fixed-mt.wasm

@@ -7,6 +7,7 @@ import (
 
 	"github.com/dhannyell/webgpu/wgpu"
 
+	"github.com/dhannyell/dbox2d"
 	"github.com/dhannyell/dbox2d/samples/internal/app"
 	"github.com/dhannyell/dbox2d/samples/internal/draw"
 	"github.com/dhannyell/dbox2d/samples/internal/host/wgpuhost"
@@ -77,6 +78,10 @@ func Run() {
 		println("wasm: build atlas: " + err.Error())
 		return
 	}
+
+	// The browser starts a Worker only while the main thread is idle, so
+	// the threads start here and not in a frame.
+	b2.PrepareWorkers(b2.MaxWorkers())
 
 	a := app.New(atlas)
 	a.Resize(logicalSize())
