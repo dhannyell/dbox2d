@@ -2,7 +2,6 @@ package b2
 
 import (
 	"fmt"
-	"runtime"
 	"runtime/debug"
 	"sync"
 	"sync/atomic"
@@ -30,7 +29,7 @@ func (s *spinner) spin() {
 		*s++
 		return
 	}
-	runtime.Gosched()
+	idleYield()
 	*s = 0
 }
 
@@ -101,10 +100,18 @@ func (p *WorkerPanic) Unwrap() error {
 // machine, and the platform caps the result.
 func effectiveWorkerCount(requested int) int {
 	if requested <= 0 {
-		requested = runtime.GOMAXPROCS(0)
+		requested = hardwareWorkers()
 	}
-	return min(requested, platformMaxWorkers)
+	return clampWorkers(min(requested, platformMaxWorkers))
 }
+
+// MaxWorkers is the largest useful WorldDef.WorkerCount on this platform.
+func MaxWorkers() int { return min(hardwareWorkers(), platformMaxWorkers) }
+
+// PrepareWorkers starts the threads of a browser build for up to count workers
+// in all worlds. It does nothing on other platforms. Call it once, before the
+// first step and outside a JS callback.
+func PrepareWorkers(count int) { prepareWorkers(count) }
 
 // start spawns the workers 1..n-1. It is idempotent.
 func (e *executor) start(n int) {
@@ -122,9 +129,7 @@ func (e *executor) start(n int) {
 	// first command must not miss it.
 	seen := e.generation.Load()
 	for workerIndex := 1; workerIndex < n; workerIndex++ {
-		e.wake[workerIndex] = make(chan struct{}, 1)
-		e.workers.Add(1)
-		go e.worker(workerIndex, seen)
+		e.spawnWorker(workerIndex, seen)
 	}
 }
 
@@ -144,7 +149,7 @@ func (e *executor) stop() {
 	e.stopped = true
 	e.command = executorCommand{}
 	e.publish()
-	e.workers.Wait()
+	e.joinWorkers()
 }
 
 // publish hands the current command to the workers. The wake token is
@@ -152,12 +157,7 @@ func (e *executor) stop() {
 func (e *executor) publish() {
 	e.pending.Store(int32(e.workerCount - 1))
 	e.generation.Add(1)
-	for workerIndex := 1; workerIndex < e.workerCount; workerIndex++ {
-		select {
-		case e.wake[workerIndex] <- struct{}{}:
-		default:
-		}
-	}
+	e.wakeWorkers()
 }
 
 // await spins until every worker finished the command, yielding only after
@@ -209,12 +209,12 @@ func (e *executor) runCommand(workerIndex int, command *executorCommand) {
 }
 
 func (e *executor) worker(workerIndex int, seen uint32) {
-	defer e.workers.Done()
+	defer e.workerExited()
 	for {
 		spins := 0
 		for e.generation.Load() == seen {
 			if spins == idleSpinLimit {
-				<-e.wake[workerIndex]
+				e.parkWorker(workerIndex, seen)
 				spins = 0
 				continue
 			}

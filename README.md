@@ -216,9 +216,10 @@ before enabling it for production.
 
 ### Workers, callbacks, and drawing
 
-`WorldDef.WorkerCount` controls native workers without changing result bits.
-WebAssembly always steps on one worker. Go callbacks use closures rather than
-the C API's `void*` context.
+`WorldDef.WorkerCount` controls workers without changing result bits.
+WebAssembly steps on one worker, except in a TinyGo `wasm-threads` build on a
+cross-origin isolated page that calls `PrepareWorkers`. `MaxWorkers` gives the
+limit. Go callbacks use closures rather than the C API's `void*` context.
 
 `DefaultDebugDraw` provides no-op callbacks. Implement the operations your
 host needs and call `worldId.Draw(&draw)`; the library walks the world and the

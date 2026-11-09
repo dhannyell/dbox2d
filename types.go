@@ -53,9 +53,10 @@ type WorldDef struct {
 	RestitutionCallback RestitutionCallback
 
 	// WorkerCount is the number of workers that step the world. 1 steps on
-	// the calling goroutine. 0 picks min(runtime.GOMAXPROCS(0), 64). Any N
-	// produces the same bits; WebAssembly always steps on one worker, and a
-	// step with few awake bodies runs on the caller whatever N says.
+	// the calling goroutine. 0 picks MaxWorkers(). Any N produces the same
+	// bits. WebAssembly steps on one worker unless the page has threads and
+	// called PrepareWorkers. A step with few awake bodies runs on the caller
+	// whatever N says.
 	WorkerCount int
 
 	// Enable sleeping to improve performance.

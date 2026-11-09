@@ -108,6 +108,10 @@ func (worldId WorldId) Step(timeStep Q, subStepCount int) {
 		w.executor.start(w.workerCount)
 	}
 	w.executor.serial = len(w.solverSets[awakeSet].bodySims) < serialBodyThreshold
+	if w.executor.activeWorkerCount() > 1 {
+		beginParallelAlloc()
+		defer endParallelAlloc()
+	}
 
 	// Prepare to capture events
 	// Ensure user does not access stale data if there is an early return
@@ -371,6 +375,7 @@ func collideTask(startIndex, endIndex, workerIndex int, context *stepContext) {
 // With one worker, start only records the world and wait runs the rebuild
 // synchronously, matching the reference behavior.
 type treeTask struct {
+	flag    atomic.Uint32 // 1 when the rebuild on a thread finished
 	start   chan *world
 	done    chan struct{}
 	pending *world
@@ -384,13 +389,8 @@ func (t *treeTask) begin(w *world) {
 		t.pending = w
 		return
 	}
-	if t.start == nil {
-		t.start = make(chan *world, 1)
-		t.done = make(chan struct{}, 1)
-		go rebuildTreesLoop(t.start, t.done)
-	}
 	t.running = true
-	t.start <- w
+	t.launchTree(w)
 }
 
 // wait joins the rebuild. It is a no-op when none is outstanding, so every
@@ -405,7 +405,7 @@ func (t *treeTask) wait() {
 	if !t.running {
 		return
 	}
-	<-t.done
+	t.joinTree()
 	t.running = false
 }
 
