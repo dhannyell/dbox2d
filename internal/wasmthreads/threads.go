@@ -37,9 +37,6 @@ var (
 	tls    [maxThreads][tlsBlock / 8]uint64
 )
 
-//go:wasmimport threads wait
-func hostWait(addr uintptr, value uint32)
-
 //go:wasmimport threads notify
 func hostNotify(addr uintptr)
 
@@ -97,13 +94,15 @@ func Go(fn func()) {
 }
 
 // Wait sleeps until Notify if *addr is seen. The main thread must not call it.
-func Wait(addr *uint32, seen uint32) { hostWait(uintptr(unsafe.Pointer(addr)), seen) }
+// The GC can run while the thread sleeps.
+func Wait(addr *uint32, seen uint32) { runtime.ThreadWait(addr, seen) }
 
 // Notify wakes all threads that wait on addr.
 func Notify(addr *uint32) { hostNotify(uintptr(unsafe.Pointer(addr))) }
 
 //export threadsMain
 func threadsMain(index int32) {
+	runtime.ThreadEnter()
 	s := &slots[index]
 	ready.Add(1)
 	for {

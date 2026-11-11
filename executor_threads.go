@@ -22,11 +22,6 @@ func prepareWorkers(count int) { wasmthreads.Start(count) }
 // not call PrepareWorkers steps on one worker.
 func clampWorkers(count int) int { return max(1, min(count, wasmthreads.Count())) }
 
-// The GC cannot see the worker stacks, so it stays off while workers can run.
-func beginParallelAlloc() { runtime.ParallelAllocBegin() }
-
-func endParallelAlloc() { runtime.ParallelAllocEnd() }
-
 func (e *executor) generationAddr() *uint32 {
 	return (*uint32)(unsafe.Pointer(&e.generation))
 }
@@ -50,8 +45,8 @@ func (e *executor) joinWorkers() {
 	}
 }
 
-// idleYield does nothing: a worker thread must not enter the scheduler.
-func idleYield() {}
+// idleYield lets the GC stop a worker that waits; a thread has no scheduler.
+func idleYield() { runtime.Gosched() }
 
 // launchTree runs the rebuild on a spare thread; the main thread spins in joinTree.
 func (t *treeTask) launchTree(w *world) {

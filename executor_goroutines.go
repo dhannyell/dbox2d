@@ -10,10 +10,6 @@ func prepareWorkers(int) {}
 
 func clampWorkers(count int) int { return count }
 
-func beginParallelAlloc() {}
-
-func endParallelAlloc() {}
-
 func (e *executor) spawnWorker(workerIndex int, seen uint32) {
 	e.wake[workerIndex] = make(chan struct{}, 1)
 	e.workers.Add(1)
